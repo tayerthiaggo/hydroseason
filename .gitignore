@@ -64,6 +64,3 @@ data/fitzroy_era5_*.csv
 
 # ── Development-only folder (raw data, paper drafts, prototypes) ──────────────
 dev/
-
-# ── Test suite lives on the development branch only ───────────────────────────
-tests/
