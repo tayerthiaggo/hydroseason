@@ -23,6 +23,7 @@ nav:
   - Algorithm: algorithm.md
   - Configuration: configuration.md
   - Outputs & Metrics: outputs.md
+  - Example Report: report.md
   - Rainfall Fetch: era5.md
   - API Reference: api.md
   - Notebooks: notebooks.md

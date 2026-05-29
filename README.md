@@ -11,6 +11,8 @@ fetch workflow.
 
 Full documentation: https://tayerthiaggo.github.io/hydroseason/
 
+[![HydroSeason example report preview](docs/assets/images/hydroseason-report-preview.png)](https://tayerthiaggo.github.io/hydroseason/report/)
+
 ## Install
 
 ```bash
@@ -57,6 +59,7 @@ AOI-averaged monthly rainfall from SILO or ERA5.
 - Configuration: https://tayerthiaggo.github.io/hydroseason/configuration/
 - Outputs and metrics: https://tayerthiaggo.github.io/hydroseason/outputs/
 - Rainfall fetch: https://tayerthiaggo.github.io/hydroseason/era5/
+- Example report: https://tayerthiaggo.github.io/hydroseason/report/
 - API reference: https://tayerthiaggo.github.io/hydroseason/api/
 
 ## Development

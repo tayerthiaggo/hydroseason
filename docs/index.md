@@ -43,3 +43,5 @@ artifacts.result[["Date", "SeasonType", "Hydro_Year"]].head()
 ```
 
 Continue with the [Quick Start](quickstart.md) for Python, pandas accessor, CLI, and YAML examples.
+
+For a visual sense of the final output, open the [Example Report](report.md).
