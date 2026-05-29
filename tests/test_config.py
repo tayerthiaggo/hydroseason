@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from hydroseason.config import load_config
 
 
@@ -15,7 +17,10 @@ output:
         encoding="utf-8",
     )
     loaded = load_config(cfg)
-    assert loaded.algorithm.smooth_window == 3   # paper-spec default
+    assert loaded.algorithm.smooth_window is None  # None → auto from regime
+    assert loaded.algorithm.min_core_length is None  # None → auto from regime
+    assert loaded.algorithm.onset_window_months == "auto"
+    assert loaded.algorithm.shoulder_residual_quantile == 0.95
     assert loaded.algorithm.fallback_month is None  # auto-derived
     assert loaded.algorithm.method == "circular"
     assert loaded.validation.raise_on_error is True
@@ -33,6 +38,7 @@ algorithm:
   smooth_window: 5
   method: kmeans
   fallback_month: 4
+  shoulder_residual_quantile: null
 validation:
   max_fraction_missing: 0.25
 """.strip(),
@@ -42,11 +48,49 @@ validation:
     assert loaded.algorithm.smooth_window == 5
     assert loaded.algorithm.method == "kmeans"
     assert loaded.algorithm.fallback_month == 4
+    assert loaded.algorithm.shoulder_residual_quantile is None
     assert loaded.validation.max_fraction_missing == 0.25
 
 
 def test_example_config_loads():
     loaded = load_config(Path("config/example.yaml"))
-    assert loaded.algorithm.smooth_window == 3
+    assert loaded.algorithm.smooth_window is None
     assert loaded.fetch.enabled is False
     assert loaded.fetch.variable == "rainfall"
+
+
+def test_load_fetch_only_config_without_input_csv(tmp_path: Path):
+    cfg = tmp_path / "fetch_config.yaml"
+    cfg.write_text(
+        """
+output:
+  output_csv: out/results.csv
+fetch:
+  enabled: true
+  source: silo
+  vector_path: data/fitzroy_catchment.geojson
+  start_year: 2020
+  end_year: 2021
+""".strip(),
+        encoding="utf-8",
+    )
+
+    loaded = load_config(cfg)
+
+    assert loaded.input.csv_path is None
+    assert loaded.fetch.enabled is True
+    assert loaded.fetch.source == "silo"
+
+
+def test_load_config_requires_csv_when_fetch_disabled(tmp_path: Path):
+    cfg = tmp_path / "bad_config.yaml"
+    cfg.write_text(
+        """
+output:
+  output_csv: out/results.csv
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(KeyError, match="input.csv_path"):
+        load_config(cfg)

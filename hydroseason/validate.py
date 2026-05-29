@@ -46,6 +46,9 @@ class ValidationReport:
     n_rows_in: int = 0
     n_rows_out: int = 0
     n_imputed: int = 0
+    n_unimputed: int = 0
+    max_consecutive_missing: int = 0
+    data_confidence: str = "high"
     fraction_missing: float = 0.0
     inferred_freq: str | None = None
 
@@ -202,6 +205,7 @@ def _impute_climatology_fill(
     value_col: str,
     month_col: str,
     max_gap_months: int,
+    max_consecutive_imputation_gap: int,
     report: ValidationReport,
 ) -> pd.DataFrame:
     """Fill missing months using the calendar-month climatological mean (WMO method).
@@ -214,10 +218,13 @@ def _impute_climatology_fill(
     Falls back to linear interpolation only for calendar months that have no observed
     values at all (edge case requiring very large or structured gaps).
 
-    Warns if any consecutive gap exceeds ``max_gap_months``.
+    Warns if any consecutive gap exceeds ``max_gap_months`` and refuses to
+    impute when a gap exceeds ``max_consecutive_imputation_gap``.
     """
     missing_mask = work[value_col].isna()
     n_missing = int(missing_mask.sum())
+    if "Imputed" not in work.columns:
+        work["Imputed"] = False
     if n_missing == 0:
         return work
 
@@ -225,11 +232,25 @@ def _impute_climatology_fill(
     groups = (missing_mask != missing_mask.shift()).cumsum()
     run_lengths = missing_mask.groupby(groups).transform("sum")
     max_consec = int(run_lengths[missing_mask].max())
-    if max_consec > max_gap_months:
+    report.max_consecutive_missing = max_consec
+    if max_consec > max_gap_months and max_consec > max_consecutive_imputation_gap:
+        report.warnings.append(
+            f"Longest consecutive gap is {max_consec} months "
+            f"(>{max_gap_months}); auto-imputation blocked."
+        )
+    elif max_consec > max_gap_months:
         report.warnings.append(
             f"Longest consecutive gap is {max_consec} months "
             f"(>{max_gap_months}); climatology fill applied — verify data quality."
         )
+    if max_consec > max_consecutive_imputation_gap:
+        report.errors.append(
+            f"Longest consecutive gap is {max_consec} months, exceeding "
+            f"max_consecutive_imputation_gap={max_consecutive_imputation_gap}. "
+            "Refusing to impute such a long gap. Reduce the threshold only if this is intentional."
+        )
+        report.n_unimputed = n_missing
+        return work
 
     before = work[value_col].copy()
 
@@ -246,8 +267,11 @@ def _impute_climatology_fill(
             method="linear", limit_direction="both"
         )
 
-    n_imputed = int((before.isna() & work[value_col].notna()).sum())
+    imputed_mask = before.isna() & work[value_col].notna()
+    work.loc[imputed_mask, "Imputed"] = True
+    n_imputed = int(imputed_mask.sum())
     report.n_imputed = n_imputed
+    report.n_unimputed = int(work[value_col].isna().sum())
     report.warnings.append(
         f"Imputed {n_imputed} missing month(s) using calendar-month climatological mean "
         f"(WMO gap-fill method)."
@@ -264,6 +288,7 @@ def validate_monthly_input(
     value_col: str = "Rainfall_mm",
     max_fraction_missing: float = 0.10,
     max_gap_to_interpolate: int = 2,
+    max_consecutive_imputation_gap: int = 12,
 ) -> tuple[pd.DataFrame, ValidationReport]:
     """Validate and normalise a monthly rainfall DataFrame (values in mm).
 
@@ -274,7 +299,9 @@ def validate_monthly_input(
     - Date already datetime dtype → used as-is
     - Recoverable duplicate dates → deduplicated (keep last), warning issued
     - Missing months → filled by calendar-month climatological mean (WMO method);
-      warns if any consecutive gap exceeds ``max_gap_to_interpolate`` months.
+            warns if any consecutive gap exceeds ``max_gap_to_interpolate`` months.
+        - Very long missing runs are not auto-imputed when they exceed
+            ``max_consecutive_imputation_gap`` months.
 
     Returns
     -------
@@ -369,6 +396,9 @@ def validate_monthly_input(
     work[month_col] = work[date_col].dt.month.astype(int)
 
     # ---- fill missing months (climatological mean, WMO method)
+    if "Imputed" not in work.columns:
+        work["Imputed"] = False
+
     n_missing = int(work[value_col].isna().sum())
     if n_missing:
         report.fraction_missing = n_missing / len(work)
@@ -379,8 +409,15 @@ def validate_monthly_input(
             )
             return work, report
         work = _impute_climatology_fill(
-            work, value_col, month_col, max_gap_to_interpolate, report
+            work,
+            value_col,
+            month_col,
+            max_gap_to_interpolate,
+            max_consecutive_imputation_gap,
+            report,
         )
+        if not report.ok:
+            return work, report
         remaining = int(work[value_col].isna().sum())
         if remaining:
             report.errors.append(
@@ -418,6 +455,13 @@ def validate_monthly_input(
             f"Calendar months not represented in data: {missing_calendar_months}; "
             "climatology will be biased."
         )
+
+    if report.fraction_missing == 0.0:
+        report.data_confidence = "high"
+    elif report.max_consecutive_missing >= 6 or report.fraction_missing >= 0.08:
+        report.data_confidence = "low"
+    else:
+        report.data_confidence = "medium"
 
     report.n_rows_out = len(work)
     return work, report

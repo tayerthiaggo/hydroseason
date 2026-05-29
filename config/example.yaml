@@ -10,23 +10,31 @@ output:
   output_csv: output/hydroseason_results.csv
 
 algorithm:
-  smooth_window: 3
+  # Leave smooth_window, min_core_length, and onset_window_months unset so the
+  # pipeline resolves them from the detected circular concentration / bimodality.
+  # Override here only when you need to lock a specific value for reproducibility.
   firstpass_quantile: 0.2
   secondpass_quantile: 0.1
   long_period_threshold: 16
-  onset_window_months: 1
   rainfall_si_override: true
   rainfall_si_threshold: 0.8
+  shoulder_climatology_alpha: 0.10
+  core_climatology_alpha: 0.05
+  shoulder_residual_quantile: 0.95
 
 validation:
   max_fraction_missing: 0.1
   max_gap_to_interpolate: 2
+  max_consecutive_imputation_gap: 12
   raise_on_error: true
 
 fetch:
-  # ERA5 example — Fitzroy River catchment polygon (WA, Australia)
+  # Optional AOI rainfall fetch. When enabled, the pipeline fetches monthly data
+  # and ignores input.csv_path. source can be "era5" or "silo".
   enabled: false
+  source: era5
   era5_zarr_path: gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3
+  silo_base_url: null
   vector_path: data/fitzroy_catchment.geojson
   start_year: 1985
   end_year: 2025

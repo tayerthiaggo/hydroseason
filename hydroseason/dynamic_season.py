@@ -117,17 +117,53 @@ def refine_season_tails(
     rainfall_col: str = "Rainfall_mm",
     season_type_col: str = "SeasonType",
     date_col: str = "Date",
+    hydro_year_col: str | None = "Hydro_Year_fixed",
     threshold_high: float | None = None,
     threshold_low: float = 0.0,
     threshold: float | None = None,  # backwards-compat single threshold
+    min_core_length: int = 3,
+    climatology_floor: float | None = None,
+    residual_col: str | None = None,
+    residual_threshold: float | None = None,
 ) -> pd.DataFrame:
     """Refine wet/dry tails using two-threshold hysteresis on raw values.
 
-    For each contiguous Wet run:
-      - extend the start backward through preceding Dry months while raw value >= threshold_high
-      - extend the end forward through following Dry months while raw value >= threshold_high
-      - contract the start forward while raw value <= threshold_low
-      - contract the end backward while raw value <= threshold_low
+    For each contiguous Wet run, the operations are applied in this order:
+      1. contract the start forward while raw value <= threshold_low
+      2. contract the end backward while raw value <= threshold_low
+      3. extend the (contracted) start backward through preceding Dry months
+         while raw value >= threshold_high
+      4. extend the (contracted) end forward through following Dry months
+         while raw value >= threshold_high
+
+    Rationale (regression fix):
+    Contracting **before** extending guarantees that a low/zero month sitting at
+    the edge of the dominant wet block (often introduced by the 3-month centred
+    smoother) cannot be both dropped from the wet season *and* used as a bridge
+    to a sporadic rainfall event in the following dry months. Doing it the other
+    way round produced isolated single-month "wet" islands surrounded by dry
+    months (e.g. May 1995, 1997, 2012) — a rain event inside the dry season
+    must not re-open the wet season.
+
+    Shoulder portability (cross-regime fix):
+    ``hydro_year_col`` used to be an absolute wall to prevent adjacent wet
+    seasons merging. Replaced with a wet-run-length gate (``min_core_length``):
+    a run may cross a fixed-hydro-year boundary only if its current core length
+    is at least ``min_core_length``. Orphan single-month events therefore still
+    cannot snowball across a boundary, but a real wet core (e.g. Nov-Mar) can
+    absorb a genuine October shoulder that sits in the previous fixed-HY. This
+    works symmetrically at the recession tail and for both unimodal and bimodal
+    regimes (no climatological-anchor assumption).
+
+    ``climatology_floor`` is an optional additive magnitude gate. When provided,
+    a candidate shoulder month is only absorbed if its raw value also exceeds
+    this site-scaled floor (typically ``alpha * median(wet-month climatology)``).
+    This prevents the global ``threshold_high`` from being trivially passed in
+    very arid regimes where non-zero rainfall quantiles collapse to a few mm.
+
+    ``residual_col`` + ``residual_threshold`` add an optional STL-residual
+    gate: a candidate shoulder month with an extreme positive residual is
+    treated as a storm anomaly rather than seasonal shoulder rainfall.
 
     A single ``threshold`` argument is accepted for backward compatibility and is
     used as both bounds (high = threshold, low = 0).
@@ -137,10 +173,39 @@ def refine_season_tails(
     if threshold is not None and threshold_low == 0.0:
         threshold_low = 0.0  # explicit: keep 0 for zero-extension behaviour
 
+    effective_high = threshold_high
+    if climatology_floor is not None and climatology_floor > effective_high:
+        effective_high = float(climatology_floor)
+
     df = df.copy().sort_values(date_col).reset_index(drop=True)
     seasons = df[season_type_col].to_numpy().copy()
     values = df[rainfall_col].to_numpy()
     n = len(df)
+
+    if hydro_year_col is not None and hydro_year_col in df.columns:
+        hy = df[hydro_year_col].to_numpy()
+    else:
+        hy = None
+
+    if (
+        residual_col is not None
+        and residual_col in df.columns
+        and residual_threshold is not None
+    ):
+        residuals = pd.to_numeric(df[residual_col], errors="coerce").to_numpy()
+        residual_limit = float(residual_threshold)
+    else:
+        residuals = None
+        residual_limit = None
+
+    def _eligible_for_extension(idx: int) -> bool:
+        if values[idx] < effective_high:
+            return False
+        if residuals is not None and residual_limit is not None:
+            residual = residuals[idx]
+            if pd.notna(residual) and float(residual) > residual_limit:
+                return False
+        return True
 
     # identify wet runs
     runs: list[list[int]] = []
@@ -158,26 +223,31 @@ def refine_season_tails(
 
     for run in runs:
         s, e = run
-        # extend backward
+        # 1) contract from start (drop leading low/zero months)
+        while s <= e and values[s] <= threshold_low:
+            seasons[s] = "Dry"
+            s += 1
+        # 2) contract from end (drop trailing low/zero months)
+        while e >= s and values[e] <= threshold_low:
+            seasons[e] = "Dry"
+            e -= 1
+        if s > e:
+            # entire run dissolved by contraction; nothing left to extend from
+            continue
+        # 3) extend backward from contracted start
         j = s - 1
-        while j >= 0 and seasons[j] == "Dry" and values[j] >= threshold_high:
+        while j >= 0 and seasons[j] == "Dry" and _eligible_for_extension(j):
+            if hy is not None and hy[j] != hy[s] and (e - s + 1) < min_core_length:
+                break
             seasons[j] = "Wet"
             j -= 1
-        # extend forward
+        # 4) extend forward from contracted end
         k = e + 1
-        while k < n and seasons[k] == "Dry" and values[k] >= threshold_high:
+        while k < n and seasons[k] == "Dry" and _eligible_for_extension(k):
+            if hy is not None and hy[k] != hy[e] and (e - s + 1) < min_core_length:
+                break
             seasons[k] = "Wet"
             k += 1
-        # contract from start
-        j = s
-        while j <= e and values[j] <= threshold_low:
-            seasons[j] = "Dry"
-            j += 1
-        # contract from end
-        k = e
-        while k >= s and values[k] <= threshold_low:
-            seasons[k] = "Dry"
-            k -= 1
 
     df[season_type_col] = seasons
     df["SeasonShift"] = df[season_type_col].ne(df[season_type_col].shift())

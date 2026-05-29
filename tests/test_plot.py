@@ -69,7 +69,16 @@ def test_generate_html_report(artifacts, tmp_path):
     content = out.read_text(encoding="utf-8")
     assert "HydroSeason" in content
     assert "<html" in content
-    for heading in ["Season Timeline", "Monthly Climatology", "Annual Wet", "STL", "Diagnostics", "Metrics"]:
+    assert "Confidence note:" in content
+    for heading in [
+        "Season Timeline",
+        "Monthly Climatology",
+        "Annual Wet",
+        "STL",
+        "Diagnostics",
+        "Imputed Runs",
+        "Metrics",
+    ]:
         assert heading in content
 
 
@@ -80,3 +89,31 @@ def test_display_summary(artifacts):
     raw = card.data if hasattr(card, "data") else card._repr_html_()
     assert "HydroSeason" in raw
     assert "Walsh-Lawler" in raw
+
+
+def test_plotly_config():
+    from hydroseason.plot import PLOTLY_CONFIG
+    assert PLOTLY_CONFIG.get("scrollZoom") is True
+    assert PLOTLY_CONFIG.get("responsive") is True
+    assert PLOTLY_CONFIG.get("displayModeBar") is True
+
+
+def test_export_bundle(artifacts, tmp_path):
+    """Tests HTML report + CSV/JSON export. PNG export is opt-in."""
+    from hydroseason.report import export_bundle
+    import json
+
+    out = export_bundle(artifacts, tmp_path / "export")
+
+    assert out.exists()
+    assert (out / "report.html").exists()
+    content = (out / "report.html").read_text(encoding="utf-8")
+    assert "chart-container" in content
+    assert "ResizeObserver" in content
+    assert (out / "data" / "metrics_annual.csv").exists()
+    assert (out / "data" / "diagnostics.json").exists()
+    diag = json.loads((out / "data" / "diagnostics.json").read_text())
+    assert "regime" in diag
+    assert "walsh_lawler_si" in diag
+    # figures/ should NOT be created unless export_png=True
+    assert not (out / "figures").exists()

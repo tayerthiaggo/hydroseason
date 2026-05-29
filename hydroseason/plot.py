@@ -25,6 +25,10 @@ DRY_COLOUR = "#EF6C00"
 TRANSITION_COLOUR = "#6A1B9A"
 UNCLASSIFIED_COLOUR = "#9E9E9E"
 
+# Very mild background bands for season highlighting on time-series plots.
+WET_BAND_COLOUR = "rgba(21, 101, 192, 0.08)"   # mild blue
+DRY_BAND_COLOUR = "rgba(239, 108, 0, 0.06)"    # mild red/amber
+
 _SEASON_COLOURS: dict[str, str] = {
     "Wet": WET_COLOUR,
     "Dry": DRY_COLOUR,
@@ -45,6 +49,83 @@ def _ordered_seasons(seasons: Sequence[str]) -> list[str]:
     ordered = [season for season in preferred if season in unique]
     ordered.extend(season for season in unique if season not in ordered)
     return ordered
+
+
+# ---------------------------------------------------------------------------
+# Interactive render config & notebook display helper
+# ---------------------------------------------------------------------------
+PLOTLY_CONFIG: dict = {
+    "scrollZoom": True,
+    "displayModeBar": True,
+    "responsive": True,
+    "modeBarButtonsToRemove": ["select2d", "lasso2d"],
+}
+
+
+def _season_vrects(
+    dates: pd.Series,
+    seasons: pd.Series,
+    *,
+    yref: str = "paper",
+    xref: str = "x",
+) -> list[dict]:
+    """Build Plotly shape dicts for contiguous wet/dry vertical bands.
+
+    Each contiguous run of Wet (or Dry) monthly rows becomes a translucent
+    coloured rectangle spanning the full plot height. Months are anchored to
+    the first day of the next month for the right edge so single-month runs
+    are still visible.
+    """
+    if len(dates) == 0:
+        return []
+    d = pd.to_datetime(dates).reset_index(drop=True)
+    s = seasons.reset_index(drop=True).astype(str)
+
+    shapes: list[dict] = []
+    if len(d) < 1:
+        return shapes
+
+    run_start = 0
+    for i in range(1, len(d) + 1):
+        if i == len(d) or s.iloc[i] != s.iloc[run_start]:
+            season = s.iloc[run_start]
+            colour = None
+            if season == "Wet":
+                colour = WET_BAND_COLOUR
+            elif season == "Dry":
+                colour = DRY_BAND_COLOUR
+            if colour is not None:
+                x0 = d.iloc[run_start]
+                last = d.iloc[i - 1]
+                x1 = (last + pd.offsets.MonthBegin(1)).normalize()
+                shapes.append(dict(
+                    type="rect",
+                    xref=xref, yref=yref,
+                    x0=x0, x1=x1,
+                    y0=0, y1=1,
+                    fillcolor=colour,
+                    line=dict(width=0),
+                    layer="below",
+                ))
+            run_start = i
+    return shapes
+
+
+def show(fig: go.Figure, **config_overrides) -> None:
+    """Display a Plotly figure with scroll-zoom and responsive sizing enabled.
+
+    Use this instead of a bare ``fig`` at the end of a notebook cell when you
+    want scroll-to-zoom on time series or the chart to fill the cell width.
+
+    Parameters
+    ----------
+    fig:
+        Any ``go.Figure`` returned by a HydroSeason plot function.
+    **config_overrides:
+        Override any key in :data:`PLOTLY_CONFIG` for this call only.
+        Example: ``show(fig, scrollZoom=False)``
+    """
+    fig.show(config={**PLOTLY_CONFIG, **config_overrides})
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +172,7 @@ def plot_season_timeline(
                 "<b>%{x|%b %Y}</b><br>"
                 f"{value_col}: %{{y:.1f}}<br>"
                 f"Season: {season}<br>"
-                + (f"Hydro Year: %{{customdata}}<br>" if hydro_year_col in df.columns else "")
+                + ("Hydro Year: %{customdata}<br>" if hydro_year_col in df.columns else "")
                 + "<extra></extra>"
             ),
             customdata=sub[hydro_year_col].values if hydro_year_col in df.columns else None,
@@ -108,8 +189,10 @@ def plot_season_timeline(
             hovertemplate="<b>%{x|%b %Y}</b><br>Smoothed: %{y:.1f}<extra></extra>",
         ))
 
+    # Wet/Dry coloured bands (drawn behind the bars)
+    shapes = _season_vrects(df[date_col], seasons)
+
     # Hydro-year boundary lines
-    shapes = []
     if hydro_year_col in df.columns:
         shifts = df[df[hydro_year_col] != df[hydro_year_col].shift()]
         for d in shifts[date_col].iloc[1:]:
@@ -123,13 +206,14 @@ def plot_season_timeline(
     fig.update_layout(
         title=title,
         xaxis=dict(
-            title="Date",
+            title="Date (hydrological years)",
             rangeslider=dict(visible=True, thickness=0.05),
             type="date",
         ),
         yaxis=dict(title=value_col),
         barmode="overlay",
         shapes=shapes,
+        dragmode="pan",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=height,
         width=width,
@@ -152,7 +236,7 @@ def plot_monthly_climatology(
     *,
     value_col: str = "Rainfall_mm",
     month_col: str = "Month",
-    title: str = "Monthly climatology",
+    title: str = "Aggregated monthly rainfall (mean ± std)",
     width: int | None = None,
     height: int = 420,
 ) -> go.Figure:
@@ -216,6 +300,7 @@ def plot_monthly_climatology(
         xaxis=dict(title="Month", categoryorder="array", categoryarray=_MONTH_ABBR),
         yaxis=dict(title=f"Mean {value_col} (mm)"),
         barmode="overlay",
+        dragmode="pan",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=height,
         width=width,
@@ -225,6 +310,62 @@ def plot_monthly_climatology(
         margin=dict(t=80, b=60),
     )
     fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=True, gridcolor="#EEEEEE")
+    return fig
+
+
+def plot_imputation_overview(
+    df: pd.DataFrame,
+    *,
+    value_col: str = "Rainfall_mm",
+    date_col: str = "Date",
+    imputed_col: str = "Imputed",
+    title: str = "Imputed months and data quality",
+    width: int | None = None,
+    height: int = 320,
+) -> go.Figure:
+    """Plot rainfall series and highlight months that were gap-filled."""
+    work = df.copy()
+    work[date_col] = pd.to_datetime(work[date_col])
+    if imputed_col not in work.columns:
+        work[imputed_col] = False
+
+    imputed = work[work[imputed_col].fillna(False)]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=work[date_col],
+        y=work[value_col],
+        mode="lines",
+        name="Monthly rainfall",
+        line=dict(color="#455A64", width=1.6),
+        hovertemplate="<b>%{x|%b %Y}</b><br>Rainfall: %{y:.1f}<extra></extra>",
+    ))
+
+    if len(imputed):
+        fig.add_trace(go.Scatter(
+            x=imputed[date_col],
+            y=imputed[value_col],
+            mode="markers",
+            name="Imputed",
+            marker=dict(color="#D32F2F", size=8, symbol="diamond"),
+            hovertemplate="<b>%{x|%b %Y}</b><br>Imputed value: %{y:.1f}<extra></extra>",
+        ))
+
+    fig.update_layout(
+        title=title,
+        xaxis=dict(title="Date", type="date"),
+        yaxis=dict(title=value_col),
+        height=height,
+        width=width,
+        dragmode="pan",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hoverlabel=dict(bgcolor="white"),
+        margin=dict(t=80, b=50),
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="#EEEEEE")
     fig.update_yaxes(showgrid=True, gridcolor="#EEEEEE")
     return fig
 
@@ -294,6 +435,7 @@ def plot_stl_decomposition(
         title=title,
         height=height,
         width=width,
+        dragmode="pan",
         plot_bgcolor="white",
         paper_bgcolor="white",
         margin=dict(t=80, b=60),
@@ -315,7 +457,7 @@ def plot_annual_metrics(
     wet_months_col: str = "wet_month_count",
     fallback_wet_col: str = "Rain_wet_season_mm",
     fallback_dry_col: str = "Rain_dry_season_mm",
-    title: str = "Annual wet / dry season totals",
+    title: str = "Wet and Dry season total rainfall per hydrological year",
     width: int | None = None,
     height: int = 500,
 ) -> go.Figure:
@@ -375,13 +517,14 @@ def plot_annual_metrics(
         barmode="stack",
         height=height,
         width=width,
+        dragmode="pan",
         plot_bgcolor="white",
         paper_bgcolor="white",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         hoverlabel=dict(bgcolor="white"),
         margin=dict(t=80, b=60),
     )
-    fig.update_xaxes(showgrid=False, tickangle=45)
+    fig.update_xaxes(showgrid=False, tickangle=45, title_text="Hydrological year")
     fig.update_yaxes(showgrid=True, gridcolor="#EEEEEE")
     fig.update_yaxes(title_text="mm", row=1, col=1)
     fig.update_yaxes(title_text="count", row=2, col=1)
@@ -396,7 +539,7 @@ def plot_diagnostics_table(
     *,
     title: str = "Algorithm diagnostics",
     width: int | None = None,
-    height: int = 480,
+    height: int = 560,
 ) -> go.Figure:
     """Interactive table of DiagnosticsReport fields.
 
@@ -428,9 +571,18 @@ def plot_diagnostics_table(
         ("KMeans silhouette", f"{diagnostics.kmeans_silhouette:.3f}" if diagnostics.kmeans_silhouette is not None else "N/A"),
         ("Threshold (1st pass)", f"{diagnostics.threshold_firstpass:.1f}" if diagnostics.threshold_firstpass is not None else "N/A"),
         ("Threshold (2nd pass)", f"{diagnostics.threshold_secondpass:.1f}" if diagnostics.threshold_secondpass is not None else "N/A"),
+        ("Smooth window used", diagnostics.smooth_window_used if diagnostics.smooth_window_used is not None else "N/A"),
+        ("Min core length used", diagnostics.min_core_length_used if diagnostics.min_core_length_used is not None else "N/A"),
+        ("Onset window used", diagnostics.onset_window_months_used if diagnostics.onset_window_months_used is not None else "disabled"),
+        ("Core climatology floor", f"{diagnostics.core_climatology_floor:.1f}" if diagnostics.core_climatology_floor is not None else "N/A"),
+        ("Shoulder climatology floor", f"{diagnostics.shoulder_climatology_floor:.1f}" if diagnostics.shoulder_climatology_floor is not None else "N/A"),
+        ("Shoulder residual threshold", f"{diagnostics.shoulder_residual_threshold:.1f}" if diagnostics.shoulder_residual_threshold is not None else "disabled"),
         ("Input rows", diagnostics.n_input_rows),
         ("Rows after validation", diagnostics.n_rows_after_validation),
         ("Imputed rows", diagnostics.n_imputed),
+        ("Unimputed rows", diagnostics.n_unimputed),
+        ("Max consecutive missing", diagnostics.max_consecutive_missing),
+        ("Data confidence", diagnostics.data_confidence),
     ]
     if diagnostics.validation_warnings:
         fields.append(("Validation warnings", "; ".join(diagnostics.validation_warnings)))
@@ -502,8 +654,8 @@ def plot_dashboard(
         specs=[[{"colspan": 2}, None], [{}, {}]],
         subplot_titles=[
             f"Season timeline  |  regime: {d.regime}  |  SI: {d.walsh_lawler_si:.3f}",
-            "Monthly climatology",
-            "Annual totals",
+            "Aggregated monthly rainfall",
+            "Wet & Dry season totals per hydro year",
         ],
         vertical_spacing=0.14,
         horizontal_spacing=0.1,
@@ -612,12 +764,31 @@ def plot_dashboard(
         hovertemplate="<b>%{x}</b><br>Dry: %{y:.0f} mm<extra></extra>",
     ), row=2, col=2)
 
+    # Wet/Dry coloured bands on the timeline panel (drawn behind bars)
+    _s = seasons.reset_index(drop=True).astype(str)
+    _d = pd.to_datetime(df_t["Date"]).reset_index(drop=True)
+    run_start = 0
+    for i in range(1, len(_d) + 1):
+        if i == len(_d) or _s.iloc[i] != _s.iloc[run_start]:
+            sname = _s.iloc[run_start]
+            colour = WET_BAND_COLOUR if sname == "Wet" else DRY_BAND_COLOUR if sname == "Dry" else None
+            if colour is not None:
+                x0 = _d.iloc[run_start]
+                x1 = (_d.iloc[i - 1] + pd.offsets.MonthBegin(1)).normalize()
+                fig.add_vrect(
+                    x0=x0, x1=x1,
+                    fillcolor=colour, line_width=0, layer="below",
+                    row=1, col=1,
+                )
+            run_start = i
+
     # ── Layout ────────────────────────────────────────────────────────────────
     fig.update_layout(
         title=dict(text=title, font=dict(size=15)),
         barmode="stack",
         height=height,
         width=width,
+        dragmode="pan",
         plot_bgcolor="white",
         paper_bgcolor="white",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),

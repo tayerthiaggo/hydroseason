@@ -1,0 +1,50 @@
+site_name: HydroSeason
+site_description: Data-driven hydrological season and year delineation from monthly time series
+site_url: https://tayerthiaggo.github.io/hydroseason/
+repo_url: https://github.com/tayerthiaggo/hydroseason
+repo_name: tayerthiaggo/hydroseason
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+  palette:
+    - scheme: default
+      primary: blue
+      accent: teal
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - Algorithm: algorithm.md
+  - Configuration: configuration.md
+  - Outputs & Metrics: outputs.md
+  - Rainfall Fetch: era5.md
+  - API Reference: api.md
+  - Notebooks: notebooks.md
+  - Citation: citation.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            members_order: source
+            show_source: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.details
+  - pymdownx.superfences

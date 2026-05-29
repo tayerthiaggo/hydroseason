@@ -18,6 +18,8 @@ import calendar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .plot import PLOTLY_CONFIG
+
 if TYPE_CHECKING:  # avoid circular import at runtime
     from .pipeline import PipelineArtifacts
 
@@ -91,6 +93,7 @@ def display_summary(artifacts: "PipelineArtifacts"):
         _stat_pill("Date range", date_range),
         _stat_pill("Records", str(d.n_rows_after_validation)),
         _stat_pill("Imputed", str(d.n_imputed)),
+        _stat_pill("Data confidence", d.data_confidence.title()),
     ]
 
     warnings_html = ""
@@ -109,6 +112,54 @@ def display_summary(artifacts: "PipelineArtifacts"):
         else ""
     )
 
+    # Bullet-point analysis summary (Tayer 2026 style)
+    bullets = [
+        ("Regime", f"{d.regime} (via {d.regime_source})"),
+        ("Walsh-Lawler SI", f"{d.walsh_lawler_si:.3f}"),
+        ("STL strength (F_S)", f"{d.stl_strength:.3f}"),
+        ("Hydrological year start", start_month),
+        ("Date range", date_range),
+        ("Records (validated)", str(d.n_rows_after_validation)),
+        ("Imputed rows", str(d.n_imputed)),
+        ("Max consecutive missing", str(d.max_consecutive_missing)),
+        ("Data confidence", d.data_confidence),
+    ]
+    try:
+        n_years = int(result["Hydro_Year"].nunique())
+        bullets.append(("Hydrological years covered", str(n_years)))
+    except Exception:
+        pass
+    if "Year_Class_SPI" in result.columns:
+        ycs = (
+            result[["Hydro_Year", "Year_Class_SPI"]]
+            .drop_duplicates(subset=["Hydro_Year"])
+        )
+        cnt = ycs["Year_Class_SPI"].value_counts().to_dict()
+        bullets.append(
+            (
+                "Year class (SPI ±1)",
+                f"{cnt.get('Wet', 0)} Wet · {cnt.get('Regular', 0)} Regular · {cnt.get('Dry', 0)} Dry",
+            )
+        )
+    if "Drought_Category" in result.columns:
+        dc = (
+            result[["Hydro_Year", "Drought_Category"]]
+            .drop_duplicates(subset=["Hydro_Year"])
+        )
+        cnt = dc["Drought_Category"].value_counts().to_dict()
+        bullets.append(
+            (
+                "Drought category",
+                f"{cnt.get('Prolonged', 0)} Prolonged · {cnt.get('Regular', 0)} Regular · "
+                f"{cnt.get('Minimal', 0)} Minimal · {cnt.get('No dry', 0)} No-dry",
+            )
+        )
+
+    bullets_html = "".join(
+        f'<li style="margin:2px 0;"><b>{lbl}:</b> {val}</li>'
+        for lbl, val in bullets
+    )
+
     html = (
         '<div style="font-family:sans-serif;border:1px solid #CFD8DC;border-radius:6px;'
         'padding:14px 18px;max-width:720px;background:#FAFAFA;">'
@@ -119,9 +170,9 @@ def display_summary(artifacts: "PipelineArtifacts"):
         + _regime_badge(d.regime)
         + regime_source_note
         + "</div>"
-        '<div style="line-height:2.2;">'
-        + "".join(pills)
-        + "</div>"
+        '<ul style="margin:6px 0 6px 18px;padding:0;font-size:12px;line-height:1.6;">'
+        + bullets_html
+        + "</ul>"
         + warnings_html
         + "</div>"
     )
@@ -136,9 +187,15 @@ def _metrics_table_html(result, value_col: str = "Rainfall_mm") -> str:
     wet_col = "wet_total" if "wet_total" in result.columns else "Rain_wet_season_mm"
     dry_col = "dry_total" if "dry_total" in result.columns else "Rain_dry_season_mm"
 
-    cols_wanted = ["Hydro_Year", wet_col, dry_col, "wet_month_count", "dry_month_count"]
+    cols_wanted = [
+        "Hydro_Year", wet_col, dry_col,
+        "wet_month_count", "dry_month_count",
+    ]
     if "dry_event_count" in result.columns:
         cols_wanted.append("dry_event_count")
+    for extra in ("Annual_SPI", "Year_Class_SPI", "Drought_Category"):
+        if extra in result.columns:
+            cols_wanted.append(extra)
 
     available = [c for c in cols_wanted if c in result.columns]
     annual = (
@@ -155,6 +212,9 @@ def _metrics_table_html(result, value_col: str = "Rainfall_mm") -> str:
         "wet_month_count": "Wet months",
         "dry_month_count": "Dry months",
         "dry_event_count": "Rainy dry months",
+        "Annual_SPI": "Annual SPI",
+        "Year_Class_SPI": "Year class (SPI)",
+        "Drought_Category": "Drought category",
     }
 
     th_style = (
@@ -174,6 +234,10 @@ def _metrics_table_html(result, value_col: str = "Rainfall_mm") -> str:
                 display_val = str(int(val))
             elif c in (wet_col, dry_col):
                 display_val = f"{float(val):.1f}"
+            elif c == "Annual_SPI":
+                display_val = f"{float(val):+.2f}"
+            elif c in ("Year_Class_SPI", "Drought_Category"):
+                display_val = str(val)
             else:
                 display_val = str(int(val))
             cells += f'<td style="{td_style}background:{bg};">{display_val}</td>'
@@ -184,6 +248,100 @@ def _metrics_table_html(result, value_col: str = "Rainfall_mm") -> str:
         f"<thead><tr>{headers}</tr></thead>"
         f"<tbody>{rows_html}</tbody>"
         "</table>"
+    )
+
+
+def _imputed_runs_table_html(result) -> str:
+    """Build a styled HTML table of contiguous imputed date ranges."""
+    if "Imputed" not in result.columns or not result["Imputed"].fillna(False).any():
+        return (
+            '<div style="font-family:sans-serif;font-size:12px;color:#546E7A;">'
+            "No imputed runs found in this result."
+            "</div>"
+        )
+
+    work = result.copy()
+    work["Date"] = work["Date"].astype("datetime64[ns]")
+    work["Imputed"] = work["Imputed"].fillna(False).astype(bool)
+    work = work.sort_values("Date").reset_index(drop=True)
+
+    is_imputed = work["Imputed"]
+    groups = (is_imputed != is_imputed.shift()).cumsum()
+    imputed_rows = work[is_imputed].copy()
+    imputed_rows["_grp"] = groups[is_imputed].values
+
+    runs = (
+        imputed_rows.groupby("_grp", as_index=False)
+        .agg(start=("Date", "min"), end=("Date", "max"), months=("Date", "size"))
+        .sort_values("start")
+    )
+    runs.insert(0, "run", range(1, len(runs) + 1))
+
+    th_style = (
+        "padding:7px 12px;text-align:left;background:#D32F2F;color:white;"
+        "font-size:12px;white-space:nowrap;"
+    )
+    td_style = "padding:6px 12px;font-size:12px;border-bottom:1px solid #ECEFF1;"
+
+    headers = "".join(
+        f'<th style="{th_style}">{h}</th>'
+        for h in ["Run", "Start", "End", "Length (months)"]
+    )
+
+    rows_html = ""
+    for i, (_, row) in enumerate(runs.iterrows()):
+        bg = "#FAFAFA" if i % 2 == 0 else "white"
+        rows_html += (
+            "<tr>"
+            f'<td style="{td_style}background:{bg};">{int(row["run"])}</td>'
+            f'<td style="{td_style}background:{bg};">{row["start"]:%Y-%m}</td>'
+            f'<td style="{td_style}background:{bg};">{row["end"]:%Y-%m}</td>'
+            f'<td style="{td_style}background:{bg};">{int(row["months"])}</td>'
+            "</tr>"
+        )
+
+    return (
+        '<table style="border-collapse:collapse;width:100%;font-family:sans-serif;">'
+        f"<thead><tr>{headers}</tr></thead>"
+        f"<tbody>{rows_html}</tbody>"
+        "</table>"
+    )
+
+
+def _imputed_runs_note_html(diagnostics) -> str:
+    """Build a plain-language note to help interpret imputation confidence."""
+    confidence = str(getattr(diagnostics, "data_confidence", "unknown")).lower()
+    n_imputed = int(getattr(diagnostics, "n_imputed", 0) or 0)
+    max_gap = int(getattr(diagnostics, "max_consecutive_missing", 0) or 0)
+
+    if n_imputed == 0:
+        msg = (
+            "No missing months were gap-filled in this run. Confidence in the "
+            "season labels is higher because all months come from observed data."
+        )
+    elif confidence == "high":
+        msg = (
+            "Only a small amount of rainfall was gap-filled. Confidence is high, "
+            "but still review the listed periods where values were imputed."
+        )
+    elif confidence == "medium":
+        msg = (
+            "Some rainfall values were gap-filled. Treat season boundaries around "
+            "these periods with moderate caution."
+        )
+    else:
+        msg = (
+            "A substantial amount of rainfall was gap-filled, including long gaps. "
+            "Interpret season boundaries near these periods with low confidence."
+        )
+
+    return (
+        '<div style="font-family:sans-serif;font-size:12px;color:#37474F;'
+        'background:#FFF8E1;border-left:4px solid #F9A825;border-radius:3px;'
+        'padding:8px 12px;margin-bottom:10px;line-height:1.5;">'
+        f"<b>Confidence note:</b> {msg} "
+        f"<span style='color:#607D8B'>(imputed months: {n_imputed}, longest missing run: {max_gap} months)</span>"
+        "</div>"
     )
 
 
@@ -213,6 +371,7 @@ def generate_html_report(
     """
     from .plot import (
         plot_annual_metrics,
+        plot_imputation_overview,
         plot_diagnostics_table,
         plot_monthly_climatology,
         plot_season_timeline,
@@ -224,17 +383,19 @@ def generate_html_report(
 
     # Build each figure as an HTML div (full_html=False, include_plotlyjs only once)
     fig_timeline = plot_season_timeline(artifacts.result, value_col=value_col, height=450)
+    fig_quality = plot_imputation_overview(artifacts.result, value_col=value_col, height=320)
     fig_clim = plot_monthly_climatology(artifacts.result, artifacts.fixed_monthly, value_col=value_col, height=420)
     fig_annual = plot_annual_metrics(artifacts.result, height=480)
     fig_stl = plot_stl_decomposition(artifacts.result, value_col=value_col, height=680)
-    fig_diag = plot_diagnostics_table(d, height=480)
+    fig_diag = plot_diagnostics_table(d, height=560)
 
     # First figure gets the full Plotly JS bundle embedded once.
-    html_timeline = fig_timeline.to_html(full_html=False, include_plotlyjs=True)
-    html_clim = fig_clim.to_html(full_html=False, include_plotlyjs=False)
-    html_annual = fig_annual.to_html(full_html=False, include_plotlyjs=False)
-    html_stl = fig_stl.to_html(full_html=False, include_plotlyjs=False)
-    html_diag = fig_diag.to_html(full_html=False, include_plotlyjs=False)
+    html_timeline = fig_timeline.to_html(full_html=False, include_plotlyjs=True, config=PLOTLY_CONFIG)
+    html_quality = fig_quality.to_html(full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG)
+    html_clim = fig_clim.to_html(full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG)
+    html_annual = fig_annual.to_html(full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG)
+    html_stl = fig_stl.to_html(full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG)
+    html_diag = fig_diag.to_html(full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG)
 
     # Summary card
     start_month_name = (
@@ -261,6 +422,8 @@ def generate_html_report(
         )
 
     metrics_table = _metrics_table_html(artifacts.result, value_col=value_col)
+    imputed_runs_note = _imputed_runs_note_html(d)
+    imputed_runs_table = _imputed_runs_table_html(artifacts.result)
 
     def _section(heading: str, content: str) -> str:
         return (
@@ -269,6 +432,20 @@ def generate_html_report(
             f'border-bottom:2px solid #BBDEFB;padding-bottom:6px;">{heading}</h2>'
             f"{content}"
             f"</section>"
+        )
+
+    def _section_chart(heading: str, html_content: str, initial_height: int = 450) -> str:
+        """Section wrapper with a vertically-resizable chart container."""
+        return (
+            f'<section style="margin-bottom:40px;">'
+            f'<h2 style="font-family:sans-serif;font-size:18px;color:#1565C0;'
+            f'border-bottom:2px solid #BBDEFB;padding-bottom:6px;">{heading}</h2>'
+            f'<p style="font-size:10px;color:#90A4AE;text-align:right;margin:0 0 3px;">'
+            f'drag bottom edge to resize ↕</p>'
+            f'<div class="chart-container" style="height:{initial_height}px;">'
+            f'{html_content}'
+            f'</div>'
+            f'</section>'
         )
 
     body = f"""
@@ -284,15 +461,18 @@ def generate_html_report(
         <b>Hydro year start:</b> {start_month_name} &nbsp;|&nbsp;
         <b>Date range:</b> {date_range} &nbsp;|&nbsp;
         <b>Records:</b> {d.n_rows_after_validation} &nbsp;|&nbsp;
-        <b>Imputed:</b> {d.n_imputed}
+                <b>Imputed:</b> {d.n_imputed} &nbsp;|&nbsp;
+                <b>Confidence:</b> {d.data_confidence}
       </div>
       {warnings_html}
     </header>
-    """ + _section("Season Timeline", html_timeline) \
-      + _section("Monthly Climatology", html_clim) \
-      + _section("Annual Wet / Dry Totals", html_annual) \
-      + _section("STL Decomposition", html_stl) \
-      + _section("Algorithm Diagnostics", html_diag) \
+    """ + _section_chart("Season Timeline", html_timeline, 450) \
+            + _section_chart("Imputation and Data Quality", html_quality, 320) \
+      + _section_chart("Monthly Climatology", html_clim, 420) \
+      + _section_chart("Annual Wet / Dry Totals", html_annual, 480) \
+      + _section_chart("STL Decomposition", html_stl, 680) \
+      + _section_chart("Algorithm Diagnostics", html_diag, 480) \
+        + _section("Imputed Runs", imputed_runs_note + imputed_runs_table) \
       + _section("Per-Hydro-Year Metrics", metrics_table)
 
     html_doc = f"""<!DOCTYPE html>
@@ -315,6 +495,12 @@ def generate_html_report(
     h2 {{ margin-top: 0; }}
     ul {{ margin: 4px 0; padding-left: 20px; }}
     table {{ margin-top: 8px; }}
+    .chart-container {{
+      resize: vertical;
+      overflow: hidden;
+      margin-bottom: 4px;
+      min-height: 200px;
+    }}
   </style>
 </head>
 <body>
@@ -322,8 +508,156 @@ def generate_html_report(
 <footer style="margin-top:40px;font-size:11px;color:#9E9E9E;text-align:center;">
   Generated by HydroSeason
 </footer>
+<script>
+(function () {{
+  function init() {{
+    document.querySelectorAll('.chart-container').forEach(function (c) {{
+      var d = c.querySelector('.plotly-graph-div');
+      if (!d) return;
+      new ResizeObserver(function () {{
+        Plotly.relayout(d, {{height: c.clientHeight}});
+      }}).observe(c);
+    }});
+  }}
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+}})();
+</script>
 </body>
 </html>"""
 
     output_path.write_text(html_doc, encoding="utf-8")
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# Public: full export bundle
+# ---------------------------------------------------------------------------
+def export_bundle(
+    artifacts: "PipelineArtifacts",
+    output_dir: str | Path = "hydroseason_export",
+    *,
+    title: str = "HydroSeason Report",
+    value_col: str = "Rainfall_mm",
+    export_png: bool = False,
+) -> Path:
+    """Export a complete analysis bundle to a folder and return its path.
+
+    Contents
+    --------
+    ::
+
+        output_dir/
+          report.html              ← self-contained interactive HTML (offline)
+          data/
+            results_monthly.csv    ← full labelled monthly result
+            metrics_annual.csv     ← per-hydro-year season metrics
+            diagnostics.json       ← full DiagnosticsReport as JSON
+          figures/                 ← optional static PNG exports (`export_png=True`)
+            timeline.png
+            climatology.png
+            annual_metrics.png
+            stl_decomposition.png
+            dashboard.png
+
+    Parameters
+    ----------
+    artifacts:
+        ``PipelineArtifacts`` from :func:`~hydroseason.pipeline.delineate_monthly_dataframe`.
+    output_dir:
+        Destination folder.  Created (including parents) if it does not exist.
+    title:
+        Title string used in the HTML report header.
+    value_col:
+        Column name for the primary measurement variable.
+    export_png:
+        Export static PNG figures with Plotly/Kaleido. Disabled by default
+        because Kaleido startup can be slow or require external browser support.
+
+    Returns
+    -------
+    Path
+        Resolved absolute path to *output_dir*.
+    """
+    import json
+    import warnings
+    from dataclasses import asdict
+
+    from .plot import (
+        plot_annual_metrics,
+        plot_dashboard,
+        plot_monthly_climatology,
+        plot_season_timeline,
+        plot_stl_decomposition,
+    )
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    result = artifacts.result
+
+    # ── 1. HTML report (offline, fully embedded) ──────────────────────────────
+    generate_html_report(artifacts, output_dir / "report.html", title=title, value_col=value_col)
+
+    # ── 2. Tabular data ───────────────────────────────────────────────────────
+    data_dir = output_dir / "data"
+    data_dir.mkdir(exist_ok=True)
+
+    wet_col = "wet_total" if "wet_total" in result.columns else "Rain_wet_season_mm"
+    dry_col = "dry_total" if "dry_total" in result.columns else "Rain_dry_season_mm"
+    metric_cols = ["Hydro_Year", wet_col, dry_col, "wet_month_count", "dry_month_count"]
+    if "dry_event_count" in result.columns:
+        metric_cols.append("dry_event_count")
+    for extra in ("Annual_SPI", "Year_Class_SPI", "Drought_Category"):
+        if extra in result.columns:
+            metric_cols.append(extra)
+    available_cols = [c for c in metric_cols if c in result.columns]
+    annual = (
+        result[available_cols]
+        .drop_duplicates(subset=["Hydro_Year"])
+        .sort_values("Hydro_Year")
+        .reset_index(drop=True)
+    )
+    annual.to_csv(data_dir / "metrics_annual.csv", index=False)
+
+    # Monthly result — preserve all output columns, sorted by Date
+    monthly_sort_col = "Date" if "Date" in result.columns else result.columns[0]
+    result.sort_values(monthly_sort_col).reset_index(drop=True).to_csv(
+        data_dir / "results_monthly.csv", index=False
+    )
+
+    diag_dict = asdict(artifacts.diagnostics)
+    with open(data_dir / "diagnostics.json", "w", encoding="utf-8") as fh:
+        json.dump(diag_dict, fh, indent=2, default=str)
+
+    # ── 3. PNG figures (optional — requires kaleido) ──────────────────────────
+    if not export_png:
+        return output_dir.resolve()
+
+    try:
+        import kaleido as _kaleido  # noqa: F401 — availability check only
+
+        figures_dir = output_dir / "figures"
+        figures_dir.mkdir(exist_ok=True)
+        _exports = [
+            (plot_season_timeline(result, value_col=value_col, height=500), "timeline.png"),
+            (plot_monthly_climatology(result, artifacts.fixed_monthly, value_col=value_col, height=440), "climatology.png"),
+            (plot_annual_metrics(result, height=520), "annual_metrics.png"),
+            (plot_stl_decomposition(result, value_col=value_col, height=720), "stl_decomposition.png"),
+            (plot_dashboard(artifacts, value_col=value_col, height=950), "dashboard.png"),
+        ]
+        for fig, fname in _exports:
+            fig.write_image(str(figures_dir / fname), scale=1.5)
+    except ImportError:
+        warnings.warn(
+            "kaleido is not installed — PNG figure export skipped. "
+            "Install with: pip install kaleido",
+            stacklevel=2,
+        )
+    except Exception as exc:
+        warnings.warn(
+            f"PNG figure export failed ({exc}). "
+            "Try: pip install --upgrade kaleido",
+            stacklevel=2,
+        )
+
+    return output_dir.resolve()

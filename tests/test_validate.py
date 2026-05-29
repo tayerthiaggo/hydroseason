@@ -59,6 +59,23 @@ def test_validate_fills_gap_and_warns():
     assert report.ok
     assert report.n_imputed == 2
     assert any("climatological mean" in w for w in report.warnings)
+    assert "Imputed" in cleaned.columns
+    assert int(cleaned["Imputed"].sum()) == 2
+
+
+def test_validate_refuses_very_long_gap_imputation():
+    dates = list(pd.date_range("2000-01-01", periods=24, freq="MS"))
+    dates += list(pd.date_range("2005-01-01", periods=24, freq="MS"))
+    df = pd.DataFrame({"Date": dates, "Rainfall_mm": [10.0] * len(dates)})
+
+    _, report = validate_monthly_input(
+        df,
+        max_fraction_missing=0.80,
+        max_consecutive_imputation_gap=12,
+    )
+
+    assert not report.ok
+    assert any("Refusing to impute" in e for e in report.errors)
 
 
 def test_validate_daily_input_aggregated_to_monthly():

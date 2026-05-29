@@ -5,6 +5,7 @@ from hydroseason.seasonality import (
     classify_regime_from_stl,
     classify_regime_with_rainfall_si,
     detect_seasonality_regime,
+    stl_residuals,
     stl_seasonality_strength,
     walsh_lawler_seasonality_index,
 )
@@ -36,13 +37,27 @@ def test_rainfall_si_override_promotes_borderline_series():
 
 
 def test_stl_strength_in_unit_interval(monthly_df: pd.DataFrame):
-    monthly_df["Date"] = pd.to_datetime(monthly_df[["Year", "Month"]].assign(day=1))
+    monthly_df["Date"] = pd.to_datetime(
+        monthly_df[["Year", "Month"]].assign(day=1)
+    )
     s = stl_seasonality_strength(monthly_df)
     assert 0.0 <= s <= 1.0
 
 
+def test_stl_residuals_align_to_input_rows(monthly_df: pd.DataFrame):
+    monthly_df["Date"] = pd.to_datetime(
+        monthly_df[["Year", "Month"]].assign(day=1)
+    )
+    residuals = stl_residuals(monthly_df)
+    assert residuals.index.equals(monthly_df.index)
+    assert len(residuals) == len(monthly_df)
+    assert residuals.notna().all()
+
+
 def test_detect_regime_returns_all_fields(monthly_df: pd.DataFrame):
-    monthly_df["Date"] = pd.to_datetime(monthly_df[["Year", "Month"]].assign(day=1))
+    monthly_df["Date"] = pd.to_datetime(
+        monthly_df[["Year", "Month"]].assign(day=1)
+    )
     r = detect_seasonality_regime(monthly_df, rainfall_si_override=True)
     assert r.regime in {"non_seasonal", "borderline", "seasonal"}
     assert 0.0 <= r.stl_strength <= 1.0

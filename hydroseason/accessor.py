@@ -88,6 +88,17 @@ class HydroSeasonAccessor:
         report_kwargs = {k: v for k, v in kwargs.items() if k in _report_keys}
         return generate_html_report(arts, output_path, **report_kwargs)
 
+    def export(self, output_dir="hydroseason_export", **kwargs):
+        """Export full analysis bundle: HTML report + CSV data + PNG figures (kaleido optional).
+
+        Returns the resolved output directory :class:`~pathlib.Path`.
+        """
+        from .report import export_bundle
+        _export_keys = {"title", "value_col"}
+        arts = self.delineate(**{k: v for k, v in kwargs.items() if k not in _export_keys})
+        export_kwargs = {k: v for k, v in kwargs.items() if k in _export_keys}
+        return export_bundle(arts, output_dir, **export_kwargs)
+
     # ------------------------------------------------------------------ diagnostics
     def diagnostics(self, **kwargs):
         """Return the ``DiagnosticsReport`` from the pipeline."""

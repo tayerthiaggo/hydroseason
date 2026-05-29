@@ -26,12 +26,21 @@ from .fixed_season import (
     identify_fixed_hydro_year,
 )
 from .hydro_year import assign_fixed_hydro_year, assign_hydro_year, assign_hydro_years
-from .metrics import compute_end_dry_metrics, compute_season_metrics, compute_zero_flow_months
+from .metrics import (
+    classify_drought,
+    classify_year_spi,
+    compute_annual_spi_categories,
+    compute_end_dry_metrics,
+    compute_season_metrics,
+    compute_zero_flow_months,
+)
 from .pipeline import (
     DiagnosticsReport,
     PipelineArtifacts,
     classify,
+    delineate_rainfall,
     delineate_monthly_dataframe,
+    run_rainfall,
     run_pipeline,
     run_pipeline_from_csv,
 )
@@ -45,7 +54,13 @@ from .seasonality import (
     walsh_lawler_seasonality_index,
 )
 from .validate import ValidationReport, validate_monthly_input
-from .fetch import get_monthly_total_precip, get_monthly_variable
+from .fetch import (
+    get_monthly_silo_rainfall,
+    get_monthly_total_precip,
+    get_monthly_variable,
+    load_vector,
+)
+from .io import read_bom_monthly, read_rainfall, read_silo
 
 __all__ = [
     # config
@@ -69,12 +84,16 @@ __all__ = [
     "assign_hydro_year", "assign_fixed_hydro_year", "assign_hydro_years",
     # metrics
     "compute_season_metrics", "compute_end_dry_metrics", "compute_zero_flow_months",
+    "compute_annual_spi_categories", "classify_drought", "classify_year_spi",
     # pipeline
-    "classify", "delineate_monthly_dataframe",
+    "classify", "delineate_monthly_dataframe", "delineate_rainfall",
+    "run_rainfall",
     "run_pipeline_from_csv", "run_pipeline",
     "PipelineArtifacts", "DiagnosticsReport",
-    # fetch
-    "get_monthly_variable", "get_monthly_total_precip",
+    # fetch / io
+    "get_monthly_variable", "get_monthly_total_precip", "get_monthly_silo_rainfall",
+    "load_vector",
+    "read_silo", "read_bom_monthly", "read_rainfall",
 ]
 
 # Plot helpers (optional dep: plotly)
@@ -83,9 +102,12 @@ try:
         plot_annual_metrics,
         plot_dashboard,
         plot_diagnostics_table,
+        plot_imputation_overview,
         plot_monthly_climatology,
         plot_season_timeline,
         plot_stl_decomposition,
+        PLOTLY_CONFIG,
+        show,
     )
     __all__ += [
         "plot_season_timeline",
@@ -94,13 +116,16 @@ try:
         "plot_annual_metrics",
         "plot_dashboard",
         "plot_diagnostics_table",
+        "plot_imputation_overview",
+        "PLOTLY_CONFIG",
+        "show",
     ]
 except ImportError:
     pass  # plotly not installed
 
 # Report helpers (optional dep: plotly + ipython)
 try:
-    from .report import display_summary, generate_html_report
-    __all__ += ["display_summary", "generate_html_report"]
+    from .report import display_summary, export_bundle, generate_html_report
+    __all__ += ["display_summary", "generate_html_report", "export_bundle"]
 except ImportError:
     pass  # plotly not installed

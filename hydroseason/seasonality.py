@@ -90,6 +90,39 @@ def stl_seasonality_strength(
     return float(max(0.0, 1.0 - np.var(resid) / denom))
 
 
+def stl_residuals(
+    df: pd.DataFrame,
+    *,
+    date_col: str = "Date",
+    value_col: str = "Rainfall_mm",
+) -> pd.Series:
+    """Return STL residuals aligned to the input rows.
+
+    The residual is the part of the monthly value not explained by the STL
+    trend + seasonal components. Positive outliers are useful for distinguishing
+    isolated storm events from climatologically plausible shoulder months.
+    """
+    from statsmodels.tsa.seasonal import STL  # local import keeps base import light
+
+    work = df[[date_col, value_col]].copy()
+    work[date_col] = pd.to_datetime(work[date_col])
+    series = work.set_index(date_col).sort_index().asfreq("MS")
+
+    if series[value_col].isna().any():
+        series[value_col] = series[value_col].interpolate(method="linear", limit_direction="both")
+    if series[value_col].isna().any():
+        return pd.Series(np.nan, index=df.index, dtype=float)
+
+    try:
+        fit = STL(series[value_col], period=12, robust=True).fit()
+    except Exception:
+        return pd.Series(np.nan, index=df.index, dtype=float)
+
+    residual_by_date = pd.Series(fit.resid, index=series.index)
+    aligned = pd.to_datetime(df[date_col]).map(residual_by_date)
+    return pd.Series(aligned.to_numpy(dtype=float), index=df.index, dtype=float)
+
+
 def classify_regime_from_stl(strength: float) -> str:
     if strength < STL_WEAK:
         return "non_seasonal"

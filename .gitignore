@@ -46,6 +46,7 @@ pytest.xml
 MANIFEST
 *.manifest
 *.spec
+site/
 
 # ── IDEs / editors ────────────────────────────────────────────────────────────
 .vscode/
@@ -59,6 +60,7 @@ Thumbs.db
 # ── Pipeline output ───────────────────────────────────────────────────────────
 output/
 notebooks/*.html
+notebooks/*_export/
 data/era5_cache/
 data/fitzroy_era5_*.csv
 

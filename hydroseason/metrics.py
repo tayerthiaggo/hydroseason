@@ -51,8 +51,89 @@ def compute_season_metrics(
         df["Rain_dry_season_mm"] = df["dry_total"]
         df["Rain_wet_season_mm"] = df["wet_total"]
         df["Dry_month_count"] = df["dry_month_count"]
+        if "Smoothed" in df.columns:
+            df["Rain_Smoothed"] = df["Smoothed"]
 
     return df
+
+
+def classify_drought(dry_month_count: int) -> str:
+    """Categorise a hydrological year by the number of dry months.
+
+    Bins (Tayer et al. 2026 style):
+
+    - ``0``       \u2192 "No dry"
+    - ``1\u20132``     \u2192 "Minimal"
+    - ``3\u20136``     \u2192 "Regular"
+    - ``>= 7``    \u2192 "Prolonged"
+    """
+    n = int(dry_month_count)
+    if n <= 0:
+        return "No dry"
+    if n <= 2:
+        return "Minimal"
+    if n <= 6:
+        return "Regular"
+    return "Prolonged"
+
+
+def classify_year_spi(spi: float, threshold: float = 1.0) -> str:
+    """Classify a hydrological year by its annual rainfall SPI (z-score).
+
+    - ``SPI < -threshold``   \u2192 "Dry"
+    - ``-threshold \u2264 SPI \u2264 +threshold``  \u2192 "Regular"
+    - ``SPI > +threshold``   \u2192 "Wet"
+    """
+    if pd.isna(spi):
+        return "Regular"
+    if spi < -threshold:
+        return "Dry"
+    if spi > threshold:
+        return "Wet"
+    return "Regular"
+
+
+def compute_annual_spi_categories(
+    df: pd.DataFrame,
+    *,
+    value_col: str = "Rainfall_mm",
+    hydro_year_col: str = "Hydro_Year",
+    dry_month_col: str = "Dry_month_count",
+    spi_threshold: float = 1.0,
+) -> pd.DataFrame:
+    """Append per-hydro-year ``Annual_SPI``, ``Year_Class_SPI`` and ``Drought_Category``.
+
+    ``Annual_SPI`` is the z-score of the annual rainfall total across the full
+    record (a 12-month-equivalent SPI computed from the empirical mean/std,
+    which matches the Tayer et al. workflow for short hydrological records).
+
+    ``Year_Class_SPI`` is the ``Dry`` / ``Regular`` / ``Wet`` classification
+    using ``spi_threshold`` (default \u00b11).
+
+    ``Drought_Category`` is derived from :func:`classify_drought` using the
+    per-hydro-year dry-month count.
+    """
+    out = df.copy()
+
+    annual_total = out.groupby(hydro_year_col)[value_col].sum()
+    mean = float(annual_total.mean())
+    std = float(annual_total.std(ddof=0))
+    if std and std > 0:
+        spi = (annual_total - mean) / std
+    else:
+        spi = annual_total * 0.0
+
+    out["Annual_SPI"] = out[hydro_year_col].map(spi).round(3)
+    out["Year_Class_SPI"] = out["Annual_SPI"].apply(
+        lambda v: classify_year_spi(v, threshold=spi_threshold)
+    )
+
+    if dry_month_col in out.columns:
+        out["Drought_Category"] = out[dry_month_col].apply(classify_drought)
+    else:
+        out["Drought_Category"] = "Regular"
+
+    return out
 
 
 def compute_end_dry_metrics(
