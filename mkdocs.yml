@@ -1,5 +1,5 @@
 site_name: HydroSeason
-site_description: Data-driven hydrological season and year delineation from monthly time series
+site_description: Rainfall-based hydrological wet/dry season and hydrological-year delineation
 site_url: https://tayerthiaggo.github.io/hydroseason/
 repo_url: https://github.com/tayerthiaggo/hydroseason
 repo_name: tayerthiaggo/hydroseason

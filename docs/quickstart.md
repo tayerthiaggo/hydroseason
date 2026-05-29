@@ -1,6 +1,6 @@
 # Quick Start
 
-HydroSeason expects a monthly DataFrame with date, year, month, and value columns. By default the value column is `Rainfall_mm`.
+HydroSeason expects a monthly rainfall DataFrame with `Date`, `Year`, `Month`, and `Rainfall_mm` columns.
 
 ## Python API
 
@@ -18,12 +18,6 @@ print(result[["Date", "SeasonType", "Hydro_Year"]].head())
 print(diagnostics.regime)
 
 generate_html_report(artifacts, "output/hydroseason_report.html")
-```
-
-Use a custom value column by passing `value_col`:
-
-```python
-artifacts = delineate_monthly_dataframe(df, value_col="Discharge")
 ```
 
 Disable the Walsh-Lawler promotion and use STL thresholds only:
@@ -83,7 +77,7 @@ hydroseason rainfall \
   --output output/rainfall_results.csv
 ```
 
-Fetch monthly rainfall for an AOI polygon, when `hydroseason[fetch]` is installed. Supported vector inputs include GeoJSON, SHP, KML, KMZ, GPKG, and GPCK.
+Fetch monthly rainfall for an AOI polygon. Supported vector inputs include GeoJSON, SHP, KML, KMZ, GPKG, and GPCK.
 
 SILO monthly rainfall for Australia:
 

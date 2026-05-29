@@ -11,11 +11,17 @@ from .pipeline import run_pipeline
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="hydroseason", description="Hydrological season and year delineation")
+    parser = argparse.ArgumentParser(
+        prog="hydroseason",
+        description="Rainfall-based hydrological season and year delineation",
+    )
     parser.add_argument("--verbose", "-v", action="count", default=0)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run_p = sub.add_parser("run", help="Run delineation pipeline from YAML config")
+    run_p = sub.add_parser(
+        "run",
+        help="Run delineation pipeline from YAML config",
+    )
     run_p.add_argument("--config", required=True)
 
     demo_p = sub.add_parser("demo", help="Run on the bundled fixture")
@@ -23,7 +29,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     fetch_p = sub.add_parser(
         "fetch",
-        help="Fetch monthly AOI-averaged climate data (ERA5 or SILO) from GeoJSON/SHP/KML/KMZ/GPKG/GPCK vectors",
+        help=(
+            "Fetch monthly AOI-averaged rainfall (ERA5 or SILO) from "
+            "GeoJSON/SHP/KML/KMZ/GPKG/GPCK vectors"
+        ),
     )
     fetch_p.add_argument("--source", default="era5", choices=["era5", "silo"])
     fetch_p.add_argument("--path", default=None)
@@ -42,7 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rain_p.add_argument("--input", required=True)
     rain_p.add_argument("--output", required=True)
-    rain_p.add_argument("--source", default="auto", choices=["auto", "bom", "silo", "csv"])
+    rain_p.add_argument(
+        "--source",
+        default="auto",
+        choices=["auto", "bom", "silo", "csv"],
+    )
     rain_p.add_argument("--value-col", default="Rainfall_mm")
     rain_p.add_argument("--silo-variable", default="Rain")
     rain_p.add_argument("--bom-value-col", default=None)
@@ -56,7 +69,10 @@ def _configure_logging(verbose: int) -> None:
         level = logging.INFO
     elif verbose >= 2:
         level = logging.DEBUG
-    logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=level,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -74,16 +90,29 @@ def main(argv: list[str] | None = None) -> int:
         from .pipeline import run_pipeline_from_csv
         fixture = files("hydroseason").joinpath("data/monthly_rainfall.csv")
         with as_file(fixture) as fixture_path:
-            artifacts = run_pipeline_from_csv(fixture_path, output_csv=args.out)
+            artifacts = run_pipeline_from_csv(
+                fixture_path,
+                output_csv=args.out,
+            )
         print("Regime:", artifacts.diagnostics.regime)
         print("STL strength:", round(artifacts.diagnostics.stl_strength, 3))
-        print("Walsh-Lawler SI:", round(artifacts.diagnostics.walsh_lawler_si, 3))
-        print("Hydro-year start month:", artifacts.diagnostics.hydro_year_start_month)
+        print(
+            "Walsh-Lawler SI:",
+            round(artifacts.diagnostics.walsh_lawler_si, 3),
+        )
+        print(
+            "Hydro-year start month:",
+            artifacts.diagnostics.hydro_year_start_month,
+        )
         print(f"Wrote: {args.out}")
         return 0
 
     if args.command == "fetch":
-        from .fetch import get_monthly_silo_rainfall, get_monthly_variable, load_vector
+        from .fetch import (
+            get_monthly_silo_rainfall,
+            get_monthly_variable,
+            load_vector,
+        )
 
         if args.source == "era5" and not args.path:
             raise ValueError("--path is required when --source era5")
@@ -131,8 +160,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         print("Regime:", artifacts.diagnostics.regime)
         print("STL strength:", round(artifacts.diagnostics.stl_strength, 3))
-        print("Walsh-Lawler SI:", round(artifacts.diagnostics.walsh_lawler_si, 3))
-        print("Hydro-year start month:", artifacts.diagnostics.hydro_year_start_month)
+        print(
+            "Walsh-Lawler SI:",
+            round(artifacts.diagnostics.walsh_lawler_si, 3),
+        )
+        print(
+            "Hydro-year start month:",
+            artifacts.diagnostics.hydro_year_start_month,
+        )
         print(f"Wrote: {args.output}")
         return 0
 

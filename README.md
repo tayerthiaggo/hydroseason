@@ -1,10 +1,14 @@
 # HydroSeason
 
-**Data-driven hydrological season and year delineation from monthly time series.**
+**Rainfall-based hydrological wet/dry season and hydrological-year delineation.**
 
-HydroSeason turns monthly environmental time series into hydrological seasons and hydrological years. It validates and normalises monthly records, detects whether a record is seasonal, labels Wet/Dry periods when seasonality is present, assigns hydrological years using an ending-year convention, and returns diagnostics, metrics, plots, and optional HTML reports.
+HydroSeason turns monthly rainfall records into hydrological Wet/Dry seasons and hydrological years. It validates and normalises rainfall data, detects rainfall seasonality, labels Wet/Dry periods when seasonality is present, assigns hydrological years using an ending-year convention, and returns diagnostics, metrics, plots, and optional HTML reports.
 
-The package implements and extends the rainfall-based dynamic wet/dry period workflow described in the supplementary methodology for Tayer et al. (2026). It packages that research workflow as a reusable Python API, pandas accessor, YAML-driven CLI, local rainfall readers, and optional AOI fetch tools for ERA5 and SILO.
+The package implements and extends the rainfall-based dynamic wet/dry period workflow described in the supplementary methodology for Tayer et al. (2026). It packages that research workflow as a reusable Python API, pandas accessor, YAML-driven CLI, local rainfall readers, and AOI rainfall fetch tools for ERA5 and SILO.
+
+## About
+
+HydroSeason is a research-focused Python package for reproducible monthly rainfall seasonality analysis. It is built for catchment-scale and site-scale rainfall records where Wet/Dry labels, hydrological-year boundaries, annual rainfall metrics, and diagnostics need to be consistent across notebooks, scripts, command-line workflows, and reports.
 
 ## Documentation
 
@@ -34,14 +38,14 @@ mkdocs serve
 
 | Capability | Current support |
 | --- | --- |
-| Monthly input validation | Coerces dates/year/month values, aggregates duplicate months, interpolates short gaps, and reports validation warnings. |
+| Monthly rainfall validation | Coerces dates/year/month values, aggregates duplicate months, interpolates short gaps, and reports validation warnings. |
 | Regime detection | STL seasonality strength with an optional Walsh-Lawler Seasonality Index promotion for strongly seasonal rainfall. |
 | Fixed baseline seasons | Circular climatology by default, with the older k-means baseline still available through `method="kmeans"`. |
 | Dynamic Wet/Dry labelling | Smooths rainfall while preserving zero months, segments the main wet-season core, and refines wet-season tails. |
 | Hydrological years | Produces fixed and dynamic hydrological years using the ending-year convention. |
-| Metrics | Adds annual wet/dry totals, month counts, dry-season event counts, zero-flow counts, and end-of-dry state metrics. |
+| Metrics | Adds annual rainfall totals, wet/dry month counts, dry-season rain-event counts, SPI classes, and end-of-dry metrics. |
 | Reporting | Plotly figures, notebook summary cards, and self-contained HTML reports. |
-| Workflows | Python API, pandas accessor, YAML config, command-line interface, local BoM/SILO readers, and optional ERA5/SILO AOI fetch. |
+| Workflows | Python API, pandas accessor, YAML config, command-line interface, local BoM/SILO readers, and ERA5/SILO AOI rainfall fetch. |
 
 ## Installation
 
@@ -49,18 +53,14 @@ mkdocs serve
 pip install hydroseason
 ```
 
-For AOI fetch support, add the `fetch` extra:
-
-```bash
-pip install "hydroseason[fetch]"
-```
+The standard install includes the core pipeline, plotting/reporting, local rainfall readers, and ERA5/SILO AOI rainfall fetch support.
 
 For local development:
 
 ```bash
 git clone https://github.com/tayerthiaggo/hydroseason.git
 cd hydroseason
-pip install -e ".[dev]"
+pip install -e ".[dev,docs]"
 ```
 
 ## Quick Start
@@ -81,7 +81,7 @@ print(diagnostics.regime, diagnostics.hydro_year_start_month)
 generate_html_report(artifacts, "output/hydroseason_report.html")
 ```
 
-The input DataFrame needs monthly `Date`, `Year`, `Month`, and value columns. The default value column is `Rainfall_mm`; pass `value_col="..."` for another monthly variable.
+The input DataFrame needs monthly `Date`, `Year`, `Month`, and `Rainfall_mm` columns.
 
 ## Pandas Accessor
 
@@ -111,8 +111,8 @@ The rainfall command can auto-detect common Australian formats:
 hydroseason rainfall --input IDCJAC0001_003018_Data1.csv --source auto --output output/myroodah_results.csv
 ```
 
-AOI fetch is available when the `all` or `fetch` extra is installed (GeoJSON,
-SHP, KML, KMZ, GPKG, and GPCK vector inputs are supported):
+AOI rainfall fetch is included in the standard install. GeoJSON, SHP, KML, KMZ,
+GPKG, and GPCK vector inputs are supported:
 
 ```bash
 hydroseason fetch \
@@ -146,6 +146,23 @@ hydroseason fetch \
 | [notebooks/hydroseason_era5_fetch_example.ipynb](notebooks/hydroseason_era5_fetch_example.ipynb) | ERA5 catchment rainfall fetch, delineation, plotting, and report export. |
 | [tests/hydroseason_tayer2026_example.ipynb](tests/hydroseason_tayer2026_example.ipynb) | Advanced reproduction workflow for the Tayer et al. (2026) dataset and end-of-dry metrics. |
 
+## Stress Testing
+
+Run the unit tests, synthetic regime checks, notebook smoke path, and randomized rainfall stress harness before releases:
+
+```bash
+python -m pytest -q
+python dev/_adaptive_sanity.py
+python dev/_notebook_smoke.py quickstart
+python scripts/stress_test.py --cases 100 --seed 42
+```
+
+The stress harness randomizes rainfall regimes, missing short gaps, duplicate months, zeros, and storm outliers, then checks pipeline invariants. Run the remote ERA5 smoke test separately when network access is available:
+
+```bash
+python dev/_notebook_smoke.py era5 --fetch
+```
+
 ## Citation
 
 If you use HydroSeason in research, cite the associated Tayer et al. manuscript when its final bibliographic details are available, and cite the software repository or release used for your analysis.
@@ -153,7 +170,7 @@ If you use HydroSeason in research, cite the associated Tayer et al. manuscript 
 ```bibtex
 @software{tayer_hydroseason_2026,
   author = {Tayer, Thiaggo C.},
-  title = {HydroSeason: Data-driven hydrological season and year delineation from monthly time series},
+  title = {HydroSeason: Rainfall-based hydrological wet/dry season and hydrological-year delineation},
   year = {2026},
   url = {https://github.com/tayerthiaggo/hydroseason}
 }

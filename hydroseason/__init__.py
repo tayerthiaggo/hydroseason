@@ -1,4 +1,4 @@
-"""HydroSeason: data-driven hydrological season and year delineation."""
+"""HydroSeason: rainfall-based hydrological wet/dry season delineation."""
 
 # Register the pandas DataFrame accessor (df.hydroseason.classify() etc.)
 from . import accessor as _accessor  # noqa: F401
@@ -25,7 +25,11 @@ from .fixed_season import (
     hydro_year_start_driest_6_months,
     identify_fixed_hydro_year,
 )
-from .hydro_year import assign_fixed_hydro_year, assign_hydro_year, assign_hydro_years
+from .hydro_year import (
+    assign_fixed_hydro_year,
+    assign_hydro_year,
+    assign_hydro_years,
+)
 from .metrics import (
     classify_drought,
     classify_year_spi,
@@ -71,7 +75,8 @@ __all__ = [
     # seasonality
     "detect_seasonality_regime", "SeasonalityResult",
     "stl_seasonality_strength", "walsh_lawler_seasonality_index",
-    "classify_regime_from_stl", "classify_regime_with_rainfall_si", "monthly_climatology",
+    "classify_regime_from_stl", "classify_regime_with_rainfall_si",
+    "monthly_climatology",
     # fixed season
     "circular_climatology", "circular_stats", "CircularStats",
     "identify_fixed_hydro_year",
@@ -83,7 +88,8 @@ __all__ = [
     # hydro year
     "assign_hydro_year", "assign_fixed_hydro_year", "assign_hydro_years",
     # metrics
-    "compute_season_metrics", "compute_end_dry_metrics", "compute_zero_flow_months",
+    "compute_season_metrics", "compute_end_dry_metrics",
+    "compute_zero_flow_months",
     "compute_annual_spi_categories", "classify_drought", "classify_year_spi",
     # pipeline
     "classify", "delineate_monthly_dataframe", "delineate_rainfall",
@@ -91,7 +97,8 @@ __all__ = [
     "run_pipeline_from_csv", "run_pipeline",
     "PipelineArtifacts", "DiagnosticsReport",
     # fetch / io
-    "get_monthly_variable", "get_monthly_total_precip", "get_monthly_silo_rainfall",
+    "get_monthly_variable", "get_monthly_total_precip",
+    "get_monthly_silo_rainfall",
     "load_vector",
     "read_silo", "read_bom_monthly", "read_rainfall",
 ]

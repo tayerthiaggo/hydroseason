@@ -2,10 +2,10 @@
 
 HydroSeason can either read local rainfall files or fetch AOI-averaged monthly rainfall from gridded products. All rainfall acquisition paths return the same tidy schema: `Date`, `Year`, `Month`, and `Rainfall_mm`.
 
-Install fetch support with:
+The standard install includes local rainfall readers and AOI rainfall fetch support:
 
 ```bash
-pip install "hydroseason[fetch]"
+pip install hydroseason
 ```
 
 ## Local Rainfall Files
@@ -71,9 +71,9 @@ hydroseason fetch \
 
 Use `--silo-base-url` only when mirroring or testing against a non-default SILO NetCDF location.
 
-## ERA5 Polygon Variables
+## ERA5 Polygon Rainfall
 
-ERA5 fetch aggregates variables from the public Google Cloud ERA5 Zarr archive for a catchment polygon. It works globally and supports rainfall, temperature, and evaporation adapters.
+ERA5 fetch aggregates rainfall from the public Google Cloud ERA5 Zarr archive for a catchment polygon. It works globally and returns a tidy monthly `Rainfall_mm` table.
 
 ```python
 from hydroseason import get_monthly_variable, load_vector
@@ -103,4 +103,4 @@ hydroseason fetch \
   --output output/era5_monthly_rainfall.csv
 ```
 
-Variables are resolved through `hydroseason.era5_variables`. Each adapter defines the source variable name, temporal aggregation, unit conversion, and output column name.
+Rainfall is resolved through `hydroseason.era5_variables`, which maps ERA5 total precipitation to monthly millimetres.

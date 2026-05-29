@@ -1,8 +1,8 @@
 # HydroSeason
 
-HydroSeason is a Python package for delineating hydrological seasons and hydrological years from monthly environmental time series.
+HydroSeason is a Python package for delineating hydrological Wet/Dry seasons and hydrological years from monthly rainfall records.
 
-It is designed for rainfall-driven wet/dry systems but can be applied to other monthly variables when Wet/Dry labels and hydrological-year boundaries are meaningful. The core workflow validates monthly data, detects seasonality, builds a fixed seasonal baseline, refines dynamic wet-season boundaries, assigns hydrological years, and returns diagnostics and metrics that can be exported to CSV, JSON, Plotly figures, or a self-contained HTML report. HydroSeason can also read common Australian rainfall formats and fetch AOI-averaged rainfall from ERA5 or SILO.
+The core workflow validates monthly rainfall data, detects seasonality, builds a fixed seasonal baseline, refines dynamic wet-season boundaries, assigns hydrological years, and returns diagnostics and metrics that can be exported to CSV, JSON, Plotly figures, or a self-contained HTML report. HydroSeason can also read common Australian rainfall formats and fetch AOI-averaged rainfall from ERA5 or SILO.
 
 ## What HydroSeason Produces
 
@@ -22,16 +22,12 @@ The high-level API returns a `PipelineArtifacts` object with:
 pip install hydroseason
 ```
 
-For AOI fetch support (ERA5 globally, SILO in Australia):
-
-```bash
-pip install "hydroseason[fetch]"
-```
+The standard install includes the core pipeline, plotting/reporting, local rainfall readers, and ERA5/SILO AOI rainfall fetch support.
 
 For local development from this repository:
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,docs]"
 ```
 
 ## Minimal Example

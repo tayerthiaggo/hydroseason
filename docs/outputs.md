@@ -36,8 +36,6 @@ The result preserves the input columns and appends hydrological labels and diagn
 | `Year_Class_SPI` | Annual class from `Annual_SPI`: `Dry` (SPI < \u22121), `Regular` (\u22121 \u2264 SPI \u2264 +1), `Wet` (SPI > +1). |
 | `Drought_Category` | Categorical bin from `Dry_month_count`: `No dry` (0), `Minimal` (1\u20132), `Regular` (3\u20136), `Prolonged` (\u22657). |
 
-When `value_col` is not `Rainfall_mm`, total and event-count columns receive the value-column suffix, for example `wet_total_Discharge`.
-
 ## Diagnostics
 
 | Field | Description |
@@ -94,10 +92,3 @@ result = compute_end_dry_metrics(
 )
 ```
 
-`compute_zero_flow_months()` appends annual counts of months at or below a discharge threshold.
-
-```python
-from hydroseason import compute_zero_flow_months
-
-result = compute_zero_flow_months(result, discharge_col="Discharge", threshold=1.0)
-```

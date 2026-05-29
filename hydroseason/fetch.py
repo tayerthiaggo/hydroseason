@@ -1,9 +1,9 @@
-"""ERA5/SILO fetch helpers returning monthly tidy DataFrames.
+"""ERA5/SILO rainfall fetch helpers returning monthly tidy DataFrames.
 
 Improvements over the prototype:
 - Polygon mask applied before temporal resampling.
 - Explicit spatial chunking to keep Dask graph sizes manageable.
-- Variable adapter registry (rainfall, temperature, evaporation, ...).
+- Variable adapter registry for ERA5 rainfall conversion.
 - Optional Parquet cache keyed by inputs hash.
 - Progress bar via dask.diagnostics when available.
 """

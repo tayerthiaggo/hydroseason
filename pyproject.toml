@@ -5,13 +5,40 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hydroseason"
 version = "0.1.0"
-description = "Data-driven hydrological season and year delineation from monthly time series"
+description = "Rainfall-based hydrological wet/dry season and hydrological-year delineation"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
   { name = "Thiaggo Tayer" }
 ]
 license = { text = "MIT" }
+keywords = [
+  "hydrology",
+  "rainfall",
+  "seasonality",
+  "wet-dry-seasons",
+  "hydrological-year",
+  "water-resources",
+  "climate-data",
+  "era5",
+  "silo",
+  "geospatial"
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: English",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Atmospheric Science",
+  "Topic :: Scientific/Engineering :: GIS",
+  "Topic :: Scientific/Engineering :: Information Analysis"
+]
 dependencies = [
   "pandas>=2.0",
   "numpy>=1.24",
@@ -20,25 +47,7 @@ dependencies = [
   "statsmodels>=0.14",
   "PyYAML>=6.0",
   "plotly>=5.0",
-  "ipython>=8.0"
-]
-
-[project.optional-dependencies]
-fetch = [
-  "xarray>=2023.8",
-  "dask>=2023.8",
-  "zarr>=2.16",
-  "geopandas>=0.14",
-  "rasterio>=1.3",
-  "gcsfs>=2023.6",
-  "netCDF4>=1.6",
-  "pyarrow>=12"
-]
-plot-static = [
-  "matplotlib>=3.7",
-  "kaleido>=0.2"
-]
-all = [
+  "ipython>=8.0",
   "xarray>=2023.8",
   "dask>=2023.8",
   "zarr>=2.16",
@@ -50,6 +59,20 @@ all = [
   "matplotlib>=3.7",
   "kaleido>=0.2"
 ]
+
+[project.urls]
+Homepage = "https://github.com/tayerthiaggo/hydroseason"
+Documentation = "https://tayerthiaggo.github.io/hydroseason/"
+Repository = "https://github.com/tayerthiaggo/hydroseason"
+Issues = "https://github.com/tayerthiaggo/hydroseason/issues"
+
+[project.optional-dependencies]
+# Runtime dependencies include fetch and reporting support. These extras remain
+# as no-op compatibility aliases for older install snippets.
+fetch = []
+plot = []
+plot-static = []
+all = []
 docs = [
   "mkdocs>=1.6",
   "mkdocs-material>=9.5",
