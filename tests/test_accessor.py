@@ -10,15 +10,15 @@ def paper_df():
     return pd.read_csv("tests/fixtures/tayer2026_input.csv")
 
 
-def test_accessor_classify(paper_df: pd.DataFrame):
-    result = paper_df.hydroseason.classify()
+def test_accessor_classify_rainfall_df(paper_df: pd.DataFrame):
+    result = paper_df.hydroseason.classify_rainfall_df()
     assert isinstance(result, pd.DataFrame)
     assert "SeasonType" in result.columns
     assert "Hydro_Year" in result.columns
 
 
-def test_accessor_delineate(paper_df: pd.DataFrame):
-    arts = paper_df.hydroseason.delineate()
+def test_accessor_classify_rainfall(paper_df: pd.DataFrame):
+    arts = paper_df.hydroseason.classify_rainfall()
     assert arts.diagnostics.regime in {"non_seasonal", "borderline", "seasonal"}
     assert arts.diagnostics.stl_strength >= 0
 
@@ -31,7 +31,7 @@ def test_accessor_diagnostics(paper_df: pd.DataFrame):
 
 def test_accessor_plot_timeline(paper_df: pd.DataFrame):
     # Run pipeline first, attach results so accessor doesn't re-run
-    result = paper_df.hydroseason.classify()
+    result = paper_df.hydroseason.classify_rainfall_df()
     fig = result.hydroseason.plot_timeline()
     assert fig is not None
 

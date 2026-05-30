@@ -9,11 +9,10 @@ The reference below is generated from the package docstrings with `mkdocstrings`
       members:
         - PipelineArtifacts
         - DiagnosticsReport
-        - delineate_monthly_dataframe
-        - delineate_rainfall
-        - run_pipeline_from_csv
-        - run_rainfall
-        - classify
+        - classify_rainfall
+        - classify_rainfall_df
+        - classify_rainfall_from_file
+        - run_pipeline
 
 ## Rainfall IO
 
@@ -31,7 +30,6 @@ The reference below is generated from the package docstrings with `mkdocstrings`
       members:
         - compute_season_metrics
         - compute_end_dry_metrics
-        - compute_zero_flow_months
         - compute_annual_spi_categories
         - classify_drought
         - classify_year_spi
@@ -65,6 +63,5 @@ The reference below is generated from the package docstrings with `mkdocstrings`
     options:
       members:
         - load_vector
-        - get_monthly_variable
+        - get_monthly_era5_rainfall
         - get_monthly_silo_rainfall
-        - get_monthly_total_precip

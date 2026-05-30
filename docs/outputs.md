@@ -2,7 +2,7 @@
 
 ## Pipeline Artifacts
 
-`delineate_monthly_dataframe()` returns `PipelineArtifacts`:
+`classify_rainfall()` returns `PipelineArtifacts`:
 
 | Attribute | Description |
 | --- | --- |
@@ -70,7 +70,7 @@ from hydroseason import compute_season_metrics
 result = compute_season_metrics(result, value_col="Rainfall_mm")
 ```
 
-`compute_annual_spi_categories()` appends the annual rainfall SPI z-score (`Annual_SPI`), the wet/regular/dry year class (`Year_Class_SPI`), and the dry-month drought bin (`Drought_Category`). This step runs automatically inside `delineate_monthly_dataframe()` for rainfall workflows.
+`compute_annual_spi_categories()` appends the annual rainfall SPI z-score (`Annual_SPI`), the wet/regular/dry year class (`Year_Class_SPI`), and the dry-month drought bin (`Drought_Category`). This step runs automatically inside `classify_rainfall()` for rainfall workflows.
 
 ```python
 from hydroseason.metrics import compute_annual_spi_categories

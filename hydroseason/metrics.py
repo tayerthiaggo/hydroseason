@@ -213,24 +213,4 @@ def compute_end_dry_metrics(
     return out
 
 
-def compute_zero_flow_months(
-    df: pd.DataFrame,
-    *,
-    discharge_col: str = "Discharge",
-    hydro_year_col: str = "Hydro_Year",
-    threshold: float = 1.0,
-    out_col: str = "zero_flow_months_count",
-) -> pd.DataFrame:
-    """Append months per hydrological year with discharge at or below a threshold."""
-    missing = [c for c in [discharge_col, hydro_year_col] if c not in df.columns]
-    if missing:
-        raise KeyError(f"Missing required columns: {missing}")
 
-    out = df.copy()
-    counts = (
-        out[pd.to_numeric(out[discharge_col], errors="coerce") <= threshold]
-        .groupby(hydro_year_col)[discharge_col]
-        .size()
-    )
-    out[out_col] = out[hydro_year_col].map(counts).fillna(0).astype(int)
-    return out

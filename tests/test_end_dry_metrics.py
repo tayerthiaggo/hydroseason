@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from hydroseason.metrics import compute_end_dry_metrics, compute_zero_flow_months
+from hydroseason.metrics import compute_end_dry_metrics
 
 
 END_DRY_COLS = [
@@ -47,14 +47,3 @@ def test_compute_end_dry_metrics_reproduces_dataset2_reference():
         diff = (out[ref_col] - df[ref_col]).abs().max()
         assert diff < 1e-6, f"{ref_col} max diff={diff}"
 
-
-def test_compute_zero_flow_months_threshold():
-    df = pd.DataFrame({
-        "Hydro_Year": [2020, 2020, 2020, 2021, 2021],
-        "Discharge": [0.0, 0.8, 1.2, 0.0, 2.0],
-    })
-
-    out = compute_zero_flow_months(df, threshold=1.0)
-
-    assert out.loc[out["Hydro_Year"] == 2020, "zero_flow_months_count"].iloc[0] == 2
-    assert out.loc[out["Hydro_Year"] == 2021, "zero_flow_months_count"].iloc[0] == 1

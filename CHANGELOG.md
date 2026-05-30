@@ -9,7 +9,7 @@ First public release.
 
 ### Added
 - Rainfall-based Wet/Dry season and hydrological-year delineation
-  (`delineate_monthly_dataframe`) implementing the Tayer et al. (2026)
+  (`classify_rainfall`) implementing the Tayer et al. (2026)
   supplementary methodology.
 - Adaptive parameter resolution: `smooth_window`, `min_core_length`, and
   `onset_window_months` resolve from the circular concentration `R` when left at

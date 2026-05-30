@@ -298,14 +298,14 @@ def test_targeted_october_shoulders_pipeline_e2e():
     classified Wet after the rule change."""
     import pandas as _pd
     from pathlib import Path
-    from hydroseason.pipeline import delineate_monthly_dataframe
+    from hydroseason.pipeline import classify_rainfall
 
     csv_path = Path(__file__).resolve().parents[1] / "data" / "DATASET.csv"
     if not csv_path.exists():
         import pytest
         pytest.skip("DATASET.csv not available")
     df = _pd.read_csv(csv_path)
-    artifacts = delineate_monthly_dataframe(df)
+    artifacts = classify_rainfall(df)
     result = artifacts.result.copy()
     result["Date"] = _pd.to_datetime(result["Date"])
 

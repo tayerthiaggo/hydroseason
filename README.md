@@ -34,10 +34,10 @@ remote-sensing environments already provide.
 
 ```python
 import pandas as pd
-from hydroseason import delineate_monthly_dataframe, generate_html_report
+from hydroseason import classify_rainfall, generate_html_report
 
 df = pd.read_csv("data/DATASET.csv")
-artifacts = delineate_monthly_dataframe(df)
+artifacts = classify_rainfall(df)
 
 result = artifacts.result
 print(result[["Date", "SeasonType", "Hydro_Year"]].head())
@@ -59,8 +59,8 @@ import hydroseason  # registers df.hydroseason
 import pandas as pd
 
 df = pd.read_csv("data/DATASET.csv")
-result = df.hydroseason.classify()              # labelled DataFrame
-artifacts = df.hydroseason.delineate()          # full PipelineArtifacts
+result = df.hydroseason.classify_rainfall_df()  # labelled DataFrame
+artifacts = df.hydroseason.classify_rainfall()   # full PipelineArtifacts
 fig = df.hydroseason.plot_dashboard()           # interactive Plotly figure
 ```
 

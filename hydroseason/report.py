@@ -563,7 +563,7 @@ def export_bundle(
     Parameters
     ----------
     artifacts:
-        ``PipelineArtifacts`` from :func:`~hydroseason.pipeline.delineate_monthly_dataframe`.
+        ``PipelineArtifacts`` from :func:`~hydroseason.pipeline.classify_rainfall`.
     output_dir:
         Destination folder.  Created (including parents) if it does not exist.
     title:

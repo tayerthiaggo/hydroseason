@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from hydroseason import PipelineArtifacts, delineate_monthly_dataframe
+from hydroseason import PipelineArtifacts, classify_rainfall
 
 
 warnings.filterwarnings(
@@ -190,7 +190,7 @@ def run_stress(
 
         started = time.perf_counter()
         try:
-            artifacts = delineate_monthly_dataframe(
+            artifacts = classify_rainfall(
                 monthly,
                 raise_on_validation_error=strict_validation,
             )

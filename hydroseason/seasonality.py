@@ -43,7 +43,7 @@ def walsh_lawler_seasonality_index(monthly_climatology_values: pd.Series | np.nd
     return float((1.0 / annual_total) * np.abs(values - annual_total / 12.0).sum())
 
 
-def monthly_climatology(
+def mean_monthly_rainfall(
     df: pd.DataFrame,
     month_col: str = "Month",
     value_col: str = "Rainfall_mm",
@@ -216,7 +216,7 @@ def detect_seasonality_regime(
     rainfall_si_override: bool = True,
     si_strong_threshold: float = 0.80,
 ) -> SeasonalityResult:
-    clim = monthly_climatology(df, month_col=month_col, value_col=value_col)
+    clim = mean_monthly_rainfall(df, month_col=month_col, value_col=value_col)
     si = walsh_lawler_seasonality_index(clim.values)
     strength = stl_seasonality_strength(df, date_col=date_col, value_col=value_col)
     if rainfall_si_override:

@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 import hydroseason
-from hydroseason.pipeline import delineate_monthly_dataframe
+from hydroseason.pipeline import classify_rainfall
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def paper_df():
 
 @pytest.fixture
 def artifacts(paper_df):
-    return delineate_monthly_dataframe(paper_df)
+    return classify_rainfall(paper_df)
 
 
 def test_plot_season_timeline(artifacts):

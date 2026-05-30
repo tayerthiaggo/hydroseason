@@ -13,10 +13,10 @@ pip install hydroseason
 `read_rainfall()` auto-detects common local formats and falls back to `pandas.read_csv()` for ordinary CSV files.
 
 ```python
-from hydroseason import read_rainfall, run_rainfall
+from hydroseason import read_rainfall, classify_rainfall_from_file
 
 monthly = read_rainfall("IDCJAC0001_003018_Data1.csv", source="auto")
-artifacts = run_rainfall("IDCJAC0001_003018_Data1.csv", source="auto")
+artifacts = classify_rainfall_from_file("IDCJAC0001_003018_Data1.csv", source="auto")
 ```
 
 Supported local sources:
@@ -76,12 +76,12 @@ Use `--silo-base-url` only when mirroring or testing against a non-default SILO 
 ERA5 fetch aggregates rainfall from the public Google Cloud ERA5 Zarr archive for a catchment polygon. It works globally and returns a tidy monthly `Rainfall_mm` table.
 
 ```python
-from hydroseason import get_monthly_variable, load_vector
+from hydroseason import get_monthly_era5_rainfall, load_vector
 
 ERA5_ZARR = "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
 gdf = load_vector("data/fitzroy_catchment.geojson")
 
-monthly = get_monthly_variable(
+monthly = get_monthly_era5_rainfall(
     path=ERA5_ZARR,
     gdf=gdf,
     start_year=1985,

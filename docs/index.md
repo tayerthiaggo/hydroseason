@@ -34,10 +34,10 @@ pip install -e ".[dev,docs]"
 
 ```python
 import pandas as pd
-from hydroseason import delineate_monthly_dataframe
+from hydroseason import classify_rainfall
 
 df = pd.read_csv("data/DATASET.csv")
-artifacts = delineate_monthly_dataframe(df)
+artifacts = classify_rainfall(df)
 
 artifacts.result[["Date", "SeasonType", "Hydro_Year"]].head()
 ```

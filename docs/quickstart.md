@@ -6,10 +6,10 @@ HydroSeason expects a monthly rainfall DataFrame with `Date`, `Year`, `Month`, a
 
 ```python
 import pandas as pd
-from hydroseason import delineate_monthly_dataframe, generate_html_report
+from hydroseason import classify_rainfall, generate_html_report
 
 df = pd.read_csv("data/DATASET.csv")
-artifacts = delineate_monthly_dataframe(df)
+artifacts = classify_rainfall(df)
 
 result = artifacts.result
 diagnostics = artifacts.diagnostics
@@ -23,16 +23,16 @@ generate_html_report(artifacts, "output/hydroseason_report.html")
 Disable the Walsh-Lawler promotion and use STL thresholds only:
 
 ```python
-artifacts = delineate_monthly_dataframe(df, rainfall_si_override=False)
+artifacts = classify_rainfall(df, rainfall_si_override=False)
 ```
 
 Read common rainfall files and run in one step:
 
 ```python
-from hydroseason import read_rainfall, run_rainfall
+from hydroseason import read_rainfall, classify_rainfall_from_file
 
 monthly = read_rainfall("IDCJAC0001_003018_Data1.csv", source="auto")
-artifacts = run_rainfall("IDCJAC0001_003018_Data1.csv", source="auto")
+artifacts = classify_rainfall_from_file("IDCJAC0001_003018_Data1.csv", source="auto")
 ```
 
 ## Pandas Accessor
@@ -45,8 +45,8 @@ import pandas as pd
 
 df = pd.read_csv("data/DATASET.csv")
 
-result = df.hydroseason.classify()
-artifacts = df.hydroseason.delineate()
+result = df.hydroseason.classify_rainfall_df()
+artifacts = df.hydroseason.classify_rainfall()
 diagnostics = df.hydroseason.diagnostics()
 
 fig = df.hydroseason.plot_dashboard()

@@ -91,10 +91,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "demo":
         from importlib.resources import as_file, files
 
-        from .pipeline import run_pipeline_from_csv
+        from .pipeline import classify_rainfall_from_file
         fixture = files("hydroseason").joinpath("data/monthly_rainfall.csv")
         with as_file(fixture) as fixture_path:
-            artifacts = run_pipeline_from_csv(
+            artifacts = classify_rainfall_from_file(
                 fixture_path,
                 output_csv=args.out,
             )
@@ -114,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "fetch":
         from .fetch import (
             get_monthly_silo_rainfall,
-            get_monthly_variable,
+            get_monthly_era5_rainfall,
             load_vector,
         )
 
@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         gdf = load_vector(args.vector)
 
         if args.source == "era5":
-            monthly_df = get_monthly_variable(
+            monthly_df = get_monthly_era5_rainfall(
                 path=args.path,
                 gdf=gdf,
                 start_year=args.start_year,
@@ -151,9 +151,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "rainfall":
-        from .pipeline import run_rainfall
+        from .pipeline import classify_rainfall_from_file
 
-        artifacts = run_rainfall(
+        artifacts = classify_rainfall_from_file(
             args.input,
             source=args.source,
             value_col=args.value_col,

@@ -163,7 +163,7 @@ class PipelineArtifacts:
     diagnostics: DiagnosticsReport
 
 
-def delineate_monthly_dataframe(
+def classify_rainfall(
     df: pd.DataFrame,
     *,
     date_col: str = "Date",
@@ -188,6 +188,7 @@ def delineate_monthly_dataframe(
     max_consecutive_imputation_gap: int = 12,
     raise_on_validation_error: bool = True,
     raise_on_error: bool | None = None,
+    output_csv: str | Path | None = None,
 ) -> PipelineArtifacts:
     """Delineate Wet/Dry seasons and hydrological years from monthly rainfall.
 
@@ -245,6 +246,10 @@ def delineate_monthly_dataframe(
         If ``True`` (default) a validation failure raises; otherwise it is
         recorded as a warning and the run continues. ``raise_on_error`` is a
         deprecated alias.
+    output_csv:
+        Optional path to write ``artifacts.result`` as a CSV file. The parent
+        directory is created if it does not exist. ``None`` (default) skips
+        writing.
 
     Returns
     -------
@@ -255,9 +260,9 @@ def delineate_monthly_dataframe(
     Examples
     --------
     >>> import pandas as pd
-    >>> from hydroseason import delineate_monthly_dataframe
+    >>> from hydroseason import classify_rainfall
     >>> df = pd.read_csv("data/DATASET.csv")
-    >>> artifacts = delineate_monthly_dataframe(df)
+    >>> artifacts = classify_rainfall(df)
     >>> artifacts.result[["Date", "SeasonType", "Hydro_Year"]].head()
     >>> artifacts.diagnostics.regime
     'seasonal'
@@ -484,20 +489,25 @@ def delineate_monthly_dataframe(
         data_confidence=report.data_confidence,
     )
 
-    return PipelineArtifacts(
+    artifacts = PipelineArtifacts(
         result=out,
         fixed_monthly=fixed_monthly,
         wet_boundaries=wet_boundaries,
         seasonality=seasonality,
         diagnostics=diagnostics,
     )
+    if output_csv is not None:
+        out_path = Path(output_csv)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        artifacts.result.to_csv(out_path, index=False)
+    return artifacts
 
 
 def run_pipeline(config: RunConfig) -> pd.DataFrame:
     if config.fetch.enabled:
         from .fetch import (
             get_monthly_silo_rainfall,
-            get_monthly_variable,
+            get_monthly_era5_rainfall,
             load_vector,
         )
 
@@ -518,7 +528,7 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
                 raise ValueError(
                     "fetch.era5_zarr_path is required when fetch.source='era5'"
                 )
-            in_df = get_monthly_variable(
+            in_df = get_monthly_era5_rainfall(
                 path=config.fetch.era5_zarr_path,
                 gdf=gdf,
                 start_year=config.fetch.start_year,
@@ -546,7 +556,7 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
                 "input.csv_path is required when fetch.enabled=false"
             )
         in_df = pd.read_csv(config.input.csv_path)
-    artifacts = delineate_monthly_dataframe(
+    artifacts = classify_rainfall(
         in_df,
         date_col=config.input.date_col,
         year_col=config.input.year_col,
@@ -588,43 +598,7 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
     return artifacts.result
 
 
-def run_pipeline_from_csv(
-    csv_path: str | Path,
-    *,
-    output_csv: str | Path | None = None,
-    **kwargs,
-) -> PipelineArtifacts:
-    """Read a monthly-rainfall CSV and run the delineation pipeline.
-
-    Parameters
-    ----------
-    csv_path:
-        Path to a CSV with ``Date``, ``Year``, ``Month`` and ``Rainfall_mm``
-        columns (or columns named via ``date_col``/etc. in ``kwargs``).
-    output_csv:
-        Optional path to write the labelled result DataFrame to.
-    **kwargs:
-        Forwarded to :func:`delineate_monthly_dataframe`.
-
-    Returns
-    -------
-    PipelineArtifacts
-    """
-    df = pd.read_csv(csv_path)
-    artifacts = delineate_monthly_dataframe(df, **kwargs)
-    if output_csv is not None:
-        out_path = Path(output_csv)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        artifacts.result.to_csv(out_path, index=False)
-    return artifacts
-
-
-def delineate_rainfall(df: pd.DataFrame, **kwargs) -> PipelineArtifacts:
-    """Alias for ``delineate_monthly_dataframe``."""
-    return delineate_monthly_dataframe(df, **kwargs)
-
-
-def run_rainfall(
+def classify_rainfall_from_file(
     path: str | Path,
     *,
     source: str = "auto",
@@ -635,10 +609,10 @@ def run_rainfall(
     output_csv: str | Path | None = None,
     **kwargs,
 ) -> PipelineArtifacts:
-    """Read rainfall from file and run the pipeline in one call.
+    """Read a rainfall file and run the full classification pipeline in one call.
 
-    Uses ``hydroseason.io.read_rainfall`` for ingestion, then calls
-    ``delineate_monthly_dataframe``.
+    Uses ``hydroseason.io.read_rainfall`` for ingestion (auto-detects BoM,
+    SILO, and generic CSV), then calls :func:`classify_rainfall`.
     """
     from .io import read_rainfall
 
@@ -652,15 +626,17 @@ def run_rainfall(
     )
     if "value_col" not in kwargs:
         kwargs["value_col"] = value_col
-    artifacts = delineate_monthly_dataframe(df, **kwargs)
-    if output_csv is not None:
-        out_path = Path(output_csv)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        artifacts.result.to_csv(out_path, index=False)
-    return artifacts
+    return classify_rainfall(df, output_csv=output_csv, **kwargs)
 
 
 # Convenience one-liner — best for quick notebook exploration.
-def classify(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
-    """Run the pipeline with defaults and return just the result DataFrame."""
-    return delineate_monthly_dataframe(df, **kwargs).result
+def classify_rainfall_df(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+    """Run the full classification pipeline and return just the result DataFrame.
+
+    This is the simplest entry point: pass in your monthly rainfall DataFrame
+    and get back the labelled result with ``SeasonType`` and ``Hydro_Year``
+    columns.  If you also need diagnostics, wet boundaries, or the fixed
+    climatology, use :func:`classify_rainfall` instead (it returns the full
+    :class:`PipelineArtifacts` bundle).
+    """
+    return classify_rainfall(df, **kwargs).result

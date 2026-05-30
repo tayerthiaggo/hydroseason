@@ -58,10 +58,9 @@ def test_cli_rainfall_csv(tmp_path: Path):
 
 
 def test_era5_variables_registry():
-    from hydroseason import get_monthly_total_precip, get_monthly_variable
+    from hydroseason import get_monthly_era5_rainfall
     from hydroseason.era5_variables import available, get
-    assert callable(get_monthly_variable)
-    assert callable(get_monthly_total_precip)
+    assert callable(get_monthly_era5_rainfall)
     keys = available()
     assert "rainfall" in keys
     assert "temperature" in keys
@@ -83,7 +82,7 @@ def test_cli_fetch_era5_routes_to_era5_fetch(tmp_path: Path, monkeypatch):
         calls["vector"] = path
         return object()
 
-    def fake_get_monthly_variable(**kwargs):
+    def fake_get_monthly_era5_rainfall(**kwargs):
         calls["era5"] = kwargs
         return pd.DataFrame(
             {
@@ -96,8 +95,8 @@ def test_cli_fetch_era5_routes_to_era5_fetch(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr("hydroseason.fetch.load_vector", fake_load_vector)
     monkeypatch.setattr(
-        "hydroseason.fetch.get_monthly_variable",
-        fake_get_monthly_variable,
+        "hydroseason.fetch.get_monthly_era5_rainfall",
+        fake_get_monthly_era5_rainfall,
     )
 
     rc = cli_mod.main(

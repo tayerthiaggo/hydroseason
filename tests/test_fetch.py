@@ -6,7 +6,7 @@ import pytest
 
 from hydroseason.fetch import (
     get_monthly_silo_rainfall,
-    get_monthly_variable,
+    get_monthly_era5_rainfall,
     rasterize_to_xarray_grid,
 )
 
@@ -31,7 +31,7 @@ def test_gcs_fetch_requires_gcsfs(monkeypatch):
 
     monkeypatch.setattr(importlib.util, "find_spec", fake_find_spec)
     with pytest.raises(ImportError, match="gcsfs is required"):
-        get_monthly_variable(
+        get_monthly_era5_rainfall(
             "gs://example/store.zarr",
             _DummyGeoDataFrame(),
             2000,

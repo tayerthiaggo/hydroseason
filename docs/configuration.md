@@ -1,6 +1,6 @@
 # Configuration
 
-The CLI reads a YAML file into `RunConfig`. The same algorithm and validation parameters can be passed directly to `delineate_monthly_dataframe()`.
+The CLI reads a YAML file into `RunConfig`. The same algorithm and validation parameters can be passed directly to `classify_rainfall()`.
 
 Set `fetch.enabled: true` to fetch monthly AOI data before delineation. In that mode `input.csv_path` is optional; the fetched table becomes the pipeline input.
 

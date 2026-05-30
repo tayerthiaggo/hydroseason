@@ -217,7 +217,7 @@ def _write_cache(
 # ---------------------------------------------------------------------------
 # Main fetch
 # ---------------------------------------------------------------------------
-def get_monthly_variable(
+def get_monthly_era5_rainfall(
     path: str,
     gdf,
     start_year: int,
@@ -449,7 +449,7 @@ def get_monthly_silo_rainfall(
     -------
     pandas.DataFrame
         Tidy monthly frame with columns ``Date``, ``Year``, ``Month`` and
-        ``Rainfall_mm``, ready to pass to :func:`delineate_monthly_dataframe`.
+        ``Rainfall_mm``, ready to pass to :func:`classify_rainfall`.
     """
     import xarray as xr
 
@@ -530,25 +530,3 @@ def get_monthly_silo_rainfall(
     )
     return out
 
-
-def get_monthly_total_precip(
-    path,
-    gdf,
-    start_year,
-    end_year,
-    var="total_precipitation",
-    cache_dir=None,
-    spatial_chunk=50,
-    show_progress=True,
-):
-    """Backward-compatible shim for the original rainfall fetch helper."""
-    return get_monthly_variable(
-        path=path,
-        gdf=gdf,
-        start_year=start_year,
-        end_year=end_year,
-        variable="rainfall",
-        cache_dir=cache_dir,
-        spatial_chunk=spatial_chunk,
-        show_progress=show_progress,
-    )
