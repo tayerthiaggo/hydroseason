@@ -9,6 +9,7 @@ Regime is decided by STL strength thresholds, not SI.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -79,7 +80,12 @@ def stl_seasonality_strength(
 
     try:
         stl = STL(series[value_col], period=12, robust=True).fit()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — STL can fail on degenerate series
+        warnings.warn(
+            f"STL decomposition failed ({exc}); seasonality strength set to 0.0.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return 0.0
 
     resid = stl.resid.values
@@ -115,7 +121,12 @@ def stl_residuals(
 
     try:
         fit = STL(series[value_col], period=12, robust=True).fit()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — STL can fail on degenerate series
+        warnings.warn(
+            f"STL decomposition failed ({exc}); residuals set to NaN.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return pd.Series(np.nan, index=df.index, dtype=float)
 
     residual_by_date = pd.Series(fit.resid, index=series.index)
@@ -166,7 +177,7 @@ def kmeans_silhouette_diagnostic(
         from sklearn.cluster import KMeans
         from sklearn.metrics import silhouette_score
         from sklearn.preprocessing import StandardScaler
-    except Exception:
+    except ImportError:
         return None
 
     work = df.copy()
@@ -183,7 +194,12 @@ def kmeans_silhouette_diagnostic(
         if len(np.unique(labels)) < 2:
             return None
         return float(silhouette_score(x, labels))
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — diagnostic only, never fatal
+        warnings.warn(
+            f"KMeans silhouette diagnostic failed ({exc}); returning None.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return None
 
 

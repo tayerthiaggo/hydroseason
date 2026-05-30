@@ -19,8 +19,16 @@ Full documentation: https://tayerthiaggo.github.io/hydroseason/
 pip install hydroseason
 ```
 
+Once available on conda-forge:
+
+```bash
+conda install -c conda-forge hydroseason
+```
+
 The standard install includes the core pipeline, Plotly reporting, local rainfall
-readers, and ERA5/SILO AOI rainfall fetch support.
+readers, and ERA5/SILO AOI rainfall fetch support. It pulls in the geospatial
+stack (`xarray`, `dask`, `geopandas`, `rasterio`, `netCDF4`, `gcsfs`), which most
+remote-sensing environments already provide.
 
 ## Quick Example
 
@@ -40,6 +48,30 @@ generate_html_report(artifacts, "output/hydroseason_report.html")
 
 Input data should contain monthly `Date`, `Year`, `Month`, and `Rainfall_mm`
 columns.
+
+### Pandas accessor
+
+Importing `hydroseason` registers a `.hydroseason` accessor on every DataFrame,
+so you can run the same workflow inline:
+
+```python
+import hydroseason  # registers df.hydroseason
+import pandas as pd
+
+df = pd.read_csv("data/DATASET.csv")
+result = df.hydroseason.classify()              # labelled DataFrame
+artifacts = df.hydroseason.delineate()          # full PipelineArtifacts
+fig = df.hydroseason.plot_dashboard()           # interactive Plotly figure
+```
+
+### Try it instantly
+
+No data of your own yet? Run the bundled demo dataset:
+
+```bash
+hydroseason demo --out output/demo.csv
+```
+
 
 ## Command Line
 

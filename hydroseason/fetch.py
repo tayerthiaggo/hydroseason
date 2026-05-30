@@ -318,10 +318,11 @@ def get_monthly_variable(
     if show_progress:
         try:
             from dask.diagnostics import ProgressBar
+        except ImportError:
+            values = catchment_series.compute()
+        else:
             with ProgressBar():
                 values = catchment_series.compute()
-        except Exception:
-            values = catchment_series.compute()
     else:
         values = catchment_series.compute()
 
@@ -423,10 +424,32 @@ def get_monthly_silo_rainfall(
     spatial_chunk: int = 50,
     show_progress: bool = True,
 ) -> pd.DataFrame:
-    """Fetch SILO gridded monthly rainfall for an AOI.
+    """Fetch SILO gridded monthly rainfall averaged over an AOI polygon.
 
-    Uses SILO annual monthly-rain NetCDF files hosted on AWS and computes a
-    polygon mean for each month.
+    Downloads SILO annual monthly-rain NetCDF files hosted on AWS, masks each to
+    the polygon, and returns the spatial mean per month.
+
+    Parameters
+    ----------
+    gdf:
+        A GeoDataFrame defining the area of interest (any CRS; reprojected to
+        EPSG:4326 internally). Use :func:`load_vector` to load one from a file.
+    start_year, end_year:
+        Inclusive range of calendar years to fetch.
+    base_url:
+        Base URL of the SILO monthly-rain NetCDF store.
+    cache_dir:
+        Optional directory for caching the assembled monthly series as Parquet.
+    spatial_chunk:
+        Dask chunk size (grid cells) along each spatial dimension.
+    show_progress:
+        Show a dask progress bar during compute when available.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Tidy monthly frame with columns ``Date``, ``Year``, ``Month`` and
+        ``Rainfall_mm``, ready to pass to :func:`delineate_monthly_dataframe`.
     """
     import xarray as xr
 
@@ -468,10 +491,11 @@ def get_monthly_silo_rainfall(
         if show_progress:
             try:
                 from dask.diagnostics import ProgressBar
+            except ImportError:
+                values = catchment_series.compute()
+            else:
                 with ProgressBar():
                     values = catchment_series.compute()
-            except Exception:
-                values = catchment_series.compute()
         else:
             values = catchment_series.compute()
 

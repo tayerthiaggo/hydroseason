@@ -12,7 +12,11 @@ Usage
 >>> fig = df.hydroseason.plot_timeline()
 >>> fig = df.hydroseason.plot_dashboard()
 
-Keyword arguments are forwarded verbatim to the underlying pipeline / plot functions.
+Keyword arguments are forwarded to the underlying pipeline. For methods that
+also produce a figure or report (``plot_dashboard``, ``generate_report``,
+``export``), plot/report-only keywords (``title``, ``width``, ``height``,
+``value_col``) are routed to the plot/report function and the rest go to the
+pipeline.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ class HydroSeasonAccessor:
         return delineate_monthly_dataframe(self._df, **kwargs).result
 
     def delineate(self, **kwargs):
-        """Run the full pipeline and return a ``PipelineArtifacts`` namedtuple."""
+        """Run the full pipeline and return a :class:`PipelineArtifacts` bundle."""
         from .pipeline import delineate_monthly_dataframe
         return delineate_monthly_dataframe(self._df, **kwargs)
 

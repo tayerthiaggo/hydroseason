@@ -18,6 +18,19 @@ def test_validate_missing_value_column():
     assert any("Rainfall_mm" in e for e in report.errors)
 
 
+def test_validate_missing_value_column_lists_available_columns():
+    """The missing-value-column error should name the available columns and suggest value_col."""
+    df = pd.DataFrame({
+        "Date": pd.date_range("2020-01-01", periods=24, freq="MS"),
+        "precip": [1.0] * 24,
+    })
+    _, report = validate_monthly_input(df)
+    assert not report.ok
+    joined = " ".join(report.errors)
+    assert "precip" in joined
+    assert "value_col" in joined
+
+
 def test_validate_duplicate_dates_exact_recoverable():
     """Exact duplicate rows (same date AND same value) are auto-dropped with a warning."""
     df = pd.DataFrame({

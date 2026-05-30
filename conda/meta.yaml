@@ -1,0 +1,62 @@
+{% set name = "hydroseason" %}
+{% set version = "0.1.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  # For a conda-forge submission, point at the PyPI sdist and fill in the sha256.
+  url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
+  sha256: 0000000000000000000000000000000000000000000000000000000000000000
+
+build:
+  noarch: python
+  number: 0
+  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  entry_points:
+    - hydroseason = hydroseason.cli:main
+
+requirements:
+  host:
+    - python >=3.10
+    - pip
+    - setuptools >=68
+    - wheel
+  run:
+    - python >=3.10
+    - pandas >=2.0
+    - numpy >=1.24
+    - scikit-learn >=1.3
+    - scipy >=1.11
+    - statsmodels >=0.14
+    - pyyaml >=6.0
+    - plotly >=5.0
+    - ipython >=8.0
+    - xarray >=2023.8
+    - dask >=2023.8
+    - zarr >=2.16
+    - geopandas >=0.14
+    - rasterio >=1.3
+    - gcsfs >=2023.6
+    - netcdf4 >=1.6
+    - pyarrow >=12
+    - python-kaleido >=0.2
+
+test:
+  imports:
+    - hydroseason
+  commands:
+    - hydroseason --version
+
+about:
+  home: https://github.com/tayerthiaggo/hydroseason
+  license: MIT
+  license_file: LICENSE
+  summary: Rainfall-based hydrological wet/dry season and hydrological-year delineation
+  doc_url: https://tayerthiaggo.github.io/hydroseason/
+  dev_url: https://github.com/tayerthiaggo/hydroseason
+
+extra:
+  recipe-maintainers:
+    - tayerthiaggo

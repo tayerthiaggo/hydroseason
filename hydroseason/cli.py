@@ -15,6 +15,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="hydroseason",
         description="Rainfall-based hydrological season and year delineation",
     )
+    from . import __version__
+    parser.add_argument(
+        "--version", action="version", version=f"hydroseason {__version__}"
+    )
     parser.add_argument("--verbose", "-v", action="count", default=0)
     sub = parser.add_subparsers(dest="command", required=True)
 

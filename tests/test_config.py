@@ -59,6 +59,23 @@ def test_example_config_loads():
     assert loaded.fetch.variable == "rainfall"
 
 
+def test_load_config_missing_output_points_to_example(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("input:\n  csv_path: x.csv\n", encoding="utf-8")
+    with pytest.raises(KeyError) as exc:
+        load_config(cfg)
+    assert "output" in str(exc.value)
+    assert "config/example.yaml" in str(exc.value)
+
+
+def test_load_config_missing_input_csv_path(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("output:\n  output_csv: out.csv\n", encoding="utf-8")
+    with pytest.raises(KeyError) as exc:
+        load_config(cfg)
+    assert "input.csv_path" in str(exc.value)
+
+
 def test_load_fetch_only_config_without_input_csv(tmp_path: Path):
     cfg = tmp_path / "fetch_config.yaml"
     cfg.write_text(

@@ -56,7 +56,6 @@ dependencies = [
   "gcsfs>=2023.6",
   "netCDF4>=1.6",
   "pyarrow>=12",
-  "matplotlib>=3.7",
   "kaleido>=0.2"
 ]
 
@@ -67,8 +66,10 @@ Repository = "https://github.com/tayerthiaggo/hydroseason"
 Issues = "https://github.com/tayerthiaggo/hydroseason/issues"
 
 [project.optional-dependencies]
-# Runtime dependencies include fetch and reporting support. These extras remain
-# as no-op compatibility aliases for older install snippets.
+# The base install already includes fetch (ERA5/SILO), plotting and reporting
+# dependencies, so these extras intentionally install nothing. They are kept
+# only so older install snippets such as `pip install hydroseason[fetch]`
+# continue to work without error.
 fetch = []
 plot = []
 plot-static = []
@@ -99,3 +100,11 @@ hydroseason = ["data/*.csv"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]  # line length is enforced loosely; long docstrings are fine

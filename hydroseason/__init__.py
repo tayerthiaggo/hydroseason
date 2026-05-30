@@ -1,5 +1,7 @@
 """HydroSeason: rainfall-based hydrological wet/dry season delineation."""
 
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
 # Register the pandas DataFrame accessor (df.hydroseason.classify() etc.)
 from . import accessor as _accessor  # noqa: F401
 
@@ -12,15 +14,7 @@ from .config import (
     ValidationConfig,
     load_config,
 )
-from .dynamic_season import (
-    harmonize_with_zero_preservation,
-    refine_season_tails,
-    segment_main_wet_season_fixed_threshold,
-)
 from .fixed_season import (
-    CircularStats,
-    circular_climatology,
-    circular_stats,
     hydro_year_start_after_min_month,
     hydro_year_start_driest_6_months,
     identify_fixed_hydro_year,
@@ -66,44 +60,50 @@ from .fetch import (
 )
 from .io import read_bom_monthly, read_rainfall, read_silo
 
+try:
+    __version__ = _pkg_version("hydroseason")
+except PackageNotFoundError:  # running from a source tree without install
+    __version__ = "0.1.0"
+
+# NOTE: algorithm building blocks (circular_climatology, circular_stats,
+# CircularStats, segment_main_wet_season_fixed_threshold,
+# harmonize_with_zero_preservation, refine_season_tails) are intentionally NOT
+# re-exported here. Import them from their submodules
+# (hydroseason.fixed_season, hydroseason.dynamic_season) if you need them.
+
 __all__ = [
-    # config
+    "__version__",
+    # --- Core entry points ---
+    "classify",
+    "delineate_monthly_dataframe", "delineate_rainfall",
+    "run_rainfall", "run_pipeline_from_csv", "run_pipeline",
+    "load_config",
+    # --- Output types & config ---
+    "PipelineArtifacts", "DiagnosticsReport",
+    "SeasonalityResult", "ValidationReport",
     "RunConfig", "InputConfig", "OutputConfig", "AlgorithmConfig",
-    "ValidationConfig", "FetchConfig", "load_config",
-    # validation
-    "validate_monthly_input", "ValidationReport",
-    # seasonality
-    "detect_seasonality_regime", "SeasonalityResult",
+    "ValidationConfig", "FetchConfig",
+    # --- Advanced: validation & seasonality diagnostics ---
+    "validate_monthly_input",
+    "detect_seasonality_regime",
     "stl_seasonality_strength", "walsh_lawler_seasonality_index",
     "classify_regime_from_stl", "classify_regime_with_rainfall_si",
     "monthly_climatology",
-    # fixed season
-    "circular_climatology", "circular_stats", "CircularStats",
+    # --- Advanced: hydrological year ---
     "identify_fixed_hydro_year",
     "hydro_year_start_after_min_month", "hydro_year_start_driest_6_months",
-    # dynamic season
-    "harmonize_with_zero_preservation",
-    "segment_main_wet_season_fixed_threshold",
-    "refine_season_tails",
-    # hydro year
     "assign_hydro_year", "assign_fixed_hydro_year", "assign_hydro_years",
-    # metrics
+    # --- Advanced: metrics ---
     "compute_season_metrics", "compute_end_dry_metrics",
     "compute_zero_flow_months",
     "compute_annual_spi_categories", "classify_drought", "classify_year_spi",
-    # pipeline
-    "classify", "delineate_monthly_dataframe", "delineate_rainfall",
-    "run_rainfall",
-    "run_pipeline_from_csv", "run_pipeline",
-    "PipelineArtifacts", "DiagnosticsReport",
-    # fetch / io
+    # --- Advanced: rainfall IO & AOI fetch ---
     "get_monthly_variable", "get_monthly_total_precip",
-    "get_monthly_silo_rainfall",
-    "load_vector",
+    "get_monthly_silo_rainfall", "load_vector",
     "read_silo", "read_bom_monthly", "read_rainfall",
 ]
 
-# Plot helpers (optional dep: plotly)
+# --- Plotting & reporting (optional dep: plotly / kaleido) ---
 try:
     from .plot import (
         plot_annual_metrics,
@@ -113,7 +113,6 @@ try:
         plot_monthly_climatology,
         plot_season_timeline,
         plot_stl_decomposition,
-        PLOTLY_CONFIG,
         show,
     )
     __all__ += [
@@ -124,7 +123,6 @@ try:
         "plot_dashboard",
         "plot_diagnostics_table",
         "plot_imputation_overview",
-        "PLOTLY_CONFIG",
         "show",
     ]
 except ImportError:
@@ -136,3 +134,4 @@ try:
     __all__ += ["display_summary", "generate_html_report", "export_bundle"]
 except ImportError:
     pass  # plotly not installed
+

@@ -13,8 +13,8 @@ Also provides ``hydro_year_start_driest_6_months`` (Bond 2014) and
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -127,7 +127,7 @@ def _label_wet_dry_uniform() -> np.ndarray:
     return np.array(["Unclassified"] * 12)
 
 
-def _first_dry_to_wet(seasons: np.ndarray) -> Optional[int]:
+def _first_dry_to_wet(seasons: np.ndarray) -> int | None:
     months = np.arange(1, 13)
     for i in range(12):
         prev_idx = (i - 1) % 12
@@ -141,7 +141,7 @@ def circular_climatology(
     *,
     value_col: str = "Rainfall_mm",
     month_col: str = "Month",
-) -> Tuple[pd.DataFrame, Optional[int], CircularStats]:
+) -> tuple[pd.DataFrame, int | None, CircularStats]:
     """Transferable, climatology-aware fixed-season detection.
 
     Returns
@@ -175,12 +175,12 @@ def identify_fixed_hydro_year(
     *,
     value_col: str = "Rainfall_mm",
     month_col: str = "Month",
-) -> Tuple[pd.DataFrame, Optional[int]]:
+) -> tuple[pd.DataFrame, int | None]:
     """KMeans(k=2) over (mean, no_rain_count). Tayer (2025) prototype."""
     try:
         from sklearn.cluster import KMeans
         from sklearn.preprocessing import StandardScaler
-    except Exception:
+    except ImportError:
         # No sklearn → fall back to circular method
         clim, start, _ = circular_climatology(monthly_df, value_col=value_col, month_col=month_col)
         return clim, start
@@ -191,7 +191,12 @@ def identify_fixed_hydro_year(
 
     try:
         labels = KMeans(n_clusters=2, n_init="auto", random_state=0).fit_predict(x)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — fall back to a median threshold split
+        warnings.warn(
+            f"KMeans clustering failed ({exc}); falling back to a median rainfall split.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         thresh = float(features["mean"].median())
         labels = (features["mean"] > thresh).astype(int).to_numpy()
 

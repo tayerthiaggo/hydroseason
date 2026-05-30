@@ -35,6 +35,32 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DiagnosticsReport:
+    """Record of every algorithm decision made during a pipeline run.
+
+    Serialised to the ``<output>.HydroSeason.json`` sidecar file. Fields that are
+    ``None`` indicate the corresponding step was skipped (for example,
+    ``circular_R`` is ``None`` when ``method="kmeans"``).
+
+    Key fields
+    ----------
+    regime:
+        Detected seasonality regime: ``"seasonal"``, ``"borderline"`` or
+        ``"non_seasonal"``.
+    regime_source:
+        How ``regime`` was decided: ``"stl"`` or ``"rainfall_si_override"``.
+    stl_strength:
+        STL seasonality strength F_S in [0, 1] (Wang/Hyndman).
+    walsh_lawler_si:
+        Walsh-Lawler Seasonality Index (rainfall-specific diagnostic).
+    hydro_year_start_month:
+        Resolved hydrological-year start month (1..12), or ``None`` if uniform.
+    smooth_window_used, min_core_length_used, onset_window_months_used:
+        Adaptive parameter values resolved from the circular concentration when
+        the user left them at their sentinel defaults.
+    data_confidence:
+        Qualitative data-quality flag: ``"high"``, ``"medium"`` or ``"low"``.
+    """
+
     regime: str
     regime_source: str
     stl_strength: float
@@ -110,6 +136,26 @@ def _resolve_adaptive_onset_window(
 
 @dataclass(frozen=True)
 class PipelineArtifacts:
+    """Bundle returned by every pipeline entry point.
+
+    Attributes
+    ----------
+    result:
+        The main output: the input rows with added ``SeasonType``,
+        ``Hydro_Year`` and metric columns. This is what most users want.
+    fixed_monthly:
+        The 12-row monthly climatology table (mean/median/no-rain counts and the
+        fixed Wet/Dry label per calendar month) used as the baseline season.
+    wet_boundaries:
+        Per-hydro-year wet-season start/end boundaries, or ``None`` for
+        non-seasonal regimes where no wet season is delineated.
+    seasonality:
+        The :class:`~hydroseason.seasonality.SeasonalityResult` with STL
+        strength, SI and the chosen regime.
+    diagnostics:
+        The :class:`DiagnosticsReport` recording every algorithm decision.
+    """
+
     result: pd.DataFrame
     fixed_monthly: pd.DataFrame
     wet_boundaries: pd.DataFrame | None
@@ -143,6 +189,79 @@ def delineate_monthly_dataframe(
     raise_on_validation_error: bool = True,
     raise_on_error: bool | None = None,
 ) -> PipelineArtifacts:
+    """Delineate Wet/Dry seasons and hydrological years from monthly rainfall.
+
+    This is the primary entry point. It validates the input, detects the
+    seasonality regime, derives a climatology-based fixed season and
+    hydrological-year start, refines the dynamic wet season, and computes
+    per-year rainfall metrics. Every decision is recorded in the returned
+    :class:`DiagnosticsReport`.
+
+    Parameters
+    ----------
+    df:
+        Monthly rainfall table. Must contain the date, year, month and value
+        columns named by ``date_col``, ``year_col``, ``month_col`` and
+        ``value_col`` (defaults ``Date``, ``Year``, ``Month``, ``Rainfall_mm``).
+    date_col, year_col, month_col, value_col:
+        Column names in ``df``.
+    smooth_window:
+        Centred rolling-mean window (months) applied before segmentation.
+        ``None`` (default) resolves adaptively from the circular concentration
+        (3-5 months); pass an int to override.
+    firstpass_quantile, secondpass_quantile:
+        Quantiles of the smoothed series used for the first/second wet-season
+        thresholds.
+    long_period_threshold:
+        Minimum number of years required before per-year (rather than pooled)
+        thresholds are used.
+    fallback_month:
+        Hydrological-year start month to use when the climatology yields no
+        Dry->Wet transition. ``None`` derives it from the data.
+    method:
+        Fixed-season method: ``"circular"`` (default, transferable) or
+        ``"kmeans"`` (legacy).
+    onset_window_months:
+        Acceptance window (months) around the climatological start for counting
+        a wet onset. ``"auto"`` (default) disables it for bimodal/uniform
+        regimes and uses +/-1 month otherwise; ``None`` disables it; an int sets
+        it explicitly.
+    rainfall_si_override, rainfall_si_threshold:
+        When the Walsh-Lawler SI is at least ``rainfall_si_threshold`` and STL is
+        at least borderline, promote the regime to ``seasonal``.
+    min_core_length:
+        Minimum consecutive wet-run length to cross a fixed-HY boundary.
+        ``None`` resolves adaptively.
+    shoulder_climatology_alpha, core_climatology_alpha:
+        Site-scaling factors applied to the wet-month climatology median to set
+        the shoulder/core absorption floors.
+    shoulder_residual_quantile:
+        Quantile of positive STL residuals above which a candidate shoulder is
+        rejected as an isolated storm. ``None`` disables the gate.
+    max_fraction_missing, max_gap_to_interpolate, max_consecutive_imputation_gap:
+        Validation/imputation controls. Gaps longer than
+        ``max_consecutive_imputation_gap`` months raise instead of being filled.
+    raise_on_validation_error:
+        If ``True`` (default) a validation failure raises; otherwise it is
+        recorded as a warning and the run continues. ``raise_on_error`` is a
+        deprecated alias.
+
+    Returns
+    -------
+    PipelineArtifacts
+        Bundle of ``result``, ``fixed_monthly``, ``wet_boundaries``,
+        ``seasonality`` and ``diagnostics``.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from hydroseason import delineate_monthly_dataframe
+    >>> df = pd.read_csv("data/DATASET.csv")
+    >>> artifacts = delineate_monthly_dataframe(df)
+    >>> artifacts.result[["Date", "SeasonType", "Hydro_Year"]].head()
+    >>> artifacts.diagnostics.regime
+    'seasonal'
+    """
     if raise_on_error is not None:
         raise_on_validation_error = raise_on_error
 
@@ -475,6 +594,22 @@ def run_pipeline_from_csv(
     output_csv: str | Path | None = None,
     **kwargs,
 ) -> PipelineArtifacts:
+    """Read a monthly-rainfall CSV and run the delineation pipeline.
+
+    Parameters
+    ----------
+    csv_path:
+        Path to a CSV with ``Date``, ``Year``, ``Month`` and ``Rainfall_mm``
+        columns (or columns named via ``date_col``/etc. in ``kwargs``).
+    output_csv:
+        Optional path to write the labelled result DataFrame to.
+    **kwargs:
+        Forwarded to :func:`delineate_monthly_dataframe`.
+
+    Returns
+    -------
+    PipelineArtifacts
+    """
     df = pd.read_csv(csv_path)
     artifacts = delineate_monthly_dataframe(df, **kwargs)
     if output_csv is not None:

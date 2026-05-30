@@ -315,7 +315,12 @@ def validate_monthly_input(
 
     # ---- presence of value column
     if value_col not in work.columns:
-        report.errors.append(f"Missing value column: '{value_col}' (expected monthly rainfall in mm).")
+        available = ", ".join(map(str, work.columns)) or "(none)"
+        report.errors.append(
+            f"Missing value column: '{value_col}' (expected monthly rainfall in mm). "
+            f"Available columns: {available}. "
+            f"Pass value_col=... if your rainfall column has a different name."
+        )
         return work, report
 
     # ---- aggregate sub-monthly input to monthly totals
@@ -367,8 +372,16 @@ def validate_monthly_input(
             )
         else:
             # Conflicting values for same date — cannot resolve automatically
+            dup_dates = (
+                work.loc[work.duplicated(subset=[date_col], keep=False), date_col]
+                .dt.strftime("%Y-%m")
+                .unique()
+            )
+            examples = ", ".join(dup_dates[:5])
+            more = " ..." if len(dup_dates) > 5 else ""
             report.errors.append(
-                f"{n_dup} duplicate dates with differing values in '{date_col}'. "
+                f"{n_dup} duplicate dates with differing values in '{date_col}' "
+                f"(e.g. {examples}{more}). "
                 "Deduplicate the input before calling the pipeline."
             )
             return work, report

@@ -70,9 +70,12 @@ class RunConfig:
     fetch: FetchConfig = field(default_factory=FetchConfig)
 
 
-def _require(d: dict, key: str):
+def _require(d: dict, key: str) -> object:
     if key not in d:
-        raise KeyError(f"Missing required config section/key: {key}")
+        raise KeyError(
+            f"Missing required config section/key: '{key}'. "
+            "See config/example.yaml for the expected structure."
+        )
     return d[key]
 
 
