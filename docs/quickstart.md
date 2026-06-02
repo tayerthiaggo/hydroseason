@@ -35,7 +35,7 @@ artifacts = classify_rainfall_from_file("IDCJAC0001_003018_Data1.csv", source="a
 
 ### Plotting and reports
 
-> Requires: `pip install "hydroseason[report]"`
+Interactive reports are included in the default install.
 
 ```python
 from hydroseason import generate_html_report
@@ -58,7 +58,7 @@ artifacts = df.hydroseason.classify_rainfall()
 diagnostics = df.hydroseason.diagnostics()
 ```
 
-Plotting and report accessors require `pip install "hydroseason[report]"`:
+Plotting and report accessors are available in the default install:
 
 ```python
 fig = df.hydroseason.plot_dashboard()
@@ -152,4 +152,4 @@ validation:
   raise_on_error: true
 ```
 
-The HTML report and export bundle write interactive HTML plus CSV/JSON outputs by default. Static PNG exports are opt-in via `export_bundle(..., export_png=True)` because Kaleido/Chrome startup can be slow in notebook and CI environments.
+The HTML report and export bundle write interactive HTML plus CSV/JSON outputs. Static PNG/SVG figure export is planned for a future release.

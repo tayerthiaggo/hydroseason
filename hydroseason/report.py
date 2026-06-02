@@ -1,12 +1,12 @@
-"""HydroSeason.report — notebook summary cards and HTML report export.
+"""HydroSeason.report - notebook summary cards and HTML report export.
 
 Two public functions:
 
-* :func:`display_summary` — returns an ``IPython.display.HTML`` summary card
-  suitable for inline notebook display.  Shows regime badge, key diagnostics,
-  and any validation warnings.
+* :func:`display_summary` - returns an HTML summary card suitable for inline
+  notebook display.  Shows regime badge, key diagnostics, and any validation
+  warnings.
 
-* :func:`generate_html_report` — writes a self-contained ``.html`` file with
+* :func:`generate_html_report` - writes a self-contained ``.html`` file with
   all five interactive Plotly charts, a styled diagnostics summary, and a
     per-hydro-year metrics table.  The Plotly JS bundle is embedded so
   the file can be shared and opened in any modern browser without Python.
@@ -22,6 +22,24 @@ from .plot import PLOTLY_CONFIG
 
 if TYPE_CHECKING:  # avoid circular import at runtime
     from .pipeline import PipelineArtifacts
+
+
+class HTMLSummary:
+    """Small fallback HTML wrapper for environments without IPython."""
+
+    def __init__(self, data: str):
+        self.data = data
+
+    def _repr_html_(self) -> str:
+        return self.data
+
+
+def _as_html_summary(html: str):
+    try:
+        from IPython.display import HTML
+    except ImportError:
+        return HTMLSummary(html)
+    return HTML(html)
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +76,7 @@ def _stat_pill(label: str, value: str) -> str:
 # Public: in-notebook summary card
 # ---------------------------------------------------------------------------
 def display_summary(artifacts: "PipelineArtifacts"):
-    """Return an ``IPython.display.HTML`` summary card for inline notebook display.
+    """Return an HTML summary card for inline notebook display when available.
 
     The card shows:
     - A coloured regime badge (green / amber / red)
@@ -66,8 +84,6 @@ def display_summary(artifacts: "PipelineArtifacts"):
       date range, record count, imputed rows
     - Any validation warnings
     """
-    from IPython.display import HTML
-
     d = artifacts.diagnostics
     result = artifacts.result
 
@@ -76,7 +92,7 @@ def display_summary(artifacts: "PipelineArtifacts"):
         dates = artifacts.result["Date"]
         date_min = str(dates.min())[:7]
         date_max = str(dates.max())[:7]
-        date_range = f"{date_min} → {date_max}"
+        date_range = f"{date_min} to {date_max}"
     except Exception:
         date_range = "N/A"
 
@@ -137,8 +153,8 @@ def display_summary(artifacts: "PipelineArtifacts"):
         cnt = ycs["Year_Class_SPI"].value_counts().to_dict()
         bullets.append(
             (
-                "Year class (SPI ±1)",
-                f"{cnt.get('Wet', 0)} Wet · {cnt.get('Regular', 0)} Regular · {cnt.get('Dry', 0)} Dry",
+                "Year class (SPI +/-1)",
+                f"{cnt.get('Wet', 0)} Wet | {cnt.get('Regular', 0)} Regular | {cnt.get('Dry', 0)} Dry",
             )
         )
     if "Drought_Category" in result.columns:
@@ -150,8 +166,8 @@ def display_summary(artifacts: "PipelineArtifacts"):
         bullets.append(
             (
                 "Drought category",
-                f"{cnt.get('Prolonged', 0)} Prolonged · {cnt.get('Regular', 0)} Regular · "
-                f"{cnt.get('Minimal', 0)} Minimal · {cnt.get('No dry', 0)} No-dry",
+                f"{cnt.get('Prolonged', 0)} Prolonged | {cnt.get('Regular', 0)} Regular | "
+                f"{cnt.get('Minimal', 0)} Minimal | {cnt.get('No dry', 0)} No-dry",
             )
         )
 
@@ -164,7 +180,7 @@ def display_summary(artifacts: "PipelineArtifacts"):
         '<div style="font-family:sans-serif;border:1px solid #CFD8DC;border-radius:6px;'
         'padding:14px 18px;max-width:720px;background:#FAFAFA;">'
         '<div style="font-size:16px;font-weight:bold;margin-bottom:10px;">'
-        "HydroSeason — Analysis Summary"
+        "HydroSeason - Analysis Summary"
         "</div>"
         '<div style="margin-bottom:10px;">'
         + _regime_badge(d.regime)
@@ -176,7 +192,7 @@ def display_summary(artifacts: "PipelineArtifacts"):
         + warnings_html
         + "</div>"
     )
-    return HTML(html)
+    return _as_html_summary(html)
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +424,7 @@ def generate_html_report(
 
     try:
         dates = artifacts.result["Date"]
-        date_range = f"{str(dates.min())[:7]} → {str(dates.max())[:7]}"
+        date_range = f"{str(dates.min())[:7]} to {str(dates.max())[:7]}"
     except Exception:
         date_range = "N/A"
 
@@ -441,7 +457,7 @@ def generate_html_report(
             f'<h2 style="font-family:sans-serif;font-size:18px;color:#1565C0;'
             f'border-bottom:2px solid #BBDEFB;padding-bottom:6px;">{heading}</h2>'
             f'<p style="font-size:10px;color:#90A4AE;text-align:right;margin:0 0 3px;">'
-            f'drag bottom edge to resize ↕</p>'
+            f'drag bottom edge to resize</p>'
             f'<div class="chart-container" style="height:{initial_height}px;">'
             f'{html_content}'
             f'</div>'
@@ -539,7 +555,6 @@ def export_bundle(
     *,
     title: str = "HydroSeason Report",
     value_col: str = "Rainfall_mm",
-    export_png: bool = False,
 ) -> Path:
     """Export a complete analysis bundle to a folder and return its path.
 
@@ -548,17 +563,11 @@ def export_bundle(
     ::
 
         output_dir/
-          report.html              ← self-contained interactive HTML (offline)
+          report.html              - self-contained interactive HTML (offline)
           data/
-            results_monthly.csv    ← full labelled monthly result
-            metrics_annual.csv     ← per-hydro-year season metrics
-            diagnostics.json       ← full DiagnosticsReport as JSON
-          figures/                 ← optional static PNG exports (`export_png=True`)
-            timeline.png
-            climatology.png
-            annual_metrics.png
-            stl_decomposition.png
-            dashboard.png
+            results_monthly.csv    - full labelled monthly result
+            metrics_annual.csv     - per-hydro-year season metrics
+            diagnostics.json       - full DiagnosticsReport as JSON
 
     Parameters
     ----------
@@ -570,9 +579,6 @@ def export_bundle(
         Title string used in the HTML report header.
     value_col:
         Column name for the primary measurement variable.
-    export_png:
-        Export static PNG figures with Plotly/Kaleido. Disabled by default
-        because Kaleido startup can be slow or require external browser support.
 
     Returns
     -------
@@ -580,25 +586,16 @@ def export_bundle(
         Resolved absolute path to *output_dir*.
     """
     import json
-    import warnings
     from dataclasses import asdict
-
-    from .plot import (
-        plot_annual_metrics,
-        plot_dashboard,
-        plot_monthly_climatology,
-        plot_season_timeline,
-        plot_stl_decomposition,
-    )
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     result = artifacts.result
 
-    # ── 1. HTML report (offline, fully embedded) ──────────────────────────────
+    # 1. HTML report (offline, fully embedded)
     generate_html_report(artifacts, output_dir / "report.html", title=title, value_col=value_col)
 
-    # ── 2. Tabular data ───────────────────────────────────────────────────────
+    # 2. Tabular data
     data_dir = output_dir / "data"
     data_dir.mkdir(exist_ok=True)
 
@@ -619,7 +616,7 @@ def export_bundle(
     )
     annual.to_csv(data_dir / "metrics_annual.csv", index=False)
 
-    # Monthly result — preserve all output columns, sorted by Date
+    # Monthly result: preserve all output columns, sorted by Date
     monthly_sort_col = "Date" if "Date" in result.columns else result.columns[0]
     result.sort_values(monthly_sort_col).reset_index(drop=True).to_csv(
         data_dir / "results_monthly.csv", index=False
@@ -628,36 +625,5 @@ def export_bundle(
     diag_dict = asdict(artifacts.diagnostics)
     with open(data_dir / "diagnostics.json", "w", encoding="utf-8") as fh:
         json.dump(diag_dict, fh, indent=2, default=str)
-
-    # ── 3. PNG figures (optional — requires kaleido) ──────────────────────────
-    if not export_png:
-        return output_dir.resolve()
-
-    try:
-        import kaleido as _kaleido  # noqa: F401 — availability check only
-
-        figures_dir = output_dir / "figures"
-        figures_dir.mkdir(exist_ok=True)
-        _exports = [
-            (plot_season_timeline(result, value_col=value_col, height=500), "timeline.png"),
-            (plot_monthly_climatology(result, artifacts.fixed_monthly, value_col=value_col, height=440), "climatology.png"),
-            (plot_annual_metrics(result, height=520), "annual_metrics.png"),
-            (plot_stl_decomposition(result, value_col=value_col, height=720), "stl_decomposition.png"),
-            (plot_dashboard(artifacts, value_col=value_col, height=950), "dashboard.png"),
-        ]
-        for fig, fname in _exports:
-            fig.write_image(str(figures_dir / fname), scale=1.5)
-    except ImportError:
-        warnings.warn(
-            "kaleido is not installed — PNG figure export skipped. "
-            "Install with: pip install kaleido",
-            stacklevel=2,
-        )
-    except Exception as exc:
-        warnings.warn(
-            f"PNG figure export failed ({exc}). "
-            "Try: pip install --upgrade kaleido",
-            stacklevel=2,
-        )
 
     return output_dir.resolve()

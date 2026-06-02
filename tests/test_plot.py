@@ -99,7 +99,7 @@ def test_plotly_config():
 
 
 def test_export_bundle(artifacts, tmp_path):
-    """Tests HTML report + CSV/JSON export. PNG export is opt-in."""
+    """Tests HTML report + CSV/JSON export."""
     from hydroseason.report import export_bundle
     import json
 
@@ -115,5 +115,5 @@ def test_export_bundle(artifacts, tmp_path):
     diag = json.loads((out / "data" / "diagnostics.json").read_text())
     assert "regime" in diag
     assert "walsh_lawler_si" in diag
-    # figures/ should NOT be created unless export_png=True
+    # Static figure export is planned for a future release.
     assert not (out / "figures").exists()

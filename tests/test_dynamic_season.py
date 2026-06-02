@@ -300,11 +300,9 @@ def test_targeted_october_shoulders_pipeline_e2e():
     from pathlib import Path
     from hydroseason.pipeline import classify_rainfall
 
-    csv_path = Path(__file__).resolve().parents[1] / "data" / "DATASET.csv"
-    if not csv_path.exists():
-        import pytest
-        pytest.skip("DATASET.csv not available")
+    csv_path = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "DATASET2.csv"
     df = _pd.read_csv(csv_path)
+    df["Date"] = _pd.to_datetime(df["Date"], dayfirst=True)
     artifacts = classify_rainfall(df)
     result = artifacts.result.copy()
     result["Date"] = _pd.to_datetime(result["Date"])

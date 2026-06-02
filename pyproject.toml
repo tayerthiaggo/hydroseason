@@ -44,15 +44,11 @@ dependencies = [
   "scikit-learn>=1.3",
   "scipy>=1.11",
   "statsmodels>=0.14",
-  "PyYAML>=6.0"
+  "PyYAML>=6.0",
+  "plotly>=5.0"
 ]
 
 [project.optional-dependencies]
-report = [
-  "plotly>=5.0",
-  "ipython>=8.0",
-  "kaleido>=0.2"
-]
 fetch = [
   "xarray>=2023.8",
   "dask>=2023.8",
@@ -64,9 +60,6 @@ fetch = [
   "pyarrow>=12"
 ]
 all = [
-  "plotly>=5.0",
-  "ipython>=8.0",
-  "kaleido>=0.2",
   "xarray>=2023.8",
   "dask>=2023.8",
   "zarr>=2.16",

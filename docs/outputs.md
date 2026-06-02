@@ -92,3 +92,10 @@ result = compute_end_dry_metrics(
 )
 ```
 
+## Planned Export Enhancements
+
+Static image export for report figures is intentionally deferred from the first
+public release. The current export bundle focuses on self-contained interactive
+HTML plus CSV/JSON outputs; PNG/SVG export can be added later once the image
+backend, browser requirements, and figure sizing defaults are settled.
+

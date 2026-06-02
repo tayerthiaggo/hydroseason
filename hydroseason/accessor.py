@@ -93,7 +93,7 @@ class HydroSeasonAccessor:
         return generate_html_report(arts, output_path, **report_kwargs)
 
     def export(self, output_dir="hydroseason_export", **kwargs):
-        """Export full analysis bundle: HTML report + CSV data + PNG figures (kaleido optional).
+        """Export full analysis bundle: HTML report plus CSV/JSON data.
 
         Returns the resolved output directory :class:`~pathlib.Path`.
         """

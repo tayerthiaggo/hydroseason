@@ -25,13 +25,9 @@ Full documentation: https://tayerthiaggo.github.io/hydroseason/
 
 ## Install
 
-Install the core rainfall-classification workflow:
+Install the core workflow, including interactive Plotly plots and HTML report generation:
 ```bash
 pip install hydroseason
-```
-Install plotting and HTML report generation support:
-```bash
-pip install "hydroseason[report]"
 ```
 Install ERA5/SILO rainfall fetching and geospatial support:
 ```bash
@@ -58,8 +54,10 @@ conda install -c conda-forge hydroseason
 
 The core installation supports rainfall validation, hydrological-season
 classification, hydrological-year assignment, diagnostics, metrics, local
-rainfall readers, and the command-line interface. Plotting/reporting and
-AOI-based rainfall fetching are available through optional dependency groups.
+rainfall readers, interactive Plotly plots, self-contained HTML reports, and
+the command-line interface. AOI-based rainfall fetching is available through
+an optional dependency group. Static image export is planned for a future
+release.
 
 ## Supported rainfall inputs
 
@@ -88,10 +86,7 @@ columns.
 
 ### Generate an interactive HTML report
 
-Install reporting support:
-```bash
-pip install "hydroseason[report]"
-```
+Interactive reporting is included in the default install.
 ```python
 from hydroseason import generate_html_report
 
@@ -110,7 +105,6 @@ import pandas as pd
 df = pd.read_csv("data/monthly_rainfall.csv")
 result = df.hydroseason.classify_rainfall_df()  # labelled DataFrame
 artifacts = df.hydroseason.classify_rainfall()   # full PipelineArtifacts
-# Requires: pip install "hydroseason[report]"
 fig = df.hydroseason.plot_dashboard()           # interactive Plotly figure
 ```
 

@@ -22,15 +22,16 @@ The high-level API returns a `PipelineArtifacts` object with:
 pip install hydroseason
 ```
 
-The core install includes the rainfall validation, classification, hydrological-year assignment, local rainfall readers, diagnostics, metrics, and CLI.
+The core install includes the rainfall validation, classification, hydrological-year assignment, local rainfall readers, diagnostics, metrics, CLI, interactive Plotly plots, and self-contained HTML reports.
 
 Optional extras:
 
 ```bash
-pip install "hydroseason[report]"   # Plotly plots + HTML reports
 pip install "hydroseason[fetch]"    # ERA5/SILO AOI rainfall fetch
 pip install "hydroseason[all]"      # everything
 ```
+
+Static PNG/SVG figure export is planned for a future release.
 
 For local development from this repository:
 

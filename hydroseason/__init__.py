@@ -97,7 +97,7 @@ __all__ = [
     "read_rainfall",
 ]
 
-# --- Plotting & reporting (optional dep: plotly / kaleido) ---
+# --- Plotting & reporting (plotly in core) ---
 try:
     from .plot import (
         plot_annual_metrics,
@@ -122,7 +122,7 @@ try:
 except ImportError:
     pass  # plotly not installed
 
-# Report helpers (optional dep: plotly + ipython)
+# Report helpers (plotly in core; IPython display support is optional at runtime)
 try:
     from .report import display_summary, export_bundle, generate_html_report
     __all__ += ["display_summary", "generate_html_report", "export_bundle"]
