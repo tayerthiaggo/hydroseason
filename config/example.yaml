@@ -1,6 +1,6 @@
 input:
   # Gilbert River (QLD, Australia) — 1986-2023 monthly rainfall, bundled with the package
-  csv_path: data/DATASET.csv
+  csv_path: data/monthly_rainfall.csv
   date_col: Date
   year_col: Year
   month_col: Month

@@ -6,9 +6,9 @@ HydroSeason expects a monthly rainfall DataFrame with `Date`, `Year`, `Month`, a
 
 ```python
 import pandas as pd
-from hydroseason import classify_rainfall, generate_html_report
+from hydroseason import classify_rainfall
 
-df = pd.read_csv("data/DATASET.csv")
+df = pd.read_csv("data/monthly_rainfall.csv")
 artifacts = classify_rainfall(df)
 
 result = artifacts.result
@@ -16,8 +16,6 @@ diagnostics = artifacts.diagnostics
 
 print(result[["Date", "SeasonType", "Hydro_Year"]].head())
 print(diagnostics.regime)
-
-generate_html_report(artifacts, "output/hydroseason_report.html")
 ```
 
 Disable the Walsh-Lawler promotion and use STL thresholds only:
@@ -35,6 +33,16 @@ monthly = read_rainfall("IDCJAC0001_003018_Data1.csv", source="auto")
 artifacts = classify_rainfall_from_file("IDCJAC0001_003018_Data1.csv", source="auto")
 ```
 
+### Plotting and reports
+
+> Requires: `pip install "hydroseason[report]"`
+
+```python
+from hydroseason import generate_html_report
+
+generate_html_report(artifacts, "output/hydroseason_report.html")
+```
+
 ## Pandas Accessor
 
 Importing `hydroseason` registers `df.hydroseason` on pandas DataFrames.
@@ -43,12 +51,16 @@ Importing `hydroseason` registers `df.hydroseason` on pandas DataFrames.
 import hydroseason
 import pandas as pd
 
-df = pd.read_csv("data/DATASET.csv")
+df = pd.read_csv("data/monthly_rainfall.csv")
 
 result = df.hydroseason.classify_rainfall_df()
 artifacts = df.hydroseason.classify_rainfall()
 diagnostics = df.hydroseason.diagnostics()
+```
 
+Plotting and report accessors require `pip install "hydroseason[report]"`:
+
+```python
 fig = df.hydroseason.plot_dashboard()
 summary = df.hydroseason.display_summary()
 report_path = df.hydroseason.generate_report("output/report.html")
@@ -79,6 +91,8 @@ hydroseason rainfall \
 
 Fetch monthly rainfall for an AOI polygon. Supported vector inputs include GeoJSON, SHP, KML, KMZ, GPKG, and GPCK.
 
+> Requires: `pip install "hydroseason[fetch]"`
+
 SILO monthly rainfall for Australia:
 
 ```bash
@@ -108,7 +122,7 @@ hydroseason fetch \
 
 ```yaml
 input:
-  csv_path: data/DATASET.csv
+  csv_path: data/monthly_rainfall.csv
   date_col: Date
   year_col: Year
   month_col: Month

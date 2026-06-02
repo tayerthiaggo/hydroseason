@@ -1,8 +1,11 @@
 include LICENSE
 include README.md
+include CHANGELOG.md
+include CITATION.cff
 include pyproject.toml
 include config/example.yaml
 recursive-include hydroseason/data *.csv
+prune hydroseason.egg-info
 
 exclude .gitignore
 prune dev

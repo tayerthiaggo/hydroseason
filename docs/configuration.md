@@ -8,7 +8,7 @@ Set `fetch.enabled: true` to fetch monthly AOI data before delineation. In that 
 
 ```yaml
 input:
-  csv_path: data/DATASET.csv
+  csv_path: data/monthly_rainfall.csv
   date_col: Date
   year_col: Year
   month_col: Month

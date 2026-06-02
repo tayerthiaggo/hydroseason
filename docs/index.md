@@ -22,12 +22,20 @@ The high-level API returns a `PipelineArtifacts` object with:
 pip install hydroseason
 ```
 
-The standard install includes the core pipeline, plotting/reporting, local rainfall readers, and ERA5/SILO AOI rainfall fetch support.
+The core install includes the rainfall validation, classification, hydrological-year assignment, local rainfall readers, diagnostics, metrics, and CLI.
+
+Optional extras:
+
+```bash
+pip install "hydroseason[report]"   # Plotly plots + HTML reports
+pip install "hydroseason[fetch]"    # ERA5/SILO AOI rainfall fetch
+pip install "hydroseason[all]"      # everything
+```
 
 For local development from this repository:
 
 ```bash
-pip install -e ".[dev,docs]"
+pip install -e ".[dev,docs,all]"
 ```
 
 ## Minimal Example
@@ -36,7 +44,7 @@ pip install -e ".[dev,docs]"
 import pandas as pd
 from hydroseason import classify_rainfall
 
-df = pd.read_csv("data/DATASET.csv")
+df = pd.read_csv("data/monthly_rainfall.csv")
 artifacts = classify_rainfall(df)
 
 artifacts.result[["Date", "SeasonType", "Hydro_Year"]].head()

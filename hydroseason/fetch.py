@@ -266,7 +266,7 @@ def get_monthly_era5_rainfall(
     ):
         raise ImportError(
             "gcsfs is required to read Google Cloud Storage ERA5 Zarr stores. "
-            "Install the fetch extra with: pip install -e \".[fetch]\""
+            "Install the fetch extra with: pip install \"hydroseason[fetch]\""
         )
     ds = xr.open_zarr(
         path, chunks={"time": 744}, storage_options={"token": "anon"}

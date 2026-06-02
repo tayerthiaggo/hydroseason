@@ -261,7 +261,7 @@ def classify_rainfall(
     --------
     >>> import pandas as pd
     >>> from hydroseason import classify_rainfall
-    >>> df = pd.read_csv("data/DATASET.csv")
+    >>> df = pd.read_csv("data/monthly_rainfall.csv")
     >>> artifacts = classify_rainfall(df)
     >>> artifacts.result[["Date", "SeasonType", "Hydro_Year"]].head()
     >>> artifacts.diagnostics.regime

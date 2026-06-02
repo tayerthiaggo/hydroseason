@@ -8,7 +8,7 @@ development setup, testing, and the release process.
 ```bash
 git clone https://github.com/tayerthiaggo/hydroseason.git
 cd hydroseason
-pip install -e ".[dev,docs]"
+pip install -e ".[dev,docs,all]"
 ```
 
 ## Running the tests

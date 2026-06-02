@@ -2,10 +2,16 @@
 
 HydroSeason can either read local rainfall files or fetch AOI-averaged monthly rainfall from gridded products. All rainfall acquisition paths return the same tidy schema: `Date`, `Year`, `Month`, and `Rainfall_mm`.
 
-The standard install includes local rainfall readers and AOI rainfall fetch support:
+Local rainfall readers (`read_rainfall`, `classify_rainfall_from_file`) are included in the **core** install:
 
 ```bash
 pip install hydroseason
+```
+
+AOI-based fetching from SILO or ERA5 requires the **fetch** extra:
+
+```bash
+pip install "hydroseason[fetch]"
 ```
 
 ## Local Rainfall Files

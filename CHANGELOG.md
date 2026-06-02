@@ -3,14 +3,14 @@
 All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] — Unreleased
+## [0.1.0] — 2026-06-02
 
 First public release.
 
 ### Added
 - Rainfall-based Wet/Dry season and hydrological-year delineation
-  (`classify_rainfall`) implementing the Tayer et al. (2026)
-  supplementary methodology.
+  (`classify_rainfall`), building upon and extending the workflow introduced
+  in Tayer et al. (2026).
 - Adaptive parameter resolution: `smooth_window`, `min_core_length`, and
   `onset_window_months` resolve from the circular concentration `R` when left at
   their sentinel defaults; explicit overrides always take precedence.
