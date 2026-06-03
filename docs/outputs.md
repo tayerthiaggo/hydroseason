@@ -45,7 +45,7 @@ The result preserves the input columns and appends hydrological labels and diagn
 | `stl_strength` | STL seasonal strength `F_S`. |
 | `walsh_lawler_si` | Walsh-Lawler Seasonality Index. |
 | `hydro_year_start_month` | Fixed hydrological-year start month, 1 to 12. |
-| `fallback_month_used` | Fallback month applied when dynamic year continuity needs one. |
+| `fallback_month_used` | Target month used when choosing a recovered real Wet onset after a long accepted-onset gap. |
 | `threshold_firstpass` | First-pass wet-season threshold. |
 | `threshold_secondpass` | Tail-refinement threshold. |
 | `smooth_window_used` | Resolved centred smoothing window used by the seasonal pipeline. |

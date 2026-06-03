@@ -42,19 +42,45 @@ def assign_hydro_years(
 ) -> pd.DataFrame:
     """Dynamic hydro years from successive wet-season onsets.
 
+    ``Hydro_Year`` advances **only** at real Wet onsets (``SeasonType``
+    transitions to Wet).  Normal onsets are filtered by ``onset_window_months``
+    (circular distance from the anchor month); this prevents off-cycle wet
+    fragments from incrementing the label.  When a gap between accepted onsets
+    reaches ``long_period_threshold``, the nearest excluded real Wet onset to
+    the *next* expected occurrence of ``fallback_month`` is recovered as a
+    boundary.  This step iterates until all remaining gaps are below the
+    threshold or no further Wet onsets are available to recover.  If no real
+    Wet onset exists in a gap, no boundary is inserted — ``Hydro_Year`` never
+    changes inside an ongoing Dry season.
+
+    **Bimodal / two-wet-season regimes** (e.g. East Africa long rains + short
+    rains): set ``onset_window_months=None`` so that *every* Wet onset starts a
+    new ``Hydro_Year``.  In that case ``Hydro_Year`` increments at each wet
+    onset — possibly twice per calendar year — and is a sequential counter, not
+    a calendar-year label.
+
+    **Arid regimes** where dry periods exceed ``long_period_threshold`` are
+    handled correctly: if no wet season occurs during a drought, no boundary is
+    inserted and ``Hydro_Year`` stays constant until the next real Wet onset.
+
     Parameters
     ----------
     long_period_threshold : int
-        Maximum allowable gap (months) between wet onsets before a fallback insertion.
+        Maximum allowable gap (months) between accepted wet onsets before
+        attempting to recover a filtered Wet onset.
     fallback_month : int
-        Climatological fallback month used when no onset exists in a long gap.
+        Target month when choosing the best fallback Wet onset inside a long
+        gap.  The target date is the **first** occurrence of this month strictly
+        after the gap's opening onset: same calendar year when the onset precedes
+        ``fallback_month``, next year otherwise.
     hydro_year_start_month : int, optional
-        Established start month from the fixed-season step. Used to compute the
-        initial hydro year correctly (defaults to ``fallback_month`` only if not given).
+        Anchor month from the fixed-season step. Used to compute the initial
+        ``Hydro_Year`` (defaults to ``fallback_month`` when omitted).
     onset_window_months : int | None
-        Only Wet shifts within this circular month distance from the climatological
-        start month are allowed to start a new hydro year. This prevents short
-        mid-year Wet fragments from incrementing the hydro-year label.
+        Circular distance (months) from the anchor month within which a Wet
+        shift is accepted in the normal pass.  ``None`` accepts all Wet shifts
+        (required for bimodal regimes so that both wet seasons advance the
+        hydro year).
     """
     df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col])
@@ -69,46 +95,80 @@ def assign_hydro_years(
     initial_hydro_year = assign_hydro_year(first_date, anchor_month)
 
     wet_shifts = df.loc[df["SeasonShift"] & (df["SeasonType"] == "Wet"), date_col]
-    wet_shift_dates: list[pd.Timestamp] = list(wet_shifts.tolist())
+    all_wet_shift_dates: list[pd.Timestamp] = sorted(wet_shifts.tolist())
 
-    # The first row is always flagged as a SeasonShift (no prior row to compare to).
-    # That flag is an artefact, not a real Dry→Wet onset, so drop it.
-    if wet_shift_dates and wet_shift_dates[0] == df[date_col].iloc[0]:
-        wet_shift_dates = wet_shift_dates[1:]
+    # The first row is always flagged as a SeasonShift (no prior row to compare
+    # to).  That flag is an artefact, not a real Dry→Wet onset, so drop it.
+    if all_wet_shift_dates and all_wet_shift_dates[0] == df[date_col].iloc[0]:
+        all_wet_shift_dates = all_wet_shift_dates[1:]
 
-    if onset_window_months is not None:
-        def _month_distance(a: int, b: int) -> int:
-            diff = abs(a - b)
-            return min(diff, 12 - diff)
-
-        wet_shift_dates = [
-            d for d in wet_shift_dates
-            if _month_distance(int(d.month), anchor_month) <= int(onset_window_months)
-        ]
-
-    fallback_dates: list[pd.Timestamp] = []
+    def _month_distance(a: int, b: int) -> int:
+        diff = abs(a - b)
+        return min(diff, 12 - diff)
 
     def _months_between(a: pd.Timestamp, b: pd.Timestamp) -> int:
         return (b.year - a.year) * 12 + (b.month - a.month)
 
-    if len(wet_shift_dates) > 1:
-        for start, end in zip(wet_shift_dates, wet_shift_dates[1:]):
-            if _months_between(start, end) >= long_period_threshold:
-                fb = pd.Timestamp(year=start.year + 1, month=int(fallback_month), day=1)
-                if start < fb < end:
-                    fallback_dates.append(fb)
+    def _fallback_target(start: pd.Timestamp) -> pd.Timestamp:
+        """First occurrence of fallback_month strictly after *start*."""
+        fb = int(fallback_month)
+        yr = start.year if start.month < fb else start.year + 1
+        return pd.Timestamp(year=yr, month=fb, day=1)
 
-    last_date = df[date_col].iloc[-1]
-    if not wet_shift_dates:
-        anchor = df[date_col].iloc[0]
+    if onset_window_months is not None:
+        accepted: set[pd.Timestamp] = {
+            d for d in all_wet_shift_dates
+            if _month_distance(int(d.month), anchor_month) <= int(onset_window_months)
+        }
     else:
-        anchor = wet_shift_dates[-1]
-    if _months_between(anchor, last_date) >= long_period_threshold:
-        fb = pd.Timestamp(year=anchor.year + 1, month=int(fallback_month), day=1)
-        if anchor < fb <= last_date:
-            fallback_dates.append(fb)
+        # Bimodal / no filtering: every real Wet onset advances the hydro year.
+        accepted = set(all_wet_shift_dates)
 
-    all_hy_starts = sorted(set(wet_shift_dates + fallback_dates))
+    all_wet_set = set(all_wet_shift_dates)
+    last_date = df[date_col].iloc[-1]
+
+    def _nearest_candidate(
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        *,
+        include_end: bool = False,
+    ) -> pd.Timestamp | None:
+        """Unaccepted real Wet onset in (start, end] nearest to the fallback target."""
+        target = _fallback_target(start)
+        candidates = [
+            d for d in all_wet_set
+            if d not in accepted
+            and start < d
+            and (d <= end if include_end else d < end)
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda d: abs(_months_between(target, d)))
+
+    # Iteratively recover filtered Wet onsets from long gaps until no gaps
+    # remain above the threshold or no further candidates exist.
+    # Bounded by the number of available real Wet onsets.
+    for _ in range(len(all_wet_shift_dates) + 1):
+        current = sorted(accepted)
+        new: list[pd.Timestamp] = []
+
+        for s, e in zip(current, current[1:]):
+            if _months_between(s, e) >= long_period_threshold:
+                r = _nearest_candidate(s, e)
+                if r is not None:
+                    new.append(r)
+
+        tail_anchor = current[-1] if current else first_date
+        if _months_between(tail_anchor, last_date) >= long_period_threshold:
+            r = _nearest_candidate(tail_anchor, last_date, include_end=True)
+            if r is not None:
+                new.append(r)
+
+        if not new:
+            break
+        accepted.update(new)
+
+    all_hy_starts = sorted(accepted)
     counts = np.searchsorted(all_hy_starts, df[date_col], side="right")
     df["Hydro_Year"] = initial_hydro_year + counts
     return df

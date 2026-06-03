@@ -6,7 +6,7 @@ Jupyter without any extra call (Plotly auto-renders in notebook cells).
 Colour palette is consistent across all figures:
     Wet           → WET_COLOUR  (#1565C0, deep blue)
     Transition    → TRANSITION_COLOUR (#6A1B9A, purple)
-    Dry           → DRY_COLOUR  (#EF6C00, amber-orange)
+    Dry           → DRY_COLOUR  (#EF3800, mild red)
     Unclassified  → UNCLASSIFIED_COLOUR (#9E9E9E, grey)
 """
 
@@ -21,13 +21,13 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 WET_COLOUR = "#1565C0"
-DRY_COLOUR = "#EF6C00"
+DRY_COLOUR = "#EF3800"
 TRANSITION_COLOUR = "#6A1B9A"
 UNCLASSIFIED_COLOUR = "#9E9E9E"
 
 # Very mild background bands for season highlighting on time-series plots.
-WET_BAND_COLOUR = "rgba(21, 101, 192, 0.08)"   # mild blue
-DRY_BAND_COLOUR = "rgba(239, 108, 0, 0.06)"    # mild red/amber
+WET_BAND_COLOUR = "rgba(21, 101, 192, 0.14)"  # mild blue
+DRY_BAND_COLOUR = "rgba(239, 56, 0, 0.12)"    # mild red
 
 _SEASON_COLOURS: dict[str, str] = {
     "Wet": WET_COLOUR,
@@ -72,9 +72,8 @@ def _season_vrects(
     """Build Plotly shape dicts for contiguous wet/dry vertical bands.
 
     Each contiguous run of Wet (or Dry) monthly rows becomes a translucent
-    coloured rectangle spanning the full plot height. Months are anchored to
-    the first day of the next month for the right edge so single-month runs
-    are still visible.
+    coloured rectangle spanning the full plot height. Edges are drawn halfway
+    between adjacent monthly bars so bands do not split the bars.
     """
     if len(dates) == 0:
         return []
@@ -95,9 +94,8 @@ def _season_vrects(
             elif season == "Dry":
                 colour = DRY_BAND_COLOUR
             if colour is not None:
-                x0 = d.iloc[run_start]
-                last = d.iloc[i - 1]
-                x1 = (last + pd.offsets.MonthBegin(1)).normalize()
+                x0 = _boundary_before(d, run_start)
+                x1 = _boundary_after(d, i - 1)
                 shapes.append(dict(
                     type="rect",
                     xref=xref, yref=yref,
@@ -109,6 +107,24 @@ def _season_vrects(
                 ))
             run_start = i
     return shapes
+
+
+def _boundary_before(dates: pd.Series, index: int) -> pd.Timestamp:
+    """Return the half-step boundary before a monthly timestamp."""
+    if len(dates) == 1:
+        return dates.iloc[0] - pd.Timedelta(days=15)
+    if index <= 0:
+        return dates.iloc[0] - (dates.iloc[1] - dates.iloc[0]) / 2
+    return dates.iloc[index - 1] + (dates.iloc[index] - dates.iloc[index - 1]) / 2
+
+
+def _boundary_after(dates: pd.Series, index: int) -> pd.Timestamp:
+    """Return the half-step boundary after a monthly timestamp."""
+    if len(dates) == 1:
+        return dates.iloc[0] + pd.Timedelta(days=15)
+    if index >= len(dates) - 1:
+        return dates.iloc[-1] + (dates.iloc[-1] - dates.iloc[-2]) / 2
+    return dates.iloc[index] + (dates.iloc[index + 1] - dates.iloc[index]) / 2
 
 
 def show(fig: go.Figure, **config_overrides) -> None:
@@ -190,12 +206,15 @@ def plot_season_timeline(
         ))
 
     # Wet/Dry coloured bands (drawn behind the bars)
-    shapes = _season_vrects(df[date_col], seasons)
+    dates_reset = pd.to_datetime(df[date_col]).reset_index(drop=True)
+    shapes = _season_vrects(dates_reset, seasons)
 
     # Hydro-year boundary lines
     if hydro_year_col in df.columns:
-        shifts = df[df[hydro_year_col] != df[hydro_year_col].shift()]
-        for d in shifts[date_col].iloc[1:]:
+        hydro_years = df[hydro_year_col].reset_index(drop=True)
+        shift_positions = hydro_years[hydro_years != hydro_years.shift()].index[1:]
+        for position in shift_positions:
+            d = _boundary_before(dates_reset, int(position))
             shapes.append(dict(
                 type="line",
                 x0=d, x1=d, y0=0, y1=1,
@@ -695,9 +714,12 @@ def plot_dashboard(
         ), row=1, col=1)
 
     # Hydro-year boundaries on timeline
+    dates_reset = pd.to_datetime(df_t["Date"]).reset_index(drop=True)
     if "Hydro_Year" in df_t.columns:
-        shifts = df_t[df_t["Hydro_Year"] != df_t["Hydro_Year"].shift()]
-        for d_date in shifts["Date"].iloc[1:]:
+        hydro_years = df_t["Hydro_Year"].reset_index(drop=True)
+        shift_positions = hydro_years[hydro_years != hydro_years.shift()].index[1:]
+        for position in shift_positions:
+            d_date = _boundary_before(dates_reset, int(position))
             fig.add_shape(
                 type="line",
                 x0=d_date, x1=d_date, y0=0, y1=1,
@@ -766,15 +788,15 @@ def plot_dashboard(
 
     # Wet/Dry coloured bands on the timeline panel (drawn behind bars)
     _s = seasons.reset_index(drop=True).astype(str)
-    _d = pd.to_datetime(df_t["Date"]).reset_index(drop=True)
+    _d = dates_reset
     run_start = 0
     for i in range(1, len(_d) + 1):
         if i == len(_d) or _s.iloc[i] != _s.iloc[run_start]:
             sname = _s.iloc[run_start]
             colour = WET_BAND_COLOUR if sname == "Wet" else DRY_BAND_COLOUR if sname == "Dry" else None
             if colour is not None:
-                x0 = _d.iloc[run_start]
-                x1 = (_d.iloc[i - 1] + pd.offsets.MonthBegin(1)).normalize()
+                x0 = _boundary_before(_d, run_start)
+                x1 = _boundary_after(_d, i - 1)
                 fig.add_vrect(
                     x0=x0, x1=x1,
                     fillcolor=colour, line_width=0, layer="below",

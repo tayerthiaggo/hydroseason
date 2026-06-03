@@ -44,7 +44,10 @@ Tail refinement uses three independent shoulder-eligibility checks:
 | Climatology floor | Candidate rainfall must exceed a fraction of the site's own wet-month climatological median. This prevents arid records from absorbing trivial mm-scale events. |
 | STL-residual threshold | Candidate rainfall must not be an extreme positive STL residual. This keeps isolated storm anomalies from being treated as seasonal shoulders. |
 
-When a clear onset is absent for too long, `long_period_threshold` and `fallback_month` preserve a continuous hydrological-year sequence.
+When an accepted onset is absent for too long, `long_period_threshold` and
+`fallback_month` can recover a real Wet onset that was filtered out by the
+onset window. HydroSeason does not insert hydrological-year boundaries inside
+an ongoing Dry season.
 
 ## Non-Seasonal and Borderline Records
 

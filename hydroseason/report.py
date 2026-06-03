@@ -484,7 +484,7 @@ def generate_html_report(
     </header>
     """ + _section_chart("Season Timeline", html_timeline, 450) \
             + _section_chart("Imputation and Data Quality", html_quality, 320) \
-      + _section_chart("Monthly Climatology", html_clim, 420) \
+      + _section_chart("Aggregated Monthly Rainfall", html_clim, 420) \
       + _section_chart("Annual Wet / Dry Totals", html_annual, 480) \
       + _section_chart("STL Decomposition", html_stl, 680) \
       + _section_chart("Algorithm Diagnostics", html_diag, 480) \

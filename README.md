@@ -6,136 +6,198 @@
 
 # HydroSeason
 
-**Rainfall-based hydrological Wet/Dry season and hydrological-year delineation.**
+**Hydrological seasons do not always follow the calendar.**
 
-HydroSeason turns monthly rainfall records into labelled Wet/Dry seasons,
-hydrological years, rainfall metrics, diagnostics, plots, and self-contained HTML
-reports. The package builds upon the rainfall-based hydrological-season workflow
-introduced in Tayer et al. (2026) and extends it as a reusable Python API,
-pandas accessor, YAML-driven CLI, local rainfall reader, and ERA5/SILO AOI
-rainfall-fetch workflow.
+HydroSeason helps you turn rainfall records into Wet/Dry seasons,
+hydrological years, rainfall metrics, diagnostics, plots, and a self-contained
+HTML report. Bring your own monthly rainfall table, or provide a catchment or
+area-of-interest polygon and let HydroSeason fetch monthly rainfall for you
+from SILO or ERA5.
 
-HydroSeason is designed for hydrological, ecological, climatological and
-remote-sensing workflows where calendar years do not adequately represent
-wet/dry seasonal dynamics.
+It is built for hydrology, ecology, climate, environmental-flow, and
+remote-sensing workflows where fixed calendar years can hide what the rainfall
+season is actually doing.
 
 Full documentation: https://tayerthiaggo.github.io/hydroseason/
 
 [![HydroSeason example report preview](https://tayerthiaggo.github.io/hydroseason/assets/images/hydroseason-report-preview.png)](https://tayerthiaggo.github.io/hydroseason/report/)
 
-## Install
+## Why HydroSeason?
 
-Install the core workflow, including interactive Plotly plots and HTML report generation:
+Many analyses start with a fixed rule: January to December, or the same wet/dry
+months every year. That is convenient, but it can split one wet season across
+two years, miss early or late shoulder months, and change annual rainfall or
+dry-season interpretation.
+
+HydroSeason uses the rainfall record itself to find seasonal timing and water
+years. It also keeps enough diagnostics to show how the decision was made.
+
+| Common static approach | HydroSeason |
+| --- | --- |
+| Uses calendar years or one fixed water-year start | Assigns hydrological years from rainfall season timing |
+| Assumes Wet/Dry months are fixed | Refines Wet/Dry labels year by year |
+| Can split one wet season across two reporting years | Keeps rainfall grouped by hydrological season |
+| Requires rainfall data to be prepared separately | Can fetch area-averaged rainfall from a polygon |
+| Gives limited method diagnostics | Exports thresholds, confidence notes, plots, and a report |
+
+![Static calendar seasons compared with HydroSeason dynamic hydrological years](https://tayerthiaggo.github.io/hydroseason/assets/images/static-vs-hydroseason.png)
+
+The top panel uses a fixed Nov-Oct hydrological year and fixed Wet/Dry months.
+The bottom panel lets the rainfall record decide where wet/dry seasons and
+hydrological years begin.
+
+This matters when a few shifted shoulder months change wet-season totals,
+dry-season length, drought class, or ecological interpretation.
+
+## Start Quickly
+
+Install the core workflow, including interactive Plotly plots and HTML reports:
+
 ```bash
 pip install hydroseason
 ```
-Install ERA5/SILO rainfall fetching and geospatial support:
+
+Run the bundled demo:
+
 ```bash
-pip install "hydroseason[fetch]"
-```
-Install all user-facing functionality:
-```bash
-pip install "hydroseason[all]"
-```
-For local development from this repository:
-```bash
-pip install -e ".[dev,docs,all]"
-```
-Verify the installation:
-```bash
-hydroseason --version
 hydroseason demo --out output/demo.csv
 ```
-Once available on conda-forge:
 
-```bash
-conda install -c conda-forge hydroseason
-```
-
-The core installation supports rainfall validation, hydrological-season
-classification, hydrological-year assignment, diagnostics, metrics, local
-rainfall readers, interactive Plotly plots, self-contained HTML reports, and
-the command-line interface. AOI-based rainfall fetching is available through
-an optional dependency group. Static image export is planned for a future
-release.
-
-## Supported rainfall inputs
-
-HydroSeason supports:
-
-- tidy monthly CSV files with `Date`, `Year`, `Month`, and `Rainfall_mm`;
-- Bureau of Meteorology monthly rainfall exports;
-- SILO rainfall files;
-- AOI-averaged monthly rainfall fetched from SILO or ERA5.
-
-## Quick Example
+Or classify your own monthly rainfall table:
 
 ```python
 import pandas as pd
-from hydroseason import classify_rainfall
+from hydroseason import classify_rainfall, generate_html_report
 
 df = pd.read_csv("data/monthly_rainfall.csv")
 artifacts = classify_rainfall(df)
 
-result = artifacts.result
-print(result[["Date", "SeasonType", "Hydro_Year"]].head())
+print(artifacts.result[["Date", "SeasonType", "Hydro_Year"]].head())
 print(artifacts.diagnostics.regime)
-```
-Input data should contain monthly `Date`, `Year`, `Month`, and `Rainfall_mm`
-columns.
-
-### Generate an interactive HTML report
-
-Interactive reporting is included in the default install.
-```python
-from hydroseason import generate_html_report
 
 generate_html_report(artifacts, "output/hydroseason_report.html")
 ```
 
-### Pandas accessor
+Input rainfall tables should contain monthly `Date`, `Year`, `Month`, and
+`Rainfall_mm` columns.
 
-Importing `hydroseason` registers a `.hydroseason` accessor on every DataFrame,
-so you can run the same workflow inline:
+## No Rainfall Table Yet?
+
+If you have a catchment or area-of-interest polygon, HydroSeason can fetch
+monthly rainfall averaged over that area.
+
+```bash
+pip install "hydroseason[fetch]"
+```
+
+In a notebook, load your polygon and fetch monthly rainfall before running the
+same season workflow:
 
 ```python
-import hydroseason  # registers df.hydroseason
+from hydroseason import (
+    classify_rainfall,
+    generate_html_report,
+    get_monthly_silo_rainfall,
+    load_vector,
+)
+
+gdf = load_vector("catchment.geojson")
+
+monthly = get_monthly_silo_rainfall(
+    gdf,
+    start_year=1985,
+    end_year=2023,
+    cache_dir="data/silo_cache",
+)
+
+artifacts = classify_rainfall(monthly)
+generate_html_report(artifacts, "output/hydroseason_report.html")
+```
+
+Use SILO for Australian catchments. For global areas of interest, use ERA5:
+
+```python
+from hydroseason import classify_rainfall, get_monthly_era5_rainfall, load_vector
+
+ERA5_ZARR = "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
+gdf = load_vector("catchment.geojson")
+
+monthly = get_monthly_era5_rainfall(
+    path=ERA5_ZARR,
+    gdf=gdf,
+    start_year=1985,
+    end_year=2023,
+    variable="rainfall",
+    cache_dir="data/era5_cache",
+)
+
+artifacts = classify_rainfall(monthly)
+```
+
+## What You Get
+
+HydroSeason returns a `PipelineArtifacts` object and can export:
+
+- a labelled monthly table with `SeasonType` and `Hydro_Year`;
+- Wet/Dry rainfall totals and month counts by hydrological year;
+- seasonality diagnostics, thresholds, validation warnings, and confidence notes;
+- interactive Plotly figures;
+- a self-contained HTML report that can be opened without Python.
+
+Importing `hydroseason` also registers a pandas accessor:
+
+```python
+import hydroseason
 import pandas as pd
 
 df = pd.read_csv("data/monthly_rainfall.csv")
-result = df.hydroseason.classify_rainfall_df()  # labelled DataFrame
-artifacts = df.hydroseason.classify_rainfall()   # full PipelineArtifacts
-fig = df.hydroseason.plot_dashboard()           # interactive Plotly figure
+result = df.hydroseason.classify_rainfall_df()
+artifacts = df.hydroseason.classify_rainfall()
+fig = df.hydroseason.plot_dashboard()
 ```
 
-### Try it instantly
+## Supported Rainfall Inputs
 
-No data of your own yet? Run the bundled demo dataset:
+HydroSeason supports:
 
-```bash
-hydroseason demo --out output/demo.csv
-```
-
+- tidy monthly CSV files with `Date`, `Year`, `Month`, and `Rainfall_mm`;
+- Bureau of Meteorology (BoM Australia) monthly rainfall exports;
+- SILO point rainfall files and gridded polygon rainfall for Australia;
+- ERA5 polygon rainfall for global areas of interest.
 
 ## Command Line
 
 ```bash
 hydroseason demo --out output/demo.csv
-hydroseason rainfall --input data/monthly_rainfall.csv --source csv --output output/rainfall_results.csv
+
+hydroseason rainfall \
+  --input data/monthly_rainfall.csv \
+  --source csv \
+  --output output/rainfall_results.csv
+
+hydroseason fetch \
+  --source silo \
+  --vector catchment.geojson \
+  --start-year 1985 \
+  --end-year 2023 \
+  --output output/monthly_rainfall.csv
+
+hydroseason rainfall \
+  --input output/monthly_rainfall.csv \
+  --source csv \
+  --output output/fetched_results.csv
+
 hydroseason run --config config/example.yaml
 ```
-
-HydroSeason can also read common Australian rainfall formats and fetch
-AOI-averaged monthly rainfall from SILO or ERA5.
 
 ## Documentation
 
 - Quick start: https://tayerthiaggo.github.io/hydroseason/quickstart/
+- Rainfall fetch: https://tayerthiaggo.github.io/hydroseason/era5/
+- Example report: https://tayerthiaggo.github.io/hydroseason/report/
 - Algorithm: https://tayerthiaggo.github.io/hydroseason/algorithm/
 - Configuration: https://tayerthiaggo.github.io/hydroseason/configuration/
 - Outputs and metrics: https://tayerthiaggo.github.io/hydroseason/outputs/
-- Rainfall fetch: https://tayerthiaggo.github.io/hydroseason/era5/
-- Example report: https://tayerthiaggo.github.io/hydroseason/report/
 - API reference: https://tayerthiaggo.github.io/hydroseason/api/
 
 ## Development
@@ -154,9 +216,11 @@ HydroSeason builds upon the rainfall-based hydrological-season workflow presente
 
 > Tayer, T.C. et al. (2026). *Mapping resilience: A framework for analysing surface-water dynamics and persistent pools in non-perennial rivers using remote sensing, rainfall and river discharge data* Journal of Hydrology, 666, p. 134750. Available at: https://doi.org/10.1016/j.jhydrol.2025.134750.
 
-The software implementation has subsequently been extended and maintained as HydroSeason. If you use HydroSeason in an analysis, please cite both the methodological paper above and the specific software release used.
+The software implementation has subsequently been extended and maintained as
+HydroSeason. If you use HydroSeason in an analysis, please cite both the
+methodological paper above and the specific software release used.
 
-## Software citation
+## Software Citation
 
 A versioned software DOI will be minted through Zenodo when the first public
 GitHub release is archived. After publication, please cite the specific

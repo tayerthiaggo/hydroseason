@@ -66,8 +66,8 @@ hydroseason run --config config/example.yaml
 | `smooth_window` | `None` | Centred rolling window, in months, for zero-preserving smoothing. `None` resolves from circular concentration `R` (3 to 5 months). |
 | `firstpass_quantile` | `0.20` | Quantile of non-zero values used for first-pass wet-season core detection. |
 | `secondpass_quantile` | `0.10` | Lower quantile used for wet-season tail refinement. |
-| `long_period_threshold` | `16` | Maximum accepted interval between wet-season onsets before inserting a fallback boundary. |
-| `fallback_month` | `None` | Optional fallback start month. When omitted, HydroSeason derives one from the long-term minimum. |
+| `long_period_threshold` | `16` | Maximum accepted interval between wet-season onsets before trying to recover a filtered real Wet onset. |
+| `fallback_month` | `None` | Optional target month for choosing a recovered Wet onset. When omitted, HydroSeason derives one from the long-term minimum. |
 | `method` | `"circular"` | Fixed baseline method: `"circular"` or `"kmeans"`. |
 | `min_core_length` | `None` | Minimum wet-core length required before tail refinement can cross a fixed hydrological-year boundary. `None` resolves from circular concentration `R` (2 to 5 months). |
 | `onset_window_months` | `"auto"` | Only accept dynamic onsets near the fixed start month for unimodal records. `"auto"` disables the filter for bimodal/uniform records; use `None` to always disable. |

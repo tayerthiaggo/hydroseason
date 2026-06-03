@@ -214,11 +214,11 @@ def classify_rainfall(
         Quantiles of the smoothed series used for the first/second wet-season
         thresholds.
     long_period_threshold:
-        Minimum number of years required before per-year (rather than pooled)
-        thresholds are used.
+        Maximum accepted interval between wet-season onsets before trying to
+        recover a filtered real Wet onset.
     fallback_month:
-        Hydrological-year start month to use when the climatology yields no
-        Dry->Wet transition. ``None`` derives it from the data.
+        Target month for choosing a recovered Wet onset when an accepted onset
+        is absent for too long. ``None`` derives it from the data.
     method:
         Fixed-season method: ``"circular"`` (default, transferable) or
         ``"kmeans"`` (legacy).

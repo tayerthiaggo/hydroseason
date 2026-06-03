@@ -1,8 +1,42 @@
 # HydroSeason
 
-HydroSeason is a Python package for delineating hydrological Wet/Dry seasons and hydrological years from monthly rainfall records.
+Hydrological seasons do not always follow the calendar.
 
-The core workflow validates monthly rainfall data, detects seasonality, builds a fixed seasonal baseline, refines dynamic wet-season boundaries, assigns hydrological years, and returns diagnostics and metrics that can be exported to CSV, JSON, Plotly figures, or a self-contained HTML report. HydroSeason can also read common Australian rainfall formats and fetch AOI-averaged rainfall from ERA5 or SILO.
+HydroSeason helps you turn rainfall records into Wet/Dry seasons,
+hydrological years, rainfall metrics, diagnostics, plots, and a self-contained
+HTML report. You can bring your own rainfall table, or provide a catchment or
+area-of-interest polygon and let HydroSeason fetch monthly rainfall from SILO
+or ERA5.
+
+[Open the example report](report.md){ .md-button .md-button--primary }
+[Start with the quick guide](quickstart.md){ .md-button }
+
+![HydroSeason example report preview](assets/images/hydroseason-report-preview.png)
+
+## Why Use It?
+
+Calendar years are easy, but rainfall seasons often shift. A wet season can
+start early, end late, or cross a reporting boundary. Those details can change
+annual rainfall totals, dry-season length, drought classification, and the way
+surface-water or ecological patterns are interpreted.
+
+HydroSeason uses the rainfall record itself to label Wet/Dry seasons and assign
+hydrological years. It also records diagnostics so the result is inspectable,
+not just a black-box label.
+
+| Common static approach | HydroSeason |
+| --- | --- |
+| Uses calendar years or one fixed water-year start | Assigns hydrological years from rainfall season timing |
+| Assumes Wet/Dry months are fixed | Refines Wet/Dry labels year by year |
+| Can split one wet season across two reporting years | Keeps rainfall grouped by hydrological season |
+| Requires rainfall data to be prepared separately | Can fetch area-averaged rainfall from a polygon |
+| Gives limited method diagnostics | Exports thresholds, confidence notes, plots, and a report |
+
+![Static calendar seasons compared with HydroSeason dynamic hydrological years](assets/images/static-vs-hydroseason.png)
+
+The top panel uses a fixed Nov-Oct hydrological year and fixed Wet/Dry months.
+The bottom panel lets the rainfall record decide where wet/dry seasons and
+hydrological years begin.
 
 ## What HydroSeason Produces
 
@@ -16,18 +50,68 @@ The high-level API returns a `PipelineArtifacts` object with:
 | `seasonality` | STL and Walsh-Lawler seasonality diagnostics. |
 | `diagnostics` | A compact report of method decisions, thresholds, validation warnings, and hydrological-year start month. |
 
-## Install
+## Two Ways To Start
+
+### I already have rainfall data
 
 ```bash
 pip install hydroseason
 ```
 
-The core install includes the rainfall validation, classification, hydrological-year assignment, local rainfall readers, diagnostics, metrics, CLI, interactive Plotly plots, and self-contained HTML reports.
+```python
+import pandas as pd
+from hydroseason import classify_rainfall, generate_html_report
+
+df = pd.read_csv("data/monthly_rainfall.csv")
+artifacts = classify_rainfall(df)
+generate_html_report(artifacts, "output/hydroseason_report.html")
+```
+
+### I have a polygon and need rainfall
+
+```bash
+pip install "hydroseason[fetch]"
+```
+
+```python
+from hydroseason import (
+    classify_rainfall,
+    generate_html_report,
+    get_monthly_silo_rainfall,
+    load_vector,
+)
+
+gdf = load_vector("catchment.geojson")
+
+monthly = get_monthly_silo_rainfall(
+    gdf,
+    start_year=1985,
+    end_year=2023,
+    cache_dir="data/silo_cache",
+)
+
+artifacts = classify_rainfall(monthly)
+generate_html_report(artifacts, "output/hydroseason_report.html")
+```
+
+Use SILO for Australian catchments and ERA5 for global areas of interest.
+The [Rainfall Fetch](era5.md) page has the full Python and command-line
+examples.
+
+## Install
+
+The core install includes rainfall validation, classification, local rainfall
+readers, diagnostics, metrics, the CLI, interactive Plotly plots, and
+self-contained HTML reports.
+
+```bash
+pip install hydroseason
+```
 
 Optional extras:
 
 ```bash
-pip install "hydroseason[fetch]"    # ERA5/SILO AOI rainfall fetch
+pip install "hydroseason[fetch]"    # ERA5/SILO polygon rainfall fetch
 pip install "hydroseason[all]"      # everything
 ```
 
@@ -39,18 +123,5 @@ For local development from this repository:
 pip install -e ".[dev,docs,all]"
 ```
 
-## Minimal Example
-
-```python
-import pandas as pd
-from hydroseason import classify_rainfall
-
-df = pd.read_csv("data/monthly_rainfall.csv")
-artifacts = classify_rainfall(df)
-
-artifacts.result[["Date", "SeasonType", "Hydro_Year"]].head()
-```
-
-Continue with the [Quick Start](quickstart.md) for Python, pandas accessor, CLI, and YAML examples.
-
-For a visual sense of the final output, open the [Example Report](report.md).
+Continue with the [Quick Start](quickstart.md) for Python, pandas accessor,
+CLI, and YAML examples.
