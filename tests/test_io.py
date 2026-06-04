@@ -168,8 +168,18 @@ class TestReadRainfall:
 
     def test_csv_mode_falls_back_to_pandas(self):
         df = read_rainfall(FIXTURES / "silo_custom.csv", source="csv")
-        assert "Date" in df.columns
-        assert "Rain" in df.columns
+        assert list(df.columns) == ["Date", "Year", "Month", "Rainfall_mm"]
+
+    def test_csv_mode_does_not_treat_quality_as_rainfall(self, tmp_path: Path):
+        csv = tmp_path / "quality_before_rain.csv"
+        csv.write_text(
+            "Date,Quality,Rain_mm\n2020-01-01,Y,12.3\n",
+            encoding="utf-8",
+        )
+
+        df = read_rainfall(csv, source="csv")
+
+        assert df.loc[0, "Rainfall_mm"] == 12.3
 
 
 # ---------------------------------------------------------------------------

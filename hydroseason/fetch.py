@@ -520,6 +520,37 @@ def infer_default_fetch_source(gdf) -> str:
 # ---------------------------------------------------------------------------
 # Cache helpers
 # ---------------------------------------------------------------------------
+def _cache_geometry_payload(gdf) -> dict[str, object]:
+    """Return stable AOI identity fields for fetch cache keys."""
+    try:
+        gdf_4326 = gdf.to_crs("EPSG:4326")
+    except Exception:
+        gdf_4326 = gdf
+
+    bounds = [float(x) for x in gdf_4326.total_bounds.tolist()]
+    geometry_hash = None
+    geoms = getattr(gdf_4326, "geometry", None)
+    if geoms is not None:
+        try:
+            wkb_parts = [
+                geom.wkb_hex
+                for geom in geoms
+                if geom is not None and not getattr(geom, "is_empty", False)
+            ]
+            if wkb_parts:
+                geometry_hash = hashlib.sha256(
+                    "|".join(sorted(wkb_parts)).encode("utf-8")
+                ).hexdigest()
+        except Exception:
+            geometry_hash = None
+
+    return {
+        "bbox_epsg4326": bounds,
+        "geometry_hash_epsg4326": geometry_hash,
+        "n_geoms": int(len(gdf_4326)),
+    }
+
+
 def _cache_key(
     path: str,
     gdf,
@@ -532,8 +563,7 @@ def _cache_key(
         "start": int(start_year),
         "end": int(end_year),
         "var": variable_key,
-        "bbox": [float(x) for x in gdf.total_bounds.tolist()],
-        "n_geoms": int(len(gdf)),
+        **_cache_geometry_payload(gdf),
     }
     blob = json.dumps(payload, sort_keys=True).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()[:16]
@@ -799,6 +829,7 @@ def get_monthly_aoi_rainfall(
     cache_dir: str | Path | None = None,
     spatial_chunk: int | str | None = "auto",
     time_chunk: int | str | None = "auto",
+    temporal_batch_years: int | str | None = "auto",
     era5_fallback: bool = True,
     show_progress: bool = True,
 ) -> pd.DataFrame:
@@ -841,6 +872,7 @@ def get_monthly_aoi_rainfall(
             cache_dir=cache_dir,
             spatial_chunk=spatial_chunk,
             time_chunk=time_chunk,
+            temporal_batch_years=temporal_batch_years,
             show_progress=show_progress,
         )
         return _source_metadata(
@@ -873,6 +905,7 @@ def get_monthly_aoi_rainfall(
                 cache_dir=cache_dir,
                 spatial_chunk=spatial_chunk,
                 time_chunk=time_chunk,
+                temporal_batch_years=temporal_batch_years,
                 show_progress=show_progress,
             )
         )
@@ -889,7 +922,7 @@ def get_monthly_aoi_rainfall(
                     cache_dir=cache_dir,
                     show_progress=show_progress,
                 )
-            except ValueError:
+            except (ValueError, FileNotFoundError):
                 if not (era5_fallback and era5_zarr_path):
                     raise
                 logger.warning(
@@ -908,6 +941,7 @@ def get_monthly_aoi_rainfall(
                         cache_dir=cache_dir,
                         spatial_chunk=spatial_chunk,
                         time_chunk=time_chunk,
+                        temporal_batch_years=temporal_batch_years,
                         show_progress=show_progress,
                     )
                 )
@@ -929,24 +963,30 @@ def get_monthly_aoi_rainfall(
                 ]
                 if missing_dates and era5_fallback and era5_zarr_path:
                     missing_periods = pd.to_datetime(pd.Series(missing_dates))
-                    fallback_df = get_monthly_aoi_rainfall(
-                        gdf,
-                        int(missing_periods.dt.year.min()),
-                        int(missing_periods.dt.year.max()),
-                        source="era5",
-                        era5_zarr_path=era5_zarr_path,
-                        variable=variable,
-                        cache_dir=cache_dir,
-                        spatial_chunk=spatial_chunk,
-                        time_chunk=time_chunk,
-                        show_progress=show_progress,
-                    )
-                    fallback_df = fallback_df[
-                        pd.to_datetime(fallback_df["Date"])
-                        .dt.strftime("%Y-%m-%d")
-                        .isin(missing_dates)
-                    ].copy()
-                    if not fallback_df.empty:
+                    fallback_frames = []
+                    for missing_year in sorted(missing_periods.dt.year.unique()):
+                        year_df = get_monthly_aoi_rainfall(
+                            gdf,
+                            int(missing_year),
+                            int(missing_year),
+                            source="era5",
+                            era5_zarr_path=era5_zarr_path,
+                            variable=variable,
+                            cache_dir=cache_dir,
+                            spatial_chunk=spatial_chunk,
+                            time_chunk=time_chunk,
+                            temporal_batch_years=temporal_batch_years,
+                            show_progress=show_progress,
+                        )
+                        year_df = year_df[
+                            pd.to_datetime(year_df["Date"])
+                            .dt.strftime("%Y-%m-%d")
+                            .isin(missing_dates)
+                        ].copy()
+                        if not year_df.empty:
+                            fallback_frames.append(year_df)
+                    if fallback_frames:
+                        fallback_df = pd.concat(fallback_frames, ignore_index=True)
                         fallback_df["Fetch_Note"] = (
                             fallback_df["Fetch_Note"].astype(str)
                             + "; filled CHIRPS-unavailable month"
@@ -970,6 +1010,7 @@ def get_monthly_aoi_rainfall(
                     cache_dir=cache_dir,
                     spatial_chunk=spatial_chunk,
                     time_chunk=time_chunk,
+                    temporal_batch_years=temporal_batch_years,
                     show_progress=show_progress,
                 )
             )
@@ -1065,11 +1106,10 @@ def get_monthly_era5_rainfall(
         profile=profile,
         total_steps=total_hours,
     )
-    ds = xr.open_zarr(
-        path,
-        chunks={"time": resolved_time_chunk},
-        storage_options={"token": "anon"},
-    )
+    open_kwargs = {"chunks": {"time": resolved_time_chunk}}
+    if str(path).startswith("gs://"):
+        open_kwargs["storage_options"] = {"token": "anon"}
+    ds = xr.open_zarr(path, **open_kwargs)
     ds = ds.sel(time=slice(f"{start_year}-01-01", f"{end_year}-12-31"))
 
     # Resolve variable name in the store
@@ -1198,9 +1238,9 @@ def get_monthly_era5_rainfall(
         df[var.out_column] * var.unit_factor + var.unit_offset
     ).round(2)
 
-    # zero-clip for accumulation variables only (avoid clipping temperatures!)
+    # zero-clip negative accumulation noise only (avoid clipping light rain/temperatures!)
     if var.aggregation == "sum":
-        df.loc[df[var.out_column] < 1, var.out_column] = 0.0
+        df.loc[df[var.out_column] < 0, var.out_column] = 0.0
 
     out = df[["Date", "Year", "Month", var.out_column]]
 

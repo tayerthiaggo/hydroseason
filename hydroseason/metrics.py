@@ -117,8 +117,8 @@ def compute_annual_spi_categories(
 
     annual_total = out.groupby(hydro_year_col)[value_col].sum()
     mean = float(annual_total.mean())
-    std = float(annual_total.std(ddof=0))
-    if std and std > 0:
+    std = float(annual_total.std(ddof=1))
+    if not pd.isna(std) and std > 0:
         spi = (annual_total - mean) / std
     else:
         spi = annual_total * 0.0
@@ -128,8 +128,12 @@ def compute_annual_spi_categories(
         lambda v: classify_year_spi(v, threshold=spi_threshold)
     )
 
-    if dry_month_col in out.columns:
-        out["Drought_Category"] = out[dry_month_col].apply(classify_drought)
+    actual_dry_month_col = dry_month_col
+    if actual_dry_month_col not in out.columns and "dry_month_count" in out.columns:
+        actual_dry_month_col = "dry_month_count"
+
+    if actual_dry_month_col in out.columns:
+        out["Drought_Category"] = out[actual_dry_month_col].apply(classify_drought)
     else:
         out["Drought_Category"] = "Regular"
 

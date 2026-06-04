@@ -44,6 +44,38 @@ class AlgorithmConfig:
     climatology_window_mode: str = "trailing"  # "trailing" | "centered"
     climatology_min_month_observations: int = 5
     climatology_min_wet_year_fraction: float = 0.60
+    cap_rolling_tail_at_global: bool = True
+    keep_debug_columns: bool = False
+    require_low_floor_break_for_pruning: bool = True
+
+    def __post_init__(self) -> None:
+        if self.smooth_window is not None:
+            self.smooth_window = int(self.smooth_window)
+        self.firstpass_quantile = float(self.firstpass_quantile)
+        self.secondpass_quantile = float(self.secondpass_quantile)
+        self.long_period_threshold = int(self.long_period_threshold)
+        if self.fallback_month is not None:
+            self.fallback_month = int(self.fallback_month)
+        if isinstance(self.onset_window_months, str) and self.onset_window_months.strip().lower() == "none":
+            self.onset_window_months = None
+        elif self.onset_window_months is not None and self.onset_window_months != "auto":
+            self.onset_window_months = int(self.onset_window_months)
+        self.rainfall_si_override = bool(self.rainfall_si_override)
+        self.rainfall_si_threshold = float(self.rainfall_si_threshold)
+        if self.min_core_length is not None:
+            self.min_core_length = int(self.min_core_length)
+        self.shoulder_climatology_alpha = float(self.shoulder_climatology_alpha)
+        if self.shoulder_month_quantile is not None:
+            self.shoulder_month_quantile = float(self.shoulder_month_quantile)
+        self.core_climatology_alpha = float(self.core_climatology_alpha)
+        if self.shoulder_residual_quantile is not None:
+            self.shoulder_residual_quantile = float(self.shoulder_residual_quantile)
+        self.climatology_window_years = int(self.climatology_window_years)
+        self.climatology_min_month_observations = int(self.climatology_min_month_observations)
+        self.climatology_min_wet_year_fraction = float(self.climatology_min_wet_year_fraction)
+        self.cap_rolling_tail_at_global = bool(self.cap_rolling_tail_at_global)
+        self.keep_debug_columns = bool(self.keep_debug_columns)
+        self.require_low_floor_break_for_pruning = bool(self.require_low_floor_break_for_pruning)
 
 
 @dataclass
@@ -52,6 +84,12 @@ class ValidationConfig:
     max_gap_to_interpolate: int = 2
     max_consecutive_imputation_gap: int = 12
     raise_on_error: bool = True
+
+    def __post_init__(self) -> None:
+        self.max_fraction_missing = float(self.max_fraction_missing)
+        self.max_gap_to_interpolate = int(self.max_gap_to_interpolate)
+        self.max_consecutive_imputation_gap = int(self.max_consecutive_imputation_gap)
+        self.raise_on_error = bool(self.raise_on_error)
 
 
 @dataclass
@@ -68,7 +106,25 @@ class FetchConfig:
     cache_dir: str | None = None
     spatial_chunk: int | str | None = "auto"
     time_chunk: int | str | None = "auto"
+    temporal_batch_years: int | str | None = "auto"
     era5_fallback: bool = True
+
+    def __post_init__(self) -> None:
+        self.enabled = bool(self.enabled)
+        if self.start_year is not None:
+            self.start_year = int(self.start_year)
+        if self.end_year is not None:
+            self.end_year = int(self.end_year)
+        if self.spatial_chunk is not None and self.spatial_chunk != "auto":
+            self.spatial_chunk = int(self.spatial_chunk)
+        if self.time_chunk is not None and self.time_chunk != "auto":
+            self.time_chunk = int(self.time_chunk)
+        if (
+            self.temporal_batch_years is not None
+            and self.temporal_batch_years != "auto"
+        ):
+            self.temporal_batch_years = int(self.temporal_batch_years)
+        self.era5_fallback = bool(self.era5_fallback)
 
 
 @dataclass

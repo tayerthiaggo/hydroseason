@@ -7,6 +7,7 @@ algorithm decisions are recorded in ``DiagnosticsReport``.
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -75,6 +76,13 @@ class DiagnosticsReport:
     threshold_secondpass: float | None
     rainfall_si_override: bool
     tail_floor: float | None = None
+    tail_floor_source: str | None = None
+    tail_floor_min: float | None = None
+    tail_floor_max: float | None = None
+    tail_floor_unique_count: int = 0
+    extension_floor_min: float | None = None
+    extension_floor_max: float | None = None
+    extension_floor_unique_count: int = 0
     smooth_window_used: int | None = None
     min_core_length_used: int | None = None
     onset_window_months_used: int | None = None
@@ -322,6 +330,7 @@ def _build_guardrail_columns(
     climatology_min_month_observations: int,
     climatology_min_wet_year_fraction: float,
     low_confidence_missing: bool,
+    cap_rolling_tail_at_global: bool,
 ) -> tuple[pd.DataFrame, dict[str, object]]:
     if climatology_window not in {"global", "rolling"}:
         raise ValueError('climatology_window must be "global" or "rolling".')
@@ -422,7 +431,10 @@ def _build_guardrail_columns(
                 shoulder_climatology_alpha=shoulder_climatology_alpha,
                 shoulder_month_quantile=shoulder_month_quantile,
             )
-            tail = min(float(tail), float(global_tail))
+            if cap_rolling_tail_at_global:
+                tail = min(float(tail), float(global_tail))
+            else:
+                tail = float(tail)
             wet, unstable_count = _stable_wet_months(
                 local,
                 wet,
@@ -545,6 +557,9 @@ def classify_rainfall(
     raise_on_validation_error: bool = True,
     raise_on_error: bool | None = None,
     output_csv: str | Path | None = None,
+    cap_rolling_tail_at_global: bool = True,
+    keep_debug_columns: bool = False,
+    require_low_floor_break_for_pruning: bool = True,
 ) -> PipelineArtifacts:
     """Delineate Wet/Dry seasons and hydrological years from monthly rainfall.
 
@@ -645,6 +660,12 @@ def classify_rainfall(
     'seasonal'
     """
     if raise_on_error is not None:
+        warnings.warn(
+            "The `raise_on_error` parameter is deprecated and will be removed in a future version. "
+            "Use `raise_on_validation_error` instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         raise_on_validation_error = raise_on_error
 
     # ---- Step 0 — validate & normalise
@@ -750,6 +771,13 @@ def classify_rainfall(
     threshold_first: float | None = None
     threshold_second: float | None = None
     tail_floor: float | None = None
+    tail_floor_source: str | None = None
+    tail_floor_min: float | None = None
+    tail_floor_max: float | None = None
+    tail_floor_unique_count = 0
+    extension_floor_min: float | None = None
+    extension_floor_max: float | None = None
+    extension_floor_unique_count = 0
     shoulder_residual_threshold: float | None = None
     shoulder_month_floor_source: str | None = None
     climatology_guardrail_source: str | None = None
@@ -820,6 +848,7 @@ def classify_rainfall(
             ),
             climatology_min_wet_year_fraction=climatology_min_wet_year_fraction,
             low_confidence_missing=low_confidence_missing,
+            cap_rolling_tail_at_global=cap_rolling_tail_at_global,
         )
         for col in guardrail_cols.columns:
             work[col] = guardrail_cols[col]
@@ -835,7 +864,8 @@ def classify_rainfall(
             if guardrail_diag["month_floor_source"] is not None else None
         )
         if onset_window_months == "auto" and bool(guardrail_diag["rolling_active"]):
-            onset_window_resolved = None
+            if onset_window_resolved is not None:
+                onset_window_resolved = 3
 
         segmented_df, wet_boundaries = segment_main_wet_season_fixed_threshold(
             work,
@@ -878,6 +908,26 @@ def classify_rainfall(
         # Actual seasonal runs use per-row guardrails when rolling climatology is
         # active.
         tail_floor = float(threshold_first)
+        if tail_floor_col in segmented_df.columns:
+            tail_values = pd.to_numeric(segmented_df[tail_floor_col], errors="coerce").dropna()
+            if len(tail_values):
+                tail_floor_min = float(tail_values.min())
+                tail_floor_max = float(tail_values.max())
+                tail_floor_unique_count = int(tail_values.round(6).nunique())
+                tail_floor_source = (
+                    "per_row"
+                    if tail_floor_unique_count > 1
+                    else "scalar"
+                )
+        if extension_threshold_col in segmented_df.columns:
+            extension_values = (
+                pd.to_numeric(segmented_df[extension_threshold_col], errors="coerce")
+                .dropna()
+            )
+            if len(extension_values):
+                extension_floor_min = float(extension_values.min())
+                extension_floor_max = float(extension_values.max())
+                extension_floor_unique_count = int(extension_values.round(6).nunique())
         segmented_df = refine_season_tails(
             segmented_df,
             rainfall_col=value_col,
@@ -893,12 +943,14 @@ def classify_rainfall(
             fragment_keep_col=fragment_keep_col,
             enforce_low_floor_inside_runs=True,
             min_refined_run_length=min_core_length_used,
+            require_low_floor_break_for_pruning=require_low_floor_break_for_pruning,
         )
-        if residual_col is not None and residual_col in segmented_df.columns:
-            segmented_df = segmented_df.drop(columns=[residual_col])
-        for col in (tail_floor_col, extension_threshold_col, fragment_keep_col):
-            if col in segmented_df.columns:
-                segmented_df = segmented_df.drop(columns=[col])
+        if not keep_debug_columns:
+            if residual_col is not None and residual_col in segmented_df.columns:
+                segmented_df = segmented_df.drop(columns=[residual_col])
+            for col in (tail_floor_col, extension_threshold_col, fragment_keep_col):
+                if col in segmented_df.columns:
+                    segmented_df = segmented_df.drop(columns=[col])
         out = assign_hydro_years(
             segmented_df,
             long_period_threshold=long_period_threshold,
@@ -935,6 +987,13 @@ def classify_rainfall(
         threshold_firstpass=threshold_first,
         threshold_secondpass=threshold_second,
         tail_floor=tail_floor,
+        tail_floor_source=tail_floor_source,
+        tail_floor_min=tail_floor_min,
+        tail_floor_max=tail_floor_max,
+        tail_floor_unique_count=tail_floor_unique_count,
+        extension_floor_min=extension_floor_min,
+        extension_floor_max=extension_floor_max,
+        extension_floor_unique_count=extension_floor_unique_count,
         rainfall_si_override=rainfall_si_override,
         smooth_window_used=smooth_window_used,
         min_core_length_used=min_core_length_used,
@@ -979,8 +1038,6 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
     if config.fetch.enabled:
         from .fetch import (
             get_monthly_aoi_rainfall,
-            get_monthly_silo_rainfall,
-            get_monthly_era5_rainfall,
             load_vector,
         )
 
@@ -996,55 +1053,34 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
 
         gdf = load_vector(config.fetch.vector_path)
         source = config.fetch.source.lower().strip()
-        if source in {"auto", "chirps"}:
-            kwargs = {
-                "source": source,
-                "era5_zarr_path": config.fetch.era5_zarr_path,
-                "silo_base_url": config.fetch.silo_base_url,
-                "variable": config.fetch.variable,
-                "cache_dir": config.fetch.cache_dir,
-                "spatial_chunk": config.fetch.spatial_chunk,
-                "time_chunk": config.fetch.time_chunk,
-                "era5_fallback": config.fetch.era5_fallback,
-            }
-            if config.fetch.chirps_base_url:
-                kwargs["chirps_base_url"] = config.fetch.chirps_base_url
-            in_df = get_monthly_aoi_rainfall(
-                gdf,
-                start_year=config.fetch.start_year,
-                end_year=config.fetch.end_year,
-                **kwargs,
-            )
-        elif source == "era5":
+        if source == "era5":
             if not config.fetch.era5_zarr_path:
                 raise ValueError(
                     "fetch.era5_zarr_path is required when fetch.source='era5'"
                 )
-            in_df = get_monthly_era5_rainfall(
-                path=config.fetch.era5_zarr_path,
-                gdf=gdf,
-                start_year=config.fetch.start_year,
-                end_year=config.fetch.end_year,
-                variable=config.fetch.variable,
-                cache_dir=config.fetch.cache_dir,
-                spatial_chunk=config.fetch.spatial_chunk,
-                time_chunk=config.fetch.time_chunk,
-            )
-        elif source == "silo":
-            kwargs = {
-                "gdf": gdf,
-                "start_year": config.fetch.start_year,
-                "end_year": config.fetch.end_year,
-                "cache_dir": config.fetch.cache_dir,
-                "spatial_chunk": config.fetch.spatial_chunk,
-            }
-            if config.fetch.silo_base_url:
-                kwargs["base_url"] = config.fetch.silo_base_url
-            in_df = get_monthly_silo_rainfall(**kwargs)
-        else:
+        if source not in {"auto", "silo", "chirps", "era5"}:
             raise ValueError(
                 "fetch.source must be one of {'auto', 'silo', 'chirps', 'era5'}"
             )
+        kwargs = {
+            "source": source,
+            "era5_zarr_path": config.fetch.era5_zarr_path,
+            "silo_base_url": config.fetch.silo_base_url,
+            "variable": config.fetch.variable,
+            "cache_dir": config.fetch.cache_dir,
+            "spatial_chunk": config.fetch.spatial_chunk,
+            "time_chunk": config.fetch.time_chunk,
+            "temporal_batch_years": config.fetch.temporal_batch_years,
+            "era5_fallback": config.fetch.era5_fallback,
+        }
+        if config.fetch.chirps_base_url:
+            kwargs["chirps_base_url"] = config.fetch.chirps_base_url
+        in_df = get_monthly_aoi_rainfall(
+            gdf,
+            start_year=config.fetch.start_year,
+            end_year=config.fetch.end_year,
+            **kwargs,
+        )
     else:
         if config.input.csv_path is None:
             raise ValueError(
@@ -1087,6 +1123,9 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
             config.validation.max_consecutive_imputation_gap
         ),
         raise_on_validation_error=config.validation.raise_on_error,
+        cap_rolling_tail_at_global=config.algorithm.cap_rolling_tail_at_global,
+        keep_debug_columns=config.algorithm.keep_debug_columns,
+        require_low_floor_break_for_pruning=config.algorithm.require_low_floor_break_for_pruning,
     )
 
     output_path = Path(config.output.output_csv)

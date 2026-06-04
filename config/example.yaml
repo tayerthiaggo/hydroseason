@@ -28,6 +28,9 @@ algorithm:
   climatology_window_mode: trailing
   climatology_min_month_observations: 5
   climatology_min_wet_year_fraction: 0.60
+  cap_rolling_tail_at_global: true
+  keep_debug_columns: false
+  require_low_floor_break_for_pruning: true
 
 validation:
   max_fraction_missing: 0.1
@@ -50,4 +53,5 @@ fetch:
   cache_dir: data/fetch_cache
   spatial_chunk: auto
   time_chunk: auto
+  temporal_batch_years: auto
   era5_fallback: true

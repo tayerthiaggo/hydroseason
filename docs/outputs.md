@@ -29,12 +29,16 @@ The result preserves the input columns and appends hydrological labels and diagn
 | `wet_total`, `dry_total` | Annual wet/dry totals for the default rainfall column. |
 | `wet_month_count`, `dry_month_count` | Annual wet/dry month counts. |
 | `dry_event_count` | Dry-season months with values above `nonzero_threshold`. |
-| `Rain_Smoothed` | Three-month centred rolling-mean rainfall (alias of `Smoothed`, rainfall workflow only). |
+| `Smoothed` | Three-month centred rolling-mean rainfall (rainfall workflow only). |
 | `Rain_wet_season_mm`, `Rain_dry_season_mm` | Per-hydro-year wet/dry rainfall totals (Tayer et al. 2026 aliases). |
 | `Dry_month_count`, `Dry_season_rain_count` | Per-hydro-year dry-month and rainy-dry-month counts (Tayer et al. 2026 aliases). |
 | `Annual_SPI` | Z-score of annual rainfall across the record (rainfall workflow). |
-| `Year_Class_SPI` | Annual class from `Annual_SPI`: `Dry` (SPI < \u22121), `Regular` (\u22121 \u2264 SPI \u2264 +1), `Wet` (SPI > +1). |
-| `Drought_Category` | Categorical bin from `Dry_month_count`: `No dry` (0), `Minimal` (1\u20132), `Regular` (3\u20136), `Prolonged` (\u22657). |
+| `Year_Class_SPI` | Annual class from `Annual_SPI`: `Dry` (SPI < −1), `Regular` (−1 ≤ SPI ≤ +1), `Wet` (SPI > +1). |
+| `Drought_Category` | Categorical bin from `Dry_month_count`: `No dry` (0), `Minimal` (1–2), `Regular` (3–6), `Prolonged` (≥7). |
+| `_TailFloor` | Local/global tail-floor guardrail values (preserved when `keep_debug_columns=True`). |
+| `_ExtensionFloor` | Local/global shoulder-extension guardrail values (preserved when `keep_debug_columns=True`). |
+| `_BaselineWetMonth` | Boolean flag marking stable climatological wet months in the rolling window (preserved when `keep_debug_columns=True`). |
+| `_STL_Residual` | STL residual values used for shoulder extension filtering (preserved when `keep_debug_columns=True`). |
 
 ## Diagnostics
 
@@ -48,7 +52,10 @@ The result preserves the input columns and appends hydrological labels and diagn
 | `fallback_month_used` | Target month used when choosing a recovered real Wet onset after a long accepted-onset gap. |
 | `threshold_firstpass` | First-pass wet-season threshold. |
 | `threshold_secondpass` | Tail-refinement threshold. |
-| `tail_floor` | Raw-rainfall floor used to trim Wet edges and set the minimum shoulder-extension gate. |
+| `tail_floor` | Global fallback raw-rainfall floor used by the first pass. Rolling runs may use per-row `_TailFloor` values instead. |
+| `tail_floor_source` | `scalar` when the active tail floor is one value, `per_row` when rolling/month-aware guardrails produced multiple active values, or `null` when skipped. |
+| `tail_floor_min`, `tail_floor_max`, `tail_floor_unique_count` | Summary of actual active `_TailFloor` values used in the seasonal run. |
+| `extension_floor_min`, `extension_floor_max`, `extension_floor_unique_count` | Summary of actual active `_ExtensionFloor` values used for shoulder absorption. |
 | `smooth_window_used` | Resolved centred smoothing window used by the seasonal pipeline. |
 | `min_core_length_used` | Resolved minimum wet-core length required to cross fixed hydrological-year boundaries. |
 | `onset_window_months_used` | Resolved onset acceptance window; `null` means disabled. |
@@ -81,7 +88,7 @@ from hydroseason import compute_season_metrics
 result = compute_season_metrics(result, value_col="Rainfall_mm")
 ```
 
-`compute_annual_spi_categories()` appends the annual rainfall SPI z-score (`Annual_SPI`), the wet/regular/dry year class (`Year_Class_SPI`), and the dry-month drought bin (`Drought_Category`). This step runs automatically inside `classify_rainfall()` for rainfall workflows.
+`compute_annual_spi_categories()` appends the annual rainfall SPI z-score (`Annual_SPI`), the wet/regular/dry year class (`Year_Class_SPI`), and the dry-month drought bin (`Drought_Category`). `Annual_SPI` is computed from hydrological-year rainfall totals using the sample standard deviation (`ddof=1`). This step runs automatically inside `classify_rainfall()` for rainfall workflows.
 
 ```python
 from hydroseason.metrics import compute_annual_spi_categories
@@ -109,4 +116,3 @@ Static image export for report figures is intentionally deferred from the first
 public release. The current export bundle focuses on self-contained interactive
 HTML plus CSV/JSON outputs; PNG/SVG export can be added later once the image
 backend, browser requirements, and figure sizing defaults are settled.
-

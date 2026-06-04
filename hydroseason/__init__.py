@@ -110,12 +110,14 @@ try:
         plot_dashboard,
         plot_diagnostics_table,
         plot_imputation_overview,
+        plot_monthly_climatology,
         plot_season_timeline,
         plot_stl_decomposition,
         show,
     )
     __all__ += [
         "plot_agg_monthly_rainfall",
+        "plot_monthly_climatology",
         "plot_season_timeline",
         "plot_stl_decomposition",
         "plot_annual_metrics",

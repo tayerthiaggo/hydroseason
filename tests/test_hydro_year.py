@@ -269,3 +269,30 @@ def test_assign_hydro_years_fallback_target_same_year_when_onset_precedes_fallba
     hy_changes = out[out["Hydro_Year"].ne(out["Hydro_Year"].shift()) & (out.index > 0)]
     for _, row in hy_changes.iterrows():
         assert row["SeasonType"] == "Wet"
+
+
+def test_assign_hydro_year_start_month_1():
+    """Verify that start_month=1 maps to calendar year (no +1 offset)."""
+    dates = pd.date_range("2020-01-01", periods=12, freq="MS")
+    df = pd.DataFrame({
+        "Date": dates,
+        "Year": dates.year,
+        "Month": dates.month,
+    })
+    
+    # Test assign_fixed_hydro_year
+    fixed = assign_fixed_hydro_year(df, start_month=1)
+    assert (fixed["Hydro_Year_fixed"] == 2020).all()
+
+    # Test assign_hydro_years
+    df["SeasonType"] = ["Wet"] * 3 + ["Dry"] * 9
+    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+    
+    out = assign_hydro_years(
+        df,
+        hydro_year_start_month=1,
+        fallback_month=1,
+        onset_window_months=1,
+    )
+    assert (out["Hydro_Year"] == 2020).all()
+

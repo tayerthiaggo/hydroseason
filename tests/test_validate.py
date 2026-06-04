@@ -134,3 +134,31 @@ def test_validate_year_month_input(monthly_df: pd.DataFrame):
     cleaned, report = validate_monthly_input(df)
     assert report.ok
     assert "Date" in cleaned.columns
+
+
+def test_validate_clips_negative_rainfall_with_warning():
+    df = pd.DataFrame(
+        {
+            "Date": pd.date_range("2020-01-01", periods=24, freq="MS"),
+            "Rainfall_mm": [10.0] * 23 + [-1.5],
+        }
+    )
+
+    cleaned, report = validate_monthly_input(df)
+
+    assert report.ok
+    assert cleaned["Rainfall_mm"].min() == 0.0
+    assert any("negative values" in warning for warning in report.warnings)
+
+
+def test_validate_duplicate_dates_metadata_ignored():
+    """Duplicate dates with identical rainfall should be recovered even if other columns differ."""
+    df = pd.DataFrame({
+        "Date": list(pd.date_range("2020-01-01", periods=24, freq="MS")) + [pd.Timestamp("2020-01-01")],
+        "Rainfall_mm": [1.0] * 25,
+        "Extra_Metadata": ["original"] * 24 + ["different"],
+    })
+    cleaned, report = validate_monthly_input(df)
+    assert report.ok
+    assert len(cleaned) == 24
+    assert any("duplicate" in w.lower() for w in report.warnings)

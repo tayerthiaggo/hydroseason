@@ -363,7 +363,7 @@ def validate_monthly_input(
     n_dup = int(work.duplicated(subset=[date_col]).sum())
     if n_dup:
         # Check whether the duplicates are identical rows (safe to drop) or conflicting values
-        n_full_dup = int(work.duplicated().sum())
+        n_full_dup = int(work.duplicated(subset=[date_col, value_col]).sum())
         if n_full_dup == n_dup:
             # Exact duplicates — silently drop
             work = work.drop_duplicates(subset=[date_col], keep="last").reset_index(drop=True)
@@ -443,8 +443,9 @@ def validate_monthly_input(
     if (work[value_col] < 0).any():
         n_neg = int((work[value_col] < 0).sum())
         report.warnings.append(
-            f"{n_neg} negative values in '{value_col}'; rainfall (mm) must be non-negative."
+            f"{n_neg} negative values in '{value_col}'; clipped to 0.0 (rainfall must be non-negative)."
         )
+        work[value_col] = work[value_col].clip(lower=0.0)
 
     # ---- constant / all-zero check (warning only — seasonality analysis will be degenerate)
     if work[value_col].nunique() <= 1:

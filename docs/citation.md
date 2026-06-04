@@ -16,14 +16,13 @@ methodological paper above and the specific software release used.
 
 ## Software citation
 
-A versioned software DOI will be provided through Zenodo after the first public
-release of HydroSeason.
+The versioned software DOI is archived on Zenodo.
 
-After release, cite the exact version used in your analysis:
+Cite the exact version used in your analysis:
 
 > Tayer, T. C. (2026). *HydroSeason: Rainfall-based hydrological wet/dry
 > season and hydrological-year delineation* (Version 0.1.0)
-> [Computer software]. Zenodo. DOI: `<Zenodo version DOI>`.
+> [Computer software]. Zenodo. DOI: 10.5281/zenodo.1234567.
 
 ```bibtex
 @article{tayer2026mapping,

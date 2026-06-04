@@ -108,18 +108,34 @@ def circular_stats(climatology_values: np.ndarray) -> CircularStats:
 
 
 def _label_wet_dry_unimodal(values: np.ndarray, peak_month: int) -> np.ndarray:
-    """Half-circle around the peak month is Wet; the other half is Dry.
+    """Climatology-aware wet/dry labeling for unimodal regimes.
 
-    Equivalent to: months whose angular distance from peak <= 3 months → Wet.
+    Uses circular concentration R to determine the width of the wet season:
+    - R >= 0.833 -> 1 (3 wet months: peak +/- 1)
+    - 0.50 <= R < 0.833 -> 2 (5 wet months: peak +/- 2)
+    - R < 0.50 -> 3 (7 wet months: peak +/- 3)
     """
+    stats = circular_stats(values)
+    R = stats.concentration_R
+
+    if R >= 0.833:
+        max_diff = 1
+    elif R >= 0.50:
+        max_diff = 2
+    else:
+        max_diff = 3
+
     months = np.arange(1, 13)
     diff = np.minimum((months - peak_month) % 12, (peak_month - months) % 12)
-    return np.where(diff <= 2, "Wet", "Dry")  # 5 wet months (peak +/- 2) is conservative
+    return np.where(diff <= max_diff, "Wet", "Dry")
+
 
 
 def _label_wet_dry_bimodal(values: np.ndarray) -> np.ndarray:
     """For bimodal climates, label months above the median climatological value as Wet."""
     threshold = float(np.median(values))
+    if threshold <= 0.0 and (values > 0.0).any():
+        threshold = float(np.min(values[values > 0.0]))
     return np.where(values >= threshold, "Wet", "Dry")
 
 

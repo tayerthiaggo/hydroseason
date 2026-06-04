@@ -278,7 +278,8 @@ def read_rainfall(
         )
 
     if source_norm == "csv":
-        return pd.read_csv(path, **read_csv_kwargs)
+        df = pd.read_csv(path, **read_csv_kwargs)
+        return _normalise_generic_csv(df, value_col=value_col)
 
     # auto detect: BoM has an explicit product code / monthly precipitation column.
     with path.open("r", encoding="utf-8", errors="replace") as fh:
@@ -299,7 +300,101 @@ def read_rainfall(
         return read_silo(path, variable=silo_variable, output_col=value_col)
 
     logger.info("read_rainfall(auto): falling back to pandas.read_csv.")
-    return pd.read_csv(path, **read_csv_kwargs)
+    df = pd.read_csv(path, **read_csv_kwargs)
+    return _normalise_generic_csv(df, value_col=value_col)
+
+
+def _normalise_generic_csv(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
+    df = df.copy()
+    
+    date_cols = [c for c in df.columns if str(c).lower() in {"date", "timestamp", "time", "dt"}]
+    year_cols = [c for c in df.columns if str(c).lower() == "year"]
+    month_cols = [c for c in df.columns if str(c).lower() == "month"]
+    
+    if date_cols:
+        date_col = date_cols[0]
+        # try parsing. If integers (like 20100101), converting to string first helps
+        if pd.api.types.is_numeric_dtype(df[date_col]):
+            df["Date"] = pd.to_datetime(df[date_col].astype(str), errors="coerce")
+        else:
+            df["Date"] = pd.to_datetime(df[date_col], errors="coerce")
+    elif year_cols and month_cols:
+        y_col = year_cols[0]
+        m_col = month_cols[0]
+        df["Date"] = pd.to_datetime(
+            pd.DataFrame({
+                "year": df[y_col].astype(int),
+                "month": df[m_col].astype(int),
+                "day": 1
+            }),
+            errors="coerce"
+        )
+    else:
+        first_col = df.columns[0]
+        df["Date"] = pd.to_datetime(df[first_col].astype(str), errors="coerce")
+        
+    df["Year"] = df["Date"].dt.year
+    df["Month"] = df["Date"].dt.month
+    
+    if value_col not in df.columns:
+        exact_ci = [c for c in df.columns if str(c).lower() == value_col.lower()]
+        if exact_ci:
+            df = df.rename(columns={exact_ci[0]: value_col})
+        else:
+            exact_rain_names = {
+                "rain",
+                "rain_mm",
+                "rainfall",
+                "rainfall_mm",
+                "precip",
+                "precip_mm",
+                "precipitation",
+                "ppt",
+                "pr",
+                "val",
+                "value",
+                "q",
+            }
+            rain_tokens = ("rain", "rainfall", "precip", "precipitation", "ppt")
+            protected_names = {"date", "year", "month", "timestamp", "time", "dt"}
+
+            def _normalised_name(col) -> str:
+                return str(col).strip().lower().replace(" ", "_")
+
+            matched_cols = [
+                c for c in df.columns
+                if (
+                    _normalised_name(c) in exact_rain_names
+                    or any(token in _normalised_name(c) for token in rain_tokens)
+                )
+            ]
+            candidate_cols = [
+                c for c in matched_cols
+                if _normalised_name(c) not in protected_names
+            ]
+            
+            if candidate_cols:
+                df = df.rename(columns={candidate_cols[0]: value_col})
+            else:
+                other_cols = [
+                    c for c in df.columns
+                    if str(c) not in {"Date", "Year", "Month"}
+                    and _normalised_name(c) not in protected_names
+                ]
+                if other_cols:
+                    df = df.rename(columns={other_cols[0]: value_col})
+                    
+    if value_col in df.columns:
+        df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
+        
+    keep_cols = ["Date", "Year", "Month"]
+    if value_col in df.columns:
+        keep_cols.append(value_col)
+    
+    df = df[keep_cols].dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+    df["Year"] = df["Year"].astype(int)
+    df["Month"] = df["Month"].astype(int)
+    return df
 
 
 # ---------------------------------------------------------------------------

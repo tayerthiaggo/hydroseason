@@ -1,7 +1,10 @@
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
 from hydroseason.metrics import compute_end_dry_metrics
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 END_DRY_COLS = [
@@ -32,7 +35,7 @@ def test_compute_end_dry_metrics_synthetic():
 
 
 def test_compute_end_dry_metrics_reproduces_dataset2_reference():
-    df = pd.read_csv("tests/fixtures/DATASET2.csv")
+    df = pd.read_csv(FIXTURES / "DATASET2.csv")
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
 
     out = compute_end_dry_metrics(

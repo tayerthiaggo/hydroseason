@@ -5,9 +5,12 @@ import pytest
 
 from hydroseason.cli import main
 
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
 
 def test_cli_run(tmp_path: Path):
-    in_csv = Path("tests/fixtures/monthly_rainfall.csv")
+    in_csv = FIXTURES / "monthly_rainfall.csv"
     out_csv = tmp_path / "delineated.csv"
     cfg = tmp_path / "config.yaml"
     cfg.write_text(
@@ -37,7 +40,7 @@ def test_cli_demo(tmp_path: Path, monkeypatch):
 
 
 def test_cli_rainfall_csv(tmp_path: Path):
-    in_csv = Path("tests/fixtures/monthly_rainfall.csv")
+    in_csv = FIXTURES / "monthly_rainfall.csv"
     out_csv = tmp_path / "rainfall_results.csv"
 
     rc = main(
@@ -74,7 +77,7 @@ def test_era5_variables_registry():
     assert temp.unit_offset == -273.15
 
 
-def test_cli_fetch_era5_routes_to_era5_fetch(tmp_path: Path, monkeypatch):
+def test_cli_fetch_era5_routes_to_aoi_wrapper_with_metadata(tmp_path: Path, monkeypatch):
     from hydroseason import cli as cli_mod
 
     out_csv = tmp_path / "era5_fetch.csv"
@@ -85,21 +88,24 @@ def test_cli_fetch_era5_routes_to_era5_fetch(tmp_path: Path, monkeypatch):
         calls["vector"] = path
         return object()
 
-    def fake_get_monthly_era5_rainfall(**kwargs):
-        calls["era5"] = kwargs
+    def fake_get_monthly_aoi_rainfall(**kwargs):
+        calls["aoi"] = kwargs
         return pd.DataFrame(
             {
                 "Date": ["2020-01-01"],
                 "Year": [2020],
                 "Month": [1],
                 "Rainfall_mm": [123.0],
+                "Data_Source": ["ERA5"],
+                "Data_Product": ["ERA5 hourly ARCO Zarr"],
+                "Fetch_Note": ["exact path"],
             }
         )
 
     monkeypatch.setattr("hydroseason.fetch.load_vector", fake_load_vector)
     monkeypatch.setattr(
-        "hydroseason.fetch.get_monthly_era5_rainfall",
-        fake_get_monthly_era5_rainfall,
+        "hydroseason.fetch.get_monthly_aoi_rainfall",
+        fake_get_monthly_aoi_rainfall,
     )
 
     rc = cli_mod.main(
@@ -123,11 +129,15 @@ def test_cli_fetch_era5_routes_to_era5_fetch(tmp_path: Path, monkeypatch):
     assert rc == 0
     assert out_csv.exists()
     assert calls["vector"] == "aoi.kml"
-    assert calls["era5"]["path"] == "gs://example/store.zarr"
-    assert calls["era5"]["time_chunk"] == "auto"
+    assert calls["aoi"]["source"] == "era5"
+    assert calls["aoi"]["era5_zarr_path"] == "gs://example/store.zarr"
+    assert calls["aoi"]["time_chunk"] == "auto"
+    assert calls["aoi"]["temporal_batch_years"] == "auto"
+    out = pd.read_csv(out_csv)
+    assert out.loc[0, "Data_Source"] == "ERA5"
 
 
-def test_cli_fetch_silo_routes_to_silo_fetch(tmp_path: Path, monkeypatch):
+def test_cli_fetch_silo_routes_to_aoi_wrapper_with_metadata(tmp_path: Path, monkeypatch):
     from hydroseason import cli as cli_mod
 
     out_csv = tmp_path / "silo_fetch.csv"
@@ -138,21 +148,24 @@ def test_cli_fetch_silo_routes_to_silo_fetch(tmp_path: Path, monkeypatch):
         calls["vector"] = path
         return object()
 
-    def fake_get_monthly_silo_rainfall(**kwargs):
-        calls["silo"] = kwargs
+    def fake_get_monthly_aoi_rainfall(**kwargs):
+        calls["aoi"] = kwargs
         return pd.DataFrame(
             {
                 "Date": ["2020-01-01"],
                 "Year": [2020],
                 "Month": [1],
                 "Rainfall_mm": [100.0],
+                "Data_Source": ["SILO"],
+                "Data_Product": ["SILO monthly rainfall"],
+                "Fetch_Note": ["Australian gridded monthly rainfall default"],
             }
         )
 
     monkeypatch.setattr("hydroseason.fetch.load_vector", fake_load_vector)
     monkeypatch.setattr(
-        "hydroseason.fetch.get_monthly_silo_rainfall",
-        fake_get_monthly_silo_rainfall,
+        "hydroseason.fetch.get_monthly_aoi_rainfall",
+        fake_get_monthly_aoi_rainfall,
     )
 
     rc = cli_mod.main(
@@ -176,10 +189,13 @@ def test_cli_fetch_silo_routes_to_silo_fetch(tmp_path: Path, monkeypatch):
     assert rc == 0
     assert out_csv.exists()
     assert calls["vector"] == "aoi.kmz"
+    assert calls["aoi"]["source"] == "silo"
     assert (
-        calls["silo"]["base_url"]
+        calls["aoi"]["silo_base_url"]
         == "https://example.test/silo/monthly_rain"
     )
+    out = pd.read_csv(out_csv)
+    assert out.loc[0, "Data_Source"] == "SILO"
 
 
 def test_cli_fetch_auto_routes_to_aoi_fetch(tmp_path: Path, monkeypatch):

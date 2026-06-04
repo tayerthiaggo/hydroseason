@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_p = sub.add_parser(
         "fetch",
         help=(
-            "Fetch monthly AOI-averaged rainfall (ERA5 or SILO) from "
+            "Fetch monthly AOI-averaged rainfall (auto/SILO/CHIRPS/ERA5) from "
             "GeoJSON/SHP/KML/KMZ/GPKG/GPCK vectors"
         ),
     )
@@ -54,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_p.add_argument("--cache-dir", default=None)
     fetch_p.add_argument("--spatial-chunk", default="auto")
     fetch_p.add_argument("--time-chunk", default="auto")
+    fetch_p.add_argument("--temporal-batch-years", default="auto")
     fetch_p.add_argument(
         "--era5-fallback",
         action=argparse.BooleanOptionalAction,
@@ -125,8 +126,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "fetch":
         from .fetch import (
             get_monthly_aoi_rainfall,
-            get_monthly_silo_rainfall,
-            get_monthly_era5_rainfall,
             load_vector,
         )
 
@@ -135,46 +134,23 @@ def main(argv: list[str] | None = None) -> int:
 
         gdf = load_vector(args.vector)
 
-        if args.source in {"auto", "chirps"}:
-            kwargs = {
-                "gdf": gdf,
-                "start_year": args.start_year,
-                "end_year": args.end_year,
-                "source": args.source,
-                "era5_zarr_path": args.path,
-                "silo_base_url": args.silo_base_url,
-                "variable": args.variable,
-                "cache_dir": args.cache_dir,
-                "spatial_chunk": args.spatial_chunk,
-                "time_chunk": args.time_chunk,
-                "era5_fallback": args.era5_fallback,
-            }
-            if args.chirps_base_url:
-                kwargs["chirps_base_url"] = args.chirps_base_url
-            monthly_df = get_monthly_aoi_rainfall(**kwargs)
-        elif args.source == "era5":
-            monthly_df = get_monthly_era5_rainfall(
-                path=args.path,
-                gdf=gdf,
-                start_year=args.start_year,
-                end_year=args.end_year,
-                variable=args.variable,
-                cache_dir=args.cache_dir,
-                spatial_chunk=args.spatial_chunk,
-                time_chunk=args.time_chunk,
-            )
-        else:
-            kwargs = {
-                "gdf": gdf,
-                "start_year": args.start_year,
-                "end_year": args.end_year,
-                "cache_dir": args.cache_dir,
-                "spatial_chunk": args.spatial_chunk,
-            }
-            silo_base_url = args.silo_base_url or args.path
-            if silo_base_url:
-                kwargs["base_url"] = silo_base_url
-            monthly_df = get_monthly_silo_rainfall(**kwargs)
+        kwargs = {
+            "gdf": gdf,
+            "start_year": args.start_year,
+            "end_year": args.end_year,
+            "source": args.source,
+            "era5_zarr_path": args.path,
+            "silo_base_url": args.silo_base_url or (args.path if args.source == "silo" else None),
+            "variable": args.variable,
+            "cache_dir": args.cache_dir,
+            "spatial_chunk": args.spatial_chunk,
+            "time_chunk": args.time_chunk,
+            "temporal_batch_years": args.temporal_batch_years,
+            "era5_fallback": args.era5_fallback,
+        }
+        if args.chirps_base_url:
+            kwargs["chirps_base_url"] = args.chirps_base_url
+        monthly_df = get_monthly_aoi_rainfall(**kwargs)
         out_path = Path(args.output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         monthly_df.to_csv(out_path, index=False)

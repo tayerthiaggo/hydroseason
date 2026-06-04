@@ -331,6 +331,11 @@ def plot_agg_monthly_rainfall(
     return fig
 
 
+def plot_monthly_climatology(*args, **kwargs) -> go.Figure:
+    """Backward-compatible alias for :func:`plot_agg_monthly_rainfall`."""
+    return plot_agg_monthly_rainfall(*args, **kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Figure 3 - Imputation overview
 # ---------------------------------------------------------------------------
@@ -491,6 +496,15 @@ def plot_annual_metrics(
     if dry_col not in df.columns:
         dry_col = fallback_dry_col
 
+    if wet_months_col not in df.columns:
+        if "Wet_month_count" in df.columns:
+            wet_months_col = "Wet_month_count"
+        elif "wet_month_count" in df.columns:
+            wet_months_col = "wet_month_count"
+        else:
+            df = df.copy()
+            df[wet_months_col] = 0
+
     annual = (
         df[[hydro_year_col, wet_col, dry_col, wet_months_col]]
         .drop_duplicates(subset=[hydro_year_col])
@@ -600,6 +614,18 @@ def plot_diagnostics_table(
         ("Threshold (1st pass)", _fmt_optional("threshold_firstpass", "{:.1f}")),
         ("Threshold (2nd pass)", _fmt_optional("threshold_secondpass", "{:.1f}")),
         ("Tail floor", _fmt_optional("tail_floor", "{:.1f}")),
+        ("Tail floor source", _value("tail_floor_source", "N/A") if _value("tail_floor_source") is not None else "N/A"),
+        ("Tail floor range", (
+            f"{_value('tail_floor_min'):.1f}-{_value('tail_floor_max'):.1f}"
+            if _value("tail_floor_min") is not None and _value("tail_floor_max") is not None
+            else "N/A"
+        )),
+        ("Tail floor unique values", _value("tail_floor_unique_count", "N/A")),
+        ("Extension floor range", (
+            f"{_value('extension_floor_min'):.1f}-{_value('extension_floor_max'):.1f}"
+            if _value("extension_floor_min") is not None and _value("extension_floor_max") is not None
+            else "N/A"
+        )),
         ("Smooth window used", _value("smooth_window_used", "N/A") if _value("smooth_window_used") is not None else "N/A"),
         ("Min core length used", _value("min_core_length_used", "N/A") if _value("min_core_length_used") is not None else "N/A"),
         ("Onset window used", _value("onset_window_months_used") if _value("onset_window_months_used") is not None else "disabled"),

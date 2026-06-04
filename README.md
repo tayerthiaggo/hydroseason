@@ -143,6 +143,9 @@ No worries. HydroSeason can apply rainfall data imputation during validation,
 fill supported missing monthly values, and keep track of what was changed.
 The diagnostics tell you how many values were imputed, which gaps were too long
 to fill automatically, and how missing data affects confidence in the result.
+Negative rainfall values are clipped to 0.0 with a validation warning. Annual
+SPI classes use the sample standard deviation of hydrological-year rainfall
+totals, matching the short-record empirical workflow.
 
 ## What You Get
 
@@ -174,6 +177,11 @@ HydroSeason supports:
 - Bureau of Meteorology (BoM Australia) monthly rainfall exports;
 - SILO point rainfall files and gridded polygon rainfall for Australia;
 - CHIRPS-first global polygon rainfall, with ERA5 available as backup or exact mode.
+
+AOI wrapper and CLI fetches include `Data_Source`, `Data_Product`, and
+`Fetch_Note` columns. If a request mixes CHIRPS, ERA5, or SILO, keep that
+metadata with the analysis and consider sensitivity checks near source
+transitions.
 
 ## Command Line
 

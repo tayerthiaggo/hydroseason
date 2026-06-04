@@ -54,6 +54,50 @@ def mean_monthly_rainfall(
 # ---------------------------------------------------------------------------
 # STL seasonality strength (primary, transferable)
 # ---------------------------------------------------------------------------
+_STL_CACHE: dict = {}
+
+
+def get_stl_fit(df: pd.DataFrame, date_col: str, value_col: str):
+    """Return cached or newly computed STL fit result."""
+    try:
+        val_sum = float(df[value_col].sum())
+    except Exception:
+        val_sum = 0.0
+    key = (id(df), len(df), date_col, value_col, val_sum)
+    if key in _STL_CACHE:
+        return _STL_CACHE[key]
+
+    from statsmodels.tsa.seasonal import STL
+
+    work = df[[date_col, value_col]].copy()
+    work[date_col] = pd.to_datetime(work[date_col])
+    series = work.set_index(date_col).sort_index().asfreq("MS")
+
+    if series[value_col].isna().any():
+        series[value_col] = series[value_col].interpolate(method="linear", limit_direction="both")
+    if series[value_col].isna().any():
+        fit = None
+    else:
+        try:
+            fit = STL(series[value_col], period=12, robust=True).fit()
+        except Exception as exc:
+            warnings.warn(
+                f"STL decomposition failed ({exc}); residuals/strength calculation affected.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            fit = None
+
+    if len(_STL_CACHE) > 50:
+        _STL_CACHE.clear()
+
+    _STL_CACHE[key] = fit
+    return fit
+
+
+# ---------------------------------------------------------------------------
+# STL seasonality strength (primary, transferable)
+# ---------------------------------------------------------------------------
 def stl_seasonality_strength(
     df: pd.DataFrame,
     date_col: str = "Date",
@@ -66,30 +110,12 @@ def stl_seasonality_strength(
     Unit-free in [0, 1]; works for any monthly variable.
     Reference: Wang, Smith, Hyndman (2006); Hyndman feasts/tsfeatures.
     """
-    from statsmodels.tsa.seasonal import STL  # local import keeps base import light
-
-    series = df[[date_col, value_col]].copy()
-    series[date_col] = pd.to_datetime(series[date_col])
-    series = series.set_index(date_col).asfreq("MS")
-
-    # STL fails on NaN; we expect validate.py to have interpolated already.
-    if series[value_col].isna().any():
-        series[value_col] = series[value_col].interpolate(method="linear", limit_direction="both")
-    if series[value_col].isna().any():
+    fit = get_stl_fit(df, date_col, value_col)
+    if fit is None:
         return 0.0
 
-    try:
-        stl = STL(series[value_col], period=12, robust=True).fit()
-    except Exception as exc:  # noqa: BLE001 — STL can fail on degenerate series
-        warnings.warn(
-            f"STL decomposition failed ({exc}); seasonality strength set to 0.0.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return 0.0
-
-    resid = stl.resid.values
-    seasonal = stl.seasonal.values
+    resid = fit.resid.values
+    seasonal = fit.seasonal.values
     denom = np.var(resid + seasonal)
     if denom <= 0:
         return 0.0
@@ -108,29 +134,16 @@ def stl_residuals(
     trend + seasonal components. Positive outliers are useful for distinguishing
     isolated storm events from climatologically plausible shoulder months.
     """
-    from statsmodels.tsa.seasonal import STL  # local import keeps base import light
+    fit = get_stl_fit(df, date_col, value_col)
+    if fit is None:
+        return pd.Series(np.nan, index=df.index, dtype=float)
 
+    # Align residuals back to original df dates
     work = df[[date_col, value_col]].copy()
     work[date_col] = pd.to_datetime(work[date_col])
-    series = work.set_index(date_col).sort_index().asfreq("MS")
-
-    if series[value_col].isna().any():
-        series[value_col] = series[value_col].interpolate(method="linear", limit_direction="both")
-    if series[value_col].isna().any():
-        return pd.Series(np.nan, index=df.index, dtype=float)
-
-    try:
-        fit = STL(series[value_col], period=12, robust=True).fit()
-    except Exception as exc:  # noqa: BLE001 — STL can fail on degenerate series
-        warnings.warn(
-            f"STL decomposition failed ({exc}); residuals set to NaN.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return pd.Series(np.nan, index=df.index, dtype=float)
-
-    residual_by_date = pd.Series(fit.resid, index=series.index)
-    aligned = pd.to_datetime(df[date_col]).map(residual_by_date)
+    
+    residual_by_date = pd.Series(fit.resid, index=fit.resid.index)
+    aligned = work[date_col].map(residual_by_date)
     return pd.Series(aligned.to_numpy(dtype=float), index=df.index, dtype=float)
 
 

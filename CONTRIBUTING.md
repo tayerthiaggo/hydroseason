@@ -22,7 +22,7 @@ On Windows, set `OMP_NUM_THREADS=1` to silence the KMeans/MKL warning.
 Optional checks:
 
 ```bash
-ruff check hydroseason            # lint
+ruff check hydroseason tests      # lint
 python scripts/stress_test.py --cases 100 --seed 42
 python -m mkdocs build --strict   # docs build
 ```

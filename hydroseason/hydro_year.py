@@ -8,6 +8,8 @@ import pandas as pd
 
 def assign_hydro_year(date: pd.Timestamp, start_month: int) -> int:
     """Calendar-style hydro year for a single date given a fixed start month."""
+    if start_month == 1:
+        return date.year
     return date.year + 1 if date.month >= start_month else date.year
 
 

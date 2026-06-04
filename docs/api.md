@@ -41,6 +41,7 @@ The reference below is generated from the package docstrings with `mkdocstrings`
       members:
         - plot_season_timeline
         - plot_agg_monthly_rainfall
+        - plot_monthly_climatology
         - plot_stl_decomposition
         - plot_annual_metrics
         - plot_dashboard

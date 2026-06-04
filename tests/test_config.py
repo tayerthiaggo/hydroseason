@@ -33,6 +33,7 @@ output:
     assert loaded.validation.raise_on_error is True
     assert loaded.fetch.source == "auto"
     assert loaded.fetch.time_chunk == "auto"
+    assert loaded.fetch.temporal_batch_years == "auto"
     assert loaded.fetch.era5_fallback is True
 
 
@@ -83,6 +84,7 @@ def test_example_config_loads():
     assert loaded.fetch.variable == "rainfall"
     assert loaded.fetch.source == "auto"
     assert loaded.fetch.time_chunk == "auto"
+    assert loaded.fetch.temporal_batch_years == "auto"
 
 
 def test_load_config_missing_output_points_to_example(tmp_path: Path):
@@ -137,3 +139,27 @@ output:
 
     with pytest.raises(KeyError, match="input.csv_path"):
         load_config(cfg)
+
+
+def test_load_config_type_coercion(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        """
+input:
+  csv_path: tests/fixtures/monthly_rainfall.csv
+output:
+  output_csv: out/results.csv
+algorithm:
+  smooth_window: "4"
+  climatology_window_years: "12"
+  climatology_min_wet_year_fraction: "0.8"
+""".strip(),
+        encoding="utf-8",
+    )
+    loaded = load_config(cfg)
+    assert loaded.algorithm.smooth_window == 4
+    assert isinstance(loaded.algorithm.smooth_window, int)
+    assert loaded.algorithm.climatology_window_years == 12
+    assert isinstance(loaded.algorithm.climatology_window_years, int)
+    assert loaded.algorithm.climatology_min_wet_year_fraction == 0.8
+    assert isinstance(loaded.algorithm.climatology_min_wet_year_fraction, float)

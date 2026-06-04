@@ -4,6 +4,7 @@ Verifies that all plot functions return ``plotly.graph_objects.Figure``
 and that the HTML report is written without error.
 """
 
+from pathlib import Path
 import pytest
 import pandas as pd
 import plotly.graph_objects as go
@@ -12,10 +13,12 @@ from types import SimpleNamespace
 import hydroseason
 from hydroseason.pipeline import classify_rainfall
 
+FIXTURES = Path(__file__).parent / "fixtures"
+
 
 @pytest.fixture
 def paper_df():
-    return pd.read_csv("tests/fixtures/tayer2026_input.csv")
+    return pd.read_csv(FIXTURES / "tayer2026_input.csv")
 
 
 @pytest.fixture
@@ -38,6 +41,11 @@ def test_plot_season_timeline_keeps_transition_rows(artifacts):
 
 def test_plot_agg_monthly_rainfall(artifacts):
     fig = hydroseason.plot_agg_monthly_rainfall(artifacts.result, artifacts.fixed_monthly)
+    assert isinstance(fig, go.Figure)
+
+
+def test_plot_monthly_climatology_alias(artifacts):
+    fig = hydroseason.plot_monthly_climatology(artifacts.result, artifacts.fixed_monthly)
     assert isinstance(fig, go.Figure)
 
 

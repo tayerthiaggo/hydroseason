@@ -10,6 +10,8 @@ from hydroseason.pipeline import (
     classify_rainfall_from_file,
 )
 
+FIXTURES = Path(__file__).parent / "fixtures"
+
 
 def test_classify_rainfall_df_one_liner(monthly_df: pd.DataFrame):
     result = classify_rainfall_df(monthly_df)
@@ -74,8 +76,12 @@ fetch:
     monkeypatch.setattr(fetch_mod, "load_vector", lambda _path: object())
     monkeypatch.setattr(
         fetch_mod,
-        "get_monthly_silo_rainfall",
-        lambda **_kwargs: monthly_df.copy(),
+        "get_monthly_aoi_rainfall",
+        lambda *_args, **_kwargs: monthly_df.assign(
+            Data_Source="SILO",
+            Data_Product="SILO monthly rainfall",
+            Fetch_Note="Australian gridded monthly rainfall default",
+        ),
     )
 
     result = run_pipeline(load_config(cfg))
@@ -200,6 +206,37 @@ def test_rolling_climatology_tracks_shifted_recent_wet_months():
     ]
 
 
+def test_rolling_guardrails_widen_unimodal_auto_onset_window():
+    rows = []
+    for year in range(1980, 2010):
+        for month in range(1, 13):
+            if year < 1995:
+                rain = 120.0 if month in {11, 12, 1} else 2.0
+            else:
+                rain = 120.0 if month in {12, 1, 2} else 2.0
+            rows.append(
+                {
+                    "Date": pd.Timestamp(year=year, month=month, day=1),
+                    "Year": year,
+                    "Month": month,
+                    "Rainfall_mm": rain,
+                }
+            )
+    df = pd.DataFrame(rows)
+
+    artifacts = classify_rainfall(
+        df,
+        climatology_window="rolling",
+        climatology_window_years=10,
+        onset_window_months="auto",
+    )
+    diag = artifacts.diagnostics
+
+    if diag.regime == "seasonal" and not diag.is_bimodal:
+        assert diag.climatology_guardrail_source in {"rolling_trailing", "mixed"}
+        assert diag.onset_window_months_used == 3
+
+
 def test_arid_regime_core_floor_prevents_spurious_wet_core():
     """In an arid record the non-zero quantile collapses to ~mm. The site-scaled
     core floor must protect the wet-core threshold so trivial rainfall events
@@ -256,7 +293,7 @@ def test_residual_gate_can_be_disabled(monthly_df: pd.DataFrame):
 
 
 def test_low_1987_88_wet_season_is_not_merged():
-    df = pd.read_csv("tests/fixtures/DATASET2.csv")
+    df = pd.read_csv(FIXTURES / "DATASET2.csv")
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
 
     artifacts = classify_rainfall(df)
@@ -276,7 +313,7 @@ def test_low_1987_88_wet_season_is_not_merged():
 
 
 def test_ten_year_stability_guard_blocks_unstable_false_shoulders():
-    df = pd.read_csv("tests/fixtures/DATASET2.csv")
+    df = pd.read_csv(FIXTURES / "DATASET2.csv")
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
 
     artifacts = classify_rainfall(df)
@@ -289,6 +326,26 @@ def test_ten_year_stability_guard_blocks_unstable_false_shoulders():
     assert by_date.loc[pd.Timestamp("2010-04-01"), "SeasonType"] == "Dry"
     assert by_date.loc[pd.Timestamp("2022-09-01"), "SeasonType"] == "Dry"
     assert by_date.loc[pd.Timestamp("2022-10-01"), "SeasonType"] == "Dry"
+
+
+def test_rolling_guardrail_diagnostics_summarise_actual_tail_floors():
+    df = pd.read_csv(FIXTURES / "DATASET2.csv")
+    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
+
+    artifacts = classify_rainfall(df, keep_debug_columns=True)
+    diag = artifacts.diagnostics
+    tail_values = artifacts.result["_TailFloor"].dropna().round(6)
+
+    assert len(tail_values) > 0
+    assert diag.tail_floor == diag.threshold_firstpass
+    assert round(diag.tail_floor_min, 6) == float(tail_values.min())
+    assert round(diag.tail_floor_max, 6) == float(tail_values.max())
+    assert diag.tail_floor_unique_count == int(tail_values.nunique())
+    assert diag.tail_floor_source == (
+        "per_row" if tail_values.nunique() > 1 else "scalar"
+    )
+    assert diag.extension_floor_min is not None
+    assert diag.extension_floor_max is not None
 
 
 def test_shoulder_month_quantile_validates_range(monthly_df: pd.DataFrame):

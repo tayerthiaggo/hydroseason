@@ -35,12 +35,19 @@ records are returned as `Unclassified`.
 The fixed seasonal baseline is the long-record reference. By default it uses
 circular climatology, which treats months as positions on a circle and identifies
 the dominant wet-season timing. This gives a transferable baseline start month
-without assuming that every catchment has the same wet season.
+without assuming that every catchment has the same wet season. For unimodal
+records, the fixed Wet width is also adaptive: sharp peaks use 3 Wet months,
+moderate peaks use 5, and diffuse peaks use 7.
 
 The dynamic season step then works year by year. It smooths monthly rainfall
 while preserving real zero-rain runs, finds the dominant wet-season core in each
 fixed hydrological year, trims low-rainfall smoothing bleed, and extends only
 valid build-up or recession shoulders.
+
+Validation clips negative rainfall values to 0.0 and records a warning, because
+rainfall totals cannot be negative. Annual SPI categories use the sample standard
+deviation (`ddof=1`) of hydrological-year rainfall totals so short records match
+the empirical Tayer et al. workflow.
 
 ## Recent Local Normal
 
@@ -103,3 +110,7 @@ For short records, sparse records, or low-confidence missing data, HydroSeason
 falls back toward the global climatology. For long records with enough data, it
 uses recent local normal so current conditions can matter more than distant
 historical conditions.
+
+---
+
+See [Algorithm](algorithm.md) for technical and mathematical implementation details, parameter mappings, and step-by-step logic.

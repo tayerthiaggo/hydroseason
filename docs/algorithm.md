@@ -2,6 +2,9 @@
 
 HydroSeason implements a monthly, rainfall-driven workflow for dynamic wet/dry season and hydrological-year delineation. The current package generalises the workflow described in the Tayer et al. (2026) supplementary methodology and adds validation, regime detection, diagnostics, Plotly reporting, and a reusable API.
 
+> [!NOTE]
+> See [Methods & Workflow](methods.md) for conceptual background and a high-level overview of the pipeline logic.
+
 ## Pipeline Stages
 
 1. Validate monthly input.
@@ -18,7 +21,8 @@ HydroSeason implements a monthly, rainfall-driven workflow for dynamic wet/dry s
    For seasonal records, HydroSeason smooths the monthly series while preserving zero months, finds the main wet-season core in each fixed hydrological year, and refines wet-season tails with raw-rainfall, site-scaled, and month-aware eligibility gates. Shoulder months can be absorbed when they are contiguous with a real wet core, exceed the rainfall/climatology gates, are unusually wet for their calendar month, and are not extreme positive STL-residual anomalies.
 
 5. Assign hydrological years and metrics.
-   Wet-season onsets define dynamic hydrological-year boundaries. The result uses the ending-year convention, so a hydrological year spanning December 1986 to November 1987 is labelled `1987`.
+   Wet-season onsets define dynamic hydrological-year boundaries. The result uses the ending-year convention, so a hydrological year spanning November 1986 to October 1987 is labelled `1987`.
+
 
 ## Regime Thresholds
 
@@ -35,7 +39,7 @@ The `regime_source` diagnostic records whether the final regime came from STL al
 
 Dynamic hydrological years are anchored to accepted dry-to-wet transitions. The `onset_window_months` parameter prevents mid-year wet pulses from creating spurious new hydrological years by only accepting onsets close to the climatological start month.
 
-By default, `smooth_window`, `min_core_length`, and `onset_window_months` are adaptive. HydroSeason resolves them from the circular concentration `R` and the bimodality flag: sharp unimodal regimes keep the conservative 3-month smoothing and +/-1-month onset filter, diffuse regimes get a wider smoothing/core gate, and bimodal or uniform regimes disable the single-anchor onset filter.
+By default, `smooth_window`, `min_core_length`, and `onset_window_months` are adaptive. HydroSeason resolves them from the circular concentration `R` and the bimodality flag: sharp unimodal regimes keep the conservative 3-month smoothing and +/-1-month onset filter, diffuse regimes get a wider smoothing/core gate, and bimodal or uniform regimes disable the single-anchor onset filter. The fixed circular Wet/Dry baseline also adapts its unimodal Wet width from `R`: sharp regimes use 3 Wet months, moderate regimes use 5, and diffuse regimes use 7.
 
 By default, tail guardrails use a rolling recent-normal climatology
 (`climatology_window="rolling"`, 10 trailing fixed hydrological years). For each
@@ -58,15 +62,17 @@ falls back to the full-record climatology and records the fallback count in
 diagnostics. Records shorter than two rolling windows use global guardrails to
 avoid overfitting short datasets.
 When rolling guardrails are active and `onset_window_months="auto"`, the onset
-window is disabled so newly shifted Wet onsets are not rejected for being far
-from the old whole-record start month.
+window is widened to 3 months so newly shifted Wet onsets are not rejected for
+being slightly far from the old whole-record start month, while still protecting
+against out-of-season noise.
 
 Before extension, positive raw-rainfall floors are applied inside smoothed Wet
 runs. Below-floor months become Dry breaks, and tiny fragments shorter than the
-resolved core-length gate are dissolved. This prevents a centred smoother from
-carrying low-rainfall months into the Wet season. Short fragments in the site's
-baseline Wet months are preserved, so genuinely weak wet seasons are not merged
-with adjacent years.
+resolved core-length gate are dissolved only when they touch an interior low-floor
+break by default. This prevents a centred smoother from carrying low-rainfall
+months into the Wet season without deleting genuinely weak baseline Wet months.
+Set `require_low_floor_break_for_pruning=False` to prune all short out-of-season
+fragments.
 
 Tail refinement uses four independent shoulder-eligibility checks:
 

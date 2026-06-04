@@ -39,6 +39,9 @@ algorithm:
   climatology_window_mode: trailing
   climatology_min_month_observations: 5
   climatology_min_wet_year_fraction: 0.60
+  cap_rolling_tail_at_global: true
+  keep_debug_columns: false
+  require_low_floor_break_for_pruning: true
 
 validation:
   max_fraction_missing: 0.1
@@ -59,6 +62,7 @@ fetch:
   cache_dir: data/fetch_cache
   spatial_chunk: auto
   time_chunk: auto
+  temporal_batch_years: auto
   era5_fallback: true
 ```
 
@@ -92,15 +96,19 @@ hydroseason run --config config/example.yaml
 | `climatology_window_mode` | `"trailing"` | Rolling-window alignment: `"trailing"` for recent/operational normal, `"centered"` for retrospective analysis. |
 | `climatology_min_month_observations` | `5` | Minimum observed values per calendar month before a local rolling window is trusted; otherwise global fallback is used. |
 | `climatology_min_wet_year_fraction` | `0.60` | Fraction of observed years in a rolling window that must clear the local tail floor before a locally labelled Wet month is treated as persistent. |
+| `cap_rolling_tail_at_global` | `True` | Cap the local rolling tail floor at the global tail floor. |
+| `keep_debug_columns` | `False` | Preserve intermediate columns `_TailFloor`, `_ExtensionFloor`, `_BaselineWetMonth`, and `_STL_Residual` in the results table when `True`. |
+| `require_low_floor_break_for_pruning` | `True` | Dissolve out-of-season short fragments only when they touch an interior low floor break. When `False`, all short out-of-season fragments are pruned. |
 
 ## Validation Parameters
 
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `max_fraction_missing` | `0.10` | Maximum tolerated missing fraction before validation reports an error. |
-| `max_gap_to_interpolate` | `2` | Maximum consecutive missing-month gap to interpolate. |
+| `max_gap_to_interpolate` | `2` | Warning threshold for consecutive missing-month gaps (gaps larger than this trigger a data quality warning; missing months are filled using climatology). |
 | `max_consecutive_imputation_gap` | `12` | Maximum consecutive missing-month gap HydroSeason will automatically impute. Longer gaps are left unresolved and reported as errors. |
-| `raise_on_error` | `True` | Raise validation errors instead of returning warnings only. |
+| `raise_on_validation_error` | `True` | If `True`, a validation failure raises a ValueError; otherwise it is recorded as a warning. |
+| `raise_on_error` | `True` | Deprecated alias of `raise_on_validation_error`. |
 
 ## Fetch Parameters
 
@@ -117,7 +125,12 @@ hydroseason run --config config/example.yaml
 | `cache_dir` | `None` | Optional cache directory for final monthly Parquet outputs and SILO annual NetCDF downloads. |
 | `spatial_chunk` | `"auto"` | Spatial chunk size for xarray/dask computation where relevant. |
 | `time_chunk` | `"auto"` | ERA5 hourly time chunk size. Lower this for large AOIs or low-memory machines. |
+| `temporal_batch_years` | `"auto"` | ERA5 compute batch size in years. Lower this for long records, large AOIs, or low-memory machines. |
 | `era5_fallback` | `True` | Allow ERA5 to fill years, AOIs, or recent months not covered by CHIRPS when `era5_zarr_path` is available. |
+
+Config-driven fetches route through the AOI wrapper, so output tables retain
+`Data_Source`, `Data_Product`, and `Fetch_Note` even when `source: silo` or
+`source: era5` is selected explicitly.
 
 Fetch-only SILO config:
 

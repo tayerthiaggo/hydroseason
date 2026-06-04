@@ -31,16 +31,34 @@ class HydroSeasonAccessor:
     def __init__(self, pandas_obj: pd.DataFrame) -> None:
         self._df = pandas_obj
 
+    def _get_cached_artifacts(self, **kwargs):
+        try:
+            data_hash = int(pd.util.hash_pandas_object(self._df, index=True).sum())
+        except Exception:
+            data_hash = None
+        cache_key = (kwargs, len(self._df), tuple(self._df.columns), tuple(self._df.dtypes.astype(str)), data_hash)
+        cache = getattr(self._df, "_hydroseason_cache", None)
+        if cache is not None:
+            cached_key, cached_arts = cache
+            if cached_key == cache_key:
+                return cached_arts
+
+        from .pipeline import classify_rainfall
+        arts = classify_rainfall(self._df, **kwargs)
+        try:
+            object.__setattr__(self._df, "_hydroseason_cache", (cache_key, arts))
+        except Exception:
+            pass
+        return arts
+
     # ------------------------------------------------------------------ pipeline
     def classify_rainfall_df(self, **kwargs) -> pd.DataFrame:
         """Run the full pipeline and return just the result ``DataFrame``."""
-        from .pipeline import classify_rainfall
-        return classify_rainfall(self._df, **kwargs).result
+        return self.classify_rainfall(**kwargs).result
 
     def classify_rainfall(self, **kwargs):
         """Run the full pipeline and return a :class:`PipelineArtifacts` bundle."""
-        from .pipeline import classify_rainfall
-        return classify_rainfall(self._df, **kwargs)
+        return self._get_cached_artifacts(**kwargs)
 
     # ------------------------------------------------------------------ plots
     def plot_timeline(self, **kwargs):
@@ -59,6 +77,10 @@ class HydroSeasonAccessor:
             arts = self.classify_rainfall()
             return plot_agg_monthly_rainfall(arts.result, arts.fixed_monthly, **kwargs)
         return plot_agg_monthly_rainfall(self._df, fixed_monthly, **kwargs)
+
+    def plot_monthly_climatology(self, fixed_monthly=None, **kwargs):
+        """Backward-compatible alias for ``plot_agg_monthly_rainfall``."""
+        return self.plot_agg_monthly_rainfall(fixed_monthly=fixed_monthly, **kwargs)
 
     def plot_stl(self, **kwargs):
         """``plot_stl_decomposition``."""

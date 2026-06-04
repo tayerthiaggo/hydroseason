@@ -6,6 +6,7 @@ import pytest
 
 from hydroseason.fetch import (
     _SystemProfile,
+    _cache_key,
     _resolve_temporal_batch_years,
     _resolve_spatial_chunk,
     _resolve_time_chunk,
@@ -164,6 +165,39 @@ def test_era5_fetch_uses_configurable_time_chunks(monkeypatch):
     )
 
     assert calls[0]["chunks"]["time"] == 6
+    assert "storage_options" not in calls[0]
+
+
+def test_era5_fetch_preserves_light_monthly_accumulations(monkeypatch):
+    import geopandas as gpd
+    import xarray as xr
+    from shapely.geometry import box
+
+    time = pd.to_datetime(["2000-01-01T00:00:00"])
+    lat = np.array([0.0, -0.25])
+    lon = np.array([10.0, 10.25])
+    # ERA5 rainfall is metres; 0.0005 m is 0.5 mm after unit conversion.
+    rain = np.full((1, 2, 2), 0.0005, dtype=np.float32)
+    ds = xr.Dataset(
+        data_vars={"tp": (("time", "latitude", "longitude"), rain)},
+        coords={"time": time, "latitude": lat, "longitude": lon},
+    )
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(9.90, -0.10, 10.05, 0.10)],
+        crs="EPSG:4326",
+    )
+
+    monkeypatch.setattr("xarray.open_zarr", lambda *args, **kwargs: ds)
+
+    out = get_monthly_era5_rainfall(
+        "era5-test.zarr",
+        gdf,
+        2000,
+        2000,
+        show_progress=False,
+    )
+
+    assert out.loc[0, "Rainfall_mm"] == 0.5
 
 
 def test_era5_fetch_auto_chunks_open_zarr_time(monkeypatch):
@@ -499,6 +533,69 @@ def test_chirps_auto_uses_era5_for_unavailable_chirps_months(monkeypatch):
     assert out["Fetch_Note"].str.contains("mixed-source").all()
 
 
+def test_chirps_raster_not_found_uses_era5_fallback(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(10.0, -5.0, 11.0, -4.0)],
+        crs="EPSG:4326",
+    )
+    calls = []
+
+    def fake_chirps(*_args, **_kwargs):
+        raise FileNotFoundError("CHIRPS raster unavailable")
+
+    def fake_era5(**kwargs):
+        calls.append(kwargs)
+        dates = pd.date_range("1981-01-01", periods=12, freq="MS")
+        return pd.DataFrame(
+            {
+                "Date": dates.strftime("%Y-%m-%d"),
+                "Year": dates.year,
+                "Month": dates.month,
+                "Rainfall_mm": 5.0,
+            }
+        )
+
+    monkeypatch.setattr(
+        "hydroseason.fetch.get_monthly_chirps_rainfall",
+        fake_chirps,
+    )
+    monkeypatch.setattr("hydroseason.fetch.get_monthly_era5_rainfall", fake_era5)
+
+    out = get_monthly_aoi_rainfall(
+        gdf,
+        1981,
+        1981,
+        source="chirps",
+        era5_zarr_path="gs://example/era5.zarr",
+        show_progress=False,
+    )
+
+    assert len(calls) == 1
+    assert out["Data_Source"].unique().tolist() == ["ERA5"]
+
+
+def test_cache_key_distinguishes_same_bbox_different_geometry():
+    import geopandas as gpd
+    from shapely.geometry import Polygon, box
+
+    full_box = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
+    triangle = gpd.GeoDataFrame(
+        geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 0)])],
+        crs="EPSG:4326",
+    )
+
+    assert _cache_key("same", full_box, 2000, 2000, "rain") != _cache_key(
+        "same",
+        triangle,
+        2000,
+        2000,
+        "rain",
+    )
+
+
 def test_silo_fetch_monthly_shape(monkeypatch):
     from pathlib import Path
 
@@ -610,3 +707,64 @@ def test_silo_fetch_uses_single_overall_progress_bar(monkeypatch, capsys):
     assert "2/2 years" in err
     assert "processing 2000" in err
     assert "processing 2001" in err
+
+
+def test_chirps_auto_uses_era5_only_for_missing_years(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(10.0, -5.0, 11.0, -4.0)],
+        crs="EPSG:4326",
+    )
+
+    def fake_chirps(_gdf, start_year, end_year, **_kwargs):
+        # Return incomplete CHIRPS data: missing months in 1981 and 1983, but not 1982
+        return pd.DataFrame({
+            "Date": ["1981-01-01", "1982-01-01", "1982-02-01"],
+            "Year": [1981, 1982, 1982],
+            "Month": [1, 1, 2],
+            "Rainfall_mm": [10.0, 10.0, 10.0],
+            "Data_Source": ["CHIRPS"] * 3,
+            "Data_Product": ["CHIRPS v3 monthly COG"] * 3,
+            "Fetch_Note": ["CHIRPS partial"] * 3,
+        })
+
+    era5_calls = []
+
+    def fake_era5(**kwargs):
+        era5_calls.append((kwargs.get("start_year"), kwargs.get("end_year")))
+        dates = pd.date_range(
+            f"{kwargs['start_year']}-01-01",
+            f"{kwargs['end_year']}-12-01",
+            freq="MS",
+        )
+        return pd.DataFrame({
+            "Date": dates.strftime("%Y-%m-%d"),
+            "Year": dates.year,
+            "Month": dates.month,
+            "Rainfall_mm": 5.0,
+        })
+
+    monkeypatch.setattr(
+        "hydroseason.fetch.get_monthly_chirps_rainfall",
+        fake_chirps,
+    )
+    monkeypatch.setattr("hydroseason.fetch.get_monthly_era5_rainfall", fake_era5)
+
+    # We ask for years 1981 to 1982
+    out = get_monthly_aoi_rainfall(
+        gdf,
+        1981,
+        1982,
+        source="chirps",
+        era5_zarr_path="gs://example/era5.zarr",
+        show_progress=False,
+    )
+
+    # 1981 is missing months, 1982 is missing months.
+    # It should call fake_era5 individually for year 1981 and year 1982.
+    assert (1981, 1981) in era5_calls
+    assert (1982, 1982) in era5_calls
+    # Should not call (1981, 1982) as a single multi-year range
+    assert (1981, 1982) not in era5_calls

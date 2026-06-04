@@ -2,6 +2,12 @@
 
 HydroSeason expects a monthly rainfall DataFrame with `Date`, `Year`, `Month`, and `Rainfall_mm` columns.
 
+!!! note "Data Sufficiency Requirements"
+    Input data must contain at least **24 months** of observations.
+
+    The monthly series must be continuous. Missing months are automatically filled using the calendar-month climatological mean (WMO method) during validation, but runs of missing data exceeding `max_consecutive_imputation_gap` (default 12 months) or total missing fraction exceeding `max_fraction_missing` (default 10%) will fail validation.
+
+
 ## Python API
 
 ```python
@@ -144,6 +150,10 @@ algorithm:
   shoulder_climatology_alpha: 0.10
   core_climatology_alpha: 0.05
   shoulder_residual_quantile: 0.95
+  # Custom settings
+  cap_rolling_tail_at_global: true
+  keep_debug_columns: false
+  require_low_floor_break_for_pruning: true
 
 validation:
   max_fraction_missing: 0.1

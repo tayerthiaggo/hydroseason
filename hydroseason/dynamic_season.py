@@ -58,8 +58,8 @@ def segment_main_wet_season_fixed_threshold(
         df["Significant"] = df[smoothed_col] >= local_threshold
     else:
         df["Significant"] = df[smoothed_col] >= threshold
-    season = pd.Series("Dry", index=df.index, dtype=object)
 
+    season = pd.Series("Dry", index=df.index, dtype=object)
     boundaries: list[dict] = []
 
     # Per fixed hydro year, find the contiguous Significant block with the largest
@@ -70,15 +70,7 @@ def segment_main_wet_season_fixed_threshold(
             boundaries.append({"Hydro_Year": hy, "WetStart": None, "WetEnd": None})
             continue
 
-        # Run-length encoding of True runs
         idx = group.index.to_numpy()
-        change = (sig != pd.Series(sig).shift(fill_value=False).to_numpy())
-        run_starts = idx[change & sig]
-        run_ends = idx[
-            pd.Series(sig).shift(-1, fill_value=False).to_numpy() != sig
-        ]
-        run_ends = run_ends[(sig if len(run_ends) == len(sig) else sig[: len(run_ends)])]
-        # Recompute robustly using a simple loop over local index — clearer and safe
         runs: list[tuple[int, int]] = []
         in_run = False
         run_start = None
@@ -118,8 +110,6 @@ def segment_main_wet_season_fixed_threshold(
 
 
 # ---------------------------------------------------------------------------
-# Step 3 — Hysteresis tail refinement
-# ---------------------------------------------------------------------------
 def refine_season_tails(
     df: pd.DataFrame,
     *,
@@ -139,6 +129,7 @@ def refine_season_tails(
     fragment_keep_col: str | None = None,
     enforce_low_floor_inside_runs: bool = False,
     min_refined_run_length: int | None = None,
+    require_low_floor_break_for_pruning: bool = True,
 ) -> pd.DataFrame:
     """Refine wet/dry tails using two-threshold hysteresis on raw values.
 
@@ -324,7 +315,7 @@ def refine_season_tails(
         )
         if (
             min_refined_run_length is not None
-            and touches_low_floor_break
+            and (touches_low_floor_break or not require_low_floor_break_for_pruning)
             and not keep_fragment
             and (e - s + 1) < min_refined_run_length
         ):

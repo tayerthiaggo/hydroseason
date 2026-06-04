@@ -5,7 +5,7 @@ Hydrological seasons do not always follow the calendar.
 HydroSeason helps you turn rainfall records into Wet/Dry seasons,
 hydrological years, rainfall metrics, diagnostics, plots, and a self-contained
 HTML report. You can bring your own rainfall table, or provide a catchment or
-area-of-interest polygon and let HydroSeason fetch monthly rainfall from SILO
+area-of-interest polygon and let HydroSeason fetch monthly rainfall from SILO,
 CHIRPS, or ERA5.
 
 [Open the example report](report.md){ .md-button .md-button--primary }
@@ -98,7 +98,7 @@ generate_html_report(artifacts, "output/hydroseason_report.html")
 Auto fetch uses SILO for Australian catchments and CHIRPS v3 monthly rainfall
 elsewhere. ERA5 remains available as an explicit exact path or as a backup when
 CHIRPS cannot cover the requested range.
-The [Rainfall Fetch](era5.md) page has the full Python and command-line
+The [Rainfall Fetch](fetch.md) page has the full Python and command-line
 examples.
 
 ## Install
