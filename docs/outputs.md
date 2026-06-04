@@ -48,11 +48,22 @@ The result preserves the input columns and appends hydrological labels and diagn
 | `fallback_month_used` | Target month used when choosing a recovered real Wet onset after a long accepted-onset gap. |
 | `threshold_firstpass` | First-pass wet-season threshold. |
 | `threshold_secondpass` | Tail-refinement threshold. |
+| `tail_floor` | Raw-rainfall floor used to trim Wet edges and set the minimum shoulder-extension gate. |
 | `smooth_window_used` | Resolved centred smoothing window used by the seasonal pipeline. |
 | `min_core_length_used` | Resolved minimum wet-core length required to cross fixed hydrological-year boundaries. |
 | `onset_window_months_used` | Resolved onset acceptance window; `null` means disabled. |
 | `core_climatology_floor` | Site-scaled floor applied to first-pass wet-core detection. |
 | `shoulder_climatology_floor` | Site-scaled floor applied to shoulder absorption. |
+| `shoulder_month_quantile` | Calendar-month quantile used for month-aware shoulder extension; `null` means disabled. |
+| `shoulder_month_floor_source` | Source used for month-aware floors: `observed`, `observed_with_fallback`, `disabled_low_confidence`, or `null` when disabled. |
+| `climatology_window` | Guardrail climatology mode: `rolling` or `global`. |
+| `climatology_window_years` | Number of hydrological years in each rolling guardrail window. |
+| `climatology_window_mode` | Rolling-window alignment: `trailing` or `centered`. |
+| `climatology_min_month_observations` | Minimum observed values per calendar month required before a rolling window is trusted. |
+| `climatology_min_wet_year_fraction` | Minimum fraction of observed years that must clear the local tail floor before a local Wet month is considered persistent. |
+| `climatology_guardrail_source` | Actual guardrail source used: global, rolling, fallback, or mixed. |
+| `climatology_guardrail_fallback_count` | Number of fixed hydrological years whose rolling guardrail fell back to global. |
+| `climatology_unstable_month_count` | Number of locally labelled Wet months rejected by the persistence guard across rolling windows. |
 | `shoulder_residual_threshold` | Positive STL-residual threshold used to reject isolated shoulder storm anomalies; `null` means disabled or unavailable. |
 | `validation_warnings` | Data-quality warnings produced during validation. |
 | `n_imputed` | Number of missing months filled during validation. |

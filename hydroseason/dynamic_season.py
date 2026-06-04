@@ -7,6 +7,8 @@ Step 3: Hysteresis-based tail refinement on raw values (two thresholds).
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 
@@ -43,12 +45,19 @@ def segment_main_wet_season_fixed_threshold(
     hydro_year_col: str = "Hydro_Year_fixed",
     smoothed_col: str = "Smoothed",
     threshold: float = 10.0,
+    threshold_col: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col])
     df = df.sort_values(date_col).reset_index(drop=True)
 
-    df["Significant"] = df[smoothed_col] >= threshold
+    if threshold_col is not None and threshold_col in df.columns:
+        local_threshold = pd.to_numeric(df[threshold_col], errors="coerce").fillna(
+            threshold
+        )
+        df["Significant"] = df[smoothed_col] >= local_threshold
+    else:
+        df["Significant"] = df[smoothed_col] >= threshold
     season = pd.Series("Dry", index=df.index, dtype=object)
 
     boundaries: list[dict] = []
@@ -125,12 +134,18 @@ def refine_season_tails(
     climatology_floor: float | None = None,
     residual_col: str | None = None,
     residual_threshold: float | None = None,
+    per_row_threshold_col: str | None = None,
+    extension_threshold_col: str | None = None,
+    fragment_keep_col: str | None = None,
+    enforce_low_floor_inside_runs: bool = False,
+    min_refined_run_length: int | None = None,
 ) -> pd.DataFrame:
     """Refine wet/dry tails using two-threshold hysteresis on raw values.
 
     For each contiguous Wet run, the operations are applied in this order:
-      1. contract the start forward while raw value <= threshold_low
-      2. contract the end backward while raw value <= threshold_low
+      1. contract the start forward while raw value is below the low floor
+         (``threshold_low=0`` keeps legacy exact-zero contraction)
+      2. contract the end backward while raw value is below the low floor
       3. extend the (contracted) start backward through preceding Dry months
          while raw value >= threshold_high
       4. extend the (contracted) end forward through following Dry months
@@ -165,6 +180,16 @@ def refine_season_tails(
     gate: a candidate shoulder month with an extreme positive residual is
     treated as a storm anomaly rather than seasonal shoulder rainfall.
 
+    ``per_row_threshold_col`` can provide row-specific low floors for
+    contraction and extension; NaN values fall back to scalar thresholds.
+    ``extension_threshold_col`` is stricter and applies only to extension, so
+    climatological shoulder gates do not chop real wet cores.
+    ``enforce_low_floor_inside_runs`` treats below-floor Wet months as breaks
+    before runs are refined; ``min_refined_run_length`` can then dissolve tiny
+    fragments left behind by smoothing bleed. ``fragment_keep_col`` can mark
+    rows that are allowed to survive this fragment-pruning step, typically
+    climatological Wet months in a weak but real wet season.
+
     A single ``threshold`` argument is accepted for backward compatibility and is
     used as both bounds (high = threshold, low = 0).
     """
@@ -179,7 +204,7 @@ def refine_season_tails(
 
     df = df.copy().sort_values(date_col).reset_index(drop=True)
     seasons = df[season_type_col].to_numpy().copy()
-    values = df[rainfall_col].to_numpy()
+    values = pd.to_numeric(df[rainfall_col], errors="coerce").to_numpy(dtype=float)
     n = len(df)
 
     if hydro_year_col is not None and hydro_year_col in df.columns:
@@ -198,14 +223,61 @@ def refine_season_tails(
         residuals = None
         residual_limit = None
 
+    if per_row_threshold_col is not None and per_row_threshold_col in df.columns:
+        per_row_floors = pd.to_numeric(df[per_row_threshold_col], errors="coerce").to_numpy()
+    else:
+        per_row_floors = None
+
+    if extension_threshold_col is not None and extension_threshold_col in df.columns:
+        extension_floors = pd.to_numeric(df[extension_threshold_col], errors="coerce").to_numpy()
+    else:
+        extension_floors = None
+
+    if fragment_keep_col is not None and fragment_keep_col in df.columns:
+        fragment_keep = df[fragment_keep_col].fillna(False).astype(bool).to_numpy()
+    else:
+        fragment_keep = None
+
+    def _finite_floor(floors, idx: int, fallback: float) -> float:
+        if floors is not None:
+            raw = floors[idx]
+            if pd.notna(raw):
+                value = float(raw)
+                if math.isfinite(value):
+                    return value
+        return float(fallback)
+
+    def _below_low_floor(value: float, floor: float) -> bool:
+        if pd.isna(value):
+            return False
+        if floor <= 0.0:
+            return value <= floor
+        return value < floor
+
     def _eligible_for_extension(idx: int) -> bool:
-        if values[idx] < effective_high:
+        if pd.isna(values[idx]):
+            return False
+        gate = float(effective_high)
+        if extension_floors is not None:
+            gate = max(gate, _finite_floor(extension_floors, idx, gate))
+        elif per_row_floors is not None:
+            gate = max(gate, _finite_floor(per_row_floors, idx, gate))
+        if values[idx] < gate:
             return False
         if residuals is not None and residual_limit is not None:
             residual = residuals[idx]
             if pd.notna(residual) and float(residual) > residual_limit:
                 return False
         return True
+
+    low_floor_breaks = [False] * n
+    if enforce_low_floor_inside_runs:
+        for i in range(n):
+            if seasons[i] == "Wet":
+                lo = _finite_floor(per_row_floors, i, threshold_low)
+                if _below_low_floor(values[i], lo):
+                    seasons[i] = "Dry"
+                    low_floor_breaks[i] = True
 
     # identify wet runs
     runs: list[list[int]] = []
@@ -223,16 +295,40 @@ def refine_season_tails(
 
     for run in runs:
         s, e = run
-        # 1) contract from start (drop leading low/zero months)
-        while s <= e and values[s] <= threshold_low:
-            seasons[s] = "Dry"
-            s += 1
-        # 2) contract from end (drop trailing low/zero months)
-        while e >= s and values[e] <= threshold_low:
-            seasons[e] = "Dry"
-            e -= 1
+        # 1) contract from start (drop leading months below the per-row or scalar floor)
+        while s <= e:
+            lo = _finite_floor(per_row_floors, s, threshold_low)
+            if _below_low_floor(values[s], lo):
+                seasons[s] = "Dry"
+                s += 1
+            else:
+                break
+        # 2) contract from end (drop trailing months below the per-row or scalar floor)
+        while e >= s:
+            lo = _finite_floor(per_row_floors, e, threshold_low)
+            if _below_low_floor(values[e], lo):
+                seasons[e] = "Dry"
+                e -= 1
+            else:
+                break
         if s > e:
             # entire run dissolved by contraction; nothing left to extend from
+            continue
+        touches_low_floor_break = (
+            (s > 0 and low_floor_breaks[s - 1])
+            or (e + 1 < n and low_floor_breaks[e + 1])
+        )
+        keep_fragment = (
+            fragment_keep is not None
+            and bool(fragment_keep[s:e + 1].any())
+        )
+        if (
+            min_refined_run_length is not None
+            and touches_low_floor_break
+            and not keep_fragment
+            and (e - s + 1) < min_refined_run_length
+        ):
+            seasons[s:e + 1] = "Dry"
             continue
         # 3) extend backward from contracted start
         j = s - 1

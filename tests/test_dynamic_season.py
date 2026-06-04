@@ -293,6 +293,141 @@ def test_residual_gate_allows_non_anomalous_shoulder():
     assert by_date[pd.Timestamp("2010-09-01")] == "Wet"
 
 
+def test_month_aware_extension_floor_blocks_ordinary_dry_month():
+    dates = pd.date_range("2010-08-01", periods=6, freq="MS")
+    df = pd.DataFrame({
+        "Date": dates,
+        "Rainfall_mm": [0.0, 25.0, 100.0, 120.0, 90.0, 0.0],
+        "MonthFloor": [0.0, 30.0, 0.0, 0.0, 0.0, 0.0],
+        "Hydro_Year_fixed": [2010, 2010, 2011, 2011, 2011, 2011],
+        "SeasonType": ["Dry", "Dry", "Wet", "Wet", "Wet", "Dry"],
+    })
+    out = refine_season_tails(
+        df,
+        threshold_high=10.0,
+        threshold_low=0.0,
+        hydro_year_col="Hydro_Year_fixed",
+        min_core_length=3,
+        extension_threshold_col="MonthFloor",
+    )
+    by_date = dict(zip(out["Date"], out["SeasonType"]))
+    assert by_date[pd.Timestamp("2010-09-01")] == "Dry"
+
+
+def test_per_row_floor_fallback_cannot_loosen_extension_gate():
+    dates = pd.date_range("2010-08-01", periods=5, freq="MS")
+    df = pd.DataFrame({
+        "Date": dates,
+        "Rainfall_mm": [0.0, 8.0, 100.0, 120.0, 0.0],
+        "PerRowFloor": [0.0, 5.0, 0.0, 0.0, 0.0],
+        "Hydro_Year_fixed": [2010, 2010, 2011, 2011, 2011],
+        "SeasonType": ["Dry", "Dry", "Wet", "Wet", "Dry"],
+    })
+    out = refine_season_tails(
+        df,
+        threshold_high=10.0,
+        threshold_low=0.0,
+        hydro_year_col="Hydro_Year_fixed",
+        min_core_length=2,
+        per_row_threshold_col="PerRowFloor",
+    )
+    by_date = dict(zip(out["Date"], out["SeasonType"]))
+    assert by_date[pd.Timestamp("2010-09-01")] == "Dry"
+
+
+def test_extension_floor_nan_falls_back_to_scalar_gate():
+    dates = pd.date_range("2010-08-01", periods=5, freq="MS")
+    df = pd.DataFrame({
+        "Date": dates,
+        "Rainfall_mm": [0.0, 12.0, 100.0, 120.0, 0.0],
+        "MonthFloor": [0.0, None, 0.0, 0.0, 0.0],
+        "Hydro_Year_fixed": [2010, 2010, 2011, 2011, 2011],
+        "SeasonType": ["Dry", "Dry", "Wet", "Wet", "Dry"],
+    })
+    out = refine_season_tails(
+        df,
+        threshold_high=10.0,
+        threshold_low=0.0,
+        hydro_year_col="Hydro_Year_fixed",
+        min_core_length=2,
+        extension_threshold_col="MonthFloor",
+    )
+    by_date = dict(zip(out["Date"], out["SeasonType"]))
+    assert by_date[pd.Timestamp("2010-09-01")] == "Wet"
+
+
+def test_low_floor_inside_run_splits_smoothing_bleed_fragment():
+    dates = pd.date_range("2002-12-01", periods=8, freq="MS")
+    df = pd.DataFrame({
+        "Date": dates,
+        "Rainfall_mm": [81.6, 89.8, 187.68, 196.2, 3.4, 14.2, 13.8, 0.0],
+        "Hydro_Year_fixed": [2003] * 8,
+        "SeasonType": ["Wet", "Wet", "Wet", "Wet", "Wet", "Wet", "Wet", "Dry"],
+    })
+    out = refine_season_tails(
+        df,
+        threshold_high=4.0,
+        threshold_low=10.0,
+        hydro_year_col="Hydro_Year_fixed",
+        min_core_length=3,
+        enforce_low_floor_inside_runs=True,
+        min_refined_run_length=3,
+    )
+    by_date = dict(zip(out["Date"], out["SeasonType"]))
+    assert by_date[pd.Timestamp("2003-04-01")] == "Dry"
+    assert by_date[pd.Timestamp("2003-05-01")] == "Dry"
+    assert by_date[pd.Timestamp("2003-06-01")] == "Dry"
+
+
+def test_baseline_wet_fragment_survives_low_floor_break():
+    dates = pd.date_range("1987-11-01", periods=5, freq="MS")
+    df = pd.DataFrame({
+        "Date": dates,
+        "Rainfall_mm": [11.5, 99.0, 43.0, 6.7, 7.0],
+        "BaselineWet": [True, True, True, True, True],
+        "Hydro_Year_fixed": [1988] * 5,
+        "SeasonType": ["Wet", "Wet", "Wet", "Wet", "Dry"],
+    })
+    out = refine_season_tails(
+        df,
+        threshold_high=4.0,
+        threshold_low=12.0,
+        hydro_year_col="Hydro_Year_fixed",
+        min_core_length=3,
+        climatology_floor=12.0,
+        fragment_keep_col="BaselineWet",
+        enforce_low_floor_inside_runs=True,
+        min_refined_run_length=3,
+    )
+    by_date = dict(zip(out["Date"], out["SeasonType"]))
+    assert by_date[pd.Timestamp("1987-11-01")] == "Dry"
+    assert by_date[pd.Timestamp("1987-12-01")] == "Wet"
+    assert by_date[pd.Timestamp("1988-01-01")] == "Wet"
+    assert by_date[pd.Timestamp("1988-02-01")] == "Dry"
+
+
+def test_short_real_wet_run_survives_fragment_pruning_without_low_break():
+    dates = pd.date_range("2010-01-01", periods=5, freq="MS")
+    df = pd.DataFrame({
+        "Date": dates,
+        "Rainfall_mm": [0.0, 30.0, 35.0, 0.0, 0.0],
+        "Hydro_Year_fixed": [2010] * 5,
+        "SeasonType": ["Dry", "Wet", "Wet", "Dry", "Dry"],
+    })
+    out = refine_season_tails(
+        df,
+        threshold_high=10.0,
+        threshold_low=10.0,
+        hydro_year_col="Hydro_Year_fixed",
+        min_core_length=3,
+        enforce_low_floor_inside_runs=True,
+        min_refined_run_length=3,
+    )
+    by_date = dict(zip(out["Date"], out["SeasonType"]))
+    assert by_date[pd.Timestamp("2010-02-01")] == "Wet"
+    assert by_date[pd.Timestamp("2010-03-01")] == "Wet"
+
+
 def test_targeted_october_shoulders_pipeline_e2e():
     """End-to-end: every shoulder month listed for the Fitzroy dataset is
     classified Wet after the rule change."""
@@ -322,4 +457,31 @@ def test_targeted_october_shoulders_pipeline_e2e():
     # And the orphan dry-season events must remain Dry.
     for d in ("1995-05-01", "1997-05-01", "2012-05-01"):
         assert result.loc[result["Date"] == _pd.Timestamp(d), "SeasonType"].iloc[0] == "Dry"
+
+
+def test_targeted_problem_months_pipeline_e2e():
+    """End-to-end: known smoothing-bleed months stay Dry."""
+    import pandas as _pd
+    from pathlib import Path
+    from hydroseason.pipeline import classify_rainfall
+
+    csv_path = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "DATASET2.csv"
+    df = _pd.read_csv(csv_path)
+    df["Date"] = _pd.to_datetime(df["Date"], dayfirst=True)
+    artifacts = classify_rainfall(df)
+    result = artifacts.result.copy()
+    result["Date"] = _pd.to_datetime(result["Date"])
+
+    targets = [
+        "2003-04-01", "2003-05-01", "2003-06-01",
+        "2009-05-01", "2009-11-01", "2010-04-01",
+        "2022-09-01", "2022-10-01",
+    ]
+    labels = {
+        d: result.loc[result["Date"] == _pd.Timestamp(d), "SeasonType"].iloc[0]
+        for d in targets
+    }
+    assert all(v == "Dry" for v in labels.values()), labels
+    assert artifacts.diagnostics.tail_floor == artifacts.diagnostics.threshold_firstpass
+    assert artifacts.diagnostics.shoulder_month_quantile == 0.60
 

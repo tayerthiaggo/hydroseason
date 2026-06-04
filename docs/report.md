@@ -1,7 +1,7 @@
 # Example Report
 
 HydroSeason can export a self-contained interactive HTML report with the season
-timeline, data-quality overview, monthly climatology, annual Wet/Dry totals, STL
+timeline, data-quality overview, aggregated monthly rainfall, annual Wet/Dry totals, STL
 diagnostics, algorithm diagnostics, and per-hydrological-year metrics.
 
 [Open the full interactive example report](examples/hydroseason_report.html){ .md-button .md-button--primary }

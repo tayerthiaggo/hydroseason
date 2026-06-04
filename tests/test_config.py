@@ -21,9 +21,19 @@ output:
     assert loaded.algorithm.min_core_length is None  # None → auto from regime
     assert loaded.algorithm.onset_window_months == "auto"
     assert loaded.algorithm.shoulder_residual_quantile == 0.95
+    assert loaded.algorithm.shoulder_month_quantile == 0.60
+    assert loaded.algorithm.climatology_window == "rolling"
+    assert loaded.algorithm.climatology_window_years == 10
+    assert loaded.algorithm.climatology_window_mode == "trailing"
+    assert loaded.algorithm.climatology_min_month_observations == 5
+    assert loaded.algorithm.climatology_min_wet_year_fraction == 0.60
     assert loaded.algorithm.fallback_month is None  # auto-derived
     assert loaded.algorithm.method == "circular"
+    assert loaded.algorithm.report_kmeans_silhouette is False
     assert loaded.validation.raise_on_error is True
+    assert loaded.fetch.source == "auto"
+    assert loaded.fetch.time_chunk == "auto"
+    assert loaded.fetch.era5_fallback is True
 
 
 def test_load_config_overrides(tmp_path: Path):
@@ -37,8 +47,15 @@ output:
 algorithm:
   smooth_window: 5
   method: kmeans
+  report_kmeans_silhouette: true
   fallback_month: 4
+  shoulder_month_quantile: null
   shoulder_residual_quantile: null
+  climatology_window: global
+  climatology_window_years: 30
+  climatology_window_mode: centered
+  climatology_min_month_observations: 5
+  climatology_min_wet_year_fraction: 0.7
 validation:
   max_fraction_missing: 0.25
 """.strip(),
@@ -47,8 +64,15 @@ validation:
     loaded = load_config(cfg)
     assert loaded.algorithm.smooth_window == 5
     assert loaded.algorithm.method == "kmeans"
+    assert loaded.algorithm.report_kmeans_silhouette is True
     assert loaded.algorithm.fallback_month == 4
+    assert loaded.algorithm.shoulder_month_quantile is None
     assert loaded.algorithm.shoulder_residual_quantile is None
+    assert loaded.algorithm.climatology_window == "global"
+    assert loaded.algorithm.climatology_window_years == 30
+    assert loaded.algorithm.climatology_window_mode == "centered"
+    assert loaded.algorithm.climatology_min_month_observations == 5
+    assert loaded.algorithm.climatology_min_wet_year_fraction == 0.7
     assert loaded.validation.max_fraction_missing == 0.25
 
 
@@ -57,6 +81,8 @@ def test_example_config_loads():
     assert loaded.algorithm.smooth_window is None
     assert loaded.fetch.enabled is False
     assert loaded.fetch.variable == "rainfall"
+    assert loaded.fetch.source == "auto"
+    assert loaded.fetch.time_chunk == "auto"
 
 
 def test_load_config_missing_output_points_to_example(tmp_path: Path):

@@ -60,13 +60,16 @@ def test_cli_rainfall_csv(tmp_path: Path):
 def test_era5_variables_registry():
     from hydroseason import get_monthly_era5_rainfall
     from hydroseason.era5_variables import available, get
+
     assert callable(get_monthly_era5_rainfall)
     keys = available()
     assert "rainfall" in keys
     assert "temperature" in keys
+
     rain = get("rainfall")
     assert rain.out_column == "Rainfall_mm"
     assert rain.unit_factor == 1000.0
+
     temp = get("temperature")
     assert temp.unit_offset == -273.15
 
@@ -121,6 +124,7 @@ def test_cli_fetch_era5_routes_to_era5_fetch(tmp_path: Path, monkeypatch):
     assert out_csv.exists()
     assert calls["vector"] == "aoi.kml"
     assert calls["era5"]["path"] == "gs://example/store.zarr"
+    assert calls["era5"]["time_chunk"] == "auto"
 
 
 def test_cli_fetch_silo_routes_to_silo_fetch(tmp_path: Path, monkeypatch):
@@ -176,6 +180,54 @@ def test_cli_fetch_silo_routes_to_silo_fetch(tmp_path: Path, monkeypatch):
         calls["silo"]["base_url"]
         == "https://example.test/silo/monthly_rain"
     )
+
+
+def test_cli_fetch_auto_routes_to_aoi_fetch(tmp_path: Path, monkeypatch):
+    from hydroseason import cli as cli_mod
+
+    out_csv = tmp_path / "auto_fetch.csv"
+    calls: dict[str, object] = {}
+
+    def fake_load_vector(path):
+        calls["vector"] = path
+        return object()
+
+    def fake_get_monthly_aoi_rainfall(**kwargs):
+        calls["auto"] = kwargs
+        return pd.DataFrame(
+            {
+                "Date": ["2020-01-01"],
+                "Year": [2020],
+                "Month": [1],
+                "Rainfall_mm": [99.0],
+                "Data_Source": ["CHIRPS"],
+            }
+        )
+
+    monkeypatch.setattr("hydroseason.fetch.load_vector", fake_load_vector)
+    monkeypatch.setattr(
+        "hydroseason.fetch.get_monthly_aoi_rainfall",
+        fake_get_monthly_aoi_rainfall,
+    )
+
+    rc = cli_mod.main(
+        [
+            "fetch",
+            "--vector",
+            "aoi.geojson",
+            "--start-year",
+            "2020",
+            "--end-year",
+            "2020",
+            "--output",
+            str(out_csv),
+        ]
+    )
+
+    assert rc == 0
+    assert out_csv.exists()
+    assert calls["auto"]["source"] == "auto"
+    assert calls["auto"]["era5_fallback"] is True
 
 
 def test_cli_fetch_era5_requires_path():

@@ -50,8 +50,11 @@ from .seasonality import (
 )
 from .validate import ValidationReport, validate_monthly_input
 from .fetch import (
+    get_monthly_aoi_rainfall,
+    get_monthly_chirps_rainfall,
     get_monthly_silo_rainfall,
     get_monthly_era5_rainfall,
+    infer_default_fetch_source,
     load_vector,
 )
 from .io import read_rainfall
@@ -92,26 +95,28 @@ __all__ = [
     "compute_season_metrics", "compute_end_dry_metrics",
     "compute_annual_spi_categories", "classify_drought", "classify_year_spi",
     # --- Advanced: rainfall IO & AOI fetch ---
+    "get_monthly_aoi_rainfall",
+    "get_monthly_chirps_rainfall",
     "get_monthly_era5_rainfall",
-    "get_monthly_silo_rainfall", "load_vector",
+    "get_monthly_silo_rainfall", "infer_default_fetch_source", "load_vector",
     "read_rainfall",
 ]
 
 # --- Plotting & reporting (plotly in core) ---
 try:
     from .plot import (
+        plot_agg_monthly_rainfall,
         plot_annual_metrics,
         plot_dashboard,
         plot_diagnostics_table,
         plot_imputation_overview,
-        plot_monthly_climatology,
         plot_season_timeline,
         plot_stl_decomposition,
         show,
     )
     __all__ += [
+        "plot_agg_monthly_rainfall",
         "plot_season_timeline",
-        "plot_monthly_climatology",
         "plot_stl_decomposition",
         "plot_annual_metrics",
         "plot_dashboard",

@@ -6,7 +6,7 @@ Jupyter without any extra call (Plotly auto-renders in notebook cells).
 Colour palette is consistent across all figures:
     Wet           → WET_COLOUR  (#1565C0, deep blue)
     Transition    → TRANSITION_COLOUR (#6A1B9A, purple)
-    Dry           → DRY_COLOUR  (#EF3800, mild red)
+    Dry           → DRY_COLOUR  (#F57C00, orange)
     Unclassified  → UNCLASSIFIED_COLOUR (#9E9E9E, grey)
 """
 
@@ -21,13 +21,13 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 WET_COLOUR = "#1565C0"
-DRY_COLOUR = "#EF3800"
+DRY_COLOUR = "#F57C00"
 TRANSITION_COLOUR = "#6A1B9A"
 UNCLASSIFIED_COLOUR = "#9E9E9E"
 
 # Very mild background bands for season highlighting on time-series plots.
-WET_BAND_COLOUR = "rgba(21, 101, 192, 0.14)"  # mild blue
-DRY_BAND_COLOUR = "rgba(239, 56, 0, 0.12)"    # mild red
+WET_BAND_COLOUR = "rgba(21, 101, 192, 0.14)"   # mild blue
+DRY_BAND_COLOUR = "rgba(229, 115, 115, 0.18)"  # mild red
 
 _SEASON_COLOURS: dict[str, str] = {
     "Wet": WET_COLOUR,
@@ -247,9 +247,9 @@ def plot_season_timeline(
 
 
 # ---------------------------------------------------------------------------
-# Figure 2 — Monthly climatology
+# Figure 2 - Aggregated monthly rainfall
 # ---------------------------------------------------------------------------
-def plot_monthly_climatology(
+def plot_agg_monthly_rainfall(
     monthly_df: pd.DataFrame,
     fixed_monthly: pd.DataFrame | None = None,
     *,
@@ -259,7 +259,7 @@ def plot_monthly_climatology(
     width: int | None = None,
     height: int = 420,
 ) -> go.Figure:
-    """Interactive mean monthly climatology bar chart coloured by baseline season assignment.
+    """Interactive aggregated monthly rainfall chart coloured by baseline season assignment.
 
     Parameters
     ----------
@@ -284,8 +284,6 @@ def plot_monthly_climatology(
         season_by_month = list(fixed_monthly["Season"].values)
     else:
         season_by_month = ["Dry"] * 12
-
-    bar_colours = [_season_colour(s) for s in season_by_month]
 
     fig = go.Figure()
     for season in _ordered_seasons(season_by_month):
@@ -333,6 +331,9 @@ def plot_monthly_climatology(
     return fig
 
 
+# ---------------------------------------------------------------------------
+# Figure 3 - Imputation overview
+# ---------------------------------------------------------------------------
 def plot_imputation_overview(
     df: pd.DataFrame,
     *,
@@ -390,7 +391,7 @@ def plot_imputation_overview(
 
 
 # ---------------------------------------------------------------------------
-# Figure 3 — STL decomposition
+# Figure 4 - STL decomposition
 # ---------------------------------------------------------------------------
 def plot_stl_decomposition(
     df: pd.DataFrame,
@@ -421,10 +422,10 @@ def plot_stl_decomposition(
     dates = series.index
 
     panels = [
-        ("Observed", series.values, WET_COLOUR, False, "solid"),
-        ("Trend", stl.trend.values, "#37474F", False, "solid"),
-        (f"Seasonal  (F_S = {fs})", stl.seasonal.values, "#6A1B9A", True, "solid"),
-        ("Remainder", stl.resid.values, "#B71C1C", True, "solid"),
+        ("Observed", series.values, WET_COLOUR, False),
+        ("Trend", stl.trend.values, "#37474F", False),
+        (f"Seasonal  (F_S = {fs})", stl.seasonal.values, "#6A1B9A", True),
+        ("Remainder", stl.resid.values, "#B71C1C", True),
     ]
 
     fig = make_subplots(
@@ -434,7 +435,7 @@ def plot_stl_decomposition(
         vertical_spacing=0.06,
     )
 
-    for row, (label, values, colour, zeroline, dash) in enumerate(panels, start=1):
+    for row, (label, values, colour, zeroline) in enumerate(panels, start=1):
         fig.add_trace(
             go.Scatter(
                 x=dates,
@@ -465,7 +466,7 @@ def plot_stl_decomposition(
 
 
 # ---------------------------------------------------------------------------
-# Figure 4 — Annual metrics
+# Figure 5 - Annual metrics
 # ---------------------------------------------------------------------------
 def plot_annual_metrics(
     df: pd.DataFrame,
@@ -482,7 +483,7 @@ def plot_annual_metrics(
 ) -> go.Figure:
     """Interactive stacked bar of wet and dry season totals per hydrological year.
 
-    Wet month count is shown as a line on a secondary y-axis.
+    Wet month count is shown as a second-row bar chart.
     Falls back to legacy column names if ``wet_total`` is not present.
     """
     if wet_col not in df.columns:
@@ -543,7 +544,8 @@ def plot_annual_metrics(
         hoverlabel=dict(bgcolor="white"),
         margin=dict(t=80, b=60),
     )
-    fig.update_xaxes(showgrid=False, tickangle=45, title_text="Hydrological year")
+    fig.update_xaxes(showgrid=False, tickangle=45)
+    fig.update_xaxes(title_text="Hydrological year", row=2, col=1)
     fig.update_yaxes(showgrid=True, gridcolor="#EEEEEE")
     fig.update_yaxes(title_text="mm", row=1, col=1)
     fig.update_yaxes(title_text="count", row=2, col=1)
@@ -551,7 +553,7 @@ def plot_annual_metrics(
 
 
 # ---------------------------------------------------------------------------
-# Figure 5 — Diagnostics table
+# Figure 6 - Diagnostics table
 # ---------------------------------------------------------------------------
 def plot_diagnostics_table(
     diagnostics,  # DiagnosticsReport (avoid circular import)
@@ -576,35 +578,54 @@ def plot_diagnostics_table(
     regime = str(getattr(diagnostics, "regime", "unknown"))
     header_bg = _regime_colours.get(regime, "#F5F5F5")
 
+    def _value(name: str, default=None):
+        return getattr(diagnostics, name, default)
+
+    def _fmt_optional(name: str, fmt: str, default: str = "N/A") -> str:
+        value = _value(name)
+        return fmt.format(value) if value is not None else default
+
     fields = [
-        ("Regime", diagnostics.regime),
-        ("Regime source", diagnostics.regime_source),
-        ("STL strength (F_S)", f"{diagnostics.stl_strength:.3f}"),
-        ("Walsh-Lawler SI", f"{diagnostics.walsh_lawler_si:.3f}"),
-        ("Hydro year start (month)", diagnostics.hydro_year_start_month),
-        ("Fallback month used", diagnostics.fallback_month_used),
-        ("Rainfall SI override", diagnostics.rainfall_si_override),
-        ("Circular R", f"{diagnostics.circular_R:.3f}" if diagnostics.circular_R is not None else "N/A"),
-        ("Is bimodal", diagnostics.is_bimodal),
-        ("Is uniform", diagnostics.is_uniform),
-        ("KMeans silhouette", f"{diagnostics.kmeans_silhouette:.3f}" if diagnostics.kmeans_silhouette is not None else "N/A"),
-        ("Threshold (1st pass)", f"{diagnostics.threshold_firstpass:.1f}" if diagnostics.threshold_firstpass is not None else "N/A"),
-        ("Threshold (2nd pass)", f"{diagnostics.threshold_secondpass:.1f}" if diagnostics.threshold_secondpass is not None else "N/A"),
-        ("Smooth window used", diagnostics.smooth_window_used if diagnostics.smooth_window_used is not None else "N/A"),
-        ("Min core length used", diagnostics.min_core_length_used if diagnostics.min_core_length_used is not None else "N/A"),
-        ("Onset window used", diagnostics.onset_window_months_used if diagnostics.onset_window_months_used is not None else "disabled"),
-        ("Core climatology floor", f"{diagnostics.core_climatology_floor:.1f}" if diagnostics.core_climatology_floor is not None else "N/A"),
-        ("Shoulder climatology floor", f"{diagnostics.shoulder_climatology_floor:.1f}" if diagnostics.shoulder_climatology_floor is not None else "N/A"),
-        ("Shoulder residual threshold", f"{diagnostics.shoulder_residual_threshold:.1f}" if diagnostics.shoulder_residual_threshold is not None else "disabled"),
-        ("Input rows", diagnostics.n_input_rows),
-        ("Rows after validation", diagnostics.n_rows_after_validation),
-        ("Imputed rows", diagnostics.n_imputed),
-        ("Unimputed rows", diagnostics.n_unimputed),
-        ("Max consecutive missing", diagnostics.max_consecutive_missing),
-        ("Data confidence", diagnostics.data_confidence),
+        ("Regime", _value("regime", "unknown")),
+        ("Regime source", _value("regime_source", "N/A")),
+        ("STL strength (F_S)", _fmt_optional("stl_strength", "{:.3f}")),
+        ("Walsh-Lawler SI", _fmt_optional("walsh_lawler_si", "{:.3f}")),
+        ("Hydro year start (month)", _value("hydro_year_start_month", "N/A")),
+        ("Fallback month used", _value("fallback_month_used", "N/A")),
+        ("Rainfall SI override", _value("rainfall_si_override", "N/A")),
+        ("Circular R", _fmt_optional("circular_R", "{:.3f}")),
+        ("Is bimodal", _value("is_bimodal", "N/A")),
+        ("Is uniform", _value("is_uniform", "N/A")),
+        ("KMeans silhouette", _fmt_optional("kmeans_silhouette", "{:.3f}")),
+        ("Threshold (1st pass)", _fmt_optional("threshold_firstpass", "{:.1f}")),
+        ("Threshold (2nd pass)", _fmt_optional("threshold_secondpass", "{:.1f}")),
+        ("Tail floor", _fmt_optional("tail_floor", "{:.1f}")),
+        ("Smooth window used", _value("smooth_window_used", "N/A") if _value("smooth_window_used") is not None else "N/A"),
+        ("Min core length used", _value("min_core_length_used", "N/A") if _value("min_core_length_used") is not None else "N/A"),
+        ("Onset window used", _value("onset_window_months_used") if _value("onset_window_months_used") is not None else "disabled"),
+        ("Core climatology floor", _fmt_optional("core_climatology_floor", "{:.1f}")),
+        ("Shoulder climatology floor", _fmt_optional("shoulder_climatology_floor", "{:.1f}")),
+        ("Shoulder month quantile", _fmt_optional("shoulder_month_quantile", "{:.2f}", "disabled")),
+        ("Shoulder month floor source", _value("shoulder_month_floor_source") if _value("shoulder_month_floor_source") is not None else "disabled"),
+        ("Climatology window", _value("climatology_window", "N/A") if _value("climatology_window") is not None else "N/A"),
+        ("Climatology window years", _value("climatology_window_years", "N/A") if _value("climatology_window_years") is not None else "N/A"),
+        ("Climatology window mode", _value("climatology_window_mode", "N/A") if _value("climatology_window_mode") is not None else "N/A"),
+        ("Climatology min month observations", _value("climatology_min_month_observations", "N/A") if _value("climatology_min_month_observations") is not None else "N/A"),
+        ("Climatology min wet-year fraction", _fmt_optional("climatology_min_wet_year_fraction", "{:.2f}")),
+        ("Climatology guardrail source", _value("climatology_guardrail_source", "N/A") if _value("climatology_guardrail_source") is not None else "N/A"),
+        ("Climatology fallback count", _value("climatology_guardrail_fallback_count", "N/A")),
+        ("Climatology unstable month count", _value("climatology_unstable_month_count", "N/A")),
+        ("Shoulder residual threshold", _fmt_optional("shoulder_residual_threshold", "{:.1f}", "disabled")),
+        ("Input rows", _value("n_input_rows", "N/A")),
+        ("Rows after validation", _value("n_rows_after_validation", "N/A")),
+        ("Imputed rows", _value("n_imputed", "N/A")),
+        ("Unimputed rows", _value("n_unimputed", "N/A")),
+        ("Max consecutive missing", _value("max_consecutive_missing", "N/A")),
+        ("Data confidence", _value("data_confidence", "N/A")),
     ]
-    if diagnostics.validation_warnings:
-        fields.append(("Validation warnings", "; ".join(diagnostics.validation_warnings)))
+    validation_warnings = _value("validation_warnings", [])
+    if validation_warnings:
+        fields.append(("Validation warnings", "; ".join(validation_warnings)))
 
     labels = [f[0] for f in fields]
     values = [str(f[1]) for f in fields]
@@ -642,7 +663,7 @@ def plot_diagnostics_table(
 
 
 # ---------------------------------------------------------------------------
-# Figure 6 — Dashboard (composite)
+# Figure 7 - Dashboard (composite)
 # ---------------------------------------------------------------------------
 def plot_dashboard(
     artifacts,  # PipelineArtifacts (avoid circular import — typed as Any)
@@ -656,7 +677,7 @@ def plot_dashboard(
 
     Layout:
       Row 1 (full width): Season timeline
-      Row 2 col 1: Monthly climatology
+      Row 2 col 1: Aggregated monthly rainfall
       Row 2 col 2: Annual wet/dry metrics
     """
     result = artifacts.result
@@ -728,7 +749,7 @@ def plot_dashboard(
                 row=1, col=1,
             )
 
-    # ── Row 2 col 1: Monthly climatology ─────────────────────────────────────
+    # Row 2 col 1: Aggregated monthly rainfall
     clim = result.groupby("Month")[value_col].mean().reindex(range(1, 13), fill_value=0.0)
     std_v = result.groupby("Month")[value_col].std().reindex(range(1, 13), fill_value=0.0)
 
@@ -761,7 +782,7 @@ def plot_dashboard(
 
     # ── Row 2 col 2: Annual metrics ───────────────────────────────────────────
     annual = (
-        result[[("Hydro_Year"), wet_col, dry_col]]
+        result[["Hydro_Year", wet_col, dry_col]]
         .drop_duplicates(subset=["Hydro_Year"])
         .sort_values("Hydro_Year")
         .reset_index(drop=True)

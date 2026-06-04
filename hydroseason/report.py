@@ -7,7 +7,7 @@ Two public functions:
   warnings.
 
 * :func:`generate_html_report` - writes a self-contained ``.html`` file with
-  all five interactive Plotly charts, a styled diagnostics summary, and a
+  all six interactive Plotly charts, a styled diagnostics summary, and a
     per-hydro-year metrics table.  The Plotly JS bundle is embedded so
   the file can be shared and opened in any modern browser without Python.
 """
@@ -105,7 +105,6 @@ def display_summary(artifacts: "PipelineArtifacts"):
     pills = [
         _stat_pill("Walsh-Lawler SI", f"{d.walsh_lawler_si:.3f}"),
         _stat_pill("STL F<sub>S</sub>", f"{d.stl_strength:.3f}"),
-        _stat_pill("Hydro year start", start_month),
         _stat_pill("Date range", date_range),
         _stat_pill("Records", str(d.n_rows_after_validation)),
         _stat_pill("Imputed", str(d.n_imputed)),
@@ -117,12 +116,12 @@ def display_summary(artifacts: "PipelineArtifacts"):
         items = "".join(f"<li>{w}</li>" for w in d.validation_warnings)
         warnings_html = (
             f'<div style="margin-top:8px;padding:6px 10px;background:#FFF3E0;'
-            f'border-left:3px solid #FF9800;border-radius:3px;font-size:11px;">'
+            f'border-left:3px solid #FF9800;border-radius:3px;font-size:11px;color:#212121;">'
             f'<b>Validation warnings:</b><ul style="margin:4px 0 0 16px;">{items}</ul></div>'
         )
 
     regime_source_note = (
-        f'<span style="font-size:11px;color:#757575;margin-left:8px;">'
+        f'<span style="font-size:11px;color:#212121;margin-left:8px;">'
         f'(via {d.regime_source})</span>'
         if d.regime_source
         else ""
@@ -178,8 +177,8 @@ def display_summary(artifacts: "PipelineArtifacts"):
 
     html = (
         '<div style="font-family:sans-serif;border:1px solid #CFD8DC;border-radius:6px;'
-        'padding:14px 18px;max-width:720px;background:#FAFAFA;">'
-        '<div style="font-size:16px;font-weight:bold;margin-bottom:10px;">'
+        'padding:14px 18px;max-width:720px;background:#FAFAFA;color:#212121;">'
+        '<div style="font-size:16px;font-weight:bold;margin-bottom:10px;color:#212121;">'
         "HydroSeason - Analysis Summary"
         "</div>"
         '<div style="margin-bottom:10px;">'
@@ -294,7 +293,7 @@ def _imputed_runs_table_html(result) -> str:
     runs.insert(0, "run", range(1, len(runs) + 1))
 
     th_style = (
-        "padding:7px 12px;text-align:left;background:#D32F2F;color:white;"
+        "padding:7px 12px;text-align:left;background:#1565C0;color:white;"
         "font-size:12px;white-space:nowrap;"
     )
     td_style = "padding:6px 12px;font-size:12px;border-bottom:1px solid #ECEFF1;"
@@ -376,20 +375,22 @@ def generate_html_report(
     The report includes:
     1. Header / summary card (regime badge + key diagnostics)
     2. Season timeline (interactive Plotly)
-    3. Monthly climatology (interactive Plotly)
-    4. Annual wet/dry totals (interactive Plotly)
-    5. STL decomposition (interactive Plotly)
-    6. Diagnostics table (interactive Plotly)
-    7. Per-hydro-year metrics table (styled HTML)
+    3. Imputation and data quality (interactive Plotly)
+    4. Imputed runs table (styled HTML)
+    5. Aggregated monthly rainfall (interactive Plotly)
+    6. Annual wet/dry totals (interactive Plotly)
+    7. STL decomposition (interactive Plotly)
+    8. Per-hydro-year metrics table (styled HTML)
+    9. Diagnostics table (interactive Plotly)
 
     Plotly JS is embedded in the file, so no internet connection or Python
     environment is needed to view the report after it is created.
     """
     from .plot import (
+        plot_agg_monthly_rainfall,
         plot_annual_metrics,
         plot_imputation_overview,
         plot_diagnostics_table,
-        plot_monthly_climatology,
         plot_season_timeline,
         plot_stl_decomposition,
     )
@@ -399,11 +400,11 @@ def generate_html_report(
 
     # Build each figure as an HTML div (full_html=False, include_plotlyjs only once)
     fig_timeline = plot_season_timeline(artifacts.result, value_col=value_col, height=450)
-    fig_quality = plot_imputation_overview(artifacts.result, value_col=value_col, height=320)
-    fig_clim = plot_monthly_climatology(artifacts.result, artifacts.fixed_monthly, value_col=value_col, height=420)
+    fig_quality = plot_imputation_overview(artifacts.result, value_col=value_col, title="", height=320)
+    fig_clim = plot_agg_monthly_rainfall(artifacts.result, artifacts.fixed_monthly, value_col=value_col, height=420)
     fig_annual = plot_annual_metrics(artifacts.result, height=480)
-    fig_stl = plot_stl_decomposition(artifacts.result, value_col=value_col, height=680)
-    fig_diag = plot_diagnostics_table(d, height=560)
+    fig_stl = plot_stl_decomposition(artifacts.result, value_col=value_col, title="", height=680)
+    fig_diag = plot_diagnostics_table(d, title="", height=560)
 
     # First figure gets the full Plotly JS bundle embedded once.
     html_timeline = fig_timeline.to_html(full_html=False, include_plotlyjs=True, config=PLOTLY_CONFIG)
@@ -484,12 +485,12 @@ def generate_html_report(
     </header>
     """ + _section_chart("Season Timeline", html_timeline, 450) \
             + _section_chart("Imputation and Data Quality", html_quality, 320) \
+        + _section("Imputed Runs", imputed_runs_note + imputed_runs_table) \
       + _section_chart("Aggregated Monthly Rainfall", html_clim, 420) \
       + _section_chart("Annual Wet / Dry Totals", html_annual, 480) \
       + _section_chart("STL Decomposition", html_stl, 680) \
-      + _section_chart("Algorithm Diagnostics", html_diag, 480) \
-        + _section("Imputed Runs", imputed_runs_note + imputed_runs_table) \
-      + _section("Per-Hydro-Year Metrics", metrics_table)
+      + _section("Per-Hydro-Year Metrics", metrics_table) \
+      + _section_chart("Algorithm Diagnostics", html_diag, 480)
 
     html_doc = f"""<!DOCTYPE html>
 <html lang="en">

@@ -8,7 +8,7 @@ Local rainfall readers (`read_rainfall`, `classify_rainfall_from_file`) are incl
 pip install hydroseason
 ```
 
-AOI-based fetching from SILO or ERA5 requires the **fetch** extra:
+AOI-based fetching from SILO, CHIRPS, or ERA5 requires the **fetch** extra:
 
 ```bash
 pip install "hydroseason[fetch]"
@@ -49,6 +49,39 @@ AOI fetch accepts any vector format supported by GeoPandas plus explicit handlin
 
 Use `cache_dir` / `--cache-dir` for repeated work. HydroSeason stores the final monthly table as Parquet plus a small metadata JSON. For SILO, downloaded annual NetCDF files are also cached under `cache_dir/silo_netcdf`.
 
+## Auto AOI Rainfall
+
+`get_monthly_aoi_rainfall(..., source="auto")` is the recommended default. It uses SILO for Australian AOIs, CHIRPS v3 monthly rainfall elsewhere, and ERA5 only when explicitly selected or when an `era5_zarr_path` is provided as a backup for ranges CHIRPS cannot cover.
+
+Returned fetch tables include `Data_Source`, `Data_Product`, and `Fetch_Note` columns so mixed CHIRPS/ERA5 series are visible downstream.
+
+```python
+from hydroseason import get_monthly_aoi_rainfall, load_vector
+
+ERA5_ZARR = "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
+gdf = load_vector("data/catchment.geojson")
+
+monthly = get_monthly_aoi_rainfall(
+    gdf,
+    start_year=1985,
+    end_year=2023,
+    source="auto",
+    era5_zarr_path=ERA5_ZARR,
+    cache_dir="data/fetch_cache",
+)
+```
+
+```bash
+hydroseason fetch \
+  --source auto \
+  --path gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3 \
+  --vector data/catchment.geojson \
+  --start-year 1985 \
+  --end-year 2023 \
+  --cache-dir data/fetch_cache \
+  --output output/monthly_rainfall.csv
+```
+
 ## SILO Polygon Rainfall
 
 SILO polygon fetch is Australia-only and uses the public SILO gridded monthly rainfall NetCDF files on AWS.
@@ -77,9 +110,9 @@ hydroseason fetch \
 
 Use `--silo-base-url` only when mirroring or testing against a non-default SILO NetCDF location.
 
-## ERA5 Polygon Rainfall
+## ERA5 Polygon Rainfall (Exact/Backup)
 
-ERA5 fetch aggregates rainfall from the public Google Cloud ERA5 Zarr archive for a catchment polygon. It works globally and returns a tidy monthly `Rainfall_mm` table.
+ERA5 fetch aggregates rainfall from the public Google Cloud ERA5 Zarr archive for a catchment polygon. It works globally and returns a tidy monthly `Rainfall_mm` table, but it is slower because hourly data must be aggregated to monthly rainfall.
 
 ```python
 from hydroseason import get_monthly_era5_rainfall, load_vector
@@ -110,3 +143,6 @@ hydroseason fetch \
 ```
 
 Rainfall is resolved through `hydroseason.era5_variables`, which maps ERA5 total precipitation to monthly millimetres.
+
+For large AOIs or memory-constrained machines, reduce the ERA5 hourly chunk
+size, for example `time_chunk=6` in Python or `--time-chunk 6` in the CLI.

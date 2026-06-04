@@ -2,7 +2,7 @@
 
 Primary metric: STL seasonality strength (Hyndman) — transferable across any monthly variable.
 Reported diagnostic: Walsh-Lawler Seasonality Index (rainfall-specific but free to compute).
-Optional diagnostic: silhouette of 2-cluster KMeans on (mean, no-rain).
+Legacy opt-in diagnostic: silhouette of 2-cluster KMeans on (mean, no-rain).
 
 Regime is decided by STL strength thresholds, not SI.
 """
@@ -166,7 +166,7 @@ def classify_regime_with_rainfall_si(
 
 
 # ---------------------------------------------------------------------------
-# Optional KMeans silhouette diagnostic (kept for backward-compatible reporting)
+# Legacy KMeans silhouette diagnostic (opt-in; kept for backward-compatible reporting)
 # ---------------------------------------------------------------------------
 def kmeans_silhouette_diagnostic(
     df: pd.DataFrame,
@@ -212,7 +212,7 @@ def detect_seasonality_regime(
     date_col: str = "Date",
     month_col: str = "Month",
     value_col: str = "Rainfall_mm",
-    report_silhouette: bool = True,
+    report_silhouette: bool = False,
     rainfall_si_override: bool = True,
     si_strong_threshold: float = 0.80,
 ) -> SeasonalityResult:

@@ -38,16 +38,27 @@ def build_parser() -> argparse.ArgumentParser:
             "GeoJSON/SHP/KML/KMZ/GPKG/GPCK vectors"
         ),
     )
-    fetch_p.add_argument("--source", default="era5", choices=["era5", "silo"])
+    fetch_p.add_argument(
+        "--source",
+        default="auto",
+        choices=["auto", "silo", "chirps", "era5"],
+    )
     fetch_p.add_argument("--path", default=None)
     fetch_p.add_argument("--silo-base-url", default=None)
+    fetch_p.add_argument("--chirps-base-url", default=None)
     fetch_p.add_argument("--vector", required=True)
     fetch_p.add_argument("--start-year", required=True, type=int)
     fetch_p.add_argument("--end-year", required=True, type=int)
     fetch_p.add_argument("--output", required=True)
     fetch_p.add_argument("--variable", default="rainfall")
     fetch_p.add_argument("--cache-dir", default=None)
-    fetch_p.add_argument("--spatial-chunk", type=int, default=50)
+    fetch_p.add_argument("--spatial-chunk", default="auto")
+    fetch_p.add_argument("--time-chunk", default="auto")
+    fetch_p.add_argument(
+        "--era5-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
 
     rain_p = sub.add_parser(
         "rainfall",
@@ -113,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "fetch":
         from .fetch import (
+            get_monthly_aoi_rainfall,
             get_monthly_silo_rainfall,
             get_monthly_era5_rainfall,
             load_vector,
@@ -123,7 +135,24 @@ def main(argv: list[str] | None = None) -> int:
 
         gdf = load_vector(args.vector)
 
-        if args.source == "era5":
+        if args.source in {"auto", "chirps"}:
+            kwargs = {
+                "gdf": gdf,
+                "start_year": args.start_year,
+                "end_year": args.end_year,
+                "source": args.source,
+                "era5_zarr_path": args.path,
+                "silo_base_url": args.silo_base_url,
+                "variable": args.variable,
+                "cache_dir": args.cache_dir,
+                "spatial_chunk": args.spatial_chunk,
+                "time_chunk": args.time_chunk,
+                "era5_fallback": args.era5_fallback,
+            }
+            if args.chirps_base_url:
+                kwargs["chirps_base_url"] = args.chirps_base_url
+            monthly_df = get_monthly_aoi_rainfall(**kwargs)
+        elif args.source == "era5":
             monthly_df = get_monthly_era5_rainfall(
                 path=args.path,
                 gdf=gdf,
@@ -132,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
                 variable=args.variable,
                 cache_dir=args.cache_dir,
                 spatial_chunk=args.spatial_chunk,
+                time_chunk=args.time_chunk,
             )
         else:
             kwargs = {

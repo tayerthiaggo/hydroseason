@@ -52,13 +52,13 @@ class HydroSeasonAccessor:
             df = self._df
         return plot_season_timeline(df, **kwargs)
 
-    def plot_climatology(self, fixed_monthly=None, **kwargs):
-        """``plot_monthly_climatology`` — run pipeline if SeasonType column missing."""
-        from .plot import plot_monthly_climatology
+    def plot_agg_monthly_rainfall(self, fixed_monthly=None, **kwargs):
+        """``plot_agg_monthly_rainfall`` - run pipeline if SeasonType column missing."""
+        from .plot import plot_agg_monthly_rainfall
         if fixed_monthly is None and "SeasonType" not in self._df.columns:
             arts = self.classify_rainfall()
-            return plot_monthly_climatology(arts.result, arts.fixed_monthly, **kwargs)
-        return plot_monthly_climatology(self._df, fixed_monthly, **kwargs)
+            return plot_agg_monthly_rainfall(arts.result, arts.fixed_monthly, **kwargs)
+        return plot_agg_monthly_rainfall(self._df, fixed_monthly, **kwargs)
 
     def plot_stl(self, **kwargs):
         """``plot_stl_decomposition``."""

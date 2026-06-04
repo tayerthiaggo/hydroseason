@@ -12,7 +12,7 @@ HydroSeason helps you turn rainfall records into Wet/Dry seasons,
 hydrological years, rainfall metrics, diagnostics, plots, and a self-contained
 HTML report. Bring your own monthly rainfall table, or provide a catchment or
 area-of-interest polygon and let HydroSeason fetch monthly rainfall for you
-from SILO or ERA5.
+from SILO, CHIRPS, or ERA5.
 
 It is built for hydrology, ecology, climate, environmental-flow, and
 remote-sensing workflows where fixed calendar years can hide what the rainfall
@@ -20,7 +20,7 @@ season is actually doing.
 
 Full documentation: https://tayerthiaggo.github.io/hydroseason/
 
-[![HydroSeason example report preview](https://tayerthiaggo.github.io/hydroseason/assets/images/hydroseason-report-preview.png)](https://tayerthiaggo.github.io/hydroseason/report/)
+[![HydroSeason example report preview](docs/assets/images/hydroseason-report-preview.png)](https://tayerthiaggo.github.io/hydroseason/report/)
 
 ## Why HydroSeason?
 
@@ -40,7 +40,7 @@ years. It also keeps enough diagnostics to show how the decision was made.
 | Requires rainfall data to be prepared separately | Can fetch area-averaged rainfall from a polygon |
 | Gives limited method diagnostics | Exports thresholds, confidence notes, plots, and a report |
 
-![Static calendar seasons compared with HydroSeason dynamic hydrological years](https://tayerthiaggo.github.io/hydroseason/assets/images/static-vs-hydroseason.png)
+![Static calendar seasons compared with HydroSeason dynamic hydrological years](docs/assets/images/static-vs-hydroseason.png)
 
 The top panel uses a fixed Nov-Oct hydrological year and fixed Wet/Dry months.
 The bottom panel lets the rainfall record decide where wet/dry seasons and
@@ -97,6 +97,7 @@ same season workflow:
 from hydroseason import (
     classify_rainfall,
     generate_html_report,
+    get_monthly_aoi_rainfall,
     get_monthly_silo_rainfall,
     load_vector,
 )
@@ -114,25 +115,34 @@ artifacts = classify_rainfall(monthly)
 generate_html_report(artifacts, "output/hydroseason_report.html")
 ```
 
-Use SILO for Australian catchments. For global areas of interest, use ERA5:
+For the fastest default, use the AOI wrapper. It keeps SILO as the Australian
+default, uses CHIRPS v3 monthly rainfall elsewhere, and uses ERA5 only when you
+ask for it or provide it as a backup:
 
 ```python
-from hydroseason import classify_rainfall, get_monthly_era5_rainfall, load_vector
+from hydroseason import classify_rainfall, get_monthly_aoi_rainfall, load_vector
 
 ERA5_ZARR = "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
 gdf = load_vector("catchment.geojson")
 
-monthly = get_monthly_era5_rainfall(
-    path=ERA5_ZARR,
+monthly = get_monthly_aoi_rainfall(
     gdf=gdf,
     start_year=1985,
     end_year=2023,
-    variable="rainfall",
-    cache_dir="data/era5_cache",
+    source="auto",          # SILO in Australia, CHIRPS elsewhere
+    era5_zarr_path=ERA5_ZARR,  # backup when CHIRPS does not cover the request
+    cache_dir="data/fetch_cache",
 )
 
 artifacts = classify_rainfall(monthly)
 ```
+
+## Incomplete Rainfall Data?
+
+No worries. HydroSeason can apply rainfall data imputation during validation,
+fill supported missing monthly values, and keep track of what was changed.
+The diagnostics tell you how many values were imputed, which gaps were too long
+to fill automatically, and how missing data affects confidence in the result.
 
 ## What You Get
 
@@ -163,7 +173,7 @@ HydroSeason supports:
 - tidy monthly CSV files with `Date`, `Year`, `Month`, and `Rainfall_mm`;
 - Bureau of Meteorology (BoM Australia) monthly rainfall exports;
 - SILO point rainfall files and gridded polygon rainfall for Australia;
-- ERA5 polygon rainfall for global areas of interest.
+- CHIRPS-first global polygon rainfall, with ERA5 available as backup or exact mode.
 
 ## Command Line
 
@@ -176,7 +186,7 @@ hydroseason rainfall \
   --output output/rainfall_results.csv
 
 hydroseason fetch \
-  --source silo \
+  --source auto \
   --vector catchment.geojson \
   --start-year 1985 \
   --end-year 2023 \

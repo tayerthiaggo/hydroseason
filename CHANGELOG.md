@@ -3,6 +3,13 @@
 All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Legacy KMeans silhouette diagnostics are now opt-in via
+  `report_kmeans_silhouette`, so default circular-climatology runs no longer
+  invoke KMeans or trigger the Windows MKL warning.
+
 ## [0.1.0] — 2026-06-02
 
 First public release.

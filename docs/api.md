@@ -40,7 +40,7 @@ The reference below is generated from the package docstrings with `mkdocstrings`
     options:
       members:
         - plot_season_timeline
-        - plot_monthly_climatology
+        - plot_agg_monthly_rainfall
         - plot_stl_decomposition
         - plot_annual_metrics
         - plot_dashboard
@@ -63,5 +63,8 @@ The reference below is generated from the package docstrings with `mkdocstrings`
     options:
       members:
         - load_vector
+        - infer_default_fetch_source
+        - get_monthly_aoi_rainfall
+        - get_monthly_chirps_rainfall
         - get_monthly_era5_rainfall
         - get_monthly_silo_rainfall

@@ -20,6 +20,7 @@ theme:
 nav:
   - Home: index.md
   - Quick Start: quickstart.md
+  - Methods & Workflow: methods.md
   - Algorithm: algorithm.md
   - Configuration: configuration.md
   - Outputs & Metrics: outputs.md

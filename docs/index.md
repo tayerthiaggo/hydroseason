@@ -6,7 +6,7 @@ HydroSeason helps you turn rainfall records into Wet/Dry seasons,
 hydrological years, rainfall metrics, diagnostics, plots, and a self-contained
 HTML report. You can bring your own rainfall table, or provide a catchment or
 area-of-interest polygon and let HydroSeason fetch monthly rainfall from SILO
-or ERA5.
+CHIRPS, or ERA5.
 
 [Open the example report](report.md){ .md-button .md-button--primary }
 [Start with the quick guide](quickstart.md){ .md-button }
@@ -77,24 +77,27 @@ pip install "hydroseason[fetch]"
 from hydroseason import (
     classify_rainfall,
     generate_html_report,
-    get_monthly_silo_rainfall,
+    get_monthly_aoi_rainfall,
     load_vector,
 )
 
 gdf = load_vector("catchment.geojson")
 
-monthly = get_monthly_silo_rainfall(
+monthly = get_monthly_aoi_rainfall(
     gdf,
     start_year=1985,
     end_year=2023,
-    cache_dir="data/silo_cache",
+    source="auto",
+    cache_dir="data/fetch_cache",
 )
 
 artifacts = classify_rainfall(monthly)
 generate_html_report(artifacts, "output/hydroseason_report.html")
 ```
 
-Use SILO for Australian catchments and ERA5 for global areas of interest.
+Auto fetch uses SILO for Australian catchments and CHIRPS v3 monthly rainfall
+elsewhere. ERA5 remains available as an explicit exact path or as a backup when
+CHIRPS cannot cover the requested range.
 The [Rainfall Fetch](era5.md) page has the full Python and command-line
 examples.
 
@@ -111,7 +114,7 @@ pip install hydroseason
 Optional extras:
 
 ```bash
-pip install "hydroseason[fetch]"    # ERA5/SILO polygon rainfall fetch
+pip install "hydroseason[fetch]"    # SILO/CHIRPS/ERA5 polygon rainfall fetch
 pip install "hydroseason[all]"      # everything
 ```
 

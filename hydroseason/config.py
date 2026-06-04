@@ -30,13 +30,20 @@ class AlgorithmConfig:
     long_period_threshold: int = 16
     fallback_month: int | None = None          # auto-derived from data when None
     method: str = "circular"                    # "circular" | "kmeans"
+    report_kmeans_silhouette: bool = False      # legacy KMeans diagnostic; opt in for parity
     onset_window_months: int | str | None = "auto"  # "auto" | None | int
     rainfall_si_override: bool = True
     rainfall_si_threshold: float = 0.80
     min_core_length: int | None = None         # None → auto from circular concentration
     shoulder_climatology_alpha: float = 0.10   # shoulder absorption floor (α * median wet-month clim)
+    shoulder_month_quantile: float | None = 0.60  # month-aware shoulder extension floor; None disables
     core_climatology_alpha: float = 0.05       # wet-core detection floor (arid-regime safety)
     shoulder_residual_quantile: float | None = 0.95  # positive STL-residual quantile gate; None disables
+    climatology_window: str = "rolling"        # "rolling" | "global"
+    climatology_window_years: int = 10
+    climatology_window_mode: str = "trailing"  # "trailing" | "centered"
+    climatology_min_month_observations: int = 5
+    climatology_min_wet_year_fraction: float = 0.60
 
 
 @dataclass
@@ -50,15 +57,18 @@ class ValidationConfig:
 @dataclass
 class FetchConfig:
     enabled: bool = False
-    source: str = "era5"          # "era5" | "silo"
+    source: str = "auto"          # "auto" | "silo" | "chirps" | "era5"
     era5_zarr_path: str | None = None
     silo_base_url: str | None = None
+    chirps_base_url: str | None = None
     vector_path: str | None = None
     start_year: int | None = None
     end_year: int | None = None
     variable: str = "rainfall"      # registry key in era5_variables.py
     cache_dir: str | None = None
-    spatial_chunk: int = 50
+    spatial_chunk: int | str | None = "auto"
+    time_chunk: int | str | None = "auto"
+    era5_fallback: bool = True
 
 
 @dataclass

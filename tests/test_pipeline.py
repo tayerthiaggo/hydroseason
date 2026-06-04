@@ -4,6 +4,7 @@ import pandas as pd
 
 from hydroseason.config import load_config
 from hydroseason.pipeline import (
+    _month_quantile_floor,
     classify_rainfall,
     classify_rainfall_df,
     classify_rainfall_from_file,
@@ -160,6 +161,45 @@ def test_bimodal_pipeline_disables_onset_window():
         assert diag.onset_window_months_used is None
 
 
+def test_rolling_climatology_tracks_shifted_recent_wet_months():
+    rows = []
+    for year in range(1920, 2020):
+        for month in range(1, 13):
+            if year < 2000:
+                rain = 100.0 if month in {11, 12, 1} else 0.0
+            else:
+                rain = 15.0 if month in {2, 3, 4} else 0.0
+            rows.append({
+                "Date": pd.Timestamp(year=year, month=month, day=1),
+                "Year": year,
+                "Month": month,
+                "Rainfall_mm": rain,
+            })
+    df = pd.DataFrame(rows)
+
+    rolling = classify_rainfall(
+        df,
+        climatology_window="rolling",
+        climatology_window_years=10,
+        climatology_min_month_observations=5,
+        climatology_min_wet_year_fraction=0.60,
+    )
+    result = rolling.result.copy()
+    result["Date"] = pd.to_datetime(result["Date"])
+    by_date = result.set_index("Date")
+
+    assert rolling.diagnostics.climatology_window == "rolling"
+    assert rolling.diagnostics.climatology_window_years == 10
+    assert rolling.diagnostics.climatology_min_wet_year_fraction == 0.60
+    assert rolling.diagnostics.onset_window_months_used is None
+    assert by_date.loc[pd.Timestamp("2019-02-01"), "SeasonType"] == "Wet"
+    assert by_date.loc[pd.Timestamp("2019-03-01"), "SeasonType"] == "Wet"
+    assert by_date.loc[pd.Timestamp("2019-04-01"), "SeasonType"] == "Wet"
+    assert by_date.loc[pd.Timestamp("2019-02-01"), "Hydro_Year"] != by_date.loc[
+        pd.Timestamp("2018-02-01"), "Hydro_Year"
+    ]
+
+
 def test_arid_regime_core_floor_prevents_spurious_wet_core():
     """In an arid record the non-zero quantile collapses to ~mm. The site-scaled
     core floor must protect the wet-core threshold so trivial rainfall events
@@ -186,6 +226,9 @@ def test_diagnostics_reports_resolved_adaptive_values(monthly_df: pd.DataFrame):
         assert diag.min_core_length_used is not None
         assert diag.core_climatology_floor is not None
         assert diag.shoulder_climatology_floor is not None
+        assert diag.tail_floor == diag.threshold_firstpass
+        assert diag.shoulder_month_quantile == 0.60
+        assert diag.shoulder_month_floor_source == "observed"
         assert diag.shoulder_residual_threshold is not None
 
 
@@ -210,4 +253,108 @@ def test_residual_gate_can_be_disabled(monthly_df: pd.DataFrame):
         shoulder_residual_quantile=None,
     )
     assert artifacts.diagnostics.shoulder_residual_threshold is None
+
+
+def test_low_1987_88_wet_season_is_not_merged():
+    df = pd.read_csv("tests/fixtures/DATASET2.csv")
+    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
+
+    artifacts = classify_rainfall(df)
+    result = artifacts.result.copy()
+    result["Date"] = pd.to_datetime(result["Date"])
+    by_date = result.set_index("Date")
+
+    assert by_date.loc[pd.Timestamp("1987-12-01"), "SeasonType"] == "Wet"
+    assert by_date.loc[pd.Timestamp("1988-01-01"), "SeasonType"] == "Wet"
+    assert by_date.loc[pd.Timestamp("1987-12-01"), "Hydro_Year"] == 1988
+
+    hy1988 = result[result["Hydro_Year"] == 1988]
+    assert hy1988["Date"].min() == pd.Timestamp("1987-12-01")
+    assert hy1988["Date"].max() == pd.Timestamp("1988-10-01")
+    assert (hy1988["SeasonType"] == "Wet").sum() >= 2
+    assert (hy1988["SeasonType"] == "Dry").sum() < 19
+
+
+def test_ten_year_stability_guard_blocks_unstable_false_shoulders():
+    df = pd.read_csv("tests/fixtures/DATASET2.csv")
+    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
+
+    artifacts = classify_rainfall(df)
+    result = artifacts.result.copy()
+    result["Date"] = pd.to_datetime(result["Date"])
+    by_date = result.set_index("Date")
+
+    assert artifacts.diagnostics.climatology_window_years == 10
+    assert artifacts.diagnostics.climatology_unstable_month_count > 0
+    assert by_date.loc[pd.Timestamp("2010-04-01"), "SeasonType"] == "Dry"
+    assert by_date.loc[pd.Timestamp("2022-09-01"), "SeasonType"] == "Dry"
+    assert by_date.loc[pd.Timestamp("2022-10-01"), "SeasonType"] == "Dry"
+
+
+def test_shoulder_month_quantile_validates_range(monthly_df: pd.DataFrame):
+    import pytest
+
+    with pytest.raises(ValueError, match="shoulder_month_quantile"):
+        classify_rainfall(monthly_df, shoulder_month_quantile=1.5)
+
+    with pytest.raises(ValueError, match="climatology_min_wet_year_fraction"):
+        classify_rainfall(monthly_df, climatology_min_wet_year_fraction=1.5)
+
+
+def test_month_quantile_floor_prefers_observed_values():
+    rows = []
+    for month in range(1, 13):
+        base = month * 10.0
+        rows.extend([
+            {"Month": month, "Rainfall_mm": base, "Imputed": False},
+            {"Month": month, "Rainfall_mm": base + 1.0, "Imputed": False},
+            {"Month": month, "Rainfall_mm": base + 2.0, "Imputed": False},
+            {"Month": month, "Rainfall_mm": 10000.0, "Imputed": True},
+        ])
+    df = pd.DataFrame(rows)
+
+    floor, source = _month_quantile_floor(
+        df,
+        month_col="Month",
+        value_col="Rainfall_mm",
+        quantile=0.75,
+    )
+
+    assert source == "observed"
+    assert floor.loc[10] < 200.0
+
+
+def test_low_confidence_missing_data_disables_month_floor():
+    clim = [220, 190, 100, 25, 5, 0, 0, 0, 5, 15, 50, 120]
+    df = _build_monthly_record(2000, 15, clim)
+    drop_dates = {
+        pd.Timestamp(year=year, month=((year - 2000 + 5) % 12) + 1, day=1)
+        for year in range(2000, 2015)
+    }
+    df = df[~df["Date"].isin(drop_dates)].reset_index(drop=True)
+
+    artifacts = classify_rainfall(df)
+    diag = artifacts.diagnostics
+
+    assert diag.data_confidence == "low"
+    if diag.regime == "seasonal":
+        assert diag.shoulder_month_floor_source == "disabled_low_confidence"
+
+
+def test_low_confidence_long_record_keeps_global_onset_guard():
+    clim = [220, 190, 100, 25, 5, 0, 0, 0, 5, 15, 50, 120]
+    df = _build_monthly_record(1950, 50, clim)
+    drop_dates = {
+        pd.Timestamp(year=year, month=((year - 1950 + 5) % 12) + 1, day=1)
+        for year in range(1950, 2000)
+    }
+    df = df[~df["Date"].isin(drop_dates)].reset_index(drop=True)
+
+    artifacts = classify_rainfall(df)
+    diag = artifacts.diagnostics
+
+    assert diag.data_confidence == "low"
+    if diag.regime == "seasonal":
+        assert diag.climatology_guardrail_source == "global"
+        assert diag.onset_window_months_used == 1
 

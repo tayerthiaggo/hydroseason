@@ -74,11 +74,22 @@ class DiagnosticsReport:
     threshold_firstpass: float | None
     threshold_secondpass: float | None
     rainfall_si_override: bool
+    tail_floor: float | None = None
     smooth_window_used: int | None = None
     min_core_length_used: int | None = None
     onset_window_months_used: int | None = None
     core_climatology_floor: float | None = None
     shoulder_climatology_floor: float | None = None
+    shoulder_month_quantile: float | None = None
+    shoulder_month_floor_source: str | None = None
+    climatology_window: str | None = None
+    climatology_window_years: int | None = None
+    climatology_window_mode: str | None = None
+    climatology_min_month_observations: int | None = None
+    climatology_min_wet_year_fraction: float | None = None
+    climatology_guardrail_source: str | None = None
+    climatology_guardrail_fallback_count: int = 0
+    climatology_unstable_month_count: int = 0
     shoulder_residual_threshold: float | None = None
     validation_warnings: list[str] = field(default_factory=list)
     n_input_rows: int = 0
@@ -87,6 +98,7 @@ class DiagnosticsReport:
     n_unimputed: int = 0
     max_consecutive_missing: int = 0
     data_confidence: str = "high"
+
 
 
 def _resolve_adaptive_smooth_window(circ_stats: CircularStats | None) -> int:
@@ -134,6 +146,343 @@ def _resolve_adaptive_onset_window(
     return 1
 
 
+def _month_quantile_floor(
+    df: pd.DataFrame,
+    *,
+    month_col: str,
+    value_col: str,
+    quantile: float,
+    imputed_col: str = "Imputed",
+    min_observed_per_month: int = 3,
+) -> tuple[pd.Series, str]:
+    """Calendar-month quantile floors, preferring observed rows over imputes."""
+    all_floor = (
+        df.groupby(month_col)[value_col]
+        .quantile(quantile)
+        .reindex(range(1, 13))
+    )
+    if imputed_col not in df.columns:
+        return all_floor, "all"
+
+    observed = df[~df[imputed_col].fillna(False).astype(bool)]
+    observed_counts = (
+        observed.groupby(month_col)[value_col]
+        .count()
+        .reindex(range(1, 13), fill_value=0)
+    )
+    observed_floor = (
+        observed.groupby(month_col)[value_col]
+        .quantile(quantile)
+        .reindex(range(1, 13))
+    )
+    enough_observed = observed_counts >= min_observed_per_month
+    floor = observed_floor.where(enough_observed, all_floor)
+    source = "observed" if bool(enough_observed.all()) else "observed_with_fallback"
+    return floor, source
+
+
+def _observed_rows(df: pd.DataFrame, imputed_col: str = "Imputed") -> pd.DataFrame:
+    if imputed_col not in df.columns:
+        return df
+    return df[~df[imputed_col].fillna(False).astype(bool)]
+
+
+def _has_month_coverage(
+    df: pd.DataFrame,
+    *,
+    month_col: str,
+    value_col: str,
+    min_observed_per_month: int,
+) -> bool:
+    observed = _observed_rows(df)
+    counts = (
+        observed.groupby(month_col)[value_col]
+        .count()
+        .reindex(range(1, 13), fill_value=0)
+    )
+    return bool((counts >= int(min_observed_per_month)).all())
+
+
+def _fixed_monthly_for_method(
+    df: pd.DataFrame,
+    *,
+    method: str,
+    month_col: str,
+    value_col: str,
+) -> pd.DataFrame:
+    if method == "kmeans":
+        fixed, _start = identify_fixed_hydro_year(
+            df, value_col=value_col, month_col=month_col
+        )
+    else:
+        fixed, _start, _stats = circular_climatology(
+            df, value_col=value_col, month_col=month_col
+        )
+    return fixed
+
+
+def _window_subset(
+    df: pd.DataFrame,
+    *,
+    hydro_year_col: str,
+    hydro_year: int,
+    years: int,
+    mode: str,
+) -> pd.DataFrame:
+    if mode == "trailing":
+        start = hydro_year - years + 1
+        end = hydro_year
+    elif mode == "centered":
+        before = (years - 1) // 2
+        after = years - 1 - before
+        start = hydro_year - before
+        end = hydro_year + after
+    else:
+        raise ValueError('climatology_window_mode must be "trailing" or "centered".')
+    return df[(df[hydro_year_col] >= start) & (df[hydro_year_col] <= end)]
+
+
+def _guardrail_values(
+    df: pd.DataFrame,
+    fixed_monthly: pd.DataFrame,
+    *,
+    month_col: str,
+    value_col: str,
+    firstpass_quantile: float,
+    core_climatology_alpha: float,
+    shoulder_climatology_alpha: float,
+    shoulder_month_quantile: float | None,
+) -> tuple[float, float, pd.Series, pd.Series | None, str | None]:
+    wet_clim = fixed_monthly.loc[fixed_monthly["Season"] == "Wet", "median"].dropna()
+    wet_median = float(wet_clim.median()) if len(wet_clim) else 0.0
+    core_floor = float(wet_median * core_climatology_alpha)
+    shoulder_floor = float(wet_median * shoulder_climatology_alpha)
+
+    observed = _observed_rows(df)
+    values_for_threshold = observed if len(observed) else df
+    nonzero = values_for_threshold.loc[values_for_threshold[value_col] > 0, value_col]
+    quantile_value = float(nonzero.quantile(firstpass_quantile)) if len(nonzero) else 0.0
+    tail_floor = max(quantile_value, core_floor)
+
+    baseline_wet = fixed_monthly["Season"].eq("Wet").reindex(range(1, 13), fill_value=False)
+    month_floor = None
+    month_source = None
+    if shoulder_month_quantile is not None:
+        month_floor, month_source = _month_quantile_floor(
+            df,
+            month_col=month_col,
+            value_col=value_col,
+            quantile=shoulder_month_quantile,
+        )
+    return tail_floor, shoulder_floor, baseline_wet, month_floor, month_source
+
+
+def _stable_wet_months(
+    df: pd.DataFrame,
+    baseline_wet: pd.Series,
+    *,
+    month_col: str,
+    value_col: str,
+    floor: float,
+    min_wet_year_fraction: float,
+) -> tuple[pd.Series, int]:
+    """Filter local Wet months to those repeatedly wet in the window."""
+    wet = baseline_wet.reindex(range(1, 13), fill_value=False).astype(bool)
+    if min_wet_year_fraction <= 0.0:
+        return wet, 0
+
+    observed = _observed_rows(df)
+    values_for_support = observed if len(observed) else df
+    support = (
+        values_for_support.assign(_WetSupport=values_for_support[value_col] >= floor)
+        .groupby(month_col)["_WetSupport"]
+        .mean()
+        .reindex(range(1, 13), fill_value=0.0)
+    )
+    stable = wet & support.ge(float(min_wet_year_fraction))
+    unstable_count = int((wet & ~stable).sum())
+    return stable, unstable_count
+
+
+def _build_guardrail_columns(
+    df: pd.DataFrame,
+    *,
+    fixed_monthly: pd.DataFrame,
+    method: str,
+    hydro_year_col: str,
+    month_col: str,
+    value_col: str,
+    firstpass_quantile: float,
+    core_climatology_alpha: float,
+    shoulder_climatology_alpha: float,
+    shoulder_month_quantile: float | None,
+    climatology_window: str,
+    climatology_window_years: int,
+    climatology_window_mode: str,
+    climatology_min_month_observations: int,
+    climatology_min_wet_year_fraction: float,
+    low_confidence_missing: bool,
+) -> tuple[pd.DataFrame, dict[str, object]]:
+    if climatology_window not in {"global", "rolling"}:
+        raise ValueError('climatology_window must be "global" or "rolling".')
+    if climatology_window_years <= 0:
+        raise ValueError("climatology_window_years must be positive.")
+    if climatology_min_month_observations <= 0:
+        raise ValueError("climatology_min_month_observations must be positive.")
+    if not 0.0 <= float(climatology_min_wet_year_fraction) <= 1.0:
+        raise ValueError("climatology_min_wet_year_fraction must be between 0 and 1.")
+    hydro_years = sorted(df[hydro_year_col].dropna().astype(int).unique())
+    short_record = (
+        climatology_window == "rolling"
+        and len(hydro_years) < int(climatology_window_years) * 2
+    )
+
+    out = pd.DataFrame(index=df.index)
+    global_tail, global_shoulder, global_wet, global_month_floor, global_month_source = (
+        _guardrail_values(
+            df,
+            fixed_monthly,
+            month_col=month_col,
+            value_col=value_col,
+            firstpass_quantile=firstpass_quantile,
+            core_climatology_alpha=core_climatology_alpha,
+            shoulder_climatology_alpha=shoulder_climatology_alpha,
+            shoulder_month_quantile=(
+                None if low_confidence_missing else shoulder_month_quantile
+            ),
+        )
+    )
+
+    fallback_count = 0
+    unstable_month_count = 0
+    sources: set[str] = set()
+    month_sources: set[str] = set()
+    if low_confidence_missing and shoulder_month_quantile is not None:
+        month_sources.add("disabled_low_confidence")
+
+    for hy in hydro_years:
+        idx = df.index[df[hydro_year_col].astype(int) == hy]
+        use_global = (
+            climatology_window == "global"
+            or low_confidence_missing
+            or short_record
+        )
+        source = "global_short_record" if short_record and climatology_window == "rolling" else "global"
+        local = df
+        fixed = fixed_monthly
+
+        if not use_global:
+            local = _window_subset(
+                df,
+                hydro_year_col=hydro_year_col,
+                hydro_year=int(hy),
+                years=int(climatology_window_years),
+                mode=climatology_window_mode,
+            )
+            if _has_month_coverage(
+                local,
+                month_col=month_col,
+                value_col=value_col,
+                min_observed_per_month=climatology_min_month_observations,
+            ):
+                fixed = _fixed_monthly_for_method(
+                    local,
+                    method=method,
+                    month_col=month_col,
+                    value_col=value_col,
+                )
+                source = f"rolling_{climatology_window_mode}"
+            else:
+                local = df
+                fallback_count += 1
+                source = "global_fallback"
+
+        if source in {"global", "global_short_record"}:
+            tail = global_tail
+            shoulder = global_shoulder
+            wet = global_wet
+            month_floor = global_month_floor
+            month_source = global_month_source
+            tail_by_month = None
+        elif source == "global_fallback":
+            tail = global_tail
+            shoulder = global_shoulder
+            wet = global_wet
+            month_floor = global_month_floor
+            month_source = global_month_source
+            tail_by_month = None
+        else:
+            tail, shoulder, wet, month_floor, month_source = _guardrail_values(
+                local,
+                fixed,
+                month_col=month_col,
+                value_col=value_col,
+                firstpass_quantile=firstpass_quantile,
+                core_climatology_alpha=core_climatology_alpha,
+                shoulder_climatology_alpha=shoulder_climatology_alpha,
+                shoulder_month_quantile=shoulder_month_quantile,
+            )
+            tail = min(float(tail), float(global_tail))
+            wet, unstable_count = _stable_wet_months(
+                local,
+                wet,
+                month_col=month_col,
+                value_col=value_col,
+                floor=tail,
+                min_wet_year_fraction=climatology_min_wet_year_fraction,
+            )
+            unstable_month_count += unstable_count
+            base_tail = pd.Series(tail, index=range(1, 13))
+            strict_tail = pd.Series(max(tail, global_tail), index=range(1, 13))
+            tail_by_month = base_tail.where(wet, strict_tail)
+
+        row_months = df.loc[idx, month_col]
+        if tail_by_month is None:
+            out.loc[idx, "_TailFloor"] = float(tail)
+        else:
+            out.loc[idx, "_TailFloor"] = row_months.map(tail_by_month).astype(float)
+        out.loc[idx, "_BaselineWetMonth"] = row_months.map(wet).fillna(False).astype(bool)
+        extension = pd.Series(float(max(tail, shoulder)), index=idx)
+        if month_floor is not None:
+            extension = pd.concat(
+                [extension, row_months.map(month_floor).rename("_MonthFloor")],
+                axis=1,
+            ).max(axis=1)
+        out.loc[idx, "_ExtensionFloor"] = extension.astype(float)
+        sources.add(source)
+        if month_source is not None:
+            prefix = "rolling_" if source.startswith("rolling_") else ""
+            month_sources.add(prefix + month_source)
+
+    if not month_sources and shoulder_month_quantile is None:
+        month_floor_source: str | None = None
+    elif not month_sources:
+        month_floor_source = "disabled"
+    elif len(month_sources) == 1:
+        month_floor_source = next(iter(month_sources))
+    else:
+        month_floor_source = "mixed"
+
+    if len(sources) == 1:
+        guardrail_source = next(iter(sources))
+    elif sources:
+        guardrail_source = "mixed"
+    else:
+        guardrail_source = None
+
+    rolling_active = any(source.startswith("rolling_") for source in sources)
+
+    return out, {
+        "guardrail_source": guardrail_source,
+        "fallback_count": fallback_count,
+        "rolling_active": rolling_active,
+        "unstable_month_count": unstable_month_count,
+        "month_floor_source": month_floor_source,
+        "global_tail_floor": global_tail,
+        "global_shoulder_floor": global_shoulder,
+    }
+
+
 @dataclass(frozen=True)
 class PipelineArtifacts:
     """Bundle returned by every pipeline entry point.
@@ -176,13 +525,20 @@ def classify_rainfall(
     long_period_threshold: int = 16,
     fallback_month: int | None = None,
     method: str = "circular",
+    report_kmeans_silhouette: bool = False,
     onset_window_months: int | str | None = "auto",
     rainfall_si_override: bool = True,
     rainfall_si_threshold: float = 0.80,
     min_core_length: int | None = None,
     shoulder_climatology_alpha: float = 0.10,
+    shoulder_month_quantile: float | None = 0.60,
     core_climatology_alpha: float = 0.05,
     shoulder_residual_quantile: float | None = 0.95,
+    climatology_window: str = "rolling",
+    climatology_window_years: int = 10,
+    climatology_window_mode: str = "trailing",
+    climatology_min_month_observations: int = 5,
+    climatology_min_wet_year_fraction: float = 0.60,
     max_fraction_missing: float = 0.10,
     max_gap_to_interpolate: int = 2,
     max_consecutive_imputation_gap: int = 12,
@@ -222,6 +578,10 @@ def classify_rainfall(
     method:
         Fixed-season method: ``"circular"`` (default, transferable) or
         ``"kmeans"`` (legacy).
+    report_kmeans_silhouette:
+        If ``True``, compute the legacy KMeans silhouette diagnostic for
+        backward-compatible reports. Defaults to ``False`` so normal runs avoid
+        KMeans and the Windows MKL warning.
     onset_window_months:
         Acceptance window (months) around the climatological start for counting
         a wet onset. ``"auto"`` (default) disables it for bimodal/uniform
@@ -236,9 +596,26 @@ def classify_rainfall(
     shoulder_climatology_alpha, core_climatology_alpha:
         Site-scaling factors applied to the wet-month climatology median to set
         the shoulder/core absorption floors.
+    shoulder_month_quantile:
+        Optional calendar-month rainfall quantile used as a month-aware
+        shoulder extension floor. The default (0.60) lets above-normal
+        build-up/recession months join the wet season while blocking more
+        ordinary dry-season rain pulses. ``None`` disables this gate.
     shoulder_residual_quantile:
         Quantile of positive STL residuals above which a candidate shoulder is
         rejected as an isolated storm. ``None`` disables the gate.
+    climatology_window, climatology_window_years, climatology_window_mode:
+        Climatology source for local guardrails. ``"rolling"`` (default) uses
+        recent local normal by fixed hydrological year; ``"global"`` uses the
+        full record. The rolling window can be ``"trailing"`` or ``"centered"``.
+    climatology_min_month_observations:
+        Minimum observed values per calendar month required before a rolling
+        local window is trusted; otherwise the guardrail falls back to global.
+    climatology_min_wet_year_fraction:
+        Fraction of observed years in a rolling window that must exceed the
+        local tail floor before a locally labelled Wet month is treated as a
+        stable recent Wet month. This guards short windows against one-off wet
+        shoulders and decadal noise.
     max_fraction_missing, max_gap_to_interpolate, max_consecutive_imputation_gap:
         Validation/imputation controls. Gaps longer than
         ``max_consecutive_imputation_gap`` months raise instead of being filled.
@@ -289,6 +666,7 @@ def classify_rainfall(
         date_col=date_col,
         month_col=month_col,
         value_col=value_col,
+        report_silhouette=report_kmeans_silhouette,
         rainfall_si_override=rainfall_si_override,
         si_strong_threshold=rainfall_si_threshold,
     )
@@ -321,6 +699,20 @@ def classify_rainfall(
         hydro_year_start_month = fallback_month_used
 
     # ---- Step 1.5 — resolve adaptive algorithm parameters from regime
+    if climatology_window not in {"global", "rolling"}:
+        raise ValueError('climatology_window must be "global" or "rolling".')
+    if int(climatology_window_years) <= 0:
+        raise ValueError("climatology_window_years must be positive.")
+    if climatology_window_mode not in {"trailing", "centered"}:
+        raise ValueError(
+            'climatology_window_mode must be "trailing" or "centered".'
+        )
+    if int(climatology_min_month_observations) <= 0:
+        raise ValueError("climatology_min_month_observations must be positive.")
+    climatology_min_wet_year_fraction = float(climatology_min_wet_year_fraction)
+    if not 0.0 <= climatology_min_wet_year_fraction <= 1.0:
+        raise ValueError("climatology_min_wet_year_fraction must be between 0 and 1.")
+
     smooth_window_used = (
         int(smooth_window) if smooth_window is not None
         else _resolve_adaptive_smooth_window(circ_stats)
@@ -330,9 +722,7 @@ def classify_rainfall(
         else _resolve_adaptive_min_core_length(circ_stats)
     )
     if onset_window_months == "auto":
-        onset_window_resolved: int | None = _resolve_adaptive_onset_window(
-            circ_stats
-        )
+        onset_window_resolved = _resolve_adaptive_onset_window(circ_stats)
     elif onset_window_months is None:
         onset_window_resolved = None
     else:
@@ -359,7 +749,20 @@ def classify_rainfall(
     wet_boundaries: pd.DataFrame | None = None
     threshold_first: float | None = None
     threshold_second: float | None = None
+    tail_floor: float | None = None
     shoulder_residual_threshold: float | None = None
+    shoulder_month_floor_source: str | None = None
+    climatology_guardrail_source: str | None = None
+    climatology_guardrail_fallback_count = 0
+    climatology_unstable_month_count = 0
+
+    if shoulder_month_quantile is not None:
+        shoulder_month_quantile = float(shoulder_month_quantile)
+        if not 0.0 <= shoulder_month_quantile <= 1.0:
+            raise ValueError(
+                "shoulder_month_quantile must be between 0 and 1, "
+                "or None to disable."
+            )
 
     if shoulder_residual_quantile is not None:
         shoulder_residual_quantile = float(shoulder_residual_quantile)
@@ -394,12 +797,53 @@ def classify_rainfall(
         work = harmonize_with_zero_preservation(
             work, value_col=value_col, window=smooth_window_used
         )
+        low_confidence_missing = (
+            report.data_confidence == "low"
+            and (report.n_imputed > 0 or report.n_unimputed > 0)
+        )
+        guardrail_cols, guardrail_diag = _build_guardrail_columns(
+            work,
+            fixed_monthly=fixed_monthly,
+            method=method,
+            hydro_year_col="Hydro_Year_fixed",
+            month_col=month_col,
+            value_col=value_col,
+            firstpass_quantile=firstpass_quantile,
+            core_climatology_alpha=core_climatology_alpha,
+            shoulder_climatology_alpha=shoulder_climatology_alpha,
+            shoulder_month_quantile=shoulder_month_quantile,
+            climatology_window=climatology_window,
+            climatology_window_years=int(climatology_window_years),
+            climatology_window_mode=climatology_window_mode,
+            climatology_min_month_observations=int(
+                climatology_min_month_observations
+            ),
+            climatology_min_wet_year_fraction=climatology_min_wet_year_fraction,
+            low_confidence_missing=low_confidence_missing,
+        )
+        for col in guardrail_cols.columns:
+            work[col] = guardrail_cols[col]
+        climatology_guardrail_source = str(guardrail_diag["guardrail_source"])
+        climatology_guardrail_fallback_count = int(
+            guardrail_diag["fallback_count"]
+        )
+        climatology_unstable_month_count = int(
+            guardrail_diag["unstable_month_count"]
+        )
+        shoulder_month_floor_source = (
+            str(guardrail_diag["month_floor_source"])
+            if guardrail_diag["month_floor_source"] is not None else None
+        )
+        if onset_window_months == "auto" and bool(guardrail_diag["rolling_active"]):
+            onset_window_resolved = None
+
         segmented_df, wet_boundaries = segment_main_wet_season_fixed_threshold(
             work,
             date_col=date_col,
             hydro_year_col="Hydro_Year_fixed",
             smoothed_col="Smoothed",
             threshold=threshold_first,
+            threshold_col="_TailFloor",
         )
         threshold_second = (
             float(
@@ -425,6 +869,15 @@ def classify_rainfall(
                 shoulder_residual_threshold = float(
                     positive_residuals.quantile(shoulder_residual_quantile)
                 )
+
+        tail_floor_col = "_TailFloor"
+        extension_threshold_col = "_ExtensionFloor"
+        fragment_keep_col = "_BaselineWetMonth"
+
+        # ``tail_floor`` remains the global fallback value for diagnostics.
+        # Actual seasonal runs use per-row guardrails when rolling climatology is
+        # active.
+        tail_floor = float(threshold_first)
         segmented_df = refine_season_tails(
             segmented_df,
             rainfall_col=value_col,
@@ -432,12 +885,20 @@ def classify_rainfall(
             threshold_high=threshold_second,
             threshold_low=0.0,
             min_core_length=min_core_length_used,
-            climatology_floor=shoulder_clim_floor,
+            climatology_floor=None,
             residual_col=residual_col,
             residual_threshold=shoulder_residual_threshold,
+            per_row_threshold_col=tail_floor_col,
+            extension_threshold_col=extension_threshold_col,
+            fragment_keep_col=fragment_keep_col,
+            enforce_low_floor_inside_runs=True,
+            min_refined_run_length=min_core_length_used,
         )
         if residual_col is not None and residual_col in segmented_df.columns:
             segmented_df = segmented_df.drop(columns=[residual_col])
+        for col in (tail_floor_col, extension_threshold_col, fragment_keep_col):
+            if col in segmented_df.columns:
+                segmented_df = segmented_df.drop(columns=[col])
         out = assign_hydro_years(
             segmented_df,
             long_period_threshold=long_period_threshold,
@@ -473,12 +934,23 @@ def classify_rainfall(
         fallback_month_used=fallback_month_used,
         threshold_firstpass=threshold_first,
         threshold_secondpass=threshold_second,
+        tail_floor=tail_floor,
         rainfall_si_override=rainfall_si_override,
         smooth_window_used=smooth_window_used,
         min_core_length_used=min_core_length_used,
         onset_window_months_used=onset_window_resolved,
         core_climatology_floor=core_clim_floor,
         shoulder_climatology_floor=shoulder_clim_floor,
+        shoulder_month_quantile=shoulder_month_quantile,
+        shoulder_month_floor_source=shoulder_month_floor_source,
+        climatology_window=climatology_window,
+        climatology_window_years=int(climatology_window_years),
+        climatology_window_mode=climatology_window_mode,
+        climatology_min_month_observations=int(climatology_min_month_observations),
+        climatology_min_wet_year_fraction=climatology_min_wet_year_fraction,
+        climatology_guardrail_source=climatology_guardrail_source,
+        climatology_guardrail_fallback_count=climatology_guardrail_fallback_count,
+        climatology_unstable_month_count=climatology_unstable_month_count,
         shoulder_residual_threshold=shoulder_residual_threshold,
         validation_warnings=list(report.warnings),
         n_input_rows=report.n_rows_in,
@@ -506,6 +978,7 @@ def classify_rainfall(
 def run_pipeline(config: RunConfig) -> pd.DataFrame:
     if config.fetch.enabled:
         from .fetch import (
+            get_monthly_aoi_rainfall,
             get_monthly_silo_rainfall,
             get_monthly_era5_rainfall,
             load_vector,
@@ -523,7 +996,26 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
 
         gdf = load_vector(config.fetch.vector_path)
         source = config.fetch.source.lower().strip()
-        if source == "era5":
+        if source in {"auto", "chirps"}:
+            kwargs = {
+                "source": source,
+                "era5_zarr_path": config.fetch.era5_zarr_path,
+                "silo_base_url": config.fetch.silo_base_url,
+                "variable": config.fetch.variable,
+                "cache_dir": config.fetch.cache_dir,
+                "spatial_chunk": config.fetch.spatial_chunk,
+                "time_chunk": config.fetch.time_chunk,
+                "era5_fallback": config.fetch.era5_fallback,
+            }
+            if config.fetch.chirps_base_url:
+                kwargs["chirps_base_url"] = config.fetch.chirps_base_url
+            in_df = get_monthly_aoi_rainfall(
+                gdf,
+                start_year=config.fetch.start_year,
+                end_year=config.fetch.end_year,
+                **kwargs,
+            )
+        elif source == "era5":
             if not config.fetch.era5_zarr_path:
                 raise ValueError(
                     "fetch.era5_zarr_path is required when fetch.source='era5'"
@@ -536,6 +1028,7 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
                 variable=config.fetch.variable,
                 cache_dir=config.fetch.cache_dir,
                 spatial_chunk=config.fetch.spatial_chunk,
+                time_chunk=config.fetch.time_chunk,
             )
         elif source == "silo":
             kwargs = {
@@ -549,7 +1042,9 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
                 kwargs["base_url"] = config.fetch.silo_base_url
             in_df = get_monthly_silo_rainfall(**kwargs)
         else:
-            raise ValueError("fetch.source must be one of {'era5', 'silo'}")
+            raise ValueError(
+                "fetch.source must be one of {'auto', 'silo', 'chirps', 'era5'}"
+            )
     else:
         if config.input.csv_path is None:
             raise ValueError(
@@ -568,13 +1063,24 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
         long_period_threshold=config.algorithm.long_period_threshold,
         fallback_month=config.algorithm.fallback_month,
         method=config.algorithm.method,
+        report_kmeans_silhouette=config.algorithm.report_kmeans_silhouette,
         onset_window_months=config.algorithm.onset_window_months,
         rainfall_si_override=config.algorithm.rainfall_si_override,
         rainfall_si_threshold=config.algorithm.rainfall_si_threshold,
         min_core_length=config.algorithm.min_core_length,
         shoulder_climatology_alpha=config.algorithm.shoulder_climatology_alpha,
+        shoulder_month_quantile=config.algorithm.shoulder_month_quantile,
         core_climatology_alpha=config.algorithm.core_climatology_alpha,
         shoulder_residual_quantile=config.algorithm.shoulder_residual_quantile,
+        climatology_window=config.algorithm.climatology_window,
+        climatology_window_years=config.algorithm.climatology_window_years,
+        climatology_window_mode=config.algorithm.climatology_window_mode,
+        climatology_min_month_observations=(
+            config.algorithm.climatology_min_month_observations
+        ),
+        climatology_min_wet_year_fraction=(
+            config.algorithm.climatology_min_wet_year_fraction
+        ),
         max_fraction_missing=config.validation.max_fraction_missing,
         max_gap_to_interpolate=config.validation.max_gap_to_interpolate,
         max_consecutive_imputation_gap=(

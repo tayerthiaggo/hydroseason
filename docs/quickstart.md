@@ -105,16 +105,16 @@ hydroseason fetch \
   --output output/silo_monthly_rainfall.csv
 ```
 
-ERA5 rainfall for global AOIs:
+Auto rainfall for AOIs. This uses SILO in Australia, CHIRPS globally, and ERA5
+as backup when `--path` is provided:
 
 ```bash
 hydroseason fetch \
-  --source era5 \
+  --source auto \
   --path gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3 \
   --vector data/fitzroy_catchment.geojson \
   --start-year 1985 \
   --end-year 2023 \
-  --variable rainfall \
   --output output/monthly_rainfall.csv
 ```
 

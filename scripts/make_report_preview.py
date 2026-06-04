@@ -17,7 +17,7 @@ INPUT_CSV = ROOT / "data" / "monthly_rainfall.csv"
 OUTPUT_PNG = ROOT / "docs" / "assets" / "images" / "hydroseason-report-preview.png"
 
 WET = "#1565C0"
-DRY = "#EF3800"
+DRY = "#F57C00"
 TEXT = "#263238"
 GRID = "#ECEFF1"
 

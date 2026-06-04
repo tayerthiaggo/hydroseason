@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+import hydroseason.seasonality as seasonality
 from hydroseason.seasonality import (
     classify_regime_from_stl,
     classify_regime_with_rainfall_si,
@@ -54,12 +55,39 @@ def test_stl_residuals_align_to_input_rows(monthly_df: pd.DataFrame):
     assert residuals.notna().all()
 
 
-def test_detect_regime_returns_all_fields(monthly_df: pd.DataFrame):
+def test_detect_regime_returns_all_fields(monthly_df: pd.DataFrame, monkeypatch):
     monthly_df["Date"] = pd.to_datetime(
         monthly_df[["Year", "Month"]].assign(day=1)
     )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("KMeans diagnostic should be opt-in")
+
+    monkeypatch.setattr(seasonality, "kmeans_silhouette_diagnostic", fail_if_called)
     r = detect_seasonality_regime(monthly_df, rainfall_si_override=True)
     assert r.regime in {"non_seasonal", "borderline", "seasonal"}
     assert 0.0 <= r.stl_strength <= 1.0
     assert isinstance(r.si, float)
+    assert r.silhouette is None
     assert r.regime_source in {"stl", "rainfall_si_override"}
+
+
+def test_detect_regime_can_report_legacy_kmeans_silhouette(
+    monthly_df: pd.DataFrame, monkeypatch
+):
+    monthly_df["Date"] = pd.to_datetime(
+        monthly_df[["Year", "Month"]].assign(day=1)
+    )
+    monkeypatch.setattr(
+        seasonality,
+        "kmeans_silhouette_diagnostic",
+        lambda *args, **kwargs: 0.42,
+    )
+
+    r = detect_seasonality_regime(
+        monthly_df,
+        rainfall_si_override=True,
+        report_silhouette=True,
+    )
+
+    assert r.silhouette == 0.42
