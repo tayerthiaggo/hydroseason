@@ -1,6 +1,6 @@
 # API Reference
 
-The reference below is generated from the package docstrings with `mkdocstrings`.
+Reference generated from package docstrings with `mkdocstrings`.
 
 ## Pipeline
 

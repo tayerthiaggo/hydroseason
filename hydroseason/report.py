@@ -15,8 +15,12 @@ Two public functions:
 from __future__ import annotations
 
 import calendar
+import html
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import pandas as pd
 
 from .plot import PLOTLY_CONFIG
 
@@ -70,6 +74,44 @@ def _stat_pill(label: str, value: str) -> str:
         f'border-radius:4px;background:#ECEFF1;font-size:12px;">'
         f'<b>{label}:</b> {value}</span>'
     )
+
+
+def _format_month_year(value) -> str:
+    if value is None or pd.isna(value):
+        return "N/A"
+    ts = pd.Timestamp(value)
+    return f"{_MONTH_ABBR.get(ts.month, ts.month)} {ts.year}"
+
+
+def _season_onsets_frame(result) -> pd.DataFrame:
+    """Return per-hydro-year Wet/Dry onset month-year labels."""
+    required = {"Date", "Hydro_Year", "SeasonType"}
+    if not required.issubset(result.columns):
+        return pd.DataFrame(columns=["Hydro_Year", "Wet start", "Dry start"])
+
+    work = result[list(required)].copy()
+    work["Date"] = pd.to_datetime(work["Date"])
+    work = work.sort_values("Date").reset_index(drop=True)
+
+    rows = []
+    for hydro_year, group in work.groupby("Hydro_Year", sort=True):
+        wet_rows = group[group["SeasonType"].eq("Wet")]
+        wet_start = wet_rows["Date"].min() if not wet_rows.empty else None
+
+        dry_rows = group[group["SeasonType"].eq("Dry")]
+        if wet_start is not None and not pd.isna(wet_start):
+            dry_rows = dry_rows[dry_rows["Date"] > wet_start]
+        dry_start = dry_rows["Date"].min() if not dry_rows.empty else None
+
+        rows.append(
+            {
+                "Hydro_Year": hydro_year,
+                "Wet start": _format_month_year(wet_start),
+                "Dry start": _format_month_year(dry_start),
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -156,19 +198,14 @@ def display_summary(artifacts: "PipelineArtifacts"):
                 f"{cnt.get('Wet', 0)} Wet | {cnt.get('Regular', 0)} Regular | {cnt.get('Dry', 0)} Dry",
             )
         )
-    if "Drought_Category" in result.columns:
-        dc = (
-            result[["Hydro_Year", "Drought_Category"]]
-            .drop_duplicates(subset=["Hydro_Year"])
-        )
-        cnt = dc["Drought_Category"].value_counts().to_dict()
-        bullets.append(
-            (
-                "Drought category",
-                f"{cnt.get('Prolonged', 0)} Prolonged | {cnt.get('Regular', 0)} Regular | "
-                f"{cnt.get('Minimal', 0)} Minimal | {cnt.get('No dry', 0)} No-dry",
-            )
-        )
+    onsets = _season_onsets_frame(result)
+    if not onsets.empty:
+        first_wet = onsets.loc[onsets["Wet start"].ne("N/A"), "Wet start"]
+        first_dry = onsets.loc[onsets["Dry start"].ne("N/A"), "Dry start"]
+        if not first_wet.empty:
+            bullets.append(("First Wet start", first_wet.iloc[0]))
+        if not first_dry.empty:
+            bullets.append(("First Dry start", first_dry.iloc[0]))
 
     bullets_html = "".join(
         f'<li style="margin:2px 0;"><b>{lbl}:</b> {val}</li>'
@@ -208,7 +245,7 @@ def _metrics_table_html(result, value_col: str = "Rainfall_mm") -> str:
     ]
     if "dry_event_count" in result.columns:
         cols_wanted.append("dry_event_count")
-    for extra in ("Annual_SPI", "Year_Class_SPI", "Drought_Category"):
+    for extra in ("Annual_SPI", "Year_Class_SPI"):
         if extra in result.columns:
             cols_wanted.append(extra)
 
@@ -219,9 +256,17 @@ def _metrics_table_html(result, value_col: str = "Rainfall_mm") -> str:
         .sort_values("Hydro_Year")
         .reset_index(drop=True)
     )
+    onsets = _season_onsets_frame(result)
+    if not onsets.empty:
+        annual = annual.merge(onsets, on="Hydro_Year", how="left")
+        for col in ("Wet start", "Dry start"):
+            if col not in available:
+                available.append(col)
 
     header_labels = {
         "Hydro_Year": "Hydro Year",
+        "Wet start": "Wet start",
+        "Dry start": "Dry start",
         wet_col: f"Wet total ({value_col})",
         dry_col: f"Dry total ({value_col})",
         "wet_month_count": "Wet months",
@@ -229,7 +274,6 @@ def _metrics_table_html(result, value_col: str = "Rainfall_mm") -> str:
         "dry_event_count": "Rainy dry months",
         "Annual_SPI": "Annual SPI",
         "Year_Class_SPI": "Year class (SPI)",
-        "Drought_Category": "Drought category",
     }
 
     th_style = (
@@ -251,7 +295,7 @@ def _metrics_table_html(result, value_col: str = "Rainfall_mm") -> str:
                 display_val = f"{float(val):.1f}"
             elif c == "Annual_SPI":
                 display_val = f"{float(val):+.2f}"
-            elif c in ("Year_Class_SPI", "Drought_Category"):
+            elif c in ("Wet start", "Dry start", "Year_Class_SPI"):
                 display_val = str(val)
             else:
                 display_val = str(int(val))
@@ -547,6 +591,393 @@ def generate_html_report(
     return output_path
 
 
+def generate_multisite_timeline_report(
+    output_dir: str | Path,
+    output_path: str | Path | None = None,
+    *,
+    summary_path: str | Path | None = None,
+    title: str = "HydroSeason Multi-Site Timeline Report",
+    value_col: str = "Rainfall_mm",
+) -> Path:
+    """Write a self-contained HTML gallery of per-site season timelines.
+
+    The report is designed for the global fetch/classify stress-test outputs:
+    a summary CSV plus per-site folders containing ``*_hydroseason_result.csv``.
+    Sites without a classified result are still listed with their failure status.
+    """
+    from .plot import plot_season_timeline
+
+    output_dir = Path(output_dir)
+    if output_path is None:
+        output_path = output_dir / "multisite_timeline_report.html"
+    output_path = Path(output_path)
+
+    if summary_path is None:
+        summary_path = output_dir / "global_chirps_era5_stress_summary.csv"
+    summary_path = Path(summary_path)
+    if not summary_path.exists():
+        raise FileNotFoundError(f"Summary CSV not found: {summary_path}")
+
+    summary = pd.read_csv(summary_path)
+    if "site_id" not in summary.columns:
+        raise ValueError(f"Summary CSV must include 'site_id': {summary_path}")
+    summary = summary.sort_values("site_id").reset_index(drop=True)
+
+    ok_count = int(summary["status"].eq("ok").sum()) if "status" in summary.columns else 0
+    failed_count = int((~summary["status"].eq("ok")).sum()) if "status" in summary.columns else 0
+
+    plotly_embedded = False
+    sections: list[str] = []
+    for _, row in summary.iterrows():
+        site_id = str(row["site_id"])
+        country = str(row.get("country", "Unknown"))
+        status = str(row.get("status", "unknown"))
+        site_dir = output_dir / site_id
+        result_path = site_dir / f"{site_id}_hydroseason_result.csv"
+        monthly_path = site_dir / f"{site_id}_monthly_rainfall.csv"
+        error_path = site_dir / f"{site_id}_error.txt"
+
+        regime = str(row.get("regime", "")) or "n/a"
+        lat_band = str(row.get("lat_band", "")) or "n/a"
+        data_sources = str(row.get("data_sources", "")) or "n/a"
+        continent = str(row.get("continent", "")) or "n/a"
+        lat = row.get("lat", "")
+        lon = row.get("lon", "")
+        error_text = str(row.get("error", "") or "").strip()
+        if not error_text and error_path.exists():
+            error_text = error_path.read_text(encoding="utf-8").strip()
+
+        title_bits = [site_id, country]
+        if pd.notna(lat) and pd.notna(lon):
+            title_bits.append(f"({float(lat):.3f}, {float(lon):.3f})")
+        card_title = " ".join(title_bits)
+
+        status_class = "ok" if status == "ok" else "failed"
+        timeline_html = ""
+        if result_path.exists():
+            result = pd.read_csv(result_path)
+            fig = plot_season_timeline(
+                result,
+                value_col=value_col,
+                title=f"{site_id} | {country}",
+                height=340,
+            )
+            timeline_html = fig.to_html(
+                full_html=False,
+                include_plotlyjs=not plotly_embedded,
+                config=PLOTLY_CONFIG,
+            )
+            plotly_embedded = True
+        else:
+            detail = (
+                f"Classified result not available. Monthly rainfall file exists: {monthly_path.exists()}."
+            )
+            if error_text:
+                detail += f" Error: {error_text}"
+            timeline_html = (
+                '<div class="missing-plot">'
+                f"{html.escape(detail)}"
+                "</div>"
+            )
+
+        error_block = ""
+        if error_text:
+            error_block = (
+                '<div class="error-block">'
+                f"<strong>Error</strong><pre>{html.escape(error_text)}</pre>"
+                "</div>"
+            )
+
+        metadata_html = (
+            '<div class="meta-grid">'
+            f'<div><span class="meta-label">regime</span><span class="meta-value">{html.escape(regime)}</span></div>'
+            f'<div><span class="meta-label">lat_band</span><span class="meta-value">{html.escape(lat_band)}</span></div>'
+            f'<div><span class="meta-label">data_sources</span><span class="meta-value">{html.escape(data_sources)}</span></div>'
+            f'<div><span class="meta-label">continent</span><span class="meta-value">{html.escape(continent)}</span></div>'
+            f'<div><span class="meta-label">status</span><span class="meta-value">{html.escape(status)}</span></div>'
+            f'<div><span class="meta-label">coords</span><span class="meta-value">{html.escape(str(lat))}, {html.escape(str(lon))}</span></div>'
+            "</div>"
+        )
+
+        sections.append(
+            f"""
+<details class="site-card {status_class}" data-site="{html.escape(site_id.lower())}" data-country="{html.escape(country.lower())}" data-status="{html.escape(status.lower())}" data-regime="{html.escape(regime.lower())}" data-lat-band="{html.escape(lat_band.lower())}" data-data-sources="{html.escape(data_sources.lower())}">
+  <summary>
+    <span class="site-name">{html.escape(card_title)}</span>
+    <span class="pill status-pill {status_class}">{html.escape(status)}</span>
+    <span class="pill">{html.escape(regime)}</span>
+    <span class="pill">{html.escape(lat_band)}</span>
+    <span class="pill">{html.escape(data_sources)}</span>
+  </summary>
+  <div class="site-body">
+    {metadata_html}
+    <div class="chart-shell">{timeline_html}</div>
+    {error_block}
+  </div>
+</details>"""
+        )
+
+    summary_json = html.escape(
+        json.dumps(
+            {
+                "n_sites": int(len(summary)),
+                "n_ok": ok_count,
+                "n_failed": failed_count,
+                "summary_csv": str(summary_path),
+            },
+            indent=2,
+        )
+    )
+
+    html_doc = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{html.escape(title)}</title>
+  <style>
+    body {{
+      font-family: sans-serif;
+      margin: 0;
+      background: #f4f1e8;
+      color: #1f2933;
+    }}
+    .page {{
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px;
+    }}
+    .hero {{
+      background: linear-gradient(135deg, #204e5f 0%, #2b6f77 45%, #f2c572 100%);
+      color: white;
+      padding: 28px;
+      border-radius: 18px;
+      box-shadow: 0 16px 36px rgba(32, 78, 95, 0.22);
+    }}
+    .hero h1 {{
+      margin: 0 0 8px;
+      font-size: 30px;
+    }}
+    .hero p {{
+      margin: 0;
+      max-width: 900px;
+      line-height: 1.5;
+    }}
+    .toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin: 18px 0 20px;
+      padding: 16px 18px;
+      background: #fffdf8;
+      border: 1px solid #e5dccb;
+      border-radius: 14px;
+    }}
+    .toolbar input {{
+      flex: 1 1 320px;
+      min-width: 240px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #cabda7;
+      font-size: 14px;
+    }}
+    .toolbar button {{
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 10px;
+      background: #204e5f;
+      color: white;
+      cursor: pointer;
+    }}
+    .summary-strip {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }}
+    .summary-pill, .pill {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(255,255,255,0.18);
+      color: inherit;
+    }}
+    .summary-pill.light {{
+      background: #fff;
+      color: #204e5f;
+    }}
+    .site-card {{
+      margin: 16px 0;
+      border: 1px solid #e7decd;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #fffdf8;
+      box-shadow: 0 8px 20px rgba(54, 45, 25, 0.06);
+    }}
+    .site-card summary {{
+      list-style: none;
+      cursor: pointer;
+      padding: 16px 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      background: #fbf6eb;
+    }}
+    .site-card summary::-webkit-details-marker {{
+      display: none;
+    }}
+    .site-name {{
+      font-weight: 700;
+      font-size: 16px;
+      margin-right: auto;
+    }}
+    .pill {{
+      background: #e8eef0;
+      color: #204e5f;
+    }}
+    .status-pill.ok {{
+      background: #dff3e4;
+      color: #1f6d3d;
+    }}
+    .status-pill.failed {{
+      background: #ffe0db;
+      color: #9b2c2c;
+    }}
+    .site-body {{
+      padding: 18px;
+    }}
+    .meta-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }}
+    .meta-grid > div {{
+      background: #f7f3ea;
+      border-radius: 12px;
+      padding: 10px 12px;
+    }}
+    .meta-label {{
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }}
+    .meta-value {{
+      font-size: 14px;
+      font-weight: 600;
+    }}
+    .chart-shell {{
+      border-radius: 12px;
+      overflow: hidden;
+      background: white;
+    }}
+    .missing-plot {{
+      padding: 16px;
+      border-radius: 12px;
+      background: #fff4e5;
+      color: #8a4b08;
+      border: 1px solid #efd2a8;
+    }}
+    .error-block {{
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 12px;
+      background: #fff1ef;
+      border: 1px solid #f2c1ba;
+    }}
+    .error-block pre, .summary-json {{
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 8px 0 0;
+    }}
+    .summary-json {{
+      margin-top: 18px;
+      background: #fffdf8;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px solid #e7decd;
+    }}
+    .hidden {{
+      display: none;
+    }}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <h1>{html.escape(title)}</h1>
+      <p>Manual inspection gallery for cached HydroSeason site outputs. Each site section shows its season timeline when a classified result is available, along with regime, lat_band, and data_sources. Failed sites stay in the report so gaps are visible during review.</p>
+      <div class="summary-strip">
+        <span class="summary-pill light">sites: {len(summary)}</span>
+        <span class="summary-pill light">ok: {ok_count}</span>
+        <span class="summary-pill light">not ok: {failed_count}</span>
+        <span class="summary-pill light">summary: {html.escape(str(summary_path))}</span>
+      </div>
+    </section>
+
+    <section class="toolbar">
+      <input id="site-filter" type="search" placeholder="Filter by site, country, regime, lat_band, data_sources, or status">
+      <button type="button" id="expand-all">Expand all</button>
+      <button type="button" id="collapse-all">Collapse all</button>
+    </section>
+
+    <pre class="summary-json">{summary_json}</pre>
+
+    {''.join(sections)}
+  </div>
+
+  <script>
+    (function () {{
+      var filterInput = document.getElementById('site-filter');
+      var cards = Array.prototype.slice.call(document.querySelectorAll('.site-card'));
+      var expandAll = document.getElementById('expand-all');
+      var collapseAll = document.getElementById('collapse-all');
+
+      function haystack(card) {{
+        return [
+          card.dataset.site,
+          card.dataset.country,
+          card.dataset.status,
+          card.dataset.regime,
+          card.dataset.latBand,
+          card.dataset.dataSources
+        ].join(' ');
+      }}
+
+      function applyFilter() {{
+        var q = (filterInput.value || '').toLowerCase().trim();
+        cards.forEach(function (card) {{
+          var match = !q || haystack(card).indexOf(q) >= 0;
+          card.classList.toggle('hidden', !match);
+        }});
+      }}
+
+      filterInput.addEventListener('input', applyFilter);
+      expandAll.addEventListener('click', function () {{
+        cards.forEach(function (card) {{ card.open = true; }});
+      }});
+      collapseAll.addEventListener('click', function () {{
+        cards.forEach(function (card) {{ card.open = false; }});
+      }});
+    }})();
+  </script>
+</body>
+</html>"""
+
+    output_path.write_text(html_doc, encoding="utf-8")
+    return output_path
+
+
 # ---------------------------------------------------------------------------
 # Public: full export bundle
 # ---------------------------------------------------------------------------
@@ -605,7 +1036,7 @@ def export_bundle(
     metric_cols = ["Hydro_Year", wet_col, dry_col, "wet_month_count", "dry_month_count"]
     if "dry_event_count" in result.columns:
         metric_cols.append("dry_event_count")
-    for extra in ("Annual_SPI", "Year_Class_SPI", "Drought_Category"):
+    for extra in ("Annual_SPI", "Year_Class_SPI"):
         if extra in result.columns:
             metric_cols.append(extra)
     available_cols = [c for c in metric_cols if c in result.columns]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 from pathlib import Path
 
 import matplotlib.dates as mdates
@@ -14,6 +15,7 @@ from hydroseason import classify_rainfall
 
 
 ROOT = Path(__file__).resolve().parents[1]
+INPUT_CSV = ROOT / "data" / "monthly_rainfall.csv"
 OUTPUT_PNG = ROOT / "docs" / "assets" / "images" / "static-vs-hydroseason.png"
 
 WET = "#1565C0"
@@ -43,31 +45,18 @@ def _season_band_colour(season: str) -> str | None:
     return None
 
 
-def _targeted_demo_record() -> pd.DataFrame:
-    """Return an eight-year record for the README comparison graphic."""
-    rainfall_by_year = {
-        2016: [214, 190, 122, 38, 8, 0, 0, 0, 8, 96, 168, 224],
-        2017: [242, 218, 170, 64, 20, 2, 0, 0, 6, 82, 132, 214],
-        2018: [205, 172, 96, 30, 9, 0, 0, 0, 4, 74, 112, 206],
-        2019: [235, 215, 150, 48, 14, 2, 0, 0, 6, 86, 128, 210],
-        2020: [205, 185, 118, 34, 6, 0, 0, 2, 8, 104, 178, 238],
-        2021: [242, 218, 166, 58, 18, 3, 0, 0, 6, 92, 138, 218],
-        2022: [258, 225, 154, 42, 7, 0, 0, 1, 8, 112, 168, 232],
-        2023: [198, 166, 92, 24, 8, 0, 0, 0, 5, 78, 118, 205],
-    }
+def _month_to_fixed_season(fixed_monthly: pd.DataFrame) -> dict[int, str]:
+    seasons = fixed_monthly["Season"].astype(str).tolist()
+    if len(seasons) != 12:
+        raise ValueError("Expected 12 monthly rows in fixed climatology output.")
+    return {month: seasons[month - 1] for month in range(1, 13)}
 
-    rows = []
-    for year, values in rainfall_by_year.items():
-        for month, rainfall in enumerate(values, start=1):
-            rows.append(
-                {
-                    "Date": f"{year}-{month:02d}-01",
-                    "Year": year,
-                    "Month": month,
-                    "Rainfall_mm": rainfall,
-                }
-            )
-    return pd.DataFrame(rows)
+
+def _select_display_window(result: pd.DataFrame) -> tuple[pd.Timestamp, pd.Timestamp]:
+    min_date = pd.to_datetime(result["Date"]).min()
+    max_date = pd.to_datetime(result["Date"]).max()
+    window_start = pd.Timestamp(year=max_date.year - 7, month=1, day=1)
+    return max(min_date, window_start), max_date
 
 
 def _boundary_before(dates: pd.Series, index: int) -> pd.Timestamp:
@@ -150,13 +139,23 @@ def _draw_panel(
 
 
 def main() -> None:
-    raw = _targeted_demo_record()
+    raw = pd.read_csv(INPUT_CSV)
     raw["Date"] = pd.to_datetime(raw["Date"])
 
     artifacts = classify_rainfall(raw)
     result = artifacts.result.copy()
     result["Date"] = pd.to_datetime(result["Date"])
     smoothed = result["Smoothed"] if "Smoothed" in result.columns else None
+    start_month = int(artifacts.diagnostics.hydro_year_start_month or 1)
+    fixed_season_map = _month_to_fixed_season(artifacts.fixed_monthly)
+
+    window_start, window_end = _select_display_window(result)
+    raw = raw.loc[raw["Date"].between(window_start, window_end)].copy()
+    result = result.loc[result["Date"].between(window_start, window_end)].copy()
+    if smoothed is not None:
+        smoothed = smoothed.loc[result.index]
+
+    static_seasons = [fixed_season_map[int(month)] for month in raw["Month"].astype(int)]
 
     hy_shift = result["Hydro_Year"].ne(result["Hydro_Year"].shift())
     wet_onset = result["SeasonType"].eq("Wet") & result["SeasonType"].ne(result["SeasonType"].shift())
@@ -167,11 +166,6 @@ def main() -> None:
             "HydroYear boundaries in the README comparison must align with "
             f"Wet onsets. Mismatched starts: {bad_dates}"
         )
-
-    static_seasons = [
-        "Wet" if month in {11, 12, 1, 2, 3, 4} else "Dry"
-        for month in raw["Month"].astype(int)
-    ]
 
     fig, axes = plt.subplots(
         2,
@@ -193,7 +187,7 @@ def main() -> None:
         axes[0],
         raw,
         static_seasons,
-        "Static Nov-Oct hydrological year: fixed Wet months and fixed year starts",
+        "Static climatology baseline: fixed Wet/Dry months and fixed year starts",
         smoothed=smoothed,
     )
     _draw_panel(
@@ -207,8 +201,9 @@ def main() -> None:
     raw_dates = pd.to_datetime(raw["Date"]).reset_index(drop=True)
     result_dates = pd.to_datetime(result["Date"]).reset_index(drop=True)
 
-    for year in range(int(raw["Year"].min()), int(raw["Year"].max()) + 1):
-        line_x = _boundary_at_date(raw_dates, pd.Timestamp(f"{year}-11-01"))
+    static_boundary_dates = raw.loc[raw["Month"].eq(start_month), "Date"]
+    for boundary_date in static_boundary_dates:
+        line_x = _boundary_at_date(raw_dates, pd.Timestamp(boundary_date))
         axes[0].axvline(
             line_x,
             color=YEAR_LINE,
@@ -217,10 +212,13 @@ def main() -> None:
             alpha=0.95,
             zorder=4,
         )
-    hydro_starts = result.loc[
-        result["Hydro_Year"] != result["Hydro_Year"].shift(),
+    full_result = artifacts.result.copy()
+    full_result["Date"] = pd.to_datetime(full_result["Date"])
+    hydro_starts = full_result.loc[
+        full_result["Hydro_Year"] != full_result["Hydro_Year"].shift(),
         ["Date", "Hydro_Year"],
-    ].iloc[1:]
+    ]
+    hydro_starts = hydro_starts.loc[hydro_starts["Date"].between(window_start, window_end)]
     for _, row in hydro_starts.iterrows():
         line_x = _boundary_at_date(result_dates, row["Date"])
         axes[1].axvline(
@@ -261,7 +259,11 @@ def main() -> None:
     fig.text(
         0.02,
         0.025,
-        "Eight-year illustrative monthly rainfall record. Static baseline shown as fixed Nov-Apr Wet / May-Oct Dry with Nov-Oct hydrological years.",
+        (
+            f"Bundled example-report dataset subset ({window_start:%Y-%m} to {window_end:%Y-%m}). "
+            f"Static baseline uses fixed month classes from long-term climatology and a fixed "
+            f"hydrological-year start in {calendar.month_abbr[start_month]}."
+        ),
         fontsize=9,
         color="#546E7A",
     )

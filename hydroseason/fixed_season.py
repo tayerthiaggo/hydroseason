@@ -93,7 +93,11 @@ def circular_stats(climatology_values: np.ndarray) -> CircularStats:
     ratio = float(amp2 / amp1) if amp1 > 0 else 0.0
 
     is_uniform = R < 0.10  # near-zero concentration ≈ perennial regime
-    is_bimodal = (not is_uniform) and ratio > 0.50
+    is_bimodal = (
+        (not is_uniform)
+        and ratio > 0.50
+        and _has_separated_wet_modes(values)
+    )
 
     peak_month = int(months[int(np.argmax(values))])
 
@@ -105,6 +109,28 @@ def circular_stats(climatology_values: np.ndarray) -> CircularStats:
         is_bimodal=is_bimodal,
         is_uniform=is_uniform,
     )
+
+
+def _count_circular_true_runs(mask: np.ndarray) -> int:
+    """Count contiguous True runs on a 12-month circular mask."""
+    work = np.asarray(mask, dtype=bool)
+    if work.size != 12:
+        raise ValueError("circular run count requires 12 monthly values.")
+    if not work.any():
+        return 0
+    if work.all():
+        return 1
+    return int(np.sum(work & ~np.roll(work, 1)))
+
+
+def _has_separated_wet_modes(values: np.ndarray) -> bool:
+    """Return True when high-rain months form multiple separated wet runs."""
+    values = np.asarray(values, dtype=float)
+    threshold = float(np.median(values))
+    if threshold <= 0.0 and (values > 0.0).any():
+        threshold = float(np.min(values[values > 0.0]))
+    high_months = values >= threshold
+    return _count_circular_true_runs(high_months) >= 2
 
 
 def _label_wet_dry_unimodal(values: np.ndarray, peak_month: int) -> np.ndarray:

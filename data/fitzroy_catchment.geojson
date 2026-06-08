@@ -4,8 +4,8 @@
     {
       "type": "Feature",
       "properties": {
-        "name": "Fitzroy River – example catchment (NW Australia)",
-        "description": "Approximate bounding polygon for ERA5 fetch demonstration. Covers the lower Fitzroy River near Fitzroy Crossing, Western Australia (~18°S, 124°E)."
+        "name": "Fitzroy River – example catchment (Western Australia)",
+        "description": "Approximate bounding polygon for fetch demonstration. Covers the lower Fitzroy River near Fitzroy Crossing, Western Australia (~18°S, 124°E)."
       },
       "geometry": {
         "type": "Polygon",

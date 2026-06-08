@@ -5,6 +5,10 @@ import pandas as pd
 import pytest
 
 from hydroseason.fetch import (
+    ChirpsCoverageError,
+    DEFAULT_ERA5_ZARR_PATH,
+    NoChirpsMonthsError,
+    _timed_input,
     _SystemProfile,
     _cache_key,
     _resolve_temporal_batch_years,
@@ -15,6 +19,7 @@ from hydroseason.fetch import (
     get_monthly_silo_rainfall,
     get_monthly_era5_rainfall,
     infer_default_fetch_source,
+    load_vector,
     rasterize_to_xarray_grid,
 )
 
@@ -27,6 +32,11 @@ class _DummyGeoDataFrame:
 
     def to_crs(self, *_args, **_kwargs):
         return self
+
+
+class _DummyNonTtyStdin:
+    def isatty(self):
+        return False
 
 
 def test_gcs_fetch_requires_gcsfs(monkeypatch):
@@ -46,6 +56,36 @@ def test_gcs_fetch_requires_gcsfs(monkeypatch):
             2000,
             show_progress=False,
         )
+
+
+def test_era5_fetch_rejects_non_rainfall_variable():
+    with pytest.raises(ValueError, match="only supports rainfall"):
+        get_monthly_era5_rainfall(
+            "era5-test.zarr",
+            _DummyGeoDataFrame(),
+            2000,
+            2000,
+            variable="temperature",
+            show_progress=False,
+        )
+
+
+def test_timed_input_non_tty_falls_back_to_blocking_input(monkeypatch):
+    import builtins
+
+    prompts = []
+
+    monkeypatch.setattr("hydroseason.fetch.sys.stdin", _DummyNonTtyStdin())
+    monkeypatch.setattr(
+        builtins,
+        "input",
+        lambda prompt: prompts.append(prompt) or "yes",
+    )
+
+    out = _timed_input("Prompt text ", 1)
+
+    assert out == "yes"
+    assert prompts == ["Prompt text "]
 
 
 def test_rasterize_to_xarray_grid_smoke():
@@ -200,6 +240,23 @@ def test_era5_fetch_preserves_light_monthly_accumulations(monkeypatch):
     assert out.loc[0, "Rainfall_mm"] == 0.5
 
 
+def test_load_vector_filters_empty_geometries(monkeypatch, tmp_path):
+    import geopandas as gpd
+    from shapely.geometry import Polygon, box
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(0.0, 0.0, 1.0, 1.0), Polygon()],
+        crs="EPSG:4326",
+    )
+
+    monkeypatch.setattr("geopandas.read_file", lambda *_args, **_kwargs: gdf)
+
+    out = load_vector(tmp_path / "aoi.geojson")
+
+    assert len(out) == 1
+    assert not bool(out.geometry.iloc[0].is_empty)
+
+
 def test_era5_fetch_auto_chunks_open_zarr_time(monkeypatch):
     import geopandas as gpd
     import xarray as xr
@@ -349,6 +406,34 @@ def test_era5_fetch_uses_single_overall_progress_bar(monkeypatch, capsys):
     assert "processing 2001" in err
 
 
+def test_aoi_era5_uses_default_zarr_path(monkeypatch):
+    calls: dict[str, object] = {}
+
+    def fake_era5(**kwargs):
+        calls["era5"] = kwargs
+        return pd.DataFrame(
+            {
+                "Date": ["2000-01-01"],
+                "Year": [2000],
+                "Month": [1],
+                "Rainfall_mm": [5.0],
+            }
+        )
+
+    monkeypatch.setattr("hydroseason.fetch.get_monthly_era5_rainfall", fake_era5)
+
+    out = get_monthly_aoi_rainfall(
+        _DummyGeoDataFrame(),
+        2000,
+        2000,
+        source="era5",
+        show_progress=False,
+    )
+
+    assert calls["era5"]["path"] == DEFAULT_ERA5_ZARR_PATH
+    assert out["Data_Source"].unique().tolist() == ["ERA5"]
+
+
 def test_chirps_fetch_monthly_shape(monkeypatch):
     import geopandas as gpd
     from shapely.geometry import box
@@ -379,6 +464,105 @@ def test_chirps_fetch_monthly_shape(monkeypatch):
     assert out.loc[0, "Rainfall_mm"] == 1.0
     assert set(["Data_Source", "Data_Product", "Fetch_Note"]).issubset(out.columns)
     assert out["Data_Source"].unique().tolist() == ["CHIRPS"]
+
+
+def test_chirps_fetch_skips_unavailable_historical_month(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(10.0, -5.0, 11.0, -4.0)],
+        crs="EPSG:4326",
+    )
+
+    def fake_read_chirps_month(_gdf, url):
+        month = int(str(url).split(".")[-2])
+        if month == 3:
+            raise FileNotFoundError("missing CHIRPS test raster")
+        return float(month)
+
+    monkeypatch.setattr(
+        "hydroseason.fetch._read_chirps_month",
+        fake_read_chirps_month,
+    )
+
+    out = get_monthly_chirps_rainfall(
+        gdf,
+        2000,
+        2000,
+        base_url="https://example.test/chirps/cogs",
+        show_progress=False,
+    )
+
+    assert len(out) == 11
+    assert out["Month"].tolist() == [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    assert out["Fetch_Note"].str.contains("CHIRPS month").all()
+
+
+def test_chirps_fetch_retries_transient_month_failure(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(10.0, -5.0, 11.0, -4.0)],
+        crs="EPSG:4326",
+    )
+    calls: dict[str, int] = {}
+
+    def fake_read_chirps_month(_gdf, url):
+        calls[url] = calls.get(url, 0) + 1
+        month = int(str(url).split(".")[-2])
+        if month == 1 and calls[url] < 3:
+            raise ConnectionError("transient CHIRPS test failure")
+        return float(month)
+
+    monkeypatch.setattr(
+        "hydroseason.fetch._read_chirps_month",
+        fake_read_chirps_month,
+    )
+
+    out = get_monthly_chirps_rainfall(
+        gdf,
+        2000,
+        2000,
+        base_url="https://example.test/chirps/cogs",
+        show_progress=False,
+    )
+
+    assert len(out) == 12
+    assert calls["https://example.test/chirps/cogs/chirps-v3.0.2000.01.cog"] == 3
+    assert out.loc[0, "Rainfall_mm"] == 1.0
+
+
+def test_chirps_fetch_fails_fast_when_no_months_available(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(10.0, -5.0, 11.0, -4.0)],
+        crs="EPSG:4326",
+    )
+    calls = []
+
+    def fake_read_chirps_month(_gdf, url):
+        calls.append(url)
+        raise FileNotFoundError("missing CHIRPS test raster")
+
+    monkeypatch.setattr(
+        "hydroseason.fetch._read_chirps_month",
+        fake_read_chirps_month,
+    )
+
+    with pytest.raises(NoChirpsMonthsError, match="12 consecutive"):
+        get_monthly_chirps_rainfall(
+            gdf,
+            1981,
+            1982,
+            base_url="https://example.test/chirps/cogs",
+            show_progress=False,
+        )
+
+    assert len(calls) == 36
 
 
 def test_auto_fetch_routes_australian_aoi_to_silo(monkeypatch):
@@ -533,7 +717,123 @@ def test_chirps_auto_uses_era5_for_unavailable_chirps_months(monkeypatch):
     assert out["Fetch_Note"].str.contains("mixed-source").all()
 
 
-def test_chirps_raster_not_found_uses_era5_fallback(monkeypatch):
+def test_chirps_sparse_result_does_not_use_large_era5_fallback(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(10.0, -5.0, 11.0, -4.0)],
+        crs="EPSG:4326",
+    )
+
+    def fake_chirps(_gdf, start_year, end_year, **_kwargs):
+        assert start_year == 1981
+        assert end_year == 1986
+        return pd.DataFrame(
+            {
+                "Date": ["1981-01-01"],
+                "Year": [1981],
+                "Month": [1],
+                "Rainfall_mm": [10.0],
+                "Data_Source": ["CHIRPS"],
+                "Data_Product": ["CHIRPS v3 monthly COG"],
+                "Fetch_Note": ["CHIRPS sparse"],
+            }
+        )
+
+    era5_calls = []
+
+    def fake_era5(**kwargs):
+        era5_calls.append(kwargs)
+        raise AssertionError("ERA5 should not be called for sparse CHIRPS coverage")
+
+    monkeypatch.setattr(
+        "hydroseason.fetch.get_monthly_chirps_rainfall",
+        fake_chirps,
+    )
+    monkeypatch.setattr("hydroseason.fetch.get_monthly_era5_rainfall", fake_era5)
+    monkeypatch.setattr("hydroseason.fetch._timed_input", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(ChirpsCoverageError, match="No response within 5 minutes"):
+        get_monthly_aoi_rainfall(
+            gdf,
+            1981,
+            1986,
+            source="chirps",
+            era5_zarr_path="gs://example/era5.zarr",
+            show_progress=False,
+        )
+
+    assert era5_calls == []
+
+
+def test_chirps_sparse_result_can_use_large_era5_fallback_when_allowed(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(10.0, -5.0, 11.0, -4.0)],
+        crs="EPSG:4326",
+    )
+
+    def fake_chirps(_gdf, start_year, end_year, **_kwargs):
+        assert start_year == 1981
+        assert end_year == 1986
+        return pd.DataFrame(
+            {
+                "Date": ["1981-01-01"],
+                "Year": [1981],
+                "Month": [1],
+                "Rainfall_mm": [10.0],
+                "Data_Source": ["CHIRPS"],
+                "Data_Product": ["CHIRPS v3 monthly COG"],
+                "Fetch_Note": ["CHIRPS sparse"],
+            }
+        )
+
+    calls = []
+
+    def fake_era5(**kwargs):
+        calls.append((kwargs["start_year"], kwargs["end_year"]))
+        dates = pd.date_range(
+            f"{kwargs['start_year']}-01-01",
+            f"{kwargs['end_year']}-12-01",
+            freq="MS",
+        )
+        return pd.DataFrame(
+            {
+                "Date": dates.strftime("%Y-%m-%d"),
+                "Year": dates.year,
+                "Month": dates.month,
+                "Rainfall_mm": 5.0,
+            }
+        )
+
+    monkeypatch.setattr(
+        "hydroseason.fetch.get_monthly_chirps_rainfall",
+        fake_chirps,
+    )
+    monkeypatch.setattr("hydroseason.fetch.get_monthly_era5_rainfall", fake_era5)
+
+    out = get_monthly_aoi_rainfall(
+        gdf,
+        1981,
+        1986,
+        source="chirps",
+        era5_zarr_path="gs://example/era5.zarr",
+        large_era5_fallback="allow",
+        show_progress=False,
+    )
+
+    assert calls == [(1981, 1986)]
+    assert len(out) == 72
+    assert out["Data_Source"].value_counts().to_dict() == {
+        "ERA5": 71,
+        "CHIRPS": 1,
+    }
+
+
+def test_chirps_total_failure_small_range_uses_era5_fallback(monkeypatch):
     import geopandas as gpd
     from shapely.geometry import box
 
@@ -544,10 +844,10 @@ def test_chirps_raster_not_found_uses_era5_fallback(monkeypatch):
     calls = []
 
     def fake_chirps(*_args, **_kwargs):
-        raise FileNotFoundError("CHIRPS raster unavailable")
+        raise NoChirpsMonthsError("No CHIRPS months were available")
 
     def fake_era5(**kwargs):
-        calls.append(kwargs)
+        calls.append((kwargs["start_year"], kwargs["end_year"]))
         dates = pd.date_range("1981-01-01", periods=12, freq="MS")
         return pd.DataFrame(
             {
@@ -573,7 +873,101 @@ def test_chirps_raster_not_found_uses_era5_fallback(monkeypatch):
         show_progress=False,
     )
 
-    assert len(calls) == 1
+    assert calls == [(1981, 1981)]
+    assert out["Data_Source"].unique().tolist() == ["ERA5"]
+
+
+def test_chirps_total_failure_large_range_does_not_use_era5_without_approval(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(10.0, -5.0, 11.0, -4.0)],
+        crs="EPSG:4326",
+    )
+    calls = []
+
+    def fake_chirps(*_args, **_kwargs):
+        raise NoChirpsMonthsError("No CHIRPS months were available")
+
+    def fake_era5(**kwargs):
+        calls.append(kwargs)
+        raise AssertionError("ERA5 should not be called for unapproved large fallback")
+
+    monkeypatch.setattr(
+        "hydroseason.fetch.get_monthly_chirps_rainfall",
+        fake_chirps,
+    )
+    monkeypatch.setattr("hydroseason.fetch.get_monthly_era5_rainfall", fake_era5)
+    monkeypatch.setattr("hydroseason.fetch._timed_input", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(ChirpsCoverageError, match="No response within 5 minutes"):
+        get_monthly_aoi_rainfall(
+            gdf,
+            1981,
+            1986,
+            source="chirps",
+            era5_zarr_path="gs://example/era5.zarr",
+            show_progress=False,
+        )
+
+    assert calls == []
+
+
+def test_chirps_total_failure_large_range_ask_can_proceed(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[box(10.0, -5.0, 11.0, -4.0)],
+        crs="EPSG:4326",
+    )
+    calls = []
+    prompts = []
+
+    def fake_chirps(*_args, **_kwargs):
+        raise NoChirpsMonthsError("No CHIRPS months were available")
+
+    def fake_era5(**kwargs):
+        calls.append((kwargs["start_year"], kwargs["end_year"]))
+        dates = pd.date_range(
+            f"{kwargs['start_year']}-01-01",
+            f"{kwargs['end_year']}-12-01",
+            freq="MS",
+        )
+        return pd.DataFrame(
+            {
+                "Date": dates.strftime("%Y-%m-%d"),
+                "Year": dates.year,
+                "Month": dates.month,
+                "Rainfall_mm": 5.0,
+            }
+        )
+
+    monkeypatch.setattr(
+        "hydroseason.fetch.get_monthly_chirps_rainfall",
+        fake_chirps,
+    )
+    monkeypatch.setattr("hydroseason.fetch.get_monthly_era5_rainfall", fake_era5)
+    monkeypatch.setattr(
+        "hydroseason.fetch._timed_input",
+        lambda prompt, _timeout: prompts.append(prompt) or "y",
+    )
+
+    out = get_monthly_aoi_rainfall(
+        gdf,
+        1981,
+        1986,
+        source="chirps",
+        era5_zarr_path="gs://example/era5.zarr",
+        show_progress=False,
+    )
+
+    assert calls == [(1981, 1986)]
+    assert len(prompts) == 1
+    assert "could take several hours" in prompts[0]
+    assert "more than 60 fallback month(s)" in prompts[0]
+    assert "no response within 5 minutes" in prompts[0]
     assert out["Data_Source"].unique().tolist() == ["ERA5"]
 
 
@@ -719,7 +1113,7 @@ def test_chirps_auto_uses_era5_only_for_missing_years(monkeypatch):
     )
 
     def fake_chirps(_gdf, start_year, end_year, **_kwargs):
-        # Return incomplete CHIRPS data: missing months in 1981 and 1983, but not 1982
+        # Return incomplete CHIRPS data across adjacent years.
         return pd.DataFrame({
             "Date": ["1981-01-01", "1982-01-01", "1982-02-01"],
             "Year": [1981, 1982, 1982],
@@ -752,7 +1146,6 @@ def test_chirps_auto_uses_era5_only_for_missing_years(monkeypatch):
     )
     monkeypatch.setattr("hydroseason.fetch.get_monthly_era5_rainfall", fake_era5)
 
-    # We ask for years 1981 to 1982
     out = get_monthly_aoi_rainfall(
         gdf,
         1981,
@@ -762,9 +1155,9 @@ def test_chirps_auto_uses_era5_only_for_missing_years(monkeypatch):
         show_progress=False,
     )
 
-    # 1981 is missing months, 1982 is missing months.
-    # It should call fake_era5 individually for year 1981 and year 1982.
-    assert (1981, 1981) in era5_calls
-    assert (1982, 1982) in era5_calls
-    # Should not call (1981, 1982) as a single multi-year range
-    assert (1981, 1982) not in era5_calls
+    assert era5_calls == [(1981, 1982)]
+    assert len(out) == 24
+    assert out["Data_Source"].value_counts().to_dict() == {
+        "ERA5": 21,
+        "CHIRPS": 3,
+    }

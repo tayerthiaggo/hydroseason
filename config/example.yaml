@@ -21,7 +21,7 @@ algorithm:
   rainfall_si_threshold: 0.8
   shoulder_climatology_alpha: 0.10
   shoulder_month_quantile: 0.60
-  core_climatology_alpha: 0.05
+  core_climatology_alpha: 0.20
   shoulder_residual_quantile: 0.95
   climatology_window: rolling
   climatology_window_years: 10
@@ -43,7 +43,7 @@ fetch:
   # and ignores input.csv_path. source can be "auto", "silo", "chirps", or "era5".
   enabled: false
   source: auto
-  era5_zarr_path: gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3
+  era5_zarr_path: null
   silo_base_url: null
   chirps_base_url: null
   vector_path: data/fitzroy_catchment.geojson
@@ -55,3 +55,4 @@ fetch:
   time_chunk: auto
   temporal_batch_years: auto
   era5_fallback: true
+  large_era5_fallback: ask

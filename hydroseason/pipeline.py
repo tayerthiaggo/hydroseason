@@ -17,6 +17,8 @@ from .config import RunConfig
 from .dynamic_season import (
     harmonize_with_zero_preservation,
     refine_season_tails,
+    repair_short_dry_gaps,
+    segment_by_cumulative_anomaly,
     segment_main_wet_season_fixed_threshold,
 )
 from .fixed_season import (
@@ -25,7 +27,11 @@ from .fixed_season import (
     hydro_year_start_after_min_month,
     identify_fixed_hydro_year,
 )
-from .hydro_year import assign_fixed_hydro_year, assign_hydro_years
+from .hydro_year import (
+    assign_fixed_hydro_year,
+    assign_hydro_year,
+    assign_hydro_years,
+)
 from .metrics import compute_annual_spi_categories, compute_season_metrics
 from .seasonality import SeasonalityResult, detect_seasonality_regime
 from .seasonality import stl_residuals
@@ -99,6 +105,20 @@ class DiagnosticsReport:
     climatology_guardrail_fallback_count: int = 0
     climatology_unstable_month_count: int = 0
     shoulder_residual_threshold: float | None = None
+    season_contrast_class: str | None = None
+    season_contrast_ratio: float | None = None
+    short_dry_gap_merged_count: int = 0
+    short_dry_gap_merged_month_count: int = 0
+    no_dry_boundary_count: int = 0
+    no_dry_hydro_year_count: int = 0
+    max_hydro_year_months: int = 0
+    max_wet_run_months: int = 0
+    non_seasonal_hy_start_month: int | None = None
+    eta_squared: float | None = None
+    regime_window_years: int | None = None
+    effective_wet_year_fraction: float | None = None
+    short_dry_gap_merged_count_post_hy: int = 0
+    short_dry_gap_merged_month_count_post_hy: int = 0
     validation_warnings: list[str] = field(default_factory=list)
     n_input_rows: int = 0
     n_rows_after_validation: int = 0
@@ -495,6 +515,166 @@ def _build_guardrail_columns(
     }
 
 
+def _validate_hydro_year_labels_within_record(
+    df: pd.DataFrame,
+    *,
+    hydro_year_start_month: int | None,
+    date_col: str,
+    hydro_year_col: str = "Hydro_Year",
+) -> None:
+    """Guard non-bimodal HY labels against sequential drift."""
+    if hydro_year_start_month is None or hydro_year_col not in df.columns:
+        return
+    dates = pd.to_datetime(df[date_col])
+    fixed_hy = dates.map(
+        lambda date: assign_hydro_year(pd.Timestamp(date), int(hydro_year_start_month))
+    ).astype(int)
+    dynamic_hy = pd.to_numeric(df[hydro_year_col], errors="coerce")
+    upper = fixed_hy + 1
+    bad = dynamic_hy.isna() | dynamic_hy.gt(upper)
+    if not bool(bad.any()):
+        return
+
+    examples = (
+        pd.DataFrame(
+            {
+                "Date": dates[bad].dt.strftime("%Y-%m"),
+                "Hydro_Year": dynamic_hy[bad].astype("Int64").astype(str),
+                "Max_Allowed": upper[bad].astype(int).astype(str),
+            }
+        )
+        .head(5)
+        .to_dict("records")
+    )
+    raise RuntimeError(
+        "Hydro_Year labels escaped the date-constrained record bounds. "
+        f"Examples: {examples}"
+    )
+
+
+def _season_contrast_diagnostics(
+    fixed_monthly: pd.DataFrame,
+    seasonality: SeasonalityResult,
+) -> tuple[str, float]:
+    """Classify rainfall contrast without changing public SeasonType labels."""
+    medians = pd.to_numeric(fixed_monthly.get("median"), errors="coerce")
+    means = pd.to_numeric(fixed_monthly.get("mean"), errors="coerce")
+    seasons = fixed_monthly.get("Season")
+    if seasons is None or medians.isna().all():
+        return "weak", 1.0
+
+    wet = medians[seasons.astype(str).eq("Wet")].dropna()
+    dry = medians[seasons.astype(str).eq("Dry")].dropna()
+    if wet.empty or dry.empty:
+        high = float(medians.quantile(0.75)) if medians.notna().any() else 0.0
+        low = float(medians.quantile(0.25)) if medians.notna().any() else 0.0
+    else:
+        high = float(wet.median())
+        low = float(dry.median())
+
+    ratio = float((high + 1.0) / (low + 1.0)) if low >= 0.0 else 1.0
+    mean_monthly = float(means.mean()) if means.notna().any() else 0.0
+
+    if ratio < 1.35 and seasonality.si < 0.35 and seasonality.stl_strength < 0.45:
+        return "weak", ratio
+    if mean_monthly < 25.0 and ratio >= 1.35:
+        return "dry_driest", ratio
+    if low > max(5.0, high * 0.10):
+        return "wet_less_wet", ratio
+    return "wet_dry", ratio
+
+
+def _max_season_run_length(
+    df: pd.DataFrame,
+    *,
+    season_col: str = "SeasonType",
+    label: str = "Wet",
+) -> int:
+    seasons = df[season_col].astype(str).to_list()
+    best = 0
+    current = 0
+    for season in seasons:
+        if season == label:
+            current += 1
+            best = max(best, current)
+        else:
+            current = 0
+    return int(best)
+
+
+def _has_real_dry_run(
+    seasons: pd.Series,
+    *,
+    min_dry_season_length: int = 2,
+) -> bool:
+    run = 0
+    for label in seasons.astype(str):
+        if label == "Dry":
+            run += 1
+            if run >= int(min_dry_season_length):
+                return True
+        else:
+            run = 0
+    return False
+
+
+def _add_default_hydro_year_flags(
+    df: pd.DataFrame,
+    *,
+    boundary_source: str,
+    hydro_year_col: str = "Hydro_Year",
+    season_col: str = "SeasonType",
+) -> pd.DataFrame:
+    out = df.copy()
+    out["Hydro_Year_Boundary_Source"] = pd.NA
+    first_indices = out.groupby(hydro_year_col, sort=False).head(1).index
+    out.loc[first_indices, "Hydro_Year_Boundary_Source"] = boundary_source
+    if len(out):
+        out.loc[out.index[0], "Hydro_Year_Boundary_Source"] = "initial"
+
+    no_dry_by_hy: dict[int, bool] = {}
+    for hy, group in out.groupby(hydro_year_col, sort=False):
+        has_wet = bool(group[season_col].astype(str).eq("Wet").any())
+        no_real_dry = not _has_real_dry_run(group[season_col])
+        no_dry_by_hy[int(hy)] = bool(has_wet and no_real_dry)
+    out["Hydro_Year_No_Dry_Season"] = (
+        out[hydro_year_col].astype(int).map(no_dry_by_hy).fillna(False).astype(bool)
+    )
+    return out
+
+
+def _hydro_year_summary_diagnostics(df: pd.DataFrame) -> dict[str, int]:
+    if "Hydro_Year" not in df.columns or df.empty:
+        return {
+            "max_hydro_year_months": 0,
+            "max_wet_run_months": 0,
+            "no_dry_boundary_count": 0,
+            "no_dry_hydro_year_count": 0,
+        }
+
+    counts = df.groupby("Hydro_Year").size()
+    boundary_source = df.get("Hydro_Year_Boundary_Source")
+    if boundary_source is None:
+        no_dry_boundary_count = 0
+    else:
+        no_dry_boundary_count = int(boundary_source.astype(str).eq("no_dry_minimum").sum())
+
+    no_dry_flags = df.get("Hydro_Year_No_Dry_Season")
+    if no_dry_flags is None:
+        no_dry_hydro_year_count = 0
+    else:
+        no_dry_hydro_year_count = int(
+            df.loc[no_dry_flags.astype(bool), "Hydro_Year"].nunique()
+        )
+
+    return {
+        "max_hydro_year_months": int(counts.max()) if len(counts) else 0,
+        "max_wet_run_months": _max_season_run_length(df),
+        "no_dry_boundary_count": no_dry_boundary_count,
+        "no_dry_hydro_year_count": no_dry_hydro_year_count,
+    }
+
+
 @dataclass(frozen=True)
 class PipelineArtifacts:
     """Bundle returned by every pipeline entry point.
@@ -522,6 +702,50 @@ class PipelineArtifacts:
     wet_boundaries: pd.DataFrame | None
     seasonality: SeasonalityResult
     diagnostics: DiagnosticsReport
+
+
+
+
+
+def _build_liebmann_mask(
+    df: pd.DataFrame,
+    wet_boundaries: pd.DataFrame,
+    is_bimodal: bool,
+    date_col: str,
+) -> pd.Series:
+    """Build a boolean mask of rows that fall inside the Liebmann wet season window(s)."""
+    mask = pd.Series(False, index=df.index)
+    if wet_boundaries is None or len(wet_boundaries) == 0:
+        return mask
+
+    # Convert dataframe dates to pandas datetime series once for faster matching
+    df_dates = pd.to_datetime(df[date_col]).dt.date
+
+    for row in wet_boundaries.itertuples():
+        hy = row.Hydro_Year
+        wet_start = getattr(row, "WetStart", None)
+        wet_end = getattr(row, "WetEnd", None)
+
+        if pd.isna(wet_start) or pd.isna(wet_end) or wet_start is None or wet_end is None:
+            continue
+
+        hy_mask = (df["Hydro_Year_fixed"] == hy)
+        primary_mask = hy_mask & (df_dates >= wet_start) & (df_dates <= wet_end)
+        mask = mask | primary_mask
+
+        if is_bimodal:
+            sec_start = getattr(row, "secondary_wet_start", None)
+            sec_end = getattr(row, "secondary_wet_end", None)
+            if (
+                sec_start is not None
+                and sec_end is not None
+                and not pd.isna(sec_start)
+                and not pd.isna(sec_end)
+            ):
+                secondary_mask = hy_mask & (df_dates >= sec_start) & (df_dates <= sec_end)
+                mask = mask | secondary_mask
+
+    return mask
 
 
 def classify_rainfall(
@@ -560,6 +784,13 @@ def classify_rainfall(
     cap_rolling_tail_at_global: bool = True,
     keep_debug_columns: bool = False,
     require_low_floor_break_for_pruning: bool = True,
+    regime_window_years: int = 0,
+    segmentation_method: str = "heuristic",
+    cumulative_anomaly_reference_floor: float = 10.0,
+    cumulative_anomaly_absolute_floor: float = 10.0,
+    cumulative_anomaly_smooth: bool = True,
+    cumulative_anomaly_stl_gate: bool = False,
+    cumulative_anomaly_multi_year: bool = False,
 ) -> PipelineArtifacts:
     """Delineate Wet/Dry seasons and hydrological years from monthly rainfall.
 
@@ -642,6 +873,9 @@ def classify_rainfall(
         Optional path to write ``artifacts.result`` as a CSV file. The parent
         directory is created if it does not exist. ``None`` (default) skips
         writing.
+    regime_window_years:
+        Rolling window (years) of the most recent data to use for seasonality
+        regime detection. 0 (default) uses the full record.
 
     Returns
     -------
@@ -681,9 +915,18 @@ def classify_rainfall(
     )
     apply_report(report, raise_on_error=raise_on_validation_error)
 
+    regime_window_years = int(regime_window_years)
+
     # ---- Step 0.5 — regime detection
+    regime_df = cleaned
+    if regime_window_years > 0:
+        unique_years = sorted(cleaned[year_col].dropna().unique())
+        if len(unique_years) > regime_window_years:
+            cutoff_year = unique_years[-regime_window_years]
+            regime_df = cleaned[cleaned[year_col] >= cutoff_year]
+
     seasonality = detect_seasonality_regime(
-        cleaned,
+        regime_df,
         date_col=date_col,
         month_col=month_col,
         value_col=value_col,
@@ -718,6 +961,18 @@ def classify_rainfall(
 
     if hydro_year_start_month is None:
         hydro_year_start_month = fallback_month_used
+    season_contrast_class, season_contrast_ratio = _season_contrast_diagnostics(
+        fixed_monthly,
+        seasonality,
+    )
+
+    effective_wet_year_fraction = climatology_min_wet_year_fraction
+    if (
+        season_contrast_class in {"dry_driest", "wet_less_wet"}
+        and seasonality.circular_R is not None
+        and seasonality.circular_R < 0.50
+    ):
+        effective_wet_year_fraction = min(climatology_min_wet_year_fraction, 0.40)
 
     # ---- Step 1.5 — resolve adaptive algorithm parameters from regime
     if climatology_window not in {"global", "rolling"}:
@@ -749,6 +1004,10 @@ def classify_rainfall(
     else:
         onset_window_resolved = int(onset_window_months)
 
+    # Adaptively adjust core_climatology_alpha for dry_driest sites
+    if core_climatology_alpha == 0.05 and season_contrast_class == "dry_driest":
+        core_climatology_alpha = 0.20
+
     # Site-scaled rainfall floors derived from the climatological wet months.
     # When no wet months exist in the climatology the floors collapse to 0.
     wet_clim = fixed_monthly.loc[
@@ -766,6 +1025,8 @@ def classify_rainfall(
         date_col=date_col,
         out_col="Hydro_Year_fixed",
     )
+    month_to_median = fixed_monthly["median"].to_dict()
+    work["_ClimatologicalMedian"] = work[month_col].map(month_to_median).fillna(0.0)
 
     wet_boundaries: pd.DataFrame | None = None
     threshold_first: float | None = None
@@ -783,6 +1044,10 @@ def classify_rainfall(
     climatology_guardrail_source: str | None = None
     climatology_guardrail_fallback_count = 0
     climatology_unstable_month_count = 0
+    short_dry_gap_merged_count = 0
+    short_dry_gap_merged_month_count = 0
+    short_dry_gap_merged_count_post_hy = 0
+    short_dry_gap_merged_month_count_post_hy = 0
 
     if shoulder_month_quantile is not None:
         shoulder_month_quantile = float(shoulder_month_quantile)
@@ -800,11 +1065,27 @@ def classify_rainfall(
                 "or None to disable."
             )
 
+    non_seasonal_hy_start_month = None
     if seasonality.regime == "non_seasonal":
         out = work.copy()
         out["SeasonType"] = "Unclassified"
         out["SeasonShift"] = out["SeasonType"].ne(out["SeasonType"].shift())
-        out["Hydro_Year"] = out[year_col].astype(int)
+        
+        non_seasonal_hy_start, _ = hydro_year_start_after_min_month(
+            cleaned, value_col=value_col, month_col=month_col
+        )
+        non_seasonal_hy_start_month = int(non_seasonal_hy_start)
+        hydro_year_start_month = non_seasonal_hy_start_month
+        
+        out = assign_fixed_hydro_year(
+            out,
+            start_month=non_seasonal_hy_start_month,
+            year_col=year_col,
+            month_col=month_col,
+            date_col=date_col,
+            out_col="Hydro_Year",
+        )
+        out = _add_default_hydro_year_flags(out, boundary_source="calendar_year")
 
     elif seasonality.regime == "borderline":
         month_to_season = fixed_monthly["Season"].to_dict()
@@ -812,6 +1093,7 @@ def classify_rainfall(
         out["SeasonType"] = out[month_col].map(month_to_season).fillna("Dry")
         out["SeasonShift"] = out["SeasonType"].ne(out["SeasonType"].shift())
         out["Hydro_Year"] = out["Hydro_Year_fixed"]
+        out = _add_default_hydro_year_flags(out, boundary_source="fixed_hydro_year")
 
     else:
         nonzero = work[work[value_col] > 0][value_col]
@@ -846,7 +1128,7 @@ def classify_rainfall(
             climatology_min_month_observations=int(
                 climatology_min_month_observations
             ),
-            climatology_min_wet_year_fraction=climatology_min_wet_year_fraction,
+            climatology_min_wet_year_fraction=effective_wet_year_fraction,
             low_confidence_missing=low_confidence_missing,
             cap_rolling_tail_at_global=cap_rolling_tail_at_global,
         )
@@ -867,104 +1149,326 @@ def classify_rainfall(
             if onset_window_resolved is not None:
                 onset_window_resolved = 3
 
-        segmented_df, wet_boundaries = segment_main_wet_season_fixed_threshold(
-            work,
-            date_col=date_col,
-            hydro_year_col="Hydro_Year_fixed",
-            smoothed_col="Smoothed",
-            threshold=threshold_first,
-            threshold_col="_TailFloor",
-        )
-        threshold_second = (
-            float(
-                segmented_df[segmented_df[value_col] > 0][value_col].quantile(
-                    secondpass_quantile
-                )
-            )
-            if (segmented_df[value_col] > 0).any() else 0.0
-        )
-        residual_col = None
-        if shoulder_residual_quantile is not None:
-            residual_col = "_STL_Residual"
-            segmented_df[residual_col] = stl_residuals(
-                segmented_df,
+        if segmentation_method == "cumulative_anomaly":
+            is_bimodal_val = bool(circ_stats.is_bimodal if circ_stats else False)
+            segmented_df, wet_boundaries = segment_by_cumulative_anomaly(
+                work,
                 date_col=date_col,
+                hydro_year_col="Hydro_Year_fixed",
                 value_col=value_col,
+                is_bimodal=is_bimodal_val,
+                reference_floor=cumulative_anomaly_reference_floor,
+                absolute_wet_floor=cumulative_anomaly_absolute_floor,
+                smooth_anomalies=cumulative_anomaly_smooth,
+                use_stl_residual_gate=cumulative_anomaly_stl_gate,
+                use_multi_year_cumsum=cumulative_anomaly_multi_year,
             )
-            positive_residuals = segmented_df.loc[
-                segmented_df[residual_col] > 0,
-                residual_col,
-            ].dropna()
-            if len(positive_residuals):
-                shoulder_residual_threshold = float(
-                    positive_residuals.quantile(shoulder_residual_quantile)
-                )
-
-        tail_floor_col = "_TailFloor"
-        extension_threshold_col = "_ExtensionFloor"
-        fragment_keep_col = "_BaselineWetMonth"
-
-        # ``tail_floor`` remains the global fallback value for diagnostics.
-        # Actual seasonal runs use per-row guardrails when rolling climatology is
-        # active.
-        tail_floor = float(threshold_first)
-        if tail_floor_col in segmented_df.columns:
-            tail_values = pd.to_numeric(segmented_df[tail_floor_col], errors="coerce").dropna()
-            if len(tail_values):
-                tail_floor_min = float(tail_values.min())
-                tail_floor_max = float(tail_values.max())
-                tail_floor_unique_count = int(tail_values.round(6).nunique())
-                tail_floor_source = (
-                    "per_row"
-                    if tail_floor_unique_count > 1
-                    else "scalar"
-                )
-        if extension_threshold_col in segmented_df.columns:
-            extension_values = (
-                pd.to_numeric(segmented_df[extension_threshold_col], errors="coerce")
-                .dropna()
+            segmented_df, dry_gap_diag = repair_short_dry_gaps(
+                segmented_df,
+                season_type_col="SeasonType",
+                date_col=date_col,
+                month_col=month_col,
+                max_gap_length=1,
+                min_neighbor_wet_length=2,
+                hydro_year_start_month=hydro_year_start_month,
             )
-            if len(extension_values):
-                extension_floor_min = float(extension_values.min())
-                extension_floor_max = float(extension_values.max())
-                extension_floor_unique_count = int(extension_values.round(6).nunique())
-        segmented_df = refine_season_tails(
-            segmented_df,
-            rainfall_col=value_col,
-            date_col=date_col,
-            threshold_high=threshold_second,
-            threshold_low=0.0,
-            min_core_length=min_core_length_used,
-            climatology_floor=None,
-            residual_col=residual_col,
-            residual_threshold=shoulder_residual_threshold,
-            per_row_threshold_col=tail_floor_col,
-            extension_threshold_col=extension_threshold_col,
-            fragment_keep_col=fragment_keep_col,
-            enforce_low_floor_inside_runs=True,
-            min_refined_run_length=min_core_length_used,
-            require_low_floor_break_for_pruning=require_low_floor_break_for_pruning,
-        )
-        if not keep_debug_columns:
-            if residual_col is not None and residual_col in segmented_df.columns:
-                segmented_df = segmented_df.drop(columns=[residual_col])
-            for col in (tail_floor_col, extension_threshold_col, fragment_keep_col):
-                if col in segmented_df.columns:
-                    segmented_df = segmented_df.drop(columns=[col])
+            short_dry_gap_merged_count = int(
+                dry_gap_diag["short_dry_gap_merged_count"]
+            )
+            short_dry_gap_merged_month_count = int(
+                dry_gap_diag["short_dry_gap_merged_month_count"]
+            )
+            tail_floor_source = "cumulative_anomaly"
+
+        elif segmentation_method == "hybrid":
+            is_bimodal_val = bool(circ_stats.is_bimodal if circ_stats else False)
+            # 1. Run true Liebmann first to get bounds
+            _, wet_boundaries = segment_by_cumulative_anomaly(
+                work,
+                date_col=date_col,
+                hydro_year_col="Hydro_Year_fixed",
+                value_col=value_col,
+                is_bimodal=is_bimodal_val,
+                reference_floor=cumulative_anomaly_reference_floor,
+                absolute_wet_floor=cumulative_anomaly_absolute_floor,
+                smooth_anomalies=cumulative_anomaly_smooth,
+                use_stl_residual_gate=cumulative_anomaly_stl_gate,
+                use_multi_year_cumsum=cumulative_anomaly_multi_year,
+            )
+            # 2. Build Liebmann mask
+            inside_liebmann = _build_liebmann_mask(
+                work, wet_boundaries, is_bimodal_val, date_col
+            )
+
+            # 3. Run heuristic main season
+            segmented_df, heuristic_boundaries = segment_main_wet_season_fixed_threshold(
+                work,
+                date_col=date_col,
+                hydro_year_col="Hydro_Year_fixed",
+                smoothed_col="Smoothed",
+                threshold=threshold_first,
+                threshold_col="_TailFloor",
+                value_col=value_col,
+                baseline_wet_col="_BaselineWetMonth",
+            )
+
+            # Clip before tail refinement
+            segmented_df.loc[~inside_liebmann, "SeasonType"] = "Dry"
+
+            # 4. Tail refinement setup
+            threshold_second = (
+                float(
+                    segmented_df[segmented_df[value_col] > 0][value_col].quantile(
+                        secondpass_quantile
+                    )
+                )
+                if (segmented_df[value_col] > 0).any() else 0.0
+            )
+            residual_col = None
+            if shoulder_residual_quantile is not None:
+                residual_col = "_STL_Residual"
+                segmented_df[residual_col] = stl_residuals(
+                    segmented_df,
+                    date_col=date_col,
+                    value_col=value_col,
+                )
+                positive_residuals = segmented_df.loc[
+                    segmented_df[residual_col] > 0,
+                    residual_col,
+                ].dropna()
+                if len(positive_residuals):
+                    shoulder_residual_threshold = float(
+                        positive_residuals.quantile(shoulder_residual_quantile)
+                    )
+
+            tail_floor_col = "_TailFloor"
+            extension_threshold_col = "_ExtensionFloor"
+            fragment_keep_col = "_BaselineWetMonth"
+
+            tail_floor = float(threshold_first)
+            if tail_floor_col in segmented_df.columns:
+                tail_values = pd.to_numeric(segmented_df[tail_floor_col], errors="coerce").dropna()
+                if len(tail_values):
+                    tail_floor_min = float(tail_values.min())
+                    tail_floor_max = float(tail_values.max())
+                    tail_floor_unique_count = int(tail_values.round(6).nunique())
+                    tail_floor_source = (
+                        "per_row"
+                        if tail_floor_unique_count > 1
+                        else "scalar"
+                    )
+            if extension_threshold_col in segmented_df.columns:
+                extension_values = (
+                    pd.to_numeric(segmented_df[extension_threshold_col], errors="coerce")
+                    .dropna()
+                )
+                if len(extension_values):
+                    extension_floor_min = float(extension_values.min())
+                    extension_floor_max = float(extension_values.max())
+                    extension_floor_unique_count = int(extension_values.round(6).nunique())
+
+            # Run tail refinement
+            segmented_df = refine_season_tails(
+                segmented_df,
+                rainfall_col=value_col,
+                date_col=date_col,
+                threshold_high=threshold_second,
+                threshold_low=0.0,
+                min_core_length=min_core_length_used,
+                climatology_floor=None,
+                residual_col=residual_col,
+                residual_threshold=shoulder_residual_threshold,
+                per_row_threshold_col=tail_floor_col,
+                extension_threshold_col=extension_threshold_col,
+                fragment_keep_col=fragment_keep_col,
+                enforce_low_floor_inside_runs=True,
+                min_refined_run_length=2,
+                require_low_floor_break_for_pruning=require_low_floor_break_for_pruning,
+                wet_clim_median=wet_clim_median,
+                hydro_year_start_month=hydro_year_start_month,
+            )
+
+            # Clip after tail refinement
+            segmented_df.loc[~inside_liebmann, "SeasonType"] = "Dry"
+
+            # Run repair short dry gaps
+            segmented_df, dry_gap_diag = repair_short_dry_gaps(
+                segmented_df,
+                season_type_col="SeasonType",
+                date_col=date_col,
+                month_col=month_col,
+                max_gap_length=1,
+                min_neighbor_wet_length=2,
+                hydro_year_start_month=hydro_year_start_month,
+            )
+
+            # Final clip
+            segmented_df.loc[~inside_liebmann, "SeasonType"] = "Dry"
+
+            short_dry_gap_merged_count = int(
+                dry_gap_diag["short_dry_gap_merged_count"]
+            )
+            short_dry_gap_merged_month_count = int(
+                dry_gap_diag["short_dry_gap_merged_month_count"]
+            )
+            if not keep_debug_columns:
+                if residual_col is not None and residual_col in segmented_df.columns:
+                    segmented_df = segmented_df.drop(columns=[residual_col])
+                for col in (tail_floor_col, extension_threshold_col, fragment_keep_col):
+                    if col in segmented_df.columns:
+                        segmented_df = segmented_df.drop(columns=[col])
+
+            tail_floor_source = "hybrid"
+
+        else:
+            segmented_df, wet_boundaries = segment_main_wet_season_fixed_threshold(
+                work,
+                date_col=date_col,
+                hydro_year_col="Hydro_Year_fixed",
+                smoothed_col="Smoothed",
+                threshold=threshold_first,
+                threshold_col="_TailFloor",
+                value_col=value_col,
+                baseline_wet_col="_BaselineWetMonth",
+            )
+            threshold_second = (
+                float(
+                    segmented_df[segmented_df[value_col] > 0][value_col].quantile(
+                        secondpass_quantile
+                    )
+                )
+                if (segmented_df[value_col] > 0).any() else 0.0
+            )
+            residual_col = None
+            if shoulder_residual_quantile is not None:
+                residual_col = "_STL_Residual"
+                segmented_df[residual_col] = stl_residuals(
+                    segmented_df,
+                    date_col=date_col,
+                    value_col=value_col,
+                )
+                positive_residuals = segmented_df.loc[
+                    segmented_df[residual_col] > 0,
+                    residual_col,
+                ].dropna()
+                if len(positive_residuals):
+                    shoulder_residual_threshold = float(
+                        positive_residuals.quantile(shoulder_residual_quantile)
+                    )
+
+            tail_floor_col = "_TailFloor"
+            extension_threshold_col = "_ExtensionFloor"
+            fragment_keep_col = "_BaselineWetMonth"
+
+            # ``tail_floor`` remains the global fallback value for diagnostics.
+            # Actual seasonal runs use per-row guardrails when rolling climatology is
+            # active.
+            tail_floor = float(threshold_first)
+            if tail_floor_col in segmented_df.columns:
+                tail_values = pd.to_numeric(segmented_df[tail_floor_col], errors="coerce").dropna()
+                if len(tail_values):
+                    tail_floor_min = float(tail_values.min())
+                    tail_floor_max = float(tail_values.max())
+                    tail_floor_unique_count = int(tail_values.round(6).nunique())
+                    tail_floor_source = (
+                        "per_row"
+                        if tail_floor_unique_count > 1
+                        else "scalar"
+                    )
+            if extension_threshold_col in segmented_df.columns:
+                extension_values = (
+                    pd.to_numeric(segmented_df[extension_threshold_col], errors="coerce")
+                    .dropna()
+                )
+                if len(extension_values):
+                    extension_floor_min = float(extension_values.min())
+                    extension_floor_max = float(extension_values.max())
+                    extension_floor_unique_count = int(extension_values.round(6).nunique())
+            segmented_df = refine_season_tails(
+                segmented_df,
+                rainfall_col=value_col,
+                date_col=date_col,
+                threshold_high=threshold_second,
+                threshold_low=0.0,
+                min_core_length=min_core_length_used,
+                climatology_floor=None,
+                residual_col=residual_col,
+                residual_threshold=shoulder_residual_threshold,
+                per_row_threshold_col=tail_floor_col,
+                extension_threshold_col=extension_threshold_col,
+                fragment_keep_col=fragment_keep_col,
+                enforce_low_floor_inside_runs=True,
+                min_refined_run_length=2,
+                require_low_floor_break_for_pruning=require_low_floor_break_for_pruning,
+                wet_clim_median=wet_clim_median,
+                hydro_year_start_month=hydro_year_start_month,
+            )
+            segmented_df, dry_gap_diag = repair_short_dry_gaps(
+                segmented_df,
+                season_type_col="SeasonType",
+                date_col=date_col,
+                month_col=month_col,
+                max_gap_length=1,
+                min_neighbor_wet_length=2,
+                hydro_year_start_month=hydro_year_start_month,
+            )
+            short_dry_gap_merged_count = int(
+                dry_gap_diag["short_dry_gap_merged_count"]
+            )
+            short_dry_gap_merged_month_count = int(
+                dry_gap_diag["short_dry_gap_merged_month_count"]
+            )
+            if not keep_debug_columns:
+                if residual_col is not None and residual_col in segmented_df.columns:
+                    segmented_df = segmented_df.drop(columns=[residual_col])
+                for col in (tail_floor_col, extension_threshold_col, fragment_keep_col):
+                    if col in segmented_df.columns:
+                        segmented_df = segmented_df.drop(columns=[col])
         out = assign_hydro_years(
             segmented_df,
             long_period_threshold=long_period_threshold,
             fallback_month=fallback_month_used,
             hydro_year_start_month=hydro_year_start_month,
             onset_window_months=onset_window_resolved,
+            rainfall_col=value_col,
+            max_hydro_year_months=15,
+            no_dry_split_min_months=9,
+            no_dry_split_max_months=15,
+            min_dry_season_length=2,
             date_col=date_col,
             year_col=year_col,
             month_col=month_col,
         )
+        out, dry_gap_diag_post = repair_short_dry_gaps(
+            out,
+            season_type_col="SeasonType",
+            date_col=date_col,
+            month_col=month_col,
+            max_gap_length=1,
+            min_neighbor_wet_length=2,
+            hydro_year_start_month=hydro_year_start_month,
+        )
+        short_dry_gap_merged_count_post_hy = int(
+            dry_gap_diag_post["short_dry_gap_merged_count"]
+        )
+        short_dry_gap_merged_month_count_post_hy = int(
+            dry_gap_diag_post["short_dry_gap_merged_month_count"]
+        )
+
+    if not (circ_stats is not None and circ_stats.is_bimodal):
+        _validate_hydro_year_labels_within_record(
+            out,
+            hydro_year_start_month=hydro_year_start_month,
+            date_col=date_col,
+        )
+
+    hy_summary_diag = _hydro_year_summary_diagnostics(out)
 
     out["Seasonality_SI"] = seasonality.si
     out["Seasonality_STL"] = seasonality.stl_strength
     out["Seasonality_Regime"] = seasonality.regime
+    out["Seasonality_EtaSq"] = seasonality.eta_squared
+    out["Seasonality_R"] = seasonality.circular_R
 
     if "Hydro_Year" in out.columns and "SeasonType" in out.columns:
         out = compute_season_metrics(out, value_col=value_col)
@@ -1011,6 +1515,20 @@ def classify_rainfall(
         climatology_guardrail_fallback_count=climatology_guardrail_fallback_count,
         climatology_unstable_month_count=climatology_unstable_month_count,
         shoulder_residual_threshold=shoulder_residual_threshold,
+        season_contrast_class=season_contrast_class,
+        season_contrast_ratio=season_contrast_ratio,
+        short_dry_gap_merged_count=short_dry_gap_merged_count,
+        short_dry_gap_merged_month_count=short_dry_gap_merged_month_count,
+        no_dry_boundary_count=hy_summary_diag["no_dry_boundary_count"],
+        no_dry_hydro_year_count=hy_summary_diag["no_dry_hydro_year_count"],
+        max_hydro_year_months=hy_summary_diag["max_hydro_year_months"],
+        max_wet_run_months=hy_summary_diag["max_wet_run_months"],
+        non_seasonal_hy_start_month=non_seasonal_hy_start_month,
+        eta_squared=seasonality.eta_squared,
+        regime_window_years=regime_window_years,
+        effective_wet_year_fraction=effective_wet_year_fraction,
+        short_dry_gap_merged_count_post_hy=short_dry_gap_merged_count_post_hy,
+        short_dry_gap_merged_month_count_post_hy=short_dry_gap_merged_month_count_post_hy,
         validation_warnings=list(report.warnings),
         n_input_rows=report.n_rows_in,
         n_rows_after_validation=report.n_rows_out,
@@ -1053,11 +1571,6 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
 
         gdf = load_vector(config.fetch.vector_path)
         source = config.fetch.source.lower().strip()
-        if source == "era5":
-            if not config.fetch.era5_zarr_path:
-                raise ValueError(
-                    "fetch.era5_zarr_path is required when fetch.source='era5'"
-                )
         if source not in {"auto", "silo", "chirps", "era5"}:
             raise ValueError(
                 "fetch.source must be one of {'auto', 'silo', 'chirps', 'era5'}"
@@ -1072,6 +1585,7 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
             "time_chunk": config.fetch.time_chunk,
             "temporal_batch_years": config.fetch.temporal_batch_years,
             "era5_fallback": config.fetch.era5_fallback,
+            "large_era5_fallback": config.fetch.large_era5_fallback,
         }
         if config.fetch.chirps_base_url:
             kwargs["chirps_base_url"] = config.fetch.chirps_base_url
@@ -1126,6 +1640,13 @@ def run_pipeline(config: RunConfig) -> pd.DataFrame:
         cap_rolling_tail_at_global=config.algorithm.cap_rolling_tail_at_global,
         keep_debug_columns=config.algorithm.keep_debug_columns,
         require_low_floor_break_for_pruning=config.algorithm.require_low_floor_break_for_pruning,
+        regime_window_years=config.algorithm.regime_window_years,
+        segmentation_method=config.algorithm.segmentation_method,
+        cumulative_anomaly_reference_floor=config.algorithm.cumulative_anomaly_reference_floor,
+        cumulative_anomaly_absolute_floor=config.algorithm.cumulative_anomaly_absolute_floor,
+        cumulative_anomaly_smooth=config.algorithm.cumulative_anomaly_smooth,
+        cumulative_anomaly_stl_gate=config.algorithm.cumulative_anomaly_stl_gate,
+        cumulative_anomaly_multi_year=config.algorithm.cumulative_anomaly_multi_year,
     )
 
     output_path = Path(config.output.output_csv)

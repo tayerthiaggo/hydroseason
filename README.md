@@ -24,13 +24,14 @@ Full documentation: https://tayerthiaggo.github.io/hydroseason/
 
 ## Why HydroSeason?
 
-Many analyses start with a fixed rule: January to December, or the same wet/dry
-months every year. That is convenient, but it can split one wet season across
-two years, miss early or late shoulder months, and change annual rainfall or
-dry-season interpretation.
+Many analyses start with a fixed rule: January to December, or the same
+wet/dry months every year. That is convenient, but it can split one wet season
+across two reporting years, miss early or late shoulder months, and change
+annual rainfall or dry-season interpretation.
 
-HydroSeason uses the rainfall record itself to find seasonal timing and water
-years. It also keeps enough diagnostics to show how the decision was made.
+HydroSeason uses the rainfall record itself to find Wet/Dry timing and assign
+hydrological years. It also reports season onsets, data-quality notes, and
+method diagnostics so the decision is inspectable.
 
 | Common static approach | HydroSeason |
 | --- | --- |
@@ -42,12 +43,12 @@ years. It also keeps enough diagnostics to show how the decision was made.
 
 ![Static calendar seasons compared with HydroSeason dynamic hydrological years](docs/assets/images/static-vs-hydroseason.png)
 
-The top panel uses a fixed Nov-Oct hydrological year and fixed Wet/Dry months.
-The bottom panel lets the rainfall record decide where wet/dry seasons and
-hydrological years begin.
+The top panel uses one fixed climatology-derived Wet/Dry template and one fixed
+hydrological-year start. The bottom panel lets the rainfall record decide
+where wet/dry seasons and hydrological years begin.
 
 This matters when a few shifted shoulder months change wet-season totals,
-dry-season length, drought class, or ecological interpretation.
+dry-season length, annual classifications, or ecological interpretation.
 
 ## Start Quickly
 
@@ -116,13 +117,12 @@ generate_html_report(artifacts, "output/hydroseason_report.html")
 ```
 
 For the fastest default, use the AOI wrapper. It keeps SILO as the Australian
-default, uses CHIRPS v3 monthly rainfall elsewhere, and uses ERA5 only when you
-ask for it or provide it as a backup:
+default, uses CHIRPS v3 monthly rainfall elsewhere, and keeps the public ERA5
+Zarr store under the hood for explicit ERA5 runs or fallback coverage:
 
 ```python
 from hydroseason import classify_rainfall, get_monthly_aoi_rainfall, load_vector
 
-ERA5_ZARR = "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
 gdf = load_vector("catchment.geojson")
 
 monthly = get_monthly_aoi_rainfall(
@@ -130,7 +130,6 @@ monthly = get_monthly_aoi_rainfall(
     start_year=1985,
     end_year=2023,
     source="auto",          # SILO in Australia, CHIRPS elsewhere
-    era5_zarr_path=ERA5_ZARR,  # backup when CHIRPS does not cover the request
     cache_dir="data/fetch_cache",
 )
 

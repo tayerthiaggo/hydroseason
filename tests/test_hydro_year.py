@@ -4,7 +4,11 @@ from hydroseason.dynamic_season import (
     harmonize_with_zero_preservation,
     segment_main_wet_season_fixed_threshold,
 )
-from hydroseason.hydro_year import assign_fixed_hydro_year, assign_hydro_years
+from hydroseason.hydro_year import (
+    assign_fixed_hydro_year,
+    assign_hydro_year,
+    assign_hydro_years,
+)
 
 
 def test_assign_hydro_years_accepts_renamed_date_col(monthly_df: pd.DataFrame):
@@ -57,6 +61,68 @@ def test_assign_hydro_years_ignores_mid_year_wet_fragment():
     assert out.loc[out["Date"] == pd.Timestamp("2020-10-01"), "Hydro_Year"].iloc[0] == 2021
 
 
+def test_assign_hydro_years_deduplicates_unimodal_january_cycle_onsets():
+    dates = pd.date_range("2018-01-01", "2020-12-01", freq="MS")
+    wet_onsets = {
+        pd.Timestamp("2018-03-01"),
+        pd.Timestamp("2018-11-01"),
+        pd.Timestamp("2019-10-01"),
+        pd.Timestamp("2020-03-01"),
+        pd.Timestamp("2020-10-01"),
+    }
+    df = pd.DataFrame({
+        "Date": dates,
+        "Year": dates.year,
+        "Month": dates.month,
+        "SeasonType": ["Wet" if d in wet_onsets else "Dry" for d in dates],
+    })
+    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+
+    out = assign_hydro_years(
+        df,
+        hydro_year_start_month=1,
+        fallback_month=1,
+        onset_window_months=3,
+    )
+
+    fixed_hy = out["Date"].map(lambda d: assign_hydro_year(pd.Timestamp(d), 1))
+    assert (out["Hydro_Year"] <= fixed_hy + 1).all()
+    assert out.loc[out["Date"] == pd.Timestamp("2018-11-01"), "Hydro_Year"].iloc[0] == 2019
+    assert out.loc[out["Date"] == pd.Timestamp("2020-03-01"), "Hydro_Year"].iloc[0] == 2020
+
+
+def test_assign_hydro_years_deduplicates_unimodal_may_cycle_onsets():
+    dates = pd.date_range("2013-01-01", "2016-12-01", freq="MS")
+    wet_onsets = {
+        pd.Timestamp("2013-05-01"),
+        pd.Timestamp("2013-07-01"),
+        pd.Timestamp("2014-04-01"),
+        pd.Timestamp("2014-07-01"),
+        pd.Timestamp("2015-04-01"),
+        pd.Timestamp("2015-07-01"),
+        pd.Timestamp("2016-04-01"),
+    }
+    df = pd.DataFrame({
+        "Date": dates,
+        "Year": dates.year,
+        "Month": dates.month,
+        "SeasonType": ["Wet" if d in wet_onsets else "Dry" for d in dates],
+    })
+    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+
+    out = assign_hydro_years(
+        df,
+        hydro_year_start_month=5,
+        fallback_month=5,
+        onset_window_months=3,
+    )
+
+    fixed_hy = out["Date"].map(lambda d: assign_hydro_year(pd.Timestamp(d), 5))
+    assert (out["Hydro_Year"] <= fixed_hy + 1).all()
+    assert out.loc[out["Date"] == pd.Timestamp("2013-07-01"), "Hydro_Year"].iloc[0] == 2014
+    assert out.loc[out["Date"] == pd.Timestamp("2016-04-01"), "Hydro_Year"].iloc[0] == 2017
+
+
 def test_assign_hydro_years_does_not_insert_fallback_inside_dry_season():
     dates = pd.date_range("2020-01-01", periods=24, freq="MS")
     df = pd.DataFrame({
@@ -76,6 +142,63 @@ def test_assign_hydro_years_does_not_insert_fallback_inside_dry_season():
     )
 
     assert out["Hydro_Year"].nunique() == 1
+    assert not out["Hydro_Year_Boundary_Source"].astype(str).eq("no_dry_minimum").any()
+
+
+def test_assign_hydro_years_splits_no_dry_year_at_local_minimum():
+    dates = pd.date_range("2020-01-01", periods=20, freq="MS")
+    rainfall = [
+        120, 110, 100, 95, 90, 85, 70, 60, 40, 5,
+        55, 80, 120, 130, 125, 90, 70, 55, 45, 35,
+    ]
+    df = pd.DataFrame({
+        "Date": dates,
+        "Year": dates.year,
+        "Month": dates.month,
+        "Rainfall_mm": rainfall,
+        "SeasonType": ["Wet"] * len(dates),
+    })
+    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+
+    out = assign_hydro_years(
+        df,
+        hydro_year_start_month=1,
+        fallback_month=1,
+        onset_window_months=1,
+        max_hydro_year_months=15,
+    )
+
+    boundary = out.loc[
+        out["Hydro_Year_Boundary_Source"].eq("no_dry_minimum"),
+        "Date",
+    ]
+    assert boundary.tolist() == [pd.Timestamp("2020-10-01")]
+    assert out.groupby("Hydro_Year").size().max() <= 15
+    assert out["Hydro_Year_No_Dry_Season"].all()
+
+
+def test_assign_hydro_years_no_dry_split_ignores_real_dry_season():
+    dates = pd.date_range("2020-01-01", periods=20, freq="MS")
+    season = ["Wet"] * 6 + ["Dry"] * 3 + ["Wet"] * 11
+    df = pd.DataFrame({
+        "Date": dates,
+        "Year": dates.year,
+        "Month": dates.month,
+        "Rainfall_mm": [100.0] * 6 + [0.0] * 3 + [100.0] * 11,
+        "SeasonType": season,
+    })
+    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+
+    out = assign_hydro_years(
+        df,
+        hydro_year_start_month=1,
+        fallback_month=1,
+        onset_window_months=1,
+        max_hydro_year_months=15,
+    )
+
+    assert not out["Hydro_Year_Boundary_Source"].astype(str).eq("no_dry_minimum").any()
+    assert not out["Hydro_Year_No_Dry_Season"].all()
 
 
 def test_assign_hydro_years_recovers_filtered_real_wet_onset_for_long_gap():
@@ -162,12 +285,12 @@ def test_assign_hydro_years_bimodal_two_wet_onsets_per_year():
 
 
 def test_assign_hydro_years_iterative_recovery_fills_multi_year_gap():
-    """A drought gap spanning 3 annual cycles with 2 filtered Wet onsets is
-    filled iteratively, not just once.
+    """Long gaps recover annual Wet onsets without double-counting duplicates.
 
     Setup: anchor_month=10, onset_window_months=0 (only exact month 10 accepted).
     Accepted onsets: Oct 2020, Oct 2023 (36-month gap > long_period_threshold=12).
-    Filtered out: Mar 2021, Mar 2022.  Both should be recovered.
+    Filtered out: Mar 2021, Mar 2022.  Mar 2021 belongs to the same unimodal
+    seasonal cycle as Oct 2020, while Mar 2022 starts a later cycle.
     """
     dates = pd.date_range("2020-01-01", periods=48, freq="MS")  # Jan 2020 – Dec 2023
 
@@ -201,8 +324,10 @@ def test_assign_hydro_years_iterative_recovery_fills_multi_year_gap():
         onset_window_months=0,
     )
 
-    # 4 wet onset boundaries → 5 distinct Hydro_Year values
-    assert out["Hydro_Year"].nunique() == 5
+    # Mar 2021 is a duplicate cycle onset; Mar 2022 is recovered as a boundary.
+    assert out["Hydro_Year"].nunique() == 4
+    assert out.loc[out["Date"] == pd.Timestamp("2021-03-01"), "Hydro_Year"].iloc[0] == 2021
+    assert out.loc[out["Date"] == pd.Timestamp("2022-03-01"), "Hydro_Year"].iloc[0] == 2022
 
     # Every recovered boundary is at a real Wet onset
     hy_changes = out[out["Hydro_Year"].ne(out["Hydro_Year"].shift()) & (out.index > 0)]
@@ -220,17 +345,17 @@ def test_assign_hydro_years_fallback_target_same_year_when_onset_precedes_fallba
     candidate selection toward later off-window onsets.
 
     Setup: anchor_month=4, onset_window_months=0 (only month-4 onsets accepted),
-    fallback_month=10.  Accepted: Apr 2020, Apr 2022.  Filtered: Oct 2020, Sep 2021.
-    Correct target after Apr 2020: Oct 2020 (same year, since 4 < 10).
-    Oct 2020 is 0 months from the target; Sep 2021 is 11 months away.
-    The old (buggy) target was Oct 2021, making Sep 2021 the nearest (1 month)
-    and skipping the Oct 2020 onset entirely.
+    fallback_month=11.  Accepted: Apr 2020, Apr 2022.  Filtered: Nov 2020, Sep 2021.
+    Correct target after Apr 2020: Nov 2020 (same year, since 4 < 11).
+    Nov 2020 is 0 months from the target; Sep 2021 is 10 months away.
+    The old (buggy) target was Nov 2021, making Sep 2021 the nearest (2 months)
+    and skipping the Nov 2020 onset entirely.
     """
     dates = pd.date_range("2020-01-01", periods=36, freq="MS")  # Jan 2020 – Dec 2022
 
     onset_dates = {
         pd.Timestamp("2020-04-01"),  # accepted  (month 4 == anchor_month)
-        pd.Timestamp("2020-10-01"),  # filtered  (month 10 ≠ 4) — should be recovered first
+        pd.Timestamp("2020-11-01"),  # filtered  (month 11 != 4) - should be recovered first
         pd.Timestamp("2021-09-01"),  # filtered  (month 9 ≠ 4) — recovered in 2nd pass
         pd.Timestamp("2022-04-01"),  # accepted  (month 4)
     }
@@ -252,18 +377,18 @@ def test_assign_hydro_years_fallback_target_same_year_when_onset_precedes_fallba
     out = assign_hydro_years(
         df,
         hydro_year_start_month=4,
-        fallback_month=10,
+        fallback_month=11,
         long_period_threshold=14,
         onset_window_months=0,
     )
 
-    # Oct 2020 must be recovered as a Hydro_Year boundary (same-year target fix).
-    # With the old code Oct 2020 was skipped because the target was Oct 2021,
-    # making Sep 2021 (1 month away) win over Oct 2020 (12 months away).
-    sep20_hy = out.loc[out["Date"] == pd.Timestamp("2020-09-01"), "Hydro_Year"].iloc[0]
+    # Nov 2020 must be recovered as a Hydro_Year boundary (same-year target fix).
+    # With the old code Nov 2020 was skipped because the target was Nov 2021,
+    # making Sep 2021 (2 months away) win over Nov 2020 (12 months away).
     oct20_hy = out.loc[out["Date"] == pd.Timestamp("2020-10-01"), "Hydro_Year"].iloc[0]
-    assert oct20_hy == sep20_hy + 1, "Oct 2020 onset should start a new Hydro_Year"
-    assert out.loc[out["Date"] == pd.Timestamp("2020-10-01"), "SeasonType"].iloc[0] == "Wet"
+    nov20_hy = out.loc[out["Date"] == pd.Timestamp("2020-11-01"), "Hydro_Year"].iloc[0]
+    assert nov20_hy == oct20_hy + 1, "Nov 2020 onset should start a new Hydro_Year"
+    assert out.loc[out["Date"] == pd.Timestamp("2020-11-01"), "SeasonType"].iloc[0] == "Wet"
 
     # All HY changes must fall on real Wet onsets
     hy_changes = out[out["Hydro_Year"].ne(out["Hydro_Year"].shift()) & (out.index > 0)]
@@ -295,4 +420,3 @@ def test_assign_hydro_year_start_month_1():
         onset_window_months=1,
     )
     assert (out["Hydro_Year"] == 2020).all()
-

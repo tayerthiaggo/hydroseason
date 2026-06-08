@@ -1,7 +1,6 @@
 # Citation
 
-HydroSeason builds upon and extends the rainfall-based hydrological-season
-workflow presented in:
+HydroSeason builds upon and extends rainfall-based hydrological-season workflow presented in:
 
 > Tayer, T. C., Beesley, L. S., Stewart-Koster, B., Bond, N., Douglas, M. M.,
 > Rossi, M. J., McGregor, G. B., & Marshall, J. C. (2026).
@@ -10,15 +9,11 @@ workflow presented in:
 > river discharge data*. Journal of Hydrology, 666, Article 134750.
 > DOI: 10.1016/j.jhydrol.2025.134750.
 
-The software implementation has subsequently been extended and maintained as
-HydroSeason. When using HydroSeason in an analysis, please cite both the
-methodological paper above and the specific software release used.
+Software implementation extended and maintained as HydroSeason. When using HydroSeason, cite both methodological paper above and specific software release used.
 
 ## Software citation
 
-The versioned software DOI is archived on Zenodo.
-
-Cite the exact version used in your analysis:
+Versioned software DOI archived on Zenodo. Cite exact version used:
 
 > Tayer, T. C. (2026). *HydroSeason: Rainfall-based hydrological wet/dry
 > season and hydrological-year delineation* (Version 0.1.0)

@@ -29,7 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--config", required=True)
 
     demo_p = sub.add_parser("demo", help="Run on the bundled fixture")
-    demo_p.add_argument("--out", default="output/demo_results.csv")
+    demo_p.add_argument(
+        "--out",
+        default="output/demo_results.csv",
+        help="Output CSV path. Parent folder is created automatically.",
+    )
 
     fetch_p = sub.add_parser(
         "fetch",
@@ -43,14 +47,26 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         choices=["auto", "silo", "chirps", "era5"],
     )
-    fetch_p.add_argument("--path", default=None)
+    fetch_p.add_argument(
+        "--path",
+        default=None,
+        help="Optional source path/base URL override.",
+    )
     fetch_p.add_argument("--silo-base-url", default=None)
     fetch_p.add_argument("--chirps-base-url", default=None)
     fetch_p.add_argument("--vector", required=True)
     fetch_p.add_argument("--start-year", required=True, type=int)
     fetch_p.add_argument("--end-year", required=True, type=int)
-    fetch_p.add_argument("--output", required=True)
-    fetch_p.add_argument("--variable", default="rainfall")
+    fetch_p.add_argument(
+        "--output",
+        required=True,
+        help="Output CSV path. Parent folder is created automatically.",
+    )
+    fetch_p.add_argument(
+        "--variable",
+        default="rainfall",
+        help="ERA5 rainfall selector. Only 'rainfall' is supported.",
+    )
     fetch_p.add_argument("--cache-dir", default=None)
     fetch_p.add_argument("--spatial-chunk", default="auto")
     fetch_p.add_argument("--time-chunk", default="auto")
@@ -60,13 +76,27 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
     )
+    fetch_p.add_argument(
+        "--large-era5-fallback",
+        default="ask",
+        choices=["ask", "allow", "error"],
+        help=(
+            "What to do before an implicit large ERA5 fallback (>60 months): "
+            "'ask' prompts for up to 5 minutes, 'allow' proceeds, "
+            "'error' fails fast."
+        ),
+    )
 
     rain_p = sub.add_parser(
         "rainfall",
         help="Read rainfall data (auto/BOM/SILO/CSV) and run delineation",
     )
     rain_p.add_argument("--input", required=True)
-    rain_p.add_argument("--output", required=True)
+    rain_p.add_argument(
+        "--output",
+        required=True,
+        help="Output CSV path. Parent folder is created automatically.",
+    )
     rain_p.add_argument(
         "--source",
         default="auto",
@@ -129,9 +159,6 @@ def main(argv: list[str] | None = None) -> int:
             load_vector,
         )
 
-        if args.source == "era5" and not args.path:
-            raise ValueError("--path is required when --source era5")
-
         gdf = load_vector(args.vector)
 
         kwargs = {
@@ -147,6 +174,7 @@ def main(argv: list[str] | None = None) -> int:
             "time_chunk": args.time_chunk,
             "temporal_batch_years": args.temporal_batch_years,
             "era5_fallback": args.era5_fallback,
+            "large_era5_fallback": args.large_era5_fallback,
         }
         if args.chirps_base_url:
             kwargs["chirps_base_url"] = args.chirps_base_url

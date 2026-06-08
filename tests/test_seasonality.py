@@ -69,7 +69,7 @@ def test_detect_regime_returns_all_fields(monthly_df: pd.DataFrame, monkeypatch)
     assert 0.0 <= r.stl_strength <= 1.0
     assert isinstance(r.si, float)
     assert r.silhouette is None
-    assert r.regime_source in {"stl", "rainfall_si_override"}
+    assert r.regime_source in {"eta_squared", "eta_squared_confirmed", "concentration", "all_weak"}
 
 
 def test_detect_regime_can_report_legacy_kmeans_silhouette(
@@ -91,3 +91,61 @@ def test_detect_regime_can_report_legacy_kmeans_silhouette(
     )
 
     assert r.silhouette == 0.42
+
+
+def test_eta_squared_seasonality_score():
+    # Uniform profile (low eta squared)
+    months = np.tile(np.arange(1, 13), 10)
+    rainfall = np.ones(120) * 50.0
+    # Add minor noise so ss_total > 0
+    rainfall[0] += 1.0
+    rainfall[1] -= 1.0
+    df = pd.DataFrame({"Month": months, "Rainfall_mm": rainfall})
+    eta_sq = seasonality.eta_squared_seasonality_score(df)
+    assert eta_sq <= 0.11
+
+    # Highly seasonal profile (high eta squared)
+    rainfall_seasonal = np.array([10.0, 10.0, 10.0, 100.0, 100.0, 100.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0])
+    rainfall = np.tile(rainfall_seasonal, 10)
+    df_seasonal = pd.DataFrame({"Month": months, "Rainfall_mm": rainfall})
+    eta_sq_seasonal = seasonality.eta_squared_seasonality_score(df_seasonal)
+    assert eta_sq_seasonal > 0.6
+
+
+def test_circular_concentration_R():
+    months = np.tile(np.arange(1, 13), 5)
+    # Uniform
+    rainfall_uniform = np.ones(60) * 30.0
+    df_uniform = pd.DataFrame({"Month": months, "Rainfall_mm": rainfall_uniform})
+    r_val = seasonality.circular_concentration_R(df_uniform)
+    assert np.isclose(r_val, 0.0)
+
+    # All rainfall in one month
+    rainfall_one_month = np.zeros(12)
+    rainfall_one_month[0] = 100.0
+    df_one = pd.DataFrame({"Month": np.arange(1, 13), "Rainfall_mm": rainfall_one_month})
+    r_val_one = seasonality.circular_concentration_R(df_one)
+    assert np.isclose(r_val_one, 1.0)
+
+
+def test_classify_regime_composite():
+    # Strong eta_squared
+    regime, source = seasonality.classify_regime_composite(eta_sq=0.40, circular_R=0.10, si=0.10)
+    assert regime == "seasonal"
+    assert source == "eta_squared"
+
+    # Moderate eta_squared confirmed by circular_R
+    regime, source = seasonality.classify_regime_composite(eta_sq=0.25, circular_R=0.45, si=0.10)
+    assert regime == "seasonal"
+    assert source == "eta_squared_confirmed"
+
+    # Borderline concentration
+    regime, source = seasonality.classify_regime_composite(eta_sq=0.12, circular_R=0.20, si=0.20)
+    assert regime == "borderline"
+    assert source == "concentration"
+
+    # All weak
+    regime, source = seasonality.classify_regime_composite(eta_sq=0.05, circular_R=0.15, si=0.15)
+    assert regime == "non_seasonal"
+    assert source == "all_weak"
+

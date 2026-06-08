@@ -1,11 +1,11 @@
 # Quick Start
 
-HydroSeason expects a monthly rainfall DataFrame with `Date`, `Year`, `Month`, and `Rainfall_mm` columns.
+HydroSeason expects monthly rainfall DataFrame with `Date`, `Year`, `Month`, and `Rainfall_mm` columns.
 
 !!! note "Data Sufficiency Requirements"
-    Input data must contain at least **24 months** of observations.
+    Input must contain at least **24 months** of observations.
 
-    The monthly series must be continuous. Missing months are automatically filled using the calendar-month climatological mean (WMO method) during validation, but runs of missing data exceeding `max_consecutive_imputation_gap` (default 12 months) or total missing fraction exceeding `max_fraction_missing` (default 10%) will fail validation.
+    Monthly series must be continuous. Missing months auto-filled using calendar-month climatological mean (WMO method) during validation, but runs exceeding `max_consecutive_imputation_gap` (default 12 months) or total missing fraction exceeding `max_fraction_missing` (default 10%) will fail validation.
 
 
 ## Python API
@@ -24,11 +24,27 @@ print(result[["Date", "SeasonType", "Hydro_Year"]].head())
 print(diagnostics.regime)
 ```
 
-Disable the Walsh-Lawler promotion and use STL thresholds only:
+Disable Walsh-Lawler promotion, use STL thresholds only:
 
 ```python
 artifacts = classify_rainfall(df, rainfall_si_override=False)
 ```
+
+!!! note "Date-range sensitivity"
+    HydroSeason recomputes climatology, adaptive parameters, and hydrological-year
+    boundaries from supplied date range, so same site with different start/end date
+    is not guaranteed to give identical season onsets.
+
+    Edge years most sensitive. If subset starts/ends inside ongoing Wet season,
+    true onset may lie outside visible window and first/last hydrological year can
+    shift. Shorter records can also change behaviour because rolling guardrails fall
+    back to full-record guardrails when fewer than two rolling windows available.
+
+    Example bundled dataset:
+    full record `1986-12` to `2023-10` and subset `2013-01` to `2023-10` give same
+    monthly `SeasonType` labels and Wet onsets for hydrological years `2014`–`2023`,
+    but subset reports hydrological year `2013` starting Wet in `Jan 2013` instead
+    of `Nov 2012` because earlier onset is outside subset.
 
 Read common rainfall files and run in one step:
 
@@ -41,7 +57,7 @@ artifacts = classify_rainfall_from_file("IDCJAC0001_003018_Data1.csv", source="a
 
 ### Plotting and reports
 
-Interactive reports are included in the default install.
+Interactive reports included in default install.
 
 ```python
 from hydroseason import generate_html_report
@@ -64,7 +80,7 @@ artifacts = df.hydroseason.classify_rainfall()
 diagnostics = df.hydroseason.diagnostics()
 ```
 
-Plotting and report accessors are available in the default install:
+Plotting and report accessors available in default install:
 
 ```python
 fig = df.hydroseason.plot_dashboard()
@@ -74,19 +90,19 @@ report_path = df.hydroseason.generate_report("output/report.html")
 
 ## CLI
 
-Run the pipeline from a YAML configuration file:
+Run pipeline from YAML config:
 
 ```bash
 hydroseason run --config config/example.yaml
 ```
 
-Run the packaged demo dataset:
+Run packaged demo dataset:
 
 ```bash
 hydroseason demo --out output/demo.csv
 ```
 
-Run local rainfall files without writing Python:
+Run local rainfall files without Python:
 
 ```bash
 hydroseason rainfall \
@@ -95,11 +111,23 @@ hydroseason rainfall \
   --output output/rainfall_results.csv
 ```
 
-Fetch monthly rainfall for an AOI polygon. Supported vector inputs include GeoJSON, SHP, KML, KMZ, GPKG, and GPCK.
+Fetch monthly rainfall for AOI polygon. Supported: GeoJSON, SHP, KML, KMZ, GPKG, GPCK.
 
 > Requires: `pip install "hydroseason[fetch]"`
 
-SILO monthly rainfall for Australia:
+Recommended default for AOIs — uses SILO in Australia, CHIRPS globally, default ERA5 store as backup:
+
+```bash
+hydroseason fetch \
+  --source auto \
+  --vector data/fitzroy_catchment.geojson \
+  --start-year 1985 \
+  --end-year 2023 \
+  --cache-dir data/fetch_cache \
+  --output output/my_project/monthly_rainfall.csv
+```
+
+Force SILO for Australian AOI:
 
 ```bash
 hydroseason fetch \
@@ -109,19 +137,6 @@ hydroseason fetch \
   --end-year 2023 \
   --cache-dir data/silo_cache \
   --output output/silo_monthly_rainfall.csv
-```
-
-Auto rainfall for AOIs. This uses SILO in Australia, CHIRPS globally, and ERA5
-as backup when `--path` is provided:
-
-```bash
-hydroseason fetch \
-  --source auto \
-  --path gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3 \
-  --vector data/fitzroy_catchment.geojson \
-  --start-year 1985 \
-  --end-year 2023 \
-  --output output/monthly_rainfall.csv
 ```
 
 ## YAML Config
@@ -162,4 +177,4 @@ validation:
   raise_on_error: true
 ```
 
-The HTML report and export bundle write interactive HTML plus CSV/JSON outputs. Static PNG/SVG figure export is planned for a future release.
+HTML report and export bundle write interactive HTML plus CSV/JSON. Static PNG/SVG figure export planned for future release.

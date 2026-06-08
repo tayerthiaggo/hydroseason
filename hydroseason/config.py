@@ -47,6 +47,13 @@ class AlgorithmConfig:
     cap_rolling_tail_at_global: bool = True
     keep_debug_columns: bool = False
     require_low_floor_break_for_pruning: bool = True
+    regime_window_years: int = 0
+    segmentation_method: str = "heuristic"      # "heuristic" | "cumulative_anomaly" | "hybrid"
+    cumulative_anomaly_reference_floor: float = 10.0
+    cumulative_anomaly_absolute_floor: float = 10.0
+    cumulative_anomaly_smooth: bool = True
+    cumulative_anomaly_stl_gate: bool = False
+    cumulative_anomaly_multi_year: bool = False
 
     def __post_init__(self) -> None:
         if self.smooth_window is not None:
@@ -76,6 +83,16 @@ class AlgorithmConfig:
         self.cap_rolling_tail_at_global = bool(self.cap_rolling_tail_at_global)
         self.keep_debug_columns = bool(self.keep_debug_columns)
         self.require_low_floor_break_for_pruning = bool(self.require_low_floor_break_for_pruning)
+        self.regime_window_years = int(self.regime_window_years)
+        self.segmentation_method = str(self.segmentation_method).strip().lower()
+        if self.segmentation_method not in {"heuristic", "cumulative_anomaly", "hybrid"}:
+            raise ValueError("segmentation_method must be one of {'heuristic', 'cumulative_anomaly', 'hybrid'}")
+        self.cumulative_anomaly_reference_floor = float(self.cumulative_anomaly_reference_floor)
+        self.cumulative_anomaly_absolute_floor = float(self.cumulative_anomaly_absolute_floor)
+        self.cumulative_anomaly_smooth = bool(self.cumulative_anomaly_smooth)
+        self.cumulative_anomaly_stl_gate = bool(self.cumulative_anomaly_stl_gate)
+        self.cumulative_anomaly_multi_year = bool(self.cumulative_anomaly_multi_year)
+
 
 
 @dataclass
@@ -102,12 +119,13 @@ class FetchConfig:
     vector_path: str | None = None
     start_year: int | None = None
     end_year: int | None = None
-    variable: str = "rainfall"      # registry key in era5_variables.py
+    variable: str = "rainfall"      # legacy selector; only rainfall is supported
     cache_dir: str | None = None
     spatial_chunk: int | str | None = "auto"
     time_chunk: int | str | None = "auto"
     temporal_batch_years: int | str | None = "auto"
     era5_fallback: bool = True
+    large_era5_fallback: str = "ask"
 
     def __post_init__(self) -> None:
         self.enabled = bool(self.enabled)
@@ -125,6 +143,12 @@ class FetchConfig:
         ):
             self.temporal_batch_years = int(self.temporal_batch_years)
         self.era5_fallback = bool(self.era5_fallback)
+        self.large_era5_fallback = str(self.large_era5_fallback).strip().lower()
+        if self.large_era5_fallback not in {"ask", "allow", "error"}:
+            raise ValueError(
+                "fetch.large_era5_fallback must be one of "
+                "{'ask', 'allow', 'error'}."
+            )
 
 
 @dataclass

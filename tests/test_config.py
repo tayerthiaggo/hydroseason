@@ -35,6 +35,7 @@ output:
     assert loaded.fetch.time_chunk == "auto"
     assert loaded.fetch.temporal_batch_years == "auto"
     assert loaded.fetch.era5_fallback is True
+    assert loaded.fetch.large_era5_fallback == "ask"
 
 
 def test_load_config_overrides(tmp_path: Path):
@@ -116,6 +117,7 @@ fetch:
   vector_path: data/fitzroy_catchment.geojson
   start_year: 2020
   end_year: 2021
+  large_era5_fallback: allow
 """.strip(),
         encoding="utf-8",
     )
@@ -125,6 +127,7 @@ fetch:
     assert loaded.input.csv_path is None
     assert loaded.fetch.enabled is True
     assert loaded.fetch.source == "silo"
+    assert loaded.fetch.large_era5_fallback == "allow"
 
 
 def test_load_config_requires_csv_when_fetch_disabled(tmp_path: Path):

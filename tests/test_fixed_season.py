@@ -32,6 +32,14 @@ def test_circular_stats_bimodal():
     assert stats.is_bimodal
 
 
+def test_circular_stats_contiguous_wet_block_not_bimodal():
+    # One Nov-Apr wet season can have a strong second harmonic, but it is not
+    # bimodal unless high-rain months split into separated wet runs.
+    values = np.array([226, 194, 100, 25, 19, 8, 9, 2, 3, 14, 48, 119], dtype=float)
+    stats = circular_stats(values)
+    assert not stats.is_bimodal
+
+
 def test_circular_climatology(monthly_df: pd.DataFrame):
     clim, start, stats = circular_climatology(monthly_df)
     assert len(clim) == 12

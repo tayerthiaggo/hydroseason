@@ -3,6 +3,7 @@ import pandas as pd
 from hydroseason.dynamic_season import (
     harmonize_with_zero_preservation,
     refine_season_tails,
+    repair_short_dry_gaps,
     segment_main_wet_season_fixed_threshold,
 )
 from hydroseason.hydro_year import assign_fixed_hydro_year
@@ -53,6 +54,47 @@ def test_refine_legacy_threshold_argument():
     })
     out = refine_season_tails(df, threshold=40.0)
     assert "SeasonType" in out.columns
+
+
+def test_repair_short_dry_gap_merges_only_supported_single_month_gap():
+    dates = pd.date_range("2020-01-01", periods=9, freq="MS")
+    df = pd.DataFrame({
+        "Date": dates,
+        "SeasonType": [
+            "Wet", "Wet", "Wet", "Dry", "Wet", "Wet", "Wet", "Dry", "Dry",
+        ],
+    })
+
+    out, diag = repair_short_dry_gaps(
+        df,
+        max_gap_length=1,
+        min_neighbor_wet_length=3,
+    )
+
+    by_date = dict(zip(out["Date"], out["SeasonType"]))
+    assert by_date[pd.Timestamp("2020-04-01")] == "Wet"
+    assert by_date[pd.Timestamp("2020-08-01")] == "Dry"
+    assert diag["short_dry_gap_merged_count"] == 1
+    assert diag["short_dry_gap_merged_month_count"] == 1
+
+
+def test_repair_short_dry_gap_preserves_real_two_month_dry_season():
+    dates = pd.date_range("2020-01-01", periods=8, freq="MS")
+    df = pd.DataFrame({
+        "Date": dates,
+        "SeasonType": [
+            "Wet", "Wet", "Wet", "Dry", "Dry", "Wet", "Wet", "Wet",
+        ],
+    })
+
+    out, diag = repair_short_dry_gaps(
+        df,
+        max_gap_length=1,
+        min_neighbor_wet_length=3,
+    )
+
+    assert (out.loc[out["Date"].isin(pd.to_datetime(["2020-04-01", "2020-05-01"])), "SeasonType"] == "Dry").all()
+    assert diag["short_dry_gap_merged_count"] == 0
 
 
 def test_refine_no_orphan_wet_event_inside_dry_season():

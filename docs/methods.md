@@ -1,9 +1,6 @@
 # Methods & Workflow
 
-HydroSeason is a rainfall-first workflow for monthly wet/dry season and
-hydrological-year delineation. It combines a whole-record seasonal baseline with
-dynamic year-by-year wet-season detection, then applies recent-normal guardrails
-so long records can adapt when climate seasonality shifts.
+HydroSeason: rainfall-first workflow for monthly wet/dry season and hydrological-year delineation. Combines whole-record seasonal baseline with dynamic year-by-year wet-season detection, then applies recent-normal guardrails so long records adapt when climate seasonality shifts.
 
 ## Workflow Diagram
 
@@ -27,64 +24,39 @@ flowchart TD
 
 ## Key Method Choices
 
-HydroSeason first detects whether the record is seasonal, borderline, or
-non-seasonal. Seasonal records use the full dynamic workflow. Borderline records
-use the fixed monthly climatology as a conservative fallback, and non-seasonal
-records are returned as `Unclassified`.
+HydroSeason first detects whether record is seasonal, borderline, or non-seasonal. Seasonal records use full dynamic workflow. Borderline records use fixed monthly climatology as conservative fallback. Non-seasonal records returned as `Unclassified`.
 
-The fixed seasonal baseline is the long-record reference. By default it uses
-circular climatology, which treats months as positions on a circle and identifies
-the dominant wet-season timing. This gives a transferable baseline start month
-without assuming that every catchment has the same wet season. For unimodal
-records, the fixed Wet width is also adaptive: sharp peaks use 3 Wet months,
-moderate peaks use 5, and diffuse peaks use 7.
+Fixed seasonal baseline is long-record reference. Default: circular climatology — treats months as positions on circle, identifies dominant wet-season timing. Gives transferable baseline start month without assuming same wet season for every catchment. For unimodal records, fixed Wet width is adaptive: sharp peaks use 3 Wet months, moderate use 5, diffuse use 7.
 
-The dynamic season step then works year by year. It smooths monthly rainfall
-while preserving real zero-rain runs, finds the dominant wet-season core in each
-fixed hydrological year, trims low-rainfall smoothing bleed, and extends only
-valid build-up or recession shoulders.
+Dynamic season step works year by year: smooths monthly rainfall while preserving real zero-rain runs, finds dominant wet-season core per fixed hydrological year, trims low-rainfall smoothing bleed, extends only valid build-up/recession shoulders.
 
-Validation clips negative rainfall values to 0.0 and records a warning, because
-rainfall totals cannot be negative. Annual SPI categories use the sample standard
-deviation (`ddof=1`) of hydrological-year rainfall totals so short records match
-the empirical Tayer et al. workflow.
+Validation clips negative rainfall values to 0.0 and records warning — rainfall totals cannot be negative. Annual SPI categories use sample standard deviation (`ddof=1`) of hydrological-year rainfall totals so short records match empirical Tayer et al. workflow.
 
 ## Recent Local Normal
 
-Long rainfall records can contain real climate shifts. A 100-year record may
-describe a historical wet season that is no longer the current local normal. To
-avoid that, HydroSeason defaults to rolling recent-normal guardrails:
+Long rainfall records can contain real climate shifts. 100-year record may describe historical wet season no longer current local normal. HydroSeason defaults to rolling recent-normal guardrails:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `climatology_window` | `rolling` | Use recent local climatology instead of only the full record. |
+| `climatology_window` | `rolling` | Use recent local climatology instead of only full record. |
 | `climatology_window_years` | `10` | Follow medium-term changes around each hydrological year. |
-| `climatology_window_mode` | `trailing` | Use the previous/current years for operational-style analysis. |
-| `climatology_min_month_observations` | `5` | Fall back when a local window is too sparse. |
-| `climatology_min_wet_year_fraction` | `0.60` | Require persistence before a local Wet month is trusted. |
+| `climatology_window_mode` | `trailing` | Use previous/current years for operational-style analysis. |
+| `climatology_min_month_observations` | `5` | Fall back when local window too sparse. |
+| `climatology_min_wet_year_fraction` | `0.60` | Require persistence before local Wet month trusted. |
 
-This means each hydrological year can be judged against rainfall behavior from
-its nearby decade, not only against the whole record.
+Each hydrological year judged against rainfall behavior from nearby decade, not only whole record.
 
 ## Stability Guard
 
-A shorter 10-year window is responsive, but it can also overreact to isolated
-storms or short climate oscillations. HydroSeason mitigates that with a
-persistence rule:
+10-year window is responsive but can overreact to isolated storms or short climate oscillations. HydroSeason mitigates with persistence rule:
 
-A month can become a stable recent Wet month only if it is locally labelled Wet
-and at least 60% of observed years in the rolling window exceed the local tail
-floor.
+Month becomes stable recent Wet only if locally labelled Wet and ≥60% of observed years in rolling window exceed local tail floor.
 
-If a month fails that rule, HydroSeason does not let the local window lower the
-core-trimming floor for that month. It uses the stricter global tail floor
-instead. This keeps weak but real wet seasons intact, while preventing one-off
-rainfall months from becoming part of the wet season.
+If month fails that rule, HydroSeason does not let local window lower core-trimming floor for that month — uses stricter global tail floor instead. Keeps weak but real wet seasons intact while preventing one-off rainfall months from becoming part of wet season.
 
 ## Shoulder Extension
 
-Shoulder months are build-up or recession months adjacent to the wet-season
-core. They can be Wet, but only when several gates agree:
+Shoulder months (build-up or recession adjacent to wet-season core) can be Wet only when several gates agree:
 
 | Gate | What it prevents |
 | --- | --- |
@@ -93,23 +65,13 @@ core. They can be Wet, but only when several gates agree:
 | Month-aware floor | Ordinary dry-season rain for that calendar month. |
 | STL residual gate | Isolated storm anomalies. |
 
-The default month-aware floor is the 0.60 calendar-month quantile. With a
-10-year window, this means a shoulder must be above recent local normal for that
-month, but it does not need to be an extreme upper-quartile event.
+Default month-aware floor: 0.60 calendar-month quantile. With 10-year window, shoulder must be above recent local normal for that month, but not extreme upper-quartile.
 
 ## Transferability
 
-The workflow is designed to be transferable across rainfall regimes worldwide:
-monsoonal, Mediterranean, arid, temperate, bimodal, and shifting climates. It
-does not assume a fixed wet-season month, hemisphere, or regional calendar.
-Transferability comes from using site-scaled thresholds, month-aware local
-floors, data-quality fallbacks, and diagnostics that expose when rolling
-guardrails were active or when global fallback was used.
+Workflow designed to transfer across rainfall regimes worldwide: monsoonal, Mediterranean, arid, temperate, bimodal, shifting. Does not assume fixed wet-season month, hemisphere, or regional calendar. Transferability from site-scaled thresholds, month-aware local floors, data-quality fallbacks, diagnostics exposing when rolling guardrails were active or global fallback used.
 
-For short records, sparse records, or low-confidence missing data, HydroSeason
-falls back toward the global climatology. For long records with enough data, it
-uses recent local normal so current conditions can matter more than distant
-historical conditions.
+For short/sparse records or low-confidence missing data, falls back toward global climatology. For long records with enough data, uses recent local normal so current conditions matter more than distant historical ones.
 
 ---
 

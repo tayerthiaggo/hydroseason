@@ -4,7 +4,7 @@ Improvements over the prototype:
 
 - Polygon mask applied before temporal resampling.
 - Explicit spatial chunking to keep Dask graph sizes manageable.
-- Variable adapter registry for ERA5 rainfall conversion.
+- ERA5 rainfall conversion kept local to this module.
 - Optional Parquet cache keyed by inputs hash.
 - Unified fetch progress bar across the full requested year range.
 """
@@ -26,8 +26,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .era5_variables import ERA5Variable, get as get_era5_variable
-
 logger = logging.getLogger(__name__)
 
 SILO_MONTHLY_RAIN_BASE_URL = (
@@ -42,9 +40,29 @@ CHIRPS_V3_MONTHLY_TIF_BASE_URL = (
     "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/"
     "monthly/global/tifs"
 )
+DEFAULT_ERA5_ZARR_PATH = (
+    "gs://gcp-public-data-arco-era5/ar/"
+    "full_37-1h-0p25deg-chunk-1.zarr-v3"
+)
+ERA5_RAINFALL_VARIABLE = "rainfall"
+_ERA5_RAINFALL_ALIASES = {
+    ERA5_RAINFALL_VARIABLE,
+    "precipitation",
+    "tp",
+    "total_precipitation",
+}
+_ERA5_RAINFALL_DATA_VARS = ("total_precipitation", "tp")
+_ERA5_RAINFALL_OUT_COLUMN = "Rainfall_mm"
+_ERA5_RAINFALL_UNIT_LABEL = "mm"
+_ERA5_RAINFALL_UNIT_FACTOR = 1000.0
+
 CHIRPS_START_YEAR = 1981
 CHIRPS_LAT_MIN = -60.0
 CHIRPS_LAT_MAX = 60.0
+CHIRPS_EMPTY_FAIL_FAST_MONTHS = 12
+CHIRPS_READ_RETRY_ATTEMPTS = 3
+LARGE_ERA5_FALLBACK_MONTHS = 60
+LARGE_ERA5_FALLBACK_TIMEOUT_SECONDS = 300
 _AUSTRALIA_BOUNDS = (112.0, -44.0, 154.0, -9.0)
 
 
@@ -52,6 +70,43 @@ _AUSTRALIA_BOUNDS = (112.0, -44.0, 154.0, -9.0)
 class _SystemProfile:
     cpu_count: int
     memory_gib: float
+
+
+class ChirpsCoverageError(ValueError):
+    """Raised when CHIRPS coverage is too sparse for safe automatic fallback."""
+
+
+class NoChirpsMonthsError(ChirpsCoverageError):
+    """Raised when CHIRPS returns no usable month at all."""
+
+
+def _resolve_large_era5_fallback_mode(value: str) -> str:
+    mode = str(value).strip().lower()
+    if mode not in {"ask", "allow", "error"}:
+        raise ValueError(
+            "large_era5_fallback must be one of {'ask', 'allow', 'error'}."
+        )
+    return mode
+
+
+def _resolve_era5_rainfall_variable(variable: str) -> str:
+    key = str(variable).strip().lower()
+    if key not in _ERA5_RAINFALL_ALIASES:
+        raise ValueError(
+            "ERA5 fetch only supports rainfall. "
+            f"Received variable={variable!r}."
+        )
+    return ERA5_RAINFALL_VARIABLE
+
+
+def _resolve_era5_rainfall_data_var(ds) -> str:
+    for name in _ERA5_RAINFALL_DATA_VARS:
+        if name in ds.data_vars:
+            return name
+    raise KeyError(
+        "ERA5 rainfall variable not found; "
+        f"available: {list(ds.data_vars)}"
+    )
 
 
 class _FetchProgressBar:
@@ -449,7 +504,7 @@ def load_vector(path: str | Path):
             raise ValueError(
                 f"No valid geometries found in vector file: {path}"
             )
-        gdf = gdf[gdf.geometry.notna()].copy()
+        gdf = gdf[~gdf.geometry.isna() & ~gdf.geometry.is_empty].copy()
         gdf = gdf[gdf.geometry.is_valid].copy()
         if gdf.empty:
             raise ValueError(
@@ -475,7 +530,7 @@ def load_vector(path: str | Path):
     if gdf.empty or gdf.geometry.isna().all():
         raise ValueError(f"No valid geometries found in vector file: {path}")
 
-    gdf = gdf[gdf.geometry.notna()].copy()
+    gdf = gdf[~gdf.geometry.isna() & ~gdf.geometry.is_empty].copy()
     gdf = gdf[gdf.geometry.is_valid].copy()
     if gdf.empty:
         raise ValueError(
@@ -620,6 +675,154 @@ def _year_stage_label(start_year: int, end_year: int) -> str:
     return f"processing {int(start_year)}-{int(end_year)}"
 
 
+def _contiguous_int_ranges(values) -> list[tuple[int, int]]:
+    years = sorted({int(value) for value in values})
+    if not years:
+        return []
+    ranges: list[tuple[int, int]] = []
+    start = previous = years[0]
+    for year in years[1:]:
+        if year == previous + 1:
+            previous = year
+            continue
+        ranges.append((start, previous))
+        start = previous = year
+    ranges.append((start, previous))
+    return ranges
+
+
+def _year_range_month_count(start_year: int, end_year: int) -> int:
+    return max(0, int(end_year) - int(start_year) + 1) * 12
+
+
+def _total_year_range_months(ranges: list[tuple[int, int]]) -> int:
+    return sum(_year_range_month_count(start, end) for start, end in ranges)
+
+
+def _format_year_ranges(ranges: list[tuple[int, int]]) -> str:
+    parts = []
+    for start, end in ranges:
+        if int(start) == int(end):
+            parts.append(str(int(start)))
+        else:
+            parts.append(f"{int(start)}-{int(end)}")
+    return ", ".join(parts)
+
+
+def _timed_input(prompt: str, timeout_seconds: int) -> str | None:
+    timeout_seconds = max(1, int(timeout_seconds))
+    if sys.stdin and sys.stdin.isatty() and os.name == "nt":
+        import msvcrt
+        import time
+
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        chars: list[str] = []
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            while msvcrt.kbhit():
+                ch = msvcrt.getwche()
+                if ch in {"\r", "\n"}:
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return "".join(chars)
+                if ch == "\003":
+                    raise KeyboardInterrupt
+                if ch == "\b":
+                    if chars:
+                        chars.pop()
+                    continue
+                chars.append(ch)
+            time.sleep(0.05)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        return None
+
+    if sys.stdin and sys.stdin.isatty():
+        import select
+
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        ready, _write, _error = select.select([sys.stdin], [], [], timeout_seconds)
+        if not ready:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            return None
+        line = sys.stdin.readline()
+        if not line:
+            return None
+        return line.rstrip("\r\n")
+
+    # Notebook and VS Code interactive consoles often report non-TTY stdin but
+    # still support explicit blocking prompts via builtins.input().
+    import builtins
+
+    return builtins.input(prompt)
+
+
+def _confirm_large_era5_fallback(
+    *,
+    mode: str,
+    reason: str,
+    year_ranges: list[tuple[int, int]],
+) -> None:
+    total_months = _total_year_range_months(year_ranges)
+    if total_months <= LARGE_ERA5_FALLBACK_MONTHS:
+        return
+
+    resolved_mode = _resolve_large_era5_fallback_mode(mode)
+    range_label = _format_year_ranges(year_ranges)
+    message = (
+        f"{reason} ERA5 fallback would fetch {total_months} month(s) across "
+        f"{range_label}. Automatic fallback limit is "
+        f"{LARGE_ERA5_FALLBACK_MONTHS} month(s). This could take several hours."
+    )
+    if resolved_mode == "allow":
+        logger.warning(
+            "%s Proceeding because large_era5_fallback='allow'.",
+            message,
+        )
+        return
+    if resolved_mode == "error":
+        raise ChirpsCoverageError(
+            f"{message} Set large_era5_fallback='allow' to proceed."
+        )
+
+    try:
+        answer = _timed_input(
+            (
+                f"{message} Explicit approval is required for more than "
+                f"{LARGE_ERA5_FALLBACK_MONTHS} fallback month(s). "
+                "If there is no response within 5 minutes, this sample will "
+                "be skipped. "
+                "Continue with ERA5 fallback? [y/N]: "
+            ),
+            LARGE_ERA5_FALLBACK_TIMEOUT_SECONDS,
+        )
+    except (EOFError, OSError) as exc:
+        raise ChirpsCoverageError(
+            f"{message} large_era5_fallback='ask' needs interactive input. "
+            "Set large_era5_fallback='allow' to proceed."
+        ) from exc
+
+    if answer is None:
+        raise ChirpsCoverageError(
+            f"{message} No response within 5 minutes; treating this as 'no' "
+            "and bypassing the sample."
+        )
+
+    if str(answer).strip().lower() in {"y", "yes"}:
+        logger.warning(
+            "%s Proceeding because user approved interactive prompt.",
+            message,
+        )
+        return
+
+    raise ChirpsCoverageError(
+        f"{message} ERA5 fallback cancelled by user; bypassing the sample."
+    )
+
+
 def _source_metadata(
     df: pd.DataFrame,
     *,
@@ -647,15 +850,6 @@ def _chirps_tif_url(year: int, month: int) -> str:
     return _chirps_month_url(CHIRPS_V3_MONTHLY_TIF_BASE_URL, year, month)
 
 
-def _is_recent_chirps_month(year: int, month: int) -> bool:
-    # CHIRPS final monthly products lag real time. Missing recent months should
-    # shorten the returned record rather than fail a long historical fetch.
-    period = pd.Timestamp(year=int(year), month=int(month), day=1, tz="UTC")
-    current_month = pd.Timestamp.now(tz="UTC").normalize().replace(day=1)
-    cutoff = current_month - pd.DateOffset(months=2)
-    return bool(period >= cutoff)
-
-
 def _read_chirps_month(gdf, url: str) -> float:
     """Read one CHIRPS monthly raster and return the AOI mean rainfall in mm."""
     import rasterio
@@ -674,6 +868,26 @@ def _read_chirps_month(gdf, url: str) -> float:
     if valid.size == 0:
         return float("nan")
     return float(valid.mean())
+
+
+def _read_chirps_month_with_retries(
+    gdf,
+    url: str,
+    *,
+    attempts: int = CHIRPS_READ_RETRY_ATTEMPTS,
+) -> float:
+    last_exc = None
+    for attempt in range(1, max(1, int(attempts)) + 1):
+        try:
+            return _read_chirps_month(gdf, url)
+        except ImportError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - retry wrapper
+            last_exc = exc
+            if attempt >= max(1, int(attempts)):
+                break
+    assert last_exc is not None
+    raise last_exc
 
 
 def get_monthly_chirps_rainfall(
@@ -719,7 +933,10 @@ def get_monthly_chirps_rainfall(
         f"{int(start_year)}-01", f"{int(end_year)}-12", freq="M"
     )
     rows: list[dict[str, object]] = []
-    missing_recent: list[str] = []
+    missing_months: list[str] = []
+    first_missing_month: str | None = None
+    last_missing_error: str | None = None
+    consecutive_missing_months = 0
     progress = _FetchProgressBar(
         len(periods),
         label="CHIRPS",
@@ -734,33 +951,54 @@ def get_monthly_chirps_rainfall(
             url = _chirps_month_url(base_url, year, month)
             product = "CHIRPS v3 monthly COG"
             try:
-                value = _read_chirps_month(gdf_4326, url)
+                value = _read_chirps_month_with_retries(gdf_4326, url)
             except ImportError:
                 raise
-            except Exception as first_exc:  # noqa: BLE001 - fallback path
+            except Exception as cog_exc:  # noqa: BLE001 - fallback path
                 if str(base_url).rstrip("/") == CHIRPS_V3_MONTHLY_COG_BASE_URL:
                     try:
-                        value = _read_chirps_month(
+                        value = _read_chirps_month_with_retries(
                             gdf_4326, _chirps_tif_url(year, month)
                         )
                         product = "CHIRPS v3 monthly GeoTIFF"
-                    except Exception as second_exc:  # noqa: BLE001
-                        if _is_recent_chirps_month(year, month):
-                            missing_recent.append(f"{year}-{month:02d}")
-                            progress.advance()
-                            continue
-                        raise FileNotFoundError(
-                            f"CHIRPS raster unavailable for {year}-{month:02d}: "
-                            f"{url}"
-                        ) from second_exc
-                elif _is_recent_chirps_month(year, month):
-                    missing_recent.append(f"{year}-{month:02d}")
-                    progress.advance()
-                    continue
+                    except Exception as tif_exc:  # noqa: BLE001
+                        missing_month = f"{year}-{month:02d}"
+                        if first_missing_month is None:
+                            first_missing_month = missing_month
+                        last_missing_error = f"{type(tif_exc).__name__}: {tif_exc}"
+                        missing_months.append(missing_month)
+                        consecutive_missing_months += 1
+                        progress.advance()
+                        if (
+                            not rows
+                            and consecutive_missing_months >= CHIRPS_EMPTY_FAIL_FAST_MONTHS
+                        ):
+                            raise NoChirpsMonthsError(
+                                "No CHIRPS months were available after "
+                                f"{consecutive_missing_months} consecutive "
+                                f"month(s) from {first_missing_month} through "
+                                f"{missing_month}. Last error: {last_missing_error}"
+                            ) from tif_exc
+                        continue
                 else:
-                    raise FileNotFoundError(
-                        f"CHIRPS raster unavailable for {year}-{month:02d}: {url}"
-                    ) from first_exc
+                    missing_month = f"{year}-{month:02d}"
+                    if first_missing_month is None:
+                        first_missing_month = missing_month
+                    last_missing_error = f"{type(cog_exc).__name__}: {cog_exc}"
+                    missing_months.append(missing_month)
+                    consecutive_missing_months += 1
+                    progress.advance()
+                    if (
+                        not rows
+                        and consecutive_missing_months >= CHIRPS_EMPTY_FAIL_FAST_MONTHS
+                    ):
+                        raise NoChirpsMonthsError(
+                            "No CHIRPS months were available after "
+                            f"{consecutive_missing_months} consecutive "
+                            f"month(s) from {first_missing_month} through "
+                            f"{missing_month}. Last error: {last_missing_error}"
+                        ) from cog_exc
+                    continue
 
             if not np.isfinite(value):
                 raise ValueError(
@@ -779,19 +1017,29 @@ def get_monthly_chirps_rainfall(
                     "Fetch_Note": "CHIRPS v3 monthly rainfall; land-only; 60S-60N",
                 }
             )
+            consecutive_missing_months = 0
             progress.advance()
     finally:
         progress.close()
 
     if not rows:
-        raise ValueError("No CHIRPS months were available for the requested range.")
+        detail = (
+            f" Last error: {last_missing_error}"
+            if last_missing_error is not None
+            else ""
+        )
+        raise NoChirpsMonthsError(
+            "No CHIRPS months were available for the requested range." + detail
+        )
 
     out = pd.DataFrame(rows)
-    if missing_recent:
-        missing_note = ", ".join(missing_recent)
+    if missing_months:
+        missing_note = ", ".join(missing_months[:12])
+        if len(missing_months) > 12:
+            missing_note += f", ... (+{len(missing_months) - 12} more)"
         out["Fetch_Note"] = (
             out["Fetch_Note"].astype(str)
-            + f"; recent CHIRPS month(s) unavailable: {missing_note}"
+            + f"; CHIRPS month(s) unavailable: {missing_note}"
         )
     _write_cache(
         cache_dir,
@@ -803,15 +1051,15 @@ def get_monthly_chirps_rainfall(
             "base_url": str(base_url),
             "start_year": int(start_year),
             "end_year": int(end_year),
-            "missing_recent_months": missing_recent,
+            "missing_months": missing_months,
             "unit": "mm",
         },
         prefix="chirps_monthly",
     )
-    if missing_recent:
+    if missing_months:
         logger.warning(
-            "Skipped recent CHIRPS month(s) not yet available: %s",
-            ", ".join(missing_recent),
+            "Skipped CHIRPS month(s) unavailable from monthly rasters: %s",
+            missing_note,
         )
     return out
 
@@ -831,15 +1079,21 @@ def get_monthly_aoi_rainfall(
     time_chunk: int | str | None = "auto",
     temporal_batch_years: int | str | None = "auto",
     era5_fallback: bool = True,
+    large_era5_fallback: str = "ask",
     show_progress: bool = True,
 ) -> pd.DataFrame:
     """Fetch monthly AOI rainfall using the package default source policy.
 
     ``source="auto"`` uses SILO for Australian AOIs and CHIRPS elsewhere.
     ERA5 is used only when explicitly selected, or as a fallback for ranges or
-    AOIs outside CHIRPS coverage when ``era5_zarr_path`` is provided.
+    AOIs outside CHIRPS coverage. ``era5_zarr_path`` is optional and only
+    needed to override the package default public ERA5 Zarr store.
     """
     resolved_source = str(source).lower().strip()
+    era5_path = era5_zarr_path or DEFAULT_ERA5_ZARR_PATH
+    large_era5_fallback = _resolve_large_era5_fallback_mode(
+        large_era5_fallback
+    )
     if resolved_source == "auto":
         resolved_source = infer_default_fetch_source(gdf)
 
@@ -861,10 +1115,8 @@ def get_monthly_aoi_rainfall(
         )
 
     if resolved_source == "era5":
-        if not era5_zarr_path:
-            raise ValueError("era5_zarr_path is required when source='era5'.")
         df = get_monthly_era5_rainfall(
-            path=era5_zarr_path,
+            path=era5_path,
             gdf=gdf,
             start_year=start_year,
             end_year=end_year,
@@ -887,26 +1139,35 @@ def get_monthly_aoi_rainfall(
 
     frames: list[pd.DataFrame] = []
     if int(start_year) < CHIRPS_START_YEAR:
-        if not (era5_fallback and era5_zarr_path):
+        if not era5_fallback:
             raise ValueError(
                 f"Requested start_year={start_year}, but CHIRPS starts in "
-                f"{CHIRPS_START_YEAR}. Provide era5_zarr_path or set "
+                f"{CHIRPS_START_YEAR}. Set era5_fallback=True or "
                 "source='era5' for longer historical ranges."
             )
         era5_end = min(int(end_year), CHIRPS_START_YEAR - 1)
+        _confirm_large_era5_fallback(
+            mode=large_era5_fallback,
+            reason=(
+                f"Requested range starts before CHIRPS coverage "
+                f"({CHIRPS_START_YEAR})."
+            ),
+            year_ranges=[(int(start_year), era5_end)],
+        )
         frames.append(
             get_monthly_aoi_rainfall(
                 gdf,
                 int(start_year),
                 era5_end,
                 source="era5",
-                era5_zarr_path=era5_zarr_path,
+                era5_zarr_path=era5_path,
                 variable=variable,
                 cache_dir=cache_dir,
                 spatial_chunk=spatial_chunk,
                 time_chunk=time_chunk,
                 temporal_batch_years=temporal_batch_years,
                 show_progress=show_progress,
+                large_era5_fallback=large_era5_fallback,
             )
         )
 
@@ -922,13 +1183,14 @@ def get_monthly_aoi_rainfall(
                     cache_dir=cache_dir,
                     show_progress=show_progress,
                 )
-            except (ValueError, FileNotFoundError):
-                if not (era5_fallback and era5_zarr_path):
-                    raise
-                logger.warning(
-                    "CHIRPS could not cover %s-%s; using ERA5 fallback.",
-                    chirps_start,
-                    int(end_year),
+            except NoChirpsMonthsError:
+                _confirm_large_era5_fallback(
+                    mode=large_era5_fallback,
+                    reason=(
+                        "CHIRPS returned no usable months for "
+                        f"{chirps_start}-{int(end_year)}."
+                    ),
+                    year_ranges=[(chirps_start, int(end_year))],
                 )
                 frames.append(
                     get_monthly_aoi_rainfall(
@@ -936,13 +1198,14 @@ def get_monthly_aoi_rainfall(
                         chirps_start,
                         int(end_year),
                         source="era5",
-                        era5_zarr_path=era5_zarr_path,
+                        era5_zarr_path=era5_path,
                         variable=variable,
                         cache_dir=cache_dir,
                         spatial_chunk=spatial_chunk,
                         time_chunk=time_chunk,
                         temporal_batch_years=temporal_batch_years,
                         show_progress=show_progress,
+                        large_era5_fallback=large_era5_fallback,
                     )
                 )
             else:
@@ -961,22 +1224,37 @@ def get_monthly_aoi_rainfall(
                     for date in expected_dates
                     if str(date) not in observed_dates
                 ]
-                if missing_dates and era5_fallback and era5_zarr_path:
+                if missing_dates and era5_fallback:
                     missing_periods = pd.to_datetime(pd.Series(missing_dates))
+                    fallback_year_ranges = _contiguous_int_ranges(
+                        missing_periods.dt.year.unique()
+                    )
+                    _confirm_large_era5_fallback(
+                        mode=large_era5_fallback,
+                        reason=(
+                            "CHIRPS returned "
+                            f"{len(expected_dates) - len(missing_dates)}/"
+                            f"{len(expected_dates)} expected month(s) for "
+                            f"{chirps_start}-{int(end_year)}; "
+                            f"{len(missing_dates)} month(s) need ERA5 fill."
+                        ),
+                        year_ranges=fallback_year_ranges,
+                    )
                     fallback_frames = []
-                    for missing_year in sorted(missing_periods.dt.year.unique()):
+                    for fallback_start, fallback_end in fallback_year_ranges:
                         year_df = get_monthly_aoi_rainfall(
                             gdf,
-                            int(missing_year),
-                            int(missing_year),
+                            fallback_start,
+                            fallback_end,
                             source="era5",
-                            era5_zarr_path=era5_zarr_path,
+                            era5_zarr_path=era5_path,
                             variable=variable,
                             cache_dir=cache_dir,
                             spatial_chunk=spatial_chunk,
                             time_chunk=time_chunk,
                             temporal_batch_years=temporal_batch_years,
                             show_progress=show_progress,
+                            large_era5_fallback=large_era5_fallback,
                         )
                         year_df = year_df[
                             pd.to_datetime(year_df["Date"])
@@ -998,26 +1276,32 @@ def get_monthly_aoi_rainfall(
                         "ERA5 fallback is configured. Missing month(s): %s",
                         ", ".join(missing_dates),
                     )
-        elif era5_fallback and era5_zarr_path:
+        elif era5_fallback:
+            _confirm_large_era5_fallback(
+                mode=large_era5_fallback,
+                reason="AOI falls outside CHIRPS latitude coverage.",
+                year_ranges=[(chirps_start, int(end_year))],
+            )
             frames.append(
                 get_monthly_aoi_rainfall(
                     gdf,
                     chirps_start,
                     int(end_year),
                     source="era5",
-                    era5_zarr_path=era5_zarr_path,
+                    era5_zarr_path=era5_path,
                     variable=variable,
                     cache_dir=cache_dir,
                     spatial_chunk=spatial_chunk,
                     time_chunk=time_chunk,
                     temporal_batch_years=temporal_batch_years,
                     show_progress=show_progress,
+                    large_era5_fallback=large_era5_fallback,
                 )
             )
         else:
             raise ValueError(
-                "AOI falls outside CHIRPS latitude coverage. Provide "
-                "era5_zarr_path or set source='era5'."
+                "AOI falls outside CHIRPS latitude coverage. Set "
+                "era5_fallback=True or source='era5'."
             )
 
     if not frames:
@@ -1043,14 +1327,14 @@ def get_monthly_era5_rainfall(
     start_year: int,
     end_year: int,
     *,
-    variable: str | ERA5Variable = "rainfall",
+    variable: str = ERA5_RAINFALL_VARIABLE,
     cache_dir: str | Path | None = None,
     spatial_chunk: int | str | None = "auto",
     time_chunk: int | str | None = "auto",
     temporal_batch_years: int | str | None = "auto",
     show_progress: bool = True,
 ) -> pd.DataFrame:
-    """Fetch monthly catchment-averaged values for one ERA5 variable.
+    """Fetch monthly catchment-averaged ERA5 rainfall for an AOI.
 
     Parameters
     ----------
@@ -1060,8 +1344,9 @@ def get_monthly_era5_rainfall(
         Polygon(s) defining the catchment.
     start_year, end_year : int
         Inclusive temporal range.
-    variable : str | ERA5Variable
-        Registry key or an ``ERA5Variable``.
+    variable : str
+        Rainfall selector. ``"rainfall"`` is the supported value; common
+        precipitation aliases remain accepted for backward compatibility.
     cache_dir : str | Path | None
         If given, results are cached locally as parquet keyed by inputs hash.
     spatial_chunk : int | str | None
@@ -1079,14 +1364,10 @@ def get_monthly_era5_rainfall(
 
     profile = _detect_system_profile()
 
-    var = (
-        variable
-        if isinstance(variable, ERA5Variable)
-        else get_era5_variable(variable)
-    )
+    variable_key = _resolve_era5_rainfall_variable(variable)
 
     # ---- cache lookup
-    key = _cache_key(path, gdf, start_year, end_year, var.key)
+    key = _cache_key(path, gdf, start_year, end_year, variable_key)
     cached = _read_cache(cache_dir, key, prefix="era5_monthly")
     if cached is not None:
         return cached
@@ -1112,19 +1393,7 @@ def get_monthly_era5_rainfall(
     ds = xr.open_zarr(path, **open_kwargs)
     ds = ds.sel(time=slice(f"{start_year}-01-01", f"{end_year}-12-31"))
 
-    # Resolve variable name in the store
-    var_name = var.era5_name
-    if var_name not in ds.data_vars:
-        # try common short alias
-        if "tp" in ds.data_vars and var.key == "rainfall":
-            var_name = "tp"
-        elif "t2m" in ds.data_vars and var.key == "temperature":
-            var_name = "t2m"
-        else:
-            raise KeyError(
-                f"Variable '{var.era5_name}' not found; "
-                f"available: {list(ds.data_vars)}"
-            )
+    var_name = _resolve_era5_rainfall_data_var(ds)
     ds = ds[[var_name]]
 
     # ---- spatial subset on bbox of polygons (CRS = EPSG:4326)
@@ -1201,21 +1470,14 @@ def get_monthly_era5_rainfall(
             batch_hourly = catchment_hourly.sel(
                 time=slice(f"{batch_start}-01-01", f"{batch_end}-12-31")
             )
-            if var.aggregation == "sum":
-                batch_series = batch_hourly.resample(time="MS").sum("time")
-            elif var.aggregation == "mean":
-                batch_series = batch_hourly.resample(time="MS").mean("time")
-            else:
-                raise ValueError(
-                    f"Unsupported aggregation '{var.aggregation}'."
-                )
+            batch_series = batch_hourly.resample(time="MS").sum("time")
 
             values = batch_series.compute()
             progress.advance(batch_end - batch_start + 1)
 
             batch_df = (
                 values.to_pandas()
-                .rename(var.out_column)
+                .rename(_ERA5_RAINFALL_OUT_COLUMN)
                 .to_frame()
                 .reset_index()
             )
@@ -1234,15 +1496,14 @@ def get_monthly_era5_rainfall(
     df.drop(columns=["time"], inplace=True)
 
     # unit conversion
-    df[var.out_column] = (
-        df[var.out_column] * var.unit_factor + var.unit_offset
+    df[_ERA5_RAINFALL_OUT_COLUMN] = (
+        df[_ERA5_RAINFALL_OUT_COLUMN] * _ERA5_RAINFALL_UNIT_FACTOR
     ).round(2)
 
-    # zero-clip negative accumulation noise only (avoid clipping light rain/temperatures!)
-    if var.aggregation == "sum":
-        df.loc[df[var.out_column] < 0, var.out_column] = 0.0
+    # zero-clip negative accumulation noise while preserving light rain.
+    df.loc[df[_ERA5_RAINFALL_OUT_COLUMN] < 0, _ERA5_RAINFALL_OUT_COLUMN] = 0.0
 
-    out = df[["Date", "Year", "Month", var.out_column]]
+    out = df[["Date", "Year", "Month", _ERA5_RAINFALL_OUT_COLUMN]]
 
     _write_cache(
         cache_dir,
@@ -1252,8 +1513,8 @@ def get_monthly_era5_rainfall(
             "path": str(path),
             "start_year": start_year,
             "end_year": end_year,
-            "variable": var.key,
-            "unit": var.unit_label,
+            "variable": variable_key,
+            "unit": _ERA5_RAINFALL_UNIT_LABEL,
             "spatial_chunk": resolved_spatial_chunk,
             "time_chunk": resolved_time_chunk,
             "temporal_batch_years": resolved_batch_years,

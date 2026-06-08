@@ -139,6 +139,9 @@ def test_generate_html_report(artifacts, tmp_path):
     assert "Imputed months and data quality" not in content
     assert "STL decomposition" not in content
     assert "Algorithm diagnostics" not in content
+    assert "Drought category" not in content
+    assert "Wet start" in content
+    assert "Dry start" in content
     assert "background:#D32F2F" not in content
     assert "background:#1565C0" in content
 
@@ -150,6 +153,7 @@ def test_display_summary(artifacts):
     raw = card.data if hasattr(card, "data") else card._repr_html_()
     assert "HydroSeason" in raw
     assert "Walsh-Lawler" in raw
+    assert "Drought category" not in raw
 
 
 def test_plotly_config():
@@ -178,3 +182,62 @@ def test_export_bundle(artifacts, tmp_path):
     assert "walsh_lawler_si" in diag
     # Static figure export is planned for a future release.
     assert not (out / "figures").exists()
+
+
+def test_generate_multisite_timeline_report(artifacts, tmp_path):
+    from hydroseason.report import generate_multisite_timeline_report
+
+    output_dir = tmp_path / "stress"
+    output_dir.mkdir()
+
+    site_001_dir = output_dir / "site_001"
+    site_001_dir.mkdir()
+    artifacts.result.to_csv(site_001_dir / "site_001_hydroseason_result.csv", index=False)
+
+    site_002_dir = output_dir / "site_002"
+    site_002_dir.mkdir()
+    (site_002_dir / "site_002_error.txt").write_text(
+        "Classification failed for manual test.",
+        encoding="utf-8",
+    )
+
+    summary = pd.DataFrame(
+        [
+            {
+                "site_id": "site_001",
+                "country": "Alpha",
+                "continent": "Nowhere",
+                "lat_band": "temperate_N",
+                "lon": 10.0,
+                "lat": 20.0,
+                "status": "ok",
+                "data_sources": "CHIRPS",
+                "regime": "seasonal",
+                "error": "",
+            },
+            {
+                "site_id": "site_002",
+                "country": "Beta",
+                "continent": "Nowhere",
+                "lat_band": "tropical_S",
+                "lon": 30.0,
+                "lat": -10.0,
+                "status": "failed",
+                "data_sources": "ERA5",
+                "regime": "",
+                "error": "Classification failed for manual test.",
+            },
+        ]
+    )
+    summary.to_csv(output_dir / "global_chirps_era5_stress_summary.csv", index=False)
+
+    out = generate_multisite_timeline_report(output_dir)
+    assert out.exists()
+    content = out.read_text(encoding="utf-8")
+    assert "HydroSeason Multi-Site Timeline Report" in content
+    assert "site_001" in content
+    assert "site_002" in content
+    assert "regime" in content
+    assert "lat_band" in content
+    assert "data_sources" in content
+    assert "Classification failed for manual test." in content

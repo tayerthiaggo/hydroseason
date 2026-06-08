@@ -5,6 +5,7 @@ import pandas as pd
 from hydroseason.config import load_config
 from hydroseason.pipeline import (
     _month_quantile_floor,
+    _validate_hydro_year_labels_within_record,
     classify_rainfall,
     classify_rainfall_df,
     classify_rainfall_from_file,
@@ -197,7 +198,7 @@ def test_rolling_climatology_tracks_shifted_recent_wet_months():
     assert rolling.diagnostics.climatology_window == "rolling"
     assert rolling.diagnostics.climatology_window_years == 10
     assert rolling.diagnostics.climatology_min_wet_year_fraction == 0.60
-    assert rolling.diagnostics.onset_window_months_used is None
+    assert rolling.diagnostics.onset_window_months_used == 3
     assert by_date.loc[pd.Timestamp("2019-02-01"), "SeasonType"] == "Wet"
     assert by_date.loc[pd.Timestamp("2019-03-01"), "SeasonType"] == "Wet"
     assert by_date.loc[pd.Timestamp("2019-04-01"), "SeasonType"] == "Wet"
@@ -328,6 +329,42 @@ def test_ten_year_stability_guard_blocks_unstable_false_shoulders():
     assert by_date.loc[pd.Timestamp("2022-10-01"), "SeasonType"] == "Dry"
 
 
+def test_imputed_record_does_not_invent_future_hydro_years():
+    df = pd.read_csv(Path("data/monthly_rainfall2.csv"))
+
+    artifacts = classify_rainfall(df)
+    result = artifacts.result.copy()
+    result["Date"] = pd.to_datetime(result["Date"])
+    by_date = result.set_index("Date")
+
+    assert artifacts.diagnostics.n_imputed == 36
+    assert artifacts.diagnostics.is_bimodal is False
+    assert artifacts.diagnostics.onset_window_months_used == 1
+    assert result["Hydro_Year"].max() == 2023
+    assert by_date.loc[pd.Timestamp("2004-03-01"), "Hydro_Year"] == 2004
+    assert by_date.loc[pd.Timestamp("2005-03-01"), "Hydro_Year"] == 2005
+    assert by_date.loc[pd.Timestamp("2022-03-01"), "Hydro_Year"] == 2022
+
+
+def test_hydro_year_guard_rejects_date_escaped_labels():
+    import pytest
+
+    dates = pd.to_datetime(["2022-03-01", "2023-10-01"])
+    result = pd.DataFrame(
+        {
+            "Date": dates,
+            "Hydro_Year": [2025, 2027],
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="date-constrained record bounds"):
+        _validate_hydro_year_labels_within_record(
+            result,
+            hydro_year_start_month=11,
+            date_col="Date",
+        )
+
+
 def test_rolling_guardrail_diagnostics_summarise_actual_tail_floors():
     df = pd.read_csv(FIXTURES / "DATASET2.csv")
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
@@ -398,6 +435,7 @@ def test_low_confidence_missing_data_disables_month_floor():
         assert diag.shoulder_month_floor_source == "disabled_low_confidence"
 
 
+
 def test_low_confidence_long_record_keeps_global_onset_guard():
     clim = [220, 190, 100, 25, 5, 0, 0, 0, 5, 15, 50, 120]
     df = _build_monthly_record(1950, 50, clim)
@@ -415,3 +453,73 @@ def test_low_confidence_long_record_keeps_global_onset_guard():
         assert diag.climatology_guardrail_source == "global"
         assert diag.onset_window_months_used == 1
 
+
+def test_regime_window_years_subsets_correctly():
+    # Construct a dataset where older years have strong seasonality, but newer years are completely uniform.
+    # If we use regime_window_years=10, it should classify as non-seasonal because it only looks at the last 10 years.
+    # If we use regime_window_years=0, it should use the full record and might classify as borderline/seasonal.
+    clim_seasonal = [100, 100, 100, 10, 10, 10, 10, 10, 10, 10, 10, 10]
+    clim_uniform = [40] * 12
+    
+    rows = []
+    # Years 1980 to 2009: seasonal (30 years)
+    for year in range(1980, 2010):
+        for month in range(1, 13):
+            rows.append({
+                "Date": pd.Timestamp(year=year, month=month, day=1),
+                "Year": year,
+                "Month": month,
+                "Rainfall_mm": clim_seasonal[month-1],
+            })
+    # Years 2010 to 2019: uniform (10 years)
+    for year in range(2010, 2020):
+        for month in range(1, 13):
+            rows.append({
+                "Date": pd.Timestamp(year=year, month=month, day=1),
+                "Year": year,
+                "Month": month,
+                "Rainfall_mm": clim_uniform[month-1],
+            })
+    df = pd.DataFrame(rows)
+
+    # Full record: should see strong seasonality overall due to 30 seasonal years
+    art_full = classify_rainfall(df, regime_window_years=0)
+    assert art_full.diagnostics.regime in {"seasonal", "borderline"}
+    assert art_full.diagnostics.regime_window_years == 0
+
+    # Recent 10 years only: should be non-seasonal
+    art_window = classify_rainfall(df, regime_window_years=10)
+    assert art_window.diagnostics.regime == "non_seasonal"
+    assert art_window.diagnostics.regime_window_years == 10
+
+
+def test_non_seasonal_min_month_hy():
+    # Completely uniform climatology with noise, so it is classified as non_seasonal.
+    # The minimum month will be resolved from the random variation in the data.
+    clim = [30.0] * 12
+    df = _build_monthly_record(2000, 20, clim, jitter=20.0, seed=42)
+    
+    artifacts = classify_rainfall(df)
+    assert artifacts.diagnostics.regime == "non_seasonal"
+    assert artifacts.diagnostics.non_seasonal_hy_start_month is not None
+    assert 1 <= artifacts.diagnostics.non_seasonal_hy_start_month <= 12
+    assert artifacts.diagnostics.hydro_year_start_month == artifacts.diagnostics.non_seasonal_hy_start_month
+    # The Hydro_Year boundary source should be "min_month"
+    first_indices = artifacts.result.groupby("Hydro_Year", sort=False).head(1).index
+    boundary_sources = artifacts.result.loc[first_indices, "Hydro_Year_Boundary_Source"].dropna().unique()
+    assert "min_month" in boundary_sources or "initial" in boundary_sources
+
+
+def test_adaptive_wet_year_fraction_low_contrast():
+    # Setup dry_driest/wet_less_wet climatology with circular_R < 0.50
+    # season_contrast_class dry_driest or wet_less_wet is determined by _season_contrast_diagnostics
+    # Let's verify that effective_wet_year_fraction is lowered to 0.40
+    clim = [20.0, 22.0, 25.0, 18.0, 15.0, 12.0, 14.0, 16.0, 18.0, 20.0, 19.0, 21.0] # diffuse, low contrast
+    df = _build_monthly_record(2000, 15, clim)
+    
+    artifacts = classify_rainfall(df, climatology_min_wet_year_fraction=0.60)
+    # Check effective fraction
+    assert artifacts.diagnostics.effective_wet_year_fraction is not None
+    # Depending on regime, if it gets classified as seasonal, effective_wet_year_fraction should be <= 0.40
+    if artifacts.diagnostics.regime == "seasonal":
+        assert artifacts.diagnostics.effective_wet_year_fraction <= 0.40

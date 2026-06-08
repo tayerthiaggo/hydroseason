@@ -131,8 +131,18 @@ except ImportError:
 
 # Report helpers (plotly in core; IPython display support is optional at runtime)
 try:
-    from .report import display_summary, export_bundle, generate_html_report
-    __all__ += ["display_summary", "generate_html_report", "export_bundle"]
+    from .report import (
+        display_summary,
+        export_bundle,
+        generate_html_report,
+        generate_multisite_timeline_report,
+    )
+    __all__ += [
+        "display_summary",
+        "generate_html_report",
+        "generate_multisite_timeline_report",
+        "export_bundle",
+    ]
 except ImportError:
     pass  # plotly not installed
 
