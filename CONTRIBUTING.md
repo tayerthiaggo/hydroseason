@@ -17,13 +17,10 @@ pip install -e ".[dev,docs,all]"
 python -m pytest -q
 ```
 
-On Windows, set `OMP_NUM_THREADS=1` to silence the KMeans/MKL warning.
-
 Optional checks:
 
 ```bash
 ruff check hydroseason tests      # lint
-python scripts/stress_test.py --cases 100 --seed 42
 python -m mkdocs build --strict   # docs build
 ```
 

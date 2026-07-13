@@ -1,113 +1,57 @@
 # HydroSeason
 
-Hydrological seasons do not always follow the calendar.
+Source-agnostic hydrological-year detection from **monthly surface-water extent**.
 
-HydroSeason turns rainfall records into Wet/Dry seasons, hydrological years, rainfall metrics, diagnostics, plots, and self-contained HTML report. Bring your own rainfall table, or provide catchment/AOI polygon and let HydroSeason fetch monthly rainfall from SILO, CHIRPS, or ERA5.
+HydroSeason was originally rainfall-first. Applied across several catchments,
+the rainfall approach did not work well in practice, so the package is now
+**remote-sensing (water-mask) first**: hydro-year boundaries are detected from
+monthly water-extent series (WOfS/STAC, other binary water-mask rasters, or a
+plain extent CSV), not rainfall. The detection engine is ported from
+WaterMask-TSFill.
 
-[Open the example report](report.md){ .md-button .md-button--primary }
-[Start with the quick guide](quickstart.md){ .md-button }
-
-![HydroSeason example report preview](assets/images/hydroseason-report-preview.png)
-
-## Why Use It?
-
-Calendar years are easy, but rainfall seasons often shift. Wet season can start early, end late, or cross reporting boundary — changing annual rainfall totals, dry-season length, annual classifications, surface-water/ecological interpretations.
-
-HydroSeason uses rainfall record itself to label Wet/Dry seasons and assign hydrological years. Reports season onsets, data-quality notes, and method diagnostics — inspectable, not a black-box label.
-
-| Common static approach | HydroSeason |
-| --- | --- |
-| Uses calendar years or one fixed water-year start | Assigns hydrological years from rainfall season timing |
-| Assumes Wet/Dry months are fixed | Refines Wet/Dry labels year by year |
-| Can split one wet season across two reporting years | Keeps rainfall grouped by hydrological season |
-| Requires rainfall data prepared separately | Can fetch area-averaged rainfall from polygon |
-| Gives limited method diagnostics | Exports thresholds, confidence notes, plots, and report |
-
-![Static calendar seasons compared with HydroSeason dynamic hydrological years](assets/images/static-vs-hydroseason.png)
-
-Top panel: one fixed climatology-derived Wet/Dry template, one fixed hydrological-year start. Bottom panel: rainfall record decides where wet/dry seasons and hydrological years begin.
-
-## What HydroSeason Produces
-
-High-level API returns `PipelineArtifacts` with:
-
-| Artifact | Meaning |
-| --- | --- |
-| `result` | Labelled monthly DataFrame with `SeasonType`, `Hydro_Year`, diagnostics, and annual wet/dry metrics. |
-| `fixed_monthly` | 12-month climatology table defining fixed baseline Wet/Dry seasons. |
-| `wet_boundaries` | Per-year dynamic wet-season start/end dates when seasonal regime detected. |
-| `seasonality` | STL and Walsh-Lawler seasonality diagnostics. |
-| `diagnostics` | Compact report of method decisions, thresholds, validation warnings, hydrological-year start month. |
-
-## Two Ways To Start
-
-### I already have rainfall data
-
-```bash
-pip install hydroseason
-```
-
-```python
-import pandas as pd
-from hydroseason import classify_rainfall, generate_html_report
-
-df = pd.read_csv("data/monthly_rainfall.csv")
-artifacts = classify_rainfall(df)
-generate_html_report(artifacts, "output/hydroseason_report.html")
-```
-
-### I have a polygon and need rainfall
-
-```bash
-pip install "hydroseason[fetch]"
-```
-
-```python
-from hydroseason import (
-    classify_rainfall,
-    generate_html_report,
-    get_monthly_aoi_rainfall,
-    load_vector,
-)
-
-gdf = load_vector("catchment.geojson")
-
-monthly = get_monthly_aoi_rainfall(
-    gdf,
-    start_year=1985,
-    end_year=2023,
-    source="auto",
-    cache_dir="data/fetch_cache",
-)
-
-artifacts = classify_rainfall(monthly)
-generate_html_report(artifacts, "output/hydroseason_report.html")
-```
-
-Auto fetch uses SILO for Australian catchments, CHIRPS v3 monthly rainfall elsewhere. ERA5 available as explicit path or backup when CHIRPS cannot cover requested range.
-See [Rainfall Fetch](fetch.md) for full Python and CLI examples.
+The previous rainfall implementation still exists, unchanged, on the
+`legacy/rainfall` branch (tag `v0-rainfall-legacy`) of this repository.
 
 ## Install
 
-Core install includes rainfall validation, classification, local rainfall readers, diagnostics, metrics, CLI, interactive Plotly plots, and self-contained HTML reports.
-
 ```bash
-pip install hydroseason
+pip install hydroseason              # core: CSV-only detection (pandas, numpy)
+pip install hydroseason[raster]      # + xarray/rioxarray/rasterio/geopandas/dask/zarr
+pip install hydroseason[stac]        # + pystac-client/odc-stac
+pip install hydroseason[all]         # raster + stac
 ```
 
-Optional extras:
+## Three supported input paths
 
-```bash
-pip install "hydroseason[fetch]"    # SILO/CHIRPS/ERA5 polygon rainfall fetch
-pip install "hydroseason[all]"      # everything
+| Path | Loader | Requires |
+|---|---|---|
+| Monthly extent CSV (already computed) | [`load_extent_csv`](guide.md#path-1-extent-csv) | core only |
+| Generic binary/canonical water-mask rasters or Zarr cubes | [`load_monthly_masks`, `load_monthly_masks_zarr`](guide.md#path-2-generic-water-mask-rasters) | `[raster]` |
+| WOfS / STAC catalog | [`load_wofs_from_stac`](guide.md#path-3-wofs-stac) | `[stac]` |
+
+All three converge on the same canonical monthly water-extent representation
+before `detect_hydrological_years` ever runs — see the [usage guide](guide.md)
+for details, canonical mask values, and the AOI requirement.
+
+!!! warning "Gapfill before detecting"
+    Water-mask gaps, cloud/shadow contamination, and missing months can shift
+    detected wet/dry boundaries. Strongly run WaterMask-TSFill gapfilling on
+    raw/incomplete masks (or ensure a precomputed extent CSV was already
+    completed and quality-screened) before running hydro-year detection. See
+    the [gapfilling recommendation](guide.md#gapfill-before-detecting).
+
+## Quickstart
+
+```python
+from hydroseason import load_extent_csv, detect_hydrological_years, label_hydrological_months
+
+extent = load_extent_csv("monthly_extent.csv", date_col="date", value_col="extent_pct")
+hydro_years = detect_hydrological_years(extent)
+labels = label_hydrological_months(extent.index, hydro_years)
 ```
 
-Static PNG/SVG figure export planned for future release.
+See the [usage guide](guide.md) for the raster and WOfS/STAC paths.
 
-For local development:
+## Citation
 
-```bash
-pip install -e ".[dev,docs,all]"
-```
-
-Continue with [Quick Start](quickstart.md) for Python, pandas accessor, CLI, and YAML examples.
+See [Citation](citation.md).

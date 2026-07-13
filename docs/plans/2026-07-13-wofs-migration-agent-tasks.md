@@ -96,6 +96,9 @@ Use superpowers:subagent-driven-development to execute docs/plans/2026-07-13-mig
 You are in D:\RLH\5.6\repos\hydroseason. Execute only the legacy snapshot safety work from docs/plans/2026-07-13-migrate-wofs-hydroyear-from-watermask.md sections 0.1 and 2.1. Inventory the dirty worktree with git status/diff, classify which dirty files must be preserved in the rainfall legacy snapshot, and stop before any destructive action or push. Do not create/delete branches until the dirty-file decision is explicit. Return: dirty-file table, recommended action per file, current HEAD SHA, and any branch/tag name collisions.
 
 Before returning, write docs/plans/wofs-migration-execution/task-a-legacy-snapshot.md using the report format in docs/plans/2026-07-13-wofs-migration-agent-tasks.md.
+
+Additionally, address these CHANGES_REQUESTED findings from the reviewer (see ## Review in task-a-legacy-snapshot.md)
+Append your fix under ## Fix Pass in task-a-legacy-snapshot.md, do not overwrite ## Review.
 ```
 
 **Reviewer prompt:**

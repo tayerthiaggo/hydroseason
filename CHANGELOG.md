@@ -5,10 +5,25 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
-### Changed
-- Legacy KMeans silhouette diagnostics are now opt-in via
-  `report_kmeans_silhouette`, so default circular-climatology runs no longer
-  invoke KMeans or trigger the Windows MKL warning.
+### Changed (breaking)
+- **Re-platformed from rainfall-first to remote-sensing (water-mask) first.**
+  Rainfall-based season/hydro-year detection did not generalize well across
+  catchments in practice. The public API is now a source-agnostic hydro-year
+  detection engine driven by monthly water-extent, ported from
+  WaterMask-TSFill: `HydroYearConfig`, `detect_hydrological_years`,
+  `label_hydrological_months`, `monthly_water_extent`, plus loaders
+  (`load_aoi`, `load_wofs_from_stac`, `load_monthly_masks`,
+  `load_monthly_masks_zarr`, `load_extent_csv`, `complete_monthly_axis`).
+  Three input paths are supported: extent CSV, generic binary/canonical
+  water-mask rasters (incl. Zarr cubes), and WOfS/STAC.
+- Core runtime dependencies are now only `pandas`/`numpy`; raster/STAC
+  dependencies moved to the `raster`/`stac`/`all` extras.
+
+### Removed
+- All rainfall-based modules, CLI, pandas accessor, HTML report, and rainfall
+  fetchers (CHIRPS/SILO/ERA5/BoM) were removed from `main`. The previous
+  rainfall implementation is preserved, unmodified, on the `legacy/rainfall`
+  branch (tag `v0-rainfall-legacy`).
 
 ## [0.1.0] — 2026-06-02
 

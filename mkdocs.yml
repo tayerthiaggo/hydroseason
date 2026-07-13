@@ -1,5 +1,5 @@
 site_name: HydroSeason
-site_description: Rainfall-based hydrological wet/dry season and hydrological-year delineation
+site_description: Remote-sensing-first hydro-year detection from monthly surface-water extent
 site_url: https://tayerthiaggo.github.io/hydroseason/
 repo_url: https://github.com/tayerthiaggo/hydroseason
 repo_name: tayerthiaggo/hydroseason
@@ -19,15 +19,7 @@ theme:
 
 nav:
   - Home: index.md
-  - Quick Start: quickstart.md
-  - Methods & Workflow: methods.md
-  - Algorithm: algorithm.md
-  - Configuration: configuration.md
-  - Outputs & Metrics: outputs.md
-  - Example Report: report.md
-  - Rainfall Fetch: fetch.md
-  - API Reference: api.md
-  - Notebooks: notebooks.md
+  - Usage guide: guide.md
   - Citation: citation.md
 
 plugins:

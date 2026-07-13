@@ -1,7 +1,0 @@
-"Station number: 040004"
-"Station name:   MACKAY AERO"
-Date       Rain  Rain_Srce  Evap  Evap_Srce
-(yyyymmdd) (mm)  ()         (mm)  ()
-20100101   120.5  25        105.2  25
-20100201   230.8  25         95.3  25
-20100301    50.0  25         88.1  25

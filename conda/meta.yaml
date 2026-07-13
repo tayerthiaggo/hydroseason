@@ -14,8 +14,6 @@ build:
   noarch: python
   number: 0
   script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
-  entry_points:
-    - hydroseason = hydroseason.cli:main
 
 requirements:
   host:
@@ -24,34 +22,22 @@ requirements:
     - setuptools >=68
     - wheel
   run:
+    # Core-only: CSV-only detection. Raster/STAC extras (rioxarray, rasterio,
+    # geopandas, dask, zarr, pystac-client, odc-stac) are not modeled by this
+    # recipe; install via pip extras (pip install hydroseason[raster,stac]).
     - python >=3.10
     - pandas >=2.0
     - numpy >=1.24
-    - scikit-learn >=1.3
-    - scipy >=1.11
-    - statsmodels >=0.14
-    - pyyaml >=6.0
-    - plotly >=5.0
-    - xarray >=2023.8
-    - dask >=2023.8
-    - zarr >=2.16
-    - geopandas >=0.14
-    - rasterio >=1.3
-    - gcsfs >=2023.6
-    - netcdf4 >=1.6
-    - pyarrow >=12
 
 test:
   imports:
     - hydroseason
-  commands:
-    - hydroseason --version
 
 about:
   home: https://github.com/tayerthiaggo/hydroseason
   license: MIT
   license_file: LICENSE
-  summary: Rainfall-based hydrological wet/dry season and hydrological-year delineation
+  summary: Remote-sensing-first hydro-year detection from monthly surface-water extent
   doc_url: https://tayerthiaggo.github.io/hydroseason/
   dev_url: https://github.com/tayerthiaggo/hydroseason
 
