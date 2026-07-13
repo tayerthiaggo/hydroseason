@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from hydroseason.config import load_config
 from hydroseason.pipeline import (
@@ -97,6 +98,7 @@ def test_classify_works_with_renamed_value_col(monthly_df: pd.DataFrame):
     assert "SeasonType" in artifacts.result.columns
 
 
+@pytest.mark.filterwarnings("ignore:The `raise_on_error` parameter is deprecated")
 def test_raise_on_error_alias_matches_yaml_name(monthly_df: pd.DataFrame):
     artifacts = classify_rainfall(monthly_df, raise_on_error=True)
     assert "SeasonType" in artifacts.result.columns

@@ -614,6 +614,88 @@ def segment_by_cumulative_anomaly(
     season = pd.Series("Dry", index=df.index, dtype=object)
     boundaries = []
 
+    if use_multi_year_cumsum:
+        from scipy.signal import find_peaks
+        C = np.cumsum(anomalies_full)
+        
+        # Peak picking with prominence
+        peaks, _ = find_peaks(C, prominence=min_net_gain)
+        troughs, _ = find_peaks(-C, prominence=min_net_gain)
+        
+        all_peaks = list(peaks)
+        all_troughs = list(troughs)
+        
+        if len(C) >= 2:
+            if not all_peaks or not all_troughs:
+                onset_pos = int(np.argmin(C))
+                demise_pos = int(np.argmax(C))
+                if demise_pos > onset_pos and (C[demise_pos] - C[onset_pos]) >= min_net_gain:
+                    all_peaks = [demise_pos]
+                    all_troughs = [onset_pos]
+            else:
+                if not all_troughs or (all_peaks and all_peaks[0] < all_troughs[0]):
+                    limit = all_peaks[0]
+                    all_troughs.insert(0, int(np.argmin(C[:limit])))
+                if not all_peaks or (all_troughs and all_troughs[-1] > all_peaks[-1]):
+                    start_idx = all_troughs[-1]
+                    all_peaks.append(int(start_idx + np.argmax(C[start_idx:])))
+                    
+            paired_windows = []
+            for p in all_peaks:
+                preceding_troughs = [t for t in all_troughs if t < p]
+                if preceding_troughs:
+                    t = max(preceding_troughs)
+                    if C[p] - C[t] >= min_net_gain:
+                        paired_windows.append((t, p))
+                        
+            global_wet_indices = set()
+            for t, p in paired_windows:
+                for i in range(t + 1, p + 1):
+                    if rain_full[i] >= absolute_wet_floor:
+                        global_wet_indices.add(i)
+                        
+            for hy, group in df.groupby(hydro_year_col, sort=False):
+                idx = group.index.to_numpy()
+                hy_wet_indices = [i for i in idx if i in global_wet_indices]
+                
+                if hy_wet_indices:
+                    for i in hy_wet_indices:
+                        season.loc[i] = "Wet"
+                        
+                    hy_wet_indices.sort()
+                    wet_start = pd.Timestamp(df.loc[hy_wet_indices[0], date_col])
+                    wet_end = pd.Timestamp(df.loc[hy_wet_indices[-1], date_col])
+                    duration = int(
+                        (wet_end.year - wet_start.year) * 12
+                        + wet_end.month - wet_start.month + 1
+                    )
+                    boundaries.append({
+                        "Hydro_Year": hy,
+                        "WetStart": wet_start.date(),
+                        "WetEnd": wet_end.date(),
+                        "wet_duration_months": duration,
+                    })
+                else:
+                    boundaries.append({
+                        "Hydro_Year": hy,
+                        "WetStart": None,
+                        "WetEnd": None,
+                        "wet_duration_months": 0,
+                    })
+        else:
+            for hy in df[hydro_year_col].unique():
+                boundaries.append({
+                    "Hydro_Year": hy,
+                    "WetStart": None,
+                    "WetEnd": None,
+                    "wet_duration_months": 0,
+                })
+        
+        df["SeasonType"] = season.values
+        df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+        bounds_df = pd.DataFrame(boundaries)
+        return df, bounds_df
+
     for hy, group in df.groupby(hydro_year_col, sort=False):
         idx = group.index.to_numpy()
         rain = group[value_col].to_numpy(dtype=float)
@@ -640,16 +722,16 @@ def segment_by_cumulative_anomaly(
         if demise_pos > onset_pos and net_gain >= min_net_gain:
             # Candidate indices are within the wet slice (onset_pos + 1 to demise_pos)
             # and must satisfy the absolute floor constraint
-            candidate_idx_in_group = [
-                i for i in range(onset_pos + 1, demise_pos + 1)
+            hy_wet_indices = [
+                idx[i] for i in range(onset_pos + 1, demise_pos + 1)
                 if rain[i] >= absolute_wet_floor
             ]
             
-            if candidate_idx_in_group:
+            if hy_wet_indices:
                 # Group candidate indices into contiguous blocks
                 blocks = []
-                current_block = [candidate_idx_in_group[0]]
-                for idx_val in candidate_idx_in_group[1:]:
+                current_block = [hy_wet_indices[0]]
+                for idx_val in hy_wet_indices[1:]:
                     if idx_val == current_block[-1] + 1:
                         current_block.append(idx_val)
                     else:
@@ -657,72 +739,59 @@ def segment_by_cumulative_anomaly(
                         current_block = [idx_val]
                 blocks.append(current_block)
                 
-                # Calculate anomaly sums for each block
-                block_sums = []
-                for block in blocks:
-                    block_anom = float(np.sum(rain[block] - q))
-                    block_sums.append((block_anom, block))
-                
-                # Sort blocks by anomaly sum descending
-                block_sums.sort(key=lambda x: x[0], reverse=True)
-                
                 selected_blocks = []
                 if is_bimodal:
-                    # Keep all blocks with positive anomaly sums inside the window
-                    selected_blocks = [block for anom, block in block_sums if anom > 0]
-                    # If nothing is positive, keep the top one
-                    if not selected_blocks and block_sums:
-                        selected_blocks.append(block_sums[0][1])
+                    # Keep all blocks (true Liebmann behavior inside the window)
+                    selected_blocks = blocks
                 else:
-                    # Keep only the single dominant block
+                    # Keep only the single dominant block to enforce unimodal constraint
+                    # Convert absolute indices back to group-relative indices for summing
+                    block_sums = []
+                    for block in blocks:
+                        # Find the group-relative indices for this block
+                        group_rel_block = [np.where(idx == idx_val)[0][0] for idx_val in block]
+                        block_anom = float(np.sum(rain[group_rel_block] - q))
+                        block_sums.append((block_anom, block))
+                    block_sums.sort(key=lambda x: x[0], reverse=True)
                     if block_sums:
                         selected_blocks.append(block_sums[0][1])
                 
                 # Label selected blocks as Wet
                 for block in selected_blocks:
-                    for i in block:
-                        season.loc[idx[i]] = "Wet"
+                    for idx_val in block:
+                        season.loc[idx_val] = "Wet"
                 
                 # Define boundaries based on the actual labeled Wet months
-                # within this hydro year (if any were labeled Wet)
-                hy_wet_indices = [idx[i] for block in selected_blocks for i in block]
-                if hy_wet_indices:
-                    # Sort globally to find start and end
-                    hy_wet_indices.sort()
-                    wet_start = pd.Timestamp(df.loc[hy_wet_indices[0], date_col])
-                    wet_end = pd.Timestamp(df.loc[hy_wet_indices[-1], date_col])
-                    duration = int(
-                        (wet_end.year - wet_start.year) * 12
-                        + wet_end.month - wet_start.month + 1
+                labeled_wet_indices = [idx_val for block in selected_blocks for idx_val in block]
+                labeled_wet_indices.sort()
+                
+                wet_start = pd.Timestamp(df.loc[labeled_wet_indices[0], date_col])
+                wet_end = pd.Timestamp(df.loc[labeled_wet_indices[-1], date_col])
+                duration = int(
+                    (wet_end.year - wet_start.year) * 12
+                    + wet_end.month - wet_start.month + 1
+                )
+                
+                if is_bimodal:
+                    # Find secondary wet season outside the primary window
+                    secondary = _find_secondary_liebmann(
+                        rain, rain_gated, q, idx, onset_pos, demise_pos,
+                        n, min_net_gain, absolute_wet_floor, group, date_col, season
                     )
-                    
-                    if is_bimodal:
-                        # Find secondary wet season outside the primary window
-                        secondary = _find_secondary_liebmann(
-                            rain, rain_gated, q, idx, onset_pos, demise_pos,
-                            n, min_net_gain, absolute_wet_floor, group, date_col, season
-                        )
-                        boundaries.append({
-                            "Hydro_Year": hy,
-                            "WetStart": wet_start.date(),
-                            "WetEnd": wet_end.date(),
-                            "wet_duration_months": duration,
-                            "secondary_wet_start": secondary.get("start"),
-                            "secondary_wet_end": secondary.get("end"),
-                        })
-                    else:
-                        boundaries.append({
-                            "Hydro_Year": hy,
-                            "WetStart": wet_start.date(),
-                            "WetEnd": wet_end.date(),
-                            "wet_duration_months": duration,
-                        })
+                    boundaries.append({
+                        "Hydro_Year": hy,
+                        "WetStart": wet_start.date(),
+                        "WetEnd": wet_end.date(),
+                        "wet_duration_months": duration,
+                        "secondary_wet_start": secondary.get("start"),
+                        "secondary_wet_end": secondary.get("end"),
+                    })
                 else:
                     boundaries.append({
                         "Hydro_Year": hy,
-                        "WetStart": None,
-                        "WetEnd": None,
-                        "wet_duration_months": 0,
+                        "WetStart": wet_start.date(),
+                        "WetEnd": wet_end.date(),
+                        "wet_duration_months": duration,
                     })
             else:
                 boundaries.append({

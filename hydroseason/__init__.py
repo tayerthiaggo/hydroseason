@@ -7,6 +7,8 @@ from . import accessor as _accessor  # noqa: F401
 
 from .config import (
     AlgorithmConfig,
+    DailyDetectionConfig,
+    DailyValidationConfig,
     FetchConfig,
     InputConfig,
     OutputConfig,
@@ -33,10 +35,13 @@ from .metrics import (
 )
 from .pipeline import (
     DiagnosticsReport,
+    HydroSeasonResult,
     PipelineArtifacts,
     classify_rainfall,
     classify_rainfall_df,
     classify_rainfall_from_file,
+    detect,
+    detect_daily,
     run_pipeline,
 )
 from .seasonality import (
@@ -48,8 +53,9 @@ from .seasonality import (
     stl_seasonality_strength,
     walsh_lawler_seasonality_index,
 )
-from .validate import ValidationReport, validate_monthly_input
+from .validate import ValidationReport, validate_monthly_input, validate_daily
 from .fetch import (
+    get_daily_silo_rainfall,
     get_monthly_aoi_rainfall,
     get_monthly_chirps_rainfall,
     get_monthly_silo_rainfall,
@@ -73,16 +79,17 @@ except PackageNotFoundError:  # running from a source tree without install
 __all__ = [
     "__version__",
     # --- Core entry points ---
+    "detect", "detect_daily",
     "classify_rainfall", "classify_rainfall_df", "classify_rainfall_from_file",
     "run_pipeline",
     "load_config",
     # --- Output types & config ---
-    "PipelineArtifacts", "DiagnosticsReport",
+    "PipelineArtifacts", "DiagnosticsReport", "HydroSeasonResult",
     "SeasonalityResult", "ValidationReport",
     "RunConfig", "InputConfig", "OutputConfig", "AlgorithmConfig",
-    "ValidationConfig", "FetchConfig",
+    "ValidationConfig", "FetchConfig", "DailyDetectionConfig", "DailyValidationConfig",
     # --- Advanced: validation & seasonality diagnostics ---
-    "validate_monthly_input",
+    "validate_monthly_input", "validate_daily",
     "detect_seasonality_regime",
     "stl_seasonality_strength", "walsh_lawler_seasonality_index",
     "classify_regime_from_stl", "classify_regime_with_rainfall_si",
@@ -98,7 +105,8 @@ __all__ = [
     "get_monthly_aoi_rainfall",
     "get_monthly_chirps_rainfall",
     "get_monthly_era5_rainfall",
-    "get_monthly_silo_rainfall", "infer_default_fetch_source", "load_vector",
+    "get_monthly_silo_rainfall", "get_daily_silo_rainfall",
+    "infer_default_fetch_source", "load_vector",
     "read_rainfall",
 ]
 
@@ -113,6 +121,7 @@ try:
         plot_monthly_climatology,
         plot_season_timeline,
         plot_stl_decomposition,
+        plot_stress_timeline,
         show,
     )
     __all__ += [
@@ -124,6 +133,7 @@ try:
         "plot_dashboard",
         "plot_diagnostics_table",
         "plot_imputation_overview",
+        "plot_stress_timeline",
         "show",
     ]
 except ImportError:

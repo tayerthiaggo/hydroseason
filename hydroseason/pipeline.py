@@ -677,31 +677,26 @@ def _hydro_year_summary_diagnostics(df: pd.DataFrame) -> dict[str, int]:
 
 @dataclass(frozen=True)
 class PipelineArtifacts:
-    """Bundle returned by every pipeline entry point.
-
-    Attributes
-    ----------
-    result:
-        The main output: the input rows with added ``SeasonType``,
-        ``Hydro_Year`` and metric columns. This is what most users want.
-    fixed_monthly:
-        The 12-row monthly climatology table (mean/median/no-rain counts and the
-        fixed Wet/Dry label per calendar month) used as the baseline season.
-    wet_boundaries:
-        Per-hydro-year wet-season start/end boundaries, or ``None`` for
-        non-seasonal regimes where no wet season is delineated.
-    seasonality:
-        The :class:`~hydroseason.seasonality.SeasonalityResult` with STL
-        strength, SI and the chosen regime.
-    diagnostics:
-        The :class:`DiagnosticsReport` recording every algorithm decision.
-    """
-
+    """Bundle returned by every pipeline entry point."""
     result: pd.DataFrame
     fixed_monthly: pd.DataFrame
     wet_boundaries: pd.DataFrame | None
     seasonality: SeasonalityResult
     diagnostics: DiagnosticsReport
+    stress: pd.DataFrame | None = None
+
+
+@dataclass
+class HydroSeasonResult:
+    """Consolidated result container for daily and monthly stress workflows."""
+    stress: pd.DataFrame
+    seasons: pd.DataFrame
+    daily: pd.DataFrame | None = None
+    monthly: pd.DataFrame | None = None
+    hydro_year: pd.Series | None = None
+    diagnostics: DiagnosticsReport | None = None
+    config_used: dict | None = None
+
 
 
 
@@ -1538,12 +1533,16 @@ def classify_rainfall(
         data_confidence=report.data_confidence,
     )
 
+    from .stress import stress_from_monthly_seasons
+    stress_table = stress_from_monthly_seasons(wet_boundaries, cleaned, seasonality=seasonality, value_col=value_col)
+
     artifacts = PipelineArtifacts(
         result=out,
         fixed_monthly=fixed_monthly,
         wet_boundaries=wet_boundaries,
         seasonality=seasonality,
         diagnostics=diagnostics,
+        stress=stress_table,
     )
     if output_csv is not None:
         out_path = Path(output_csv)
@@ -1706,3 +1705,251 @@ def classify_rainfall_df(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
     :class:`PipelineArtifacts` bundle).
     """
     return classify_rainfall(df, **kwargs).result
+
+
+def detect_daily(
+    df: pd.DataFrame,
+    *,
+    date_col: str = "Date",
+    year_col: str = "Year",
+    month_col: str = "Month",
+    value_col: str = "Rainfall_mm",
+    config: RunConfig | None = None,
+    **kwargs,
+) -> HydroSeasonResult:
+    """Run daily-first stress timeline detection pipeline."""
+    # Resolve config
+    if config is None:
+        from .config import DailyDetectionConfig, DailyValidationConfig, RunConfig, InputConfig, OutputConfig, AlgorithmConfig, ValidationConfig
+        daily_det_cfg = DailyDetectionConfig(
+            onset_persistence_days=kwargs.get("onset_persistence_days", 21),
+            cessation_persistence_days=kwargs.get("cessation_persistence_days", 21),
+            baseline_roll_window_days=kwargs.get("baseline_roll_window_days", 30),
+        )
+        daily_val_cfg = DailyValidationConfig(
+            max_fraction_missing=kwargs.get("max_fraction_missing", 0.10),
+            raise_on_error=kwargs.get("raise_on_validation_error", kwargs.get("raise_on_error", True)),
+        )
+        config = RunConfig(
+            input=InputConfig(date_col=date_col, year_col=year_col, month_col=month_col, value_col=value_col),
+            output=OutputConfig(output_csv=""),
+            algorithm=AlgorithmConfig(
+                rainfall_si_override=kwargs.get("rainfall_si_override", True),
+                rainfall_si_threshold=kwargs.get("rainfall_si_threshold", 0.80),
+            ),
+            validation=ValidationConfig(),
+            daily_detection=daily_det_cfg,
+            daily_validation=daily_val_cfg,
+        )
+
+    # 2. validate_daily
+    from .validate import validate_daily, apply_report
+    clean_daily, report = validate_daily(
+        df,
+        date_col=date_col,
+        year_col=year_col,
+        month_col=month_col,
+        value_col=value_col,
+        max_fraction_missing=config.daily_validation.max_fraction_missing,
+    )
+    apply_report(report, raise_on_error=config.daily_validation.raise_on_error)
+
+    # 3. Aggregate daily to monthly to run legacy seasonality & circular_climatology
+    periods = clean_daily[date_col].dt.to_period("M")
+    monthly_df = clean_daily.groupby(periods)[value_col].sum().reset_index()
+    monthly_df["Date"] = monthly_df[date_col].dt.to_timestamp()
+    monthly_df["Year"] = monthly_df["Date"].dt.year.astype(int)
+    monthly_df["Month"] = monthly_df["Date"].dt.month.astype(int)
+    monthly_df = monthly_df[["Date", "Year", "Month", value_col]]
+
+    # Run monthly validation (with raise_on_error=False, as we already validated daily)
+    from .validate import validate_monthly_input
+    clean_monthly, m_report = validate_monthly_input(
+        monthly_df,
+        date_col="Date",
+        year_col="Year",
+        month_col="Month",
+        value_col=value_col,
+        max_fraction_missing=1.0,  # Bypass missing check since we already checked daily
+    )
+
+    # STL / seasonality regime detection (on monthly)
+    from .seasonality import detect_seasonality_regime
+    seasonality = detect_seasonality_regime(
+        clean_monthly,
+        date_col="Date",
+        month_col="Month",
+        value_col=value_col,
+        rainfall_si_override=config.algorithm.rainfall_si_override,
+        si_strong_threshold=config.algorithm.rainfall_si_threshold,
+    )
+
+    # Circular Climatology (on monthly)
+    from .fixed_season import circular_climatology
+    fixed_monthly, start_month, circ_stats = circular_climatology(
+        clean_monthly,
+        value_col=value_col,
+        month_col="Month",
+    )
+
+    # 4. Assign Hydro Years to daily data
+    from .hydro_year import assign_hydro_year
+    clean_daily["Hydro_Year"] = clean_daily[date_col].map(
+        lambda date: assign_hydro_year(pd.Timestamp(date), start_month)
+    ).astype(int)
+
+    # 5. Run daily anomaly detection engine
+    from .daily_detection import (
+        compute_daily_baseline,
+        compute_daily_cumulative_anomaly,
+        detect_wet_seasons_daily,
+        detect_dry_down,
+    )
+    baseline = compute_daily_baseline(
+        clean_daily,
+        value_col=value_col,
+        roll_window=config.daily_detection.baseline_roll_window_days,
+    )
+    clean_daily["Baseline"] = baseline
+    cum_anom = compute_daily_cumulative_anomaly(clean_daily, baseline, value_col=value_col)
+    clean_daily["Cumulative_Anomaly"] = cum_anom
+
+    wet_bounds = detect_wet_seasons_daily(clean_daily, cum_anom, config.daily_detection)
+    dry_downs = detect_dry_down(wet_bounds, max_date=clean_daily[date_col].max())
+
+    # 6. Build daily stress table
+    from .stress import build_stress_table
+    stress_table = build_stress_table(
+        wet_bounds,
+        dry_downs,
+        cum_anom,
+        clean_daily,
+        seasonality=seasonality,
+    )
+
+    # 7. Build DiagnosticsReport
+    diag = DiagnosticsReport(
+        regime=seasonality.regime,
+        regime_source=seasonality.regime_source,
+        stl_strength=seasonality.stl_strength,
+        walsh_lawler_si=seasonality.si,
+        kmeans_silhouette=None,
+        circular_R=circ_stats.concentration_R if circ_stats else None,
+        is_bimodal=circ_stats.is_bimodal if circ_stats else None,
+        is_uniform=circ_stats.is_uniform if circ_stats else None,
+        hydro_year_start_month=start_month,
+        fallback_month_used=start_month,
+        threshold_firstpass=None,
+        threshold_secondpass=None,
+        rainfall_si_override=config.algorithm.rainfall_si_override,
+        data_confidence=report.data_confidence,
+        validation_warnings=report.warnings,
+        n_input_rows=len(df),
+        n_rows_after_validation=len(clean_daily),
+    )
+
+    # Add labels to daily dataframe
+    clean_daily["SeasonType"] = "Dry"
+    for row in wet_bounds.itertuples():
+        if row.WetStart is not None and not pd.isna(row.WetStart) and row.WetEnd is not None and not pd.isna(row.WetEnd):
+            mask = (clean_daily[date_col].dt.date >= row.WetStart) & (clean_daily[date_col].dt.date <= row.WetEnd)
+            clean_daily.loc[mask, "SeasonType"] = "Wet"
+
+    # Derive monthly labels from daily detection by majority vote or if >= 10 days of that month are wet
+    monthly_labels = clean_daily.groupby(["Year", "Month"])["SeasonType"].apply(
+        lambda s: "Wet" if (s == "Wet").sum() >= 10 else "Dry"
+    ).reset_index()
+
+    # Reconstruct monthly dataframe with labels
+    monthly_out = clean_monthly.merge(monthly_labels, on=["Year", "Month"], how="left")
+    monthly_out["Hydro_Year"] = monthly_out["Date"].map(
+        lambda date: assign_hydro_year(pd.Timestamp(date), start_month)
+    ).astype(int)
+
+    from .metrics import compute_season_metrics, compute_annual_spi_categories
+    if "Hydro_Year" in monthly_out.columns and "SeasonType" in monthly_out.columns:
+        monthly_out = compute_season_metrics(monthly_out, value_col=value_col)
+        if value_col == "Rainfall_mm":
+            monthly_out = compute_annual_spi_categories(monthly_out, value_col=value_col)
+
+    # Resolve config_used dict
+    config_used = asdict(config) if hasattr(config, "__dataclass_fields__") else {}
+
+    return HydroSeasonResult(
+        stress=stress_table,
+        seasons=wet_bounds,
+        daily=clean_daily,
+        monthly=monthly_out,
+        hydro_year=clean_daily["Hydro_Year"],
+        diagnostics=diag,
+        config_used=config_used,
+    )
+
+
+def detect(
+    rainfall: pd.DataFrame | str | Path,
+    *,
+    source: str = "auto",
+    value_col: str = "Rainfall_mm",
+    silo_variable: str = "Rain",
+    bom_value_col: str | None = None,
+    bom_quality_filter: bool = True,
+    resolution: str = "auto",
+    **kwargs,
+) -> HydroSeasonResult:
+    """Consolidated daily/monthly season and stress routing API."""
+    from .io import read_rainfall
+
+    if isinstance(rainfall, (str, Path)):
+        df = read_rainfall(
+            rainfall,
+            source=source,
+            value_col=value_col,
+            silo_variable=silo_variable,
+            bom_value_col=bom_value_col,
+            bom_quality_filter=bom_quality_filter,
+            resolution=resolution,
+        )
+    else:
+        df = rainfall.copy()
+
+    is_daily = False
+    if resolution == "daily":
+        is_daily = True
+    elif resolution == "monthly":
+        is_daily = False
+    else:
+        if len(df) > 1:
+            dates = pd.to_datetime(df["Date"])
+            deltas = dates.diff().dropna()
+            if deltas.median() <= pd.Timedelta(days=1):
+                is_daily = True
+
+    if is_daily:
+        return detect_daily(
+            df,
+            date_col="Date",
+            year_col="Year",
+            month_col="Month",
+            value_col=value_col,
+            **kwargs,
+        )
+    else:
+        artifacts = classify_rainfall(
+            df,
+            date_col="Date",
+            year_col="Year",
+            month_col="Month",
+            value_col=value_col,
+            **kwargs,
+        )
+        return HydroSeasonResult(
+            stress=artifacts.stress,
+            seasons=artifacts.wet_boundaries,
+            daily=None,
+            monthly=artifacts.result,
+            hydro_year=artifacts.result["Hydro_Year"] if "Hydro_Year" in artifacts.result.columns else None,
+            diagnostics=artifacts.diagnostics,
+            config_used={},
+        )
+

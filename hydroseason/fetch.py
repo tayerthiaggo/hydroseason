@@ -32,6 +32,10 @@ SILO_MONTHLY_RAIN_BASE_URL = (
     "https://s3-ap-southeast-2.amazonaws.com/"
     "silo-open-data/Official/annual/monthly_rain"
 )
+SILO_DAILY_RAIN_BASE_URL = (
+    "https://s3-ap-southeast-2.amazonaws.com/"
+    "silo-open-data/Official/annual/daily_rain"
+)
 CHIRPS_V3_MONTHLY_COG_BASE_URL = (
     "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/"
     "monthly/global/cogs"
@@ -1565,13 +1569,14 @@ def _silo_year_dataset_path(
     year: int,
     base_url: str,
     cache_dir: str | Path | None,
+    variable: str = "monthly_rain",
 ) -> tuple[Path, bool]:
-    """Return a local NetCDF path for a SILO annual monthly-rain file.
+    """Return a local NetCDF path for a SILO annual rain file.
 
     Returns ``(path, is_temporary)``. HTTP/S sources are downloaded because
     raw NetCDF-over-HTTPS support varies by xarray backend.
     """
-    filename = f"{year}.monthly_rain.nc"
+    filename = f"{year}.{variable}.nc"
     source = str(base_url).rstrip("/")
 
     if source.startswith(("http://", "https://")):
@@ -1584,7 +1589,7 @@ def _silo_year_dataset_path(
             return target, False
 
         tmp = tempfile.NamedTemporaryFile(
-            delete=False, suffix=".monthly_rain.nc"
+            delete=False, suffix=f".{variable}.nc"
         )
         tmp_path = Path(tmp.name)
         tmp.close()
@@ -1765,3 +1770,150 @@ def get_monthly_silo_rainfall(
         prefix="silo_monthly",
     )
     return out
+
+
+def get_daily_silo_rainfall(
+    gdf,
+    start_year: int,
+    end_year: int,
+    *,
+    base_url: str = SILO_DAILY_RAIN_BASE_URL,
+    cache_dir: str | Path | None = None,
+    spatial_chunk: int | str | None = "auto",
+    show_progress: bool = True,
+) -> pd.DataFrame:
+    """Fetch SILO gridded daily rainfall averaged over an AOI polygon."""
+    import xarray as xr
+
+    key = _cache_key(base_url, gdf, start_year, end_year, "silo_daily_rain")
+    cached = _read_cache(cache_dir, key, prefix="silo_daily")
+    if cached is not None:
+        return cached
+
+    profile = _detect_system_profile()
+
+    gdf = gdf.to_crs("EPSG:4326")
+    minx, miny, maxx, maxy = gdf.total_bounds
+
+    daily_frames: list[pd.DataFrame] = []
+    years = range(int(start_year), int(end_year) + 1)
+    progress = _FetchProgressBar(
+        int(end_year) - int(start_year) + 1,
+        label="SILO Daily",
+        enabled=show_progress,
+    )
+    try:
+        for year in years:
+            progress.set_stage(_year_stage_label(year, year))
+            nc_path, is_temporary = _silo_year_dataset_path(
+                year, base_url, cache_dir, variable="daily_rain"
+            )
+            ds = xr.open_dataset(nc_path)
+
+            try:
+                lon_name = _coord_name(
+                    ds, ("longitude", "lon", "x"), "longitude"
+                )
+                lat_name = _coord_name(ds, ("latitude", "lat", "y"), "latitude")
+                time_name = _coord_name(ds, ("time",), "time")
+                var_name = _silo_rain_var_name(ds)
+
+                lon_vals = ds[lon_name].values
+                lat_vals = ds[lat_name].values
+                lon_step = _coord_step(lon_vals)
+                lat_step = _coord_step(lat_vals)
+                lon_pair = _wrap_lon_to_ds_range([minx, maxx], lon_vals)
+                lon_sel = _bbox_indexer(
+                    lon_vals,
+                    lon_pair[0],
+                    lon_pair[1],
+                    step=lon_step,
+                    label=lon_name,
+                )
+                lat_sel = _bbox_indexer(
+                    lat_vals,
+                    miny,
+                    maxy,
+                    step=lat_step,
+                    label=lat_name,
+                )
+                grid_shape = (
+                    int(ds.isel({lat_name: lat_sel}).sizes[lat_name]),
+                    int(ds.isel({lon_name: lon_sel}).sizes[lon_name]),
+                )
+                resolved_spatial_chunk = _resolve_spatial_chunk(
+                    spatial_chunk,
+                    profile=profile,
+                    grid_shape=grid_shape,
+                )
+                ds_small = ds.isel(
+                    {lon_name: lon_sel, lat_name: lat_sel}
+                ).chunk(
+                    {
+                        time_name: 366,
+                        lat_name: resolved_spatial_chunk,
+                        lon_name: resolved_spatial_chunk,
+                    }
+                )
+
+                mask = rasterize_to_xarray_grid(
+                    gdf,
+                    ds_small,
+                    lon_name=lon_name,
+                    lat_name=lat_name,
+                    lon_step=lon_step,
+                    lat_step=lat_step,
+                )
+                da = ds_small[var_name].where(mask)
+                catchment_series = da.mean((lat_name, lon_name), skipna=True)
+                values = catchment_series.compute()
+
+                df = (
+                    values.to_pandas()
+                    .rename("Rainfall_mm")
+                    .to_frame()
+                    .reset_index()
+                )
+                df["Date"] = pd.to_datetime(df[time_name]).dt.strftime(
+                    "%Y-%m-%d"
+                )
+                df["Year"] = pd.to_datetime(df[time_name]).dt.year.astype(int)
+                df["Month"] = pd.to_datetime(df[time_name]).dt.month.astype(int)
+                df = df[["Date", "Year", "Month", "Rainfall_mm"]]
+                daily_frames.append(df)
+                progress.advance()
+            finally:
+                ds.close()
+                if is_temporary:
+                    nc_path.unlink(missing_ok=True)
+    finally:
+        progress.close()
+
+    out = (
+        pd.concat(daily_frames, ignore_index=True)
+        .sort_values("Date")
+        .reset_index(drop=True)
+    )
+
+    _write_cache(
+        cache_dir,
+        key,
+        out,
+        meta={
+            "base_url": base_url,
+            "start_year": int(start_year),
+            "end_year": int(end_year),
+            "variable": "daily_rain",
+            "unit": "mm",
+            "spatial_chunk": (
+                "auto" if _is_auto_chunk(spatial_chunk) else int(spatial_chunk)
+            ),
+            "system_profile": {
+                "cpu_count": profile.cpu_count,
+                "memory_gib": round(profile.memory_gib, 2),
+            },
+        },
+        prefix="silo_daily",
+    )
+    return out
+

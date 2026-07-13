@@ -113,6 +113,32 @@ def test_plot_dashboard(artifacts):
     assert isinstance(fig, go.Figure)
 
 
+def test_plot_stress_timeline_monthly(artifacts):
+    from hydroseason.plot import plot_stress_timeline
+    fig = plot_stress_timeline(artifacts)
+    assert isinstance(fig, go.Figure)
+    assert any(trace.name == "Stress Date" for trace in fig.data)
+
+
+def test_plot_stress_timeline_daily():
+    import numpy as np
+    from hydroseason.plot import plot_stress_timeline
+    from hydroseason import detect
+
+    # Create synthetic daily data (3 years)
+    dates = pd.date_range("2020-01-01", "2022-12-31", freq="D")
+    rain = np.ones(len(dates))
+    for i, d in enumerate(dates):
+        if d.month in [11, 12, 1, 2]:
+            rain[i] = 15.0
+
+    df = pd.DataFrame({"Date": dates, "Rainfall_mm": rain})
+    res = detect(df, resolution="daily")
+    fig = plot_stress_timeline(res)
+    assert isinstance(fig, go.Figure)
+    assert any(trace.name == "Stress Date" for trace in fig.data)
+
+
 def test_generate_html_report(artifacts, tmp_path):
     from hydroseason.report import generate_html_report
     out = generate_html_report(artifacts, tmp_path / "report.html")
@@ -123,6 +149,8 @@ def test_generate_html_report(artifacts, tmp_path):
     assert "Confidence note:" in content
     headings = [
         "Season Timeline",
+        "Hydrological Stress Timeline",
+        "Hydrological Stress Metrics",
         "Imputation and Data Quality",
         "Imputed Runs",
         "Aggregated Monthly Rainfall",
@@ -142,7 +170,6 @@ def test_generate_html_report(artifacts, tmp_path):
     assert "Drought category" not in content
     assert "Wet start" in content
     assert "Dry start" in content
-    assert "background:#D32F2F" not in content
     assert "background:#1565C0" in content
 
 

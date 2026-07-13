@@ -394,6 +394,11 @@ def run_site(
                 site_dir / f"{site_id}_wet_boundaries.csv",
                 index=False,
             )
+        if artifacts.stress is not None:
+            artifacts.stress.to_csv(
+                site_dir / f"{site_id}_stress.csv",
+                index=False,
+            )
         (site_dir / f"{site_id}_diagnostics.json").write_text(
             json.dumps(asdict(artifacts.diagnostics), default=str, indent=2),
             encoding="utf-8",

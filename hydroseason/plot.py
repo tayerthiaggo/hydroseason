@@ -869,7 +869,148 @@ def plot_dashboard(
     # Month category order for climatology
     fig.update_xaxes(categoryorder="array", categoryarray=_MONTH_ABBR, row=2, col=1)
     fig.update_xaxes(tickangle=45, row=2, col=2)
-    fig.update_yaxes(title_text=value_col, row=1, col=1)
     fig.update_yaxes(title_text="mm", row=2, col=1)
     fig.update_yaxes(title_text="mm", row=2, col=2)
+    return fig
+
+
+def plot_stress_timeline(
+    result: "HydroSeasonResult | PipelineArtifacts",
+    *,
+    value_col: str = "Rainfall_mm",
+    date_col: str = "Date",
+    title: str = "Hydrological Stress Timeline & Cumulative Anomaly",
+    width: int | None = None,
+    height: int = 450,
+) -> go.Figure:
+    """Plot cumulative anomaly curves, shading stress windows and labeling transitions.
+
+    Supports both daily HydroSeasonResult and monthly fallback PipelineArtifacts.
+    """
+    # Normalize input
+    if hasattr(result, "daily") and result.daily is not None:
+        df = result.daily
+    elif hasattr(result, "monthly") and result.monthly is not None:
+        df = result.monthly
+    elif hasattr(result, "result") and result.result is not None:
+        df = result.result
+    else:
+        raise ValueError("Input result must be a HydroSeasonResult or PipelineArtifacts.")
+
+    stress_df = result.stress if hasattr(result, "stress") else None
+
+    df = df.copy()
+    if "Cumulative_Anomaly" not in df.columns:
+        dates = pd.to_datetime(df[date_col])
+        deltas = dates.diff().dropna()
+        if len(deltas) > 0 and deltas.median() <= pd.Timedelta(days=1):
+            from .daily_detection import compute_daily_baseline, compute_daily_cumulative_anomaly
+            baseline = compute_daily_baseline(df, value_col=value_col)
+            df["Cumulative_Anomaly"] = compute_daily_cumulative_anomaly(df, baseline, value_col=value_col)
+        else:
+            baseline = df.groupby(dates.dt.month)[value_col].mean()
+            df["Baseline"] = dates.dt.month.map(baseline)
+            df["Cumulative_Anomaly"] = (df[value_col] - df["Baseline"]).cumsum()
+
+    fig = go.Figure()
+
+    # 1. Cumulative Anomaly Curve
+    fig.add_trace(go.Scatter(
+        x=df[date_col],
+        y=df["Cumulative_Anomaly"],
+        mode="lines",
+        name="Cumulative Anomaly",
+        line=dict(color="#37474F", width=2),
+        hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Cumulative Anomaly: %{y:.1f} mm<extra></extra>"
+    ))
+
+    # 2. Stress dates and windows
+    if stress_df is not None and not stress_df.empty:
+        df_dates = pd.to_datetime(df[date_col]).dt.date
+        stress_x = []
+        stress_y = []
+        for sd in stress_df["stress_date"]:
+            if pd.notna(sd):
+                sd_date = pd.to_datetime(sd).date()
+                mask = df_dates == sd_date
+                if mask.any():
+                    stress_x.append(pd.to_datetime(sd))
+                    stress_y.append(df.loc[mask, "Cumulative_Anomaly"].iloc[0])
+
+        if stress_x:
+            fig.add_trace(go.Scatter(
+                x=stress_x,
+                y=stress_y,
+                mode="markers",
+                name="Stress Date",
+                marker=dict(color="#D32F2F", size=10, symbol="diamond"),
+                hovertemplate="<b>Stress Date</b><br>Date: %{x|%Y-%m-%d}<br>Anomaly: %{y:.1f} mm<extra></extra>"
+            ))
+
+        # Shade stress windows
+        for _, row in stress_df.iterrows():
+            w_start = row.get("stress_window_start")
+            w_end = row.get("stress_window_end")
+            if pd.notna(w_start) and pd.notna(w_end):
+                w_start_val = w_start.strftime("%Y-%m-%d") if hasattr(w_start, "strftime") else str(w_start)
+                w_end_val = w_end.strftime("%Y-%m-%d") if hasattr(w_end, "strftime") else str(w_end)
+                fig.add_vrect(
+                    x0=w_start_val,
+                    x1=w_end_val,
+                    fillcolor="rgba(211, 47, 47, 0.15)",
+                    line_width=0,
+                    layer="below",
+                )
+
+            # Draw vertical transition lines & labels
+            ds_start = row.get("dry_season_start")
+            sd = row.get("stress_date")
+            if pd.notna(ds_start):
+                ds_start_val = ds_start.strftime("%Y-%m-%d") if hasattr(ds_start, "strftime") else str(ds_start)
+                fig.add_vline(
+                    x=ds_start_val,
+                    line=dict(color="rgba(245, 124, 0, 0.4)", width=1, dash="dot"),
+                    annotation_text="Dry Start",
+                    annotation_position="top left",
+                    annotation_font=dict(size=8, color="rgba(245, 124, 0, 0.6)"),
+                )
+            if pd.notna(sd):
+                sd_val = sd.strftime("%Y-%m-%d") if hasattr(sd, "strftime") else str(sd)
+                fig.add_vline(
+                    x=sd_val,
+                    line=dict(color="rgba(211, 47, 47, 0.4)", width=1, dash="dash"),
+                    annotation_text="Stress Date",
+                    annotation_position="top right",
+                    annotation_font=dict(size=8, color="rgba(211, 47, 47, 0.6)"),
+                )
+
+        # Add dummy legend entry for Stress Window
+        fig.add_trace(go.Scatter(
+            x=[None],
+            y=[None],
+            mode="markers",
+            marker=dict(symbol="square", color="rgba(211, 47, 47, 0.15)", size=12),
+            name="Stress Window",
+            showlegend=True,
+        ))
+
+    fig.update_layout(
+        title=title,
+        xaxis=dict(
+            title="Date",
+            rangeslider=dict(visible=True, thickness=0.05),
+            type="date",
+        ),
+        yaxis=dict(title="Cumulative Anomaly (mm)"),
+        dragmode="pan",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        height=height,
+        width=width,
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        hoverlabel=dict(bgcolor="white"),
+        margin=dict(t=80, b=60),
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="#EEEEEE")
+    fig.update_yaxes(showgrid=True, gridcolor="#EEEEEE")
     return fig

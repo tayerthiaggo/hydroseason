@@ -40,8 +40,9 @@ def read_silo(
     *,
     variable: str = "Rain",
     output_col: str = "Rainfall_mm",
+    resolution: str = "monthly",
 ) -> pd.DataFrame:
-    """Read a SILO point dataset and return a tidy monthly rainfall DataFrame.
+    """Read a SILO point dataset and return a tidy rainfall DataFrame.
 
     Handles all SILO fixed formats (Standard, Rain Only, Monthly, P51, FAO56,
     …) as well as SILO custom CSV exports.
@@ -58,13 +59,15 @@ def read_silo(
         Name given to the rainfall column in the returned DataFrame.  Default
         ``"Rainfall_mm"`` so the result is directly usable by
         :func:`~hydroseason.validate.validate_monthly_input`.
+    resolution:
+        Target resolution: ``"monthly"`` or ``"daily"`` or ``"auto"``.
 
     Returns
     -------
     pd.DataFrame
-        Columns: ``Date`` (datetime64[ns], first of month), ``Year`` (int),
-        ``Month`` (int), *output_col* (float, monthly mm total).  Daily inputs
-        are summed to monthly totals before returning.
+        Columns: ``Date`` (datetime64[ns]), ``Year`` (int),
+        ``Month`` (int), *output_col* (float). Daily inputs
+        are summed to monthly totals if resolution is ``"monthly"``.
 
     Examples
     --------
@@ -87,7 +90,7 @@ def read_silo(
     else:
         df = _read_silo_csv(path, variable)
 
-    return _normalise_silo_df(df, variable, output_col)
+    return _normalise_silo_df(df, variable, output_col, resolution=resolution)
 
 
 def read_bom_monthly(
@@ -235,6 +238,7 @@ def read_rainfall(
     silo_variable: str = "Rain",
     bom_value_col: str | None = None,
     bom_quality_filter: bool = True,
+    resolution: str = "monthly",
     **read_csv_kwargs,
 ) -> pd.DataFrame:
     """Read rainfall data from common sources with one entry point.
@@ -255,6 +259,8 @@ def read_rainfall(
         Optional explicit BoM rainfall column override.
     bom_quality_filter:
         When reading BoM, keep only rows with ``Quality == "Y"`` by default.
+    resolution:
+        Target resolution: ``"monthly"``, ``"daily"``, or ``"auto"``.
     **read_csv_kwargs:
         Forwarded to ``pandas.read_csv`` when using generic CSV mode.
     """
@@ -267,7 +273,12 @@ def read_rainfall(
         )
 
     if source_norm == "silo":
-        return read_silo(path, variable=silo_variable, output_col=value_col)
+        if resolution == "auto":
+            df = read_silo(path, variable=silo_variable, output_col=value_col, resolution="daily")
+            if len(df) > 1 and df["Date"].diff().dropna().median() <= pd.Timedelta(days=1):
+                return df
+            resolution = "monthly"
+        return read_silo(path, variable=silo_variable, output_col=value_col, resolution=resolution)
 
     if source_norm == "bom":
         return read_bom_monthly(
@@ -279,7 +290,17 @@ def read_rainfall(
 
     if source_norm == "csv":
         df = pd.read_csv(path, **read_csv_kwargs)
-        return _normalise_generic_csv(df, value_col=value_col)
+        df = _normalise_generic_csv(df, value_col=value_col)
+        if resolution == "monthly" and len(df) > 1 and df["Date"].diff().dropna().median() <= pd.Timedelta(days=1):
+            periods = df["Date"].dt.to_period("M")
+            df["_period"] = periods
+            agg = df.groupby("_period", sort=True)[value_col].sum().reset_index()
+            agg["Date"] = agg["_period"].dt.to_timestamp()
+            df = agg[["Date", value_col]].copy()
+            df["Year"] = df["Date"].dt.year.astype(int)
+            df["Month"] = df["Date"].dt.month.astype(int)
+            df = df[["Date", "Year", "Month", value_col]].sort_values("Date").reset_index(drop=True)
+        return df
 
     # auto detect: BoM has an explicit product code / monthly precipitation column.
     with path.open("r", encoding="utf-8", errors="replace") as fh:
@@ -297,11 +318,26 @@ def read_rainfall(
 
     if any(line.strip().startswith(('"', "!")) for line in head if line):
         logger.info("read_rainfall(auto): detected SILO fixed format.")
-        return read_silo(path, variable=silo_variable, output_col=value_col)
+        if resolution == "auto":
+            df = read_silo(path, variable=silo_variable, output_col=value_col, resolution="daily")
+            if len(df) > 1 and df["Date"].diff().dropna().median() <= pd.Timedelta(days=1):
+                return df
+            resolution = "monthly"
+        return read_silo(path, variable=silo_variable, output_col=value_col, resolution=resolution)
 
     logger.info("read_rainfall(auto): falling back to pandas.read_csv.")
     df = pd.read_csv(path, **read_csv_kwargs)
-    return _normalise_generic_csv(df, value_col=value_col)
+    df = _normalise_generic_csv(df, value_col=value_col)
+    if resolution == "monthly" and len(df) > 1 and df["Date"].diff().dropna().median() <= pd.Timedelta(days=1):
+        periods = df["Date"].dt.to_period("M")
+        df["_period"] = periods
+        agg = df.groupby("_period", sort=True)[value_col].sum().reset_index()
+        agg["Date"] = agg["_period"].dt.to_timestamp()
+        df = agg[["Date", value_col]].copy()
+        df["Year"] = df["Date"].dt.year.astype(int)
+        df["Month"] = df["Date"].dt.month.astype(int)
+        df = df[["Date", "Year", "Month", value_col]].sort_values("Date").reset_index(drop=True)
+    return df
 
 
 def _normalise_generic_csv(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
@@ -469,7 +505,7 @@ def _read_silo_csv(path: Path, variable: str) -> pd.DataFrame:
 
 
 def _normalise_silo_df(
-    df: pd.DataFrame, variable: str, output_col: str
+    df: pd.DataFrame, variable: str, output_col: str, resolution: str = "monthly"
 ) -> pd.DataFrame:
     """Common normalisation: parse Date, locate rainfall column, aggregate daily→monthly."""
     df = df.copy()
@@ -525,7 +561,7 @@ def _normalise_silo_df(
     # Daily → monthly aggregation (if needed)
     # ------------------------------------------------------------------
     periods = df[date_col].dt.to_period("M")
-    if periods.value_counts().max() > 1:
+    if resolution == "monthly" and periods.value_counts().max() > 1:
         # Daily (or sub-monthly) data — aggregate by summing
         df["_period"] = periods
         agg = df.groupby("_period", sort=True)[var_col].sum().reset_index()

@@ -152,12 +152,36 @@ class FetchConfig:
 
 
 @dataclass
+class DailyDetectionConfig:
+    onset_persistence_days: int = 21
+    cessation_persistence_days: int = 21
+    baseline_roll_window_days: int = 30
+
+    def __post_init__(self) -> None:
+        self.onset_persistence_days = int(self.onset_persistence_days)
+        self.cessation_persistence_days = int(self.cessation_persistence_days)
+        self.baseline_roll_window_days = int(self.baseline_roll_window_days)
+
+
+@dataclass
+class DailyValidationConfig:
+    max_fraction_missing: float = 0.10
+    raise_on_error: bool = True
+
+    def __post_init__(self) -> None:
+        self.max_fraction_missing = float(self.max_fraction_missing)
+        self.raise_on_error = bool(self.raise_on_error)
+
+
+@dataclass
 class RunConfig:
     input: InputConfig
     output: OutputConfig
     algorithm: AlgorithmConfig = field(default_factory=AlgorithmConfig)
     validation: ValidationConfig = field(default_factory=ValidationConfig)
     fetch: FetchConfig = field(default_factory=FetchConfig)
+    daily_detection: DailyDetectionConfig = field(default_factory=DailyDetectionConfig)
+    daily_validation: DailyValidationConfig = field(default_factory=DailyValidationConfig)
 
 
 def _require(d: dict, key: str) -> object:
@@ -180,6 +204,8 @@ def load_config(path: str | Path) -> RunConfig:
         raise KeyError("Missing required config section/key: input.csv_path")
     algorithm_cfg = AlgorithmConfig(**data.get("algorithm", {}))
     validation_cfg = ValidationConfig(**data.get("validation", {}))
+    daily_detection_cfg = DailyDetectionConfig(**data.get("daily_detection", {}))
+    daily_validation_cfg = DailyValidationConfig(**data.get("daily_validation", {}))
 
     return RunConfig(
         input=input_cfg,
@@ -187,4 +213,7 @@ def load_config(path: str | Path) -> RunConfig:
         algorithm=algorithm_cfg,
         validation=validation_cfg,
         fetch=fetch_cfg,
+        daily_detection=daily_detection_cfg,
+        daily_validation=daily_validation_cfg,
     )
+

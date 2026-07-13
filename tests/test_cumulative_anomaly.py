@@ -232,3 +232,36 @@ def test_cumulative_anomaly_p2_options():
     assert (seg_df_my["SeasonType"] == "Wet").any()
 
 
+def test_continuous_cusum_peak_picking():
+    # Multi-year series with two distinct seasons that shouldn't be affected by year boundaries.
+    dates = pd.date_range("2020-01-01", periods=24, freq="MS")
+    # Year 1: wet season is months 4-8. Year 2: wet season is months 4-8.
+    rainfall = [
+        5, 5, 5, 150, 200, 180, 160, 150, 5, 5, 5, 5,  # Year 1
+        5, 5, 5, 160, 190, 170, 150, 140, 5, 5, 5, 5   # Year 2
+    ]
+    df = pd.DataFrame({
+        "Date": dates,
+        "Rainfall_mm": rainfall,
+        "Hydro_Year_fixed": [2020] * 12 + [2021] * 12,
+        "Month": dates.month
+    })
+    
+    seg_df, boundaries = segment_by_cumulative_anomaly(
+        df,
+        is_bimodal=False,
+        reference_floor=10.0,
+        use_multi_year_cumsum=True
+    )
+    
+    # Verify that wet months are identified correctly in both years
+    by_date = dict(zip(seg_df["Date"], seg_df["SeasonType"]))
+    assert by_date[pd.Timestamp("2020-04-01")] == "Wet"
+    assert by_date[pd.Timestamp("2020-08-01")] == "Wet"
+    assert by_date[pd.Timestamp("2020-09-01")] == "Dry"
+    
+    assert by_date[pd.Timestamp("2021-04-01")] == "Wet"
+    assert by_date[pd.Timestamp("2021-08-01")] == "Wet"
+    assert by_date[pd.Timestamp("2021-09-01")] == "Dry"
+
+

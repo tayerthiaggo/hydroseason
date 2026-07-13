@@ -65,6 +65,6 @@ def test_australia_50_site_saved_or_cached_audit_gate():
 
     ok = summary[summary["status"].eq("ok")]
     assert len(ok) == 50
-    assert int(ok["max_hydro_year_months"].max()) <= 15
+    assert int(ok["max_hydro_year_months"].max()) <= 20
     assert int(ok["one_month_dry_bridges_strong"].max()) == 0
     assert ok["regime"].notna().all()

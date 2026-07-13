@@ -38,6 +38,99 @@ class HTMLSummary:
         return self.data
 
 
+def _normalize_input(artifacts):
+    """Normalize PipelineArtifacts or HydroSeasonResult to unified references."""
+    if hasattr(artifacts, "monthly") and artifacts.monthly is not None:
+        # HydroSeasonResult (daily or monthly routing result)
+        return (
+            artifacts.monthly,
+            None,
+            artifacts.diagnostics,
+            artifacts.stress,
+            artifacts.daily,
+        )
+    else:
+        # PipelineArtifacts (monthly dynamic season pipeline output)
+        return (
+            artifacts.result,
+            getattr(artifacts, "fixed_monthly", None),
+            artifacts.diagnostics,
+            getattr(artifacts, "stress", None),
+            None,
+        )
+
+
+def _stress_table_html(stress_df) -> str:
+    """Build a styled HTML table of annual hydrological stress metrics."""
+    if stress_df is None or stress_df.empty:
+        return (
+            '<div style="font-family:sans-serif;font-size:12px;color:#546E7A;">'
+            "No stress metrics available."
+            "</div>"
+        )
+
+    cols_wanted = [
+        "hydro_year",
+        "stress_date",
+        "stress_window_start",
+        "stress_window_end",
+        "dry_season_length_days",
+        "antecedent_rainfall_deficit",
+        "rainfall_since_wet_season_end",
+        "stress_confidence",
+    ]
+    available = [c for c in cols_wanted if c in stress_df.columns]
+
+    header_labels = {
+        "hydro_year": "Hydro Year",
+        "stress_date": "Stress Date",
+        "stress_window_start": "Stress Window Start",
+        "stress_window_end": "Stress Window End",
+        "dry_season_length_days": "Dry Season Length (days)",
+        "antecedent_rainfall_deficit": "Antecedent Deficit (mm)",
+        "rainfall_since_wet_season_end": "Dry Season Rain (mm)",
+        "stress_confidence": "Confidence Score",
+    }
+
+    th_style = (
+        "padding:7px 12px;text-align:left;background:#D32F2F;color:white;"
+        "font-size:12px;white-space:nowrap;"
+    )
+    td_style = "padding:6px 12px;font-size:12px;border-bottom:1px solid #ECEFF1;"
+
+    headers = "".join(f'<th style="{th_style}">{header_labels.get(c, c)}</th>' for c in available)
+    rows_html = ""
+    for i, (_, row) in enumerate(stress_df.iterrows()):
+        bg = "#FAFAFA" if i % 2 == 0 else "white"
+        cells = ""
+        for c in available:
+            val = row[c]
+            if pd.isna(val) or val is None:
+                display_val = "N/A"
+            elif c == "hydro_year":
+                display_val = str(int(val))
+            elif c in ("stress_date", "stress_window_start", "stress_window_end"):
+                if hasattr(val, "strftime"):
+                    display_val = val.strftime("%Y-%m-%d")
+                else:
+                    display_val = str(val)
+            elif c == "stress_confidence":
+                display_val = f"{float(val):.2f}"
+            elif c in ("antecedent_rainfall_deficit", "rainfall_since_wet_season_end"):
+                display_val = f"{float(val):.1f}"
+            else:
+                display_val = str(val)
+            cells += f'<td style="{td_style}background:{bg};">{display_val}</td>'
+        rows_html += f"<tr>{cells}</tr>"
+
+    return (
+        '<table style="border-collapse:collapse;width:100%;font-family:sans-serif;">'
+        f"<thead><tr>{headers}</tr></thead>"
+        f"<tbody>{rows_html}</tbody>"
+        "</table>"
+    )
+
+
 def _as_html_summary(html: str):
     try:
         from IPython.display import HTML
@@ -117,7 +210,7 @@ def _season_onsets_frame(result) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Public: in-notebook summary card
 # ---------------------------------------------------------------------------
-def display_summary(artifacts: "PipelineArtifacts"):
+def display_summary(artifacts: PipelineArtifacts | HydroSeasonResult):
     """Return an HTML summary card for inline notebook display when available.
 
     The card shows:
@@ -126,12 +219,12 @@ def display_summary(artifacts: "PipelineArtifacts"):
       date range, record count, imputed rows
     - Any validation warnings
     """
-    d = artifacts.diagnostics
-    result = artifacts.result
+    result_df, fixed_monthly, d, stress_df, daily_df = _normalize_input(artifacts)
+    result = result_df
 
     # Date range
     try:
-        dates = artifacts.result["Date"]
+        dates = result_df["Date"]
         date_min = str(dates.min())[:7]
         date_max = str(dates.max())[:7]
         date_range = f"{date_min} to {date_max}"
@@ -408,7 +501,7 @@ def _imputed_runs_note_html(diagnostics) -> str:
 # Public: full HTML report
 # ---------------------------------------------------------------------------
 def generate_html_report(
-    artifacts: "PipelineArtifacts",
+    artifacts: PipelineArtifacts | HydroSeasonResult,
     output_path: str | Path = "hydroseason_report.html",
     *,
     title: str = "HydroSeason Report",
@@ -419,13 +512,14 @@ def generate_html_report(
     The report includes:
     1. Header / summary card (regime badge + key diagnostics)
     2. Season timeline (interactive Plotly)
-    3. Imputation and data quality (interactive Plotly)
-    4. Imputed runs table (styled HTML)
-    5. Aggregated monthly rainfall (interactive Plotly)
-    6. Annual wet/dry totals (interactive Plotly)
-    7. STL decomposition (interactive Plotly)
-    8. Per-hydro-year metrics table (styled HTML)
-    9. Diagnostics table (interactive Plotly)
+    3. Hydrological stress timeline and metrics (interactive Plotly + HTML)
+    4. Imputation and data quality (interactive Plotly)
+    5. Imputed runs table (styled HTML)
+    6. Aggregated monthly rainfall (interactive Plotly)
+    7. Annual wet/dry totals (interactive Plotly)
+    8. STL decomposition (interactive Plotly)
+    9. Per-hydro-year metrics table (styled HTML)
+    10. Diagnostics table (interactive Plotly)
 
     Plotly JS is embedded in the file, so no internet connection or Python
     environment is needed to view the report after it is created.
@@ -437,18 +531,20 @@ def generate_html_report(
         plot_diagnostics_table,
         plot_season_timeline,
         plot_stl_decomposition,
+        plot_stress_timeline,
     )
 
     output_path = Path(output_path)
-    d = artifacts.diagnostics
+    result_df, fixed_monthly, d, stress_df, daily_df = _normalize_input(artifacts)
 
     # Build each figure as an HTML div (full_html=False, include_plotlyjs only once)
-    fig_timeline = plot_season_timeline(artifacts.result, value_col=value_col, height=450)
-    fig_quality = plot_imputation_overview(artifacts.result, value_col=value_col, title="", height=320)
-    fig_clim = plot_agg_monthly_rainfall(artifacts.result, artifacts.fixed_monthly, value_col=value_col, height=420)
-    fig_annual = plot_annual_metrics(artifacts.result, height=480)
-    fig_stl = plot_stl_decomposition(artifacts.result, value_col=value_col, title="", height=680)
+    fig_timeline = plot_season_timeline(result_df, value_col=value_col, height=450)
+    fig_quality = plot_imputation_overview(result_df, value_col=value_col, title="", height=320)
+    fig_clim = plot_agg_monthly_rainfall(result_df, fixed_monthly, value_col=value_col, height=420)
+    fig_annual = plot_annual_metrics(result_df, height=480)
+    fig_stl = plot_stl_decomposition(result_df, value_col=value_col, title="", height=680)
     fig_diag = plot_diagnostics_table(d, title="", height=560)
+    fig_stress = plot_stress_timeline(artifacts, value_col=value_col, height=450)
 
     # First figure gets the full Plotly JS bundle embedded once.
     html_timeline = fig_timeline.to_html(full_html=False, include_plotlyjs=True, config=PLOTLY_CONFIG)
@@ -457,6 +553,7 @@ def generate_html_report(
     html_annual = fig_annual.to_html(full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG)
     html_stl = fig_stl.to_html(full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG)
     html_diag = fig_diag.to_html(full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG)
+    html_stress = fig_stress.to_html(full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG)
 
     # Summary card
     start_month_name = (
@@ -468,7 +565,7 @@ def generate_html_report(
     regime_label = d.regime.replace("_", " ").title()
 
     try:
-        dates = artifacts.result["Date"]
+        dates = result_df["Date"]
         date_range = f"{str(dates.min())[:7]} to {str(dates.max())[:7]}"
     except Exception:
         date_range = "N/A"
@@ -482,9 +579,9 @@ def generate_html_report(
             f"<b>Validation warnings:</b><ul>{items}</ul></div>"
         )
 
-    metrics_table = _metrics_table_html(artifacts.result, value_col=value_col)
+    metrics_table = _metrics_table_html(result_df, value_col=value_col)
     imputed_runs_note = _imputed_runs_note_html(d)
-    imputed_runs_table = _imputed_runs_table_html(artifacts.result)
+    imputed_runs_table = _imputed_runs_table_html(result_df)
 
     def _section(heading: str, content: str) -> str:
         return (
@@ -528,6 +625,8 @@ def generate_html_report(
       {warnings_html}
     </header>
     """ + _section_chart("Season Timeline", html_timeline, 450) \
+            + _section_chart("Hydrological Stress Timeline", html_stress, 450) \
+            + _section("Hydrological Stress Metrics", _stress_table_html(stress_df)) \
             + _section_chart("Imputation and Data Quality", html_quality, 320) \
         + _section("Imputed Runs", imputed_runs_note + imputed_runs_table) \
       + _section_chart("Aggregated Monthly Rainfall", html_clim, 420) \
@@ -605,7 +704,7 @@ def generate_multisite_timeline_report(
     a summary CSV plus per-site folders containing ``*_hydroseason_result.csv``.
     Sites without a classified result are still listed with their failure status.
     """
-    from .plot import plot_season_timeline
+    from .plot import plot_season_timeline, plot_stress_timeline
 
     output_dir = Path(output_dir)
     if output_path is None:
@@ -654,6 +753,7 @@ def generate_multisite_timeline_report(
 
         status_class = "ok" if status == "ok" else "failed"
         timeline_html = ""
+        stress_html = ""
         if result_path.exists():
             result = pd.read_csv(result_path)
             fig = plot_season_timeline(
@@ -668,9 +768,44 @@ def generate_multisite_timeline_report(
                 config=PLOTLY_CONFIG,
             )
             plotly_embedded = True
+            
+            stress_path = site_dir / f"{site_id}_stress.csv"
+            if stress_path.exists():
+                stress_df = pd.read_csv(stress_path)
+                from .pipeline import PipelineArtifacts
+                dummy_artifacts = PipelineArtifacts(
+                    result=result,
+                    fixed_monthly=pd.DataFrame(),
+                    wet_boundaries=None,
+                    seasonality=None,
+                    diagnostics=None,
+                    stress=stress_df,
+                )
+                fig_stress = plot_stress_timeline(
+                    dummy_artifacts,
+                    value_col=value_col,
+                    title=f"{site_id} | Hydrological Stress Timeline",
+                    height=340,
+                )
+                stress_plot_html = fig_stress.to_html(
+                    full_html=False,
+                    include_plotlyjs=not plotly_embedded,
+                    config=PLOTLY_CONFIG,
+                )
+                plotly_embedded = True
+                
+                stress_table_html = _stress_table_html(stress_df)
+                stress_html = f"""
+    <div style="margin-top:20px; border-top:1px solid #e7decd; padding-top:20px;">
+      <h3 style="font-family:sans-serif;font-size:15px;color:#D32F2F;margin-top:0;">Hydrological Stress Timeline & Cumulative Anomaly</h3>
+      <div class="chart-shell">{stress_plot_html}</div>
+      <h3 style="font-family:sans-serif;font-size:15px;color:#D32F2F;margin-top:20px;margin-bottom:10px;">Hydrological Stress Metrics</h3>
+      <div style="overflow-x:auto;">{stress_table_html}</div>
+    </div>
+"""
         else:
             detail = (
-                f"Classified result not available. Monthly rainfall file exists: {monthly_path.exists()}."
+        f"Classified result not available. Monthly rainfall file exists: {monthly_path.exists()}."
             )
             if error_text:
                 detail += f" Error: {error_text}"
@@ -687,6 +822,27 @@ def generate_multisite_timeline_report(
                 f"<strong>Error</strong><pre>{html.escape(error_text)}</pre>"
                 "</div>"
             )
+
+        stl_strength = row.get("stl_strength", None)
+        walsh_lawler_si = row.get("walsh_lawler_si", None)
+        circular_r = row.get("circular_R", None)
+        contrast_class = str(row.get("season_contrast_class", "n/a"))
+        contrast_ratio = row.get("season_contrast_ratio", None)
+        hy_start_month = row.get("hydro_year_start_month", None)
+        
+        def fmt_val(v, fmt="{:.3f}"):
+            return fmt.format(v) if pd.notna(v) and isinstance(v, (int, float)) else "n/a"
+
+        diagnostics_html = (
+            '<div class="meta-grid diagnostics-grid" style="margin-top: 10px; border-top: 1px dashed #cabda7; padding-top: 10px;">'
+            f'<div><span class="meta-label">STL Strength (F_S)</span><span class="meta-value">{fmt_val(stl_strength)}</span></div>'
+            f'<div><span class="meta-label">Walsh-Lawler SI</span><span class="meta-value">{fmt_val(walsh_lawler_si)}</span></div>'
+            f'<div><span class="meta-label">Circular R</span><span class="meta-value">{fmt_val(circular_r)}</span></div>'
+            f'<div><span class="meta-label">Contrast Class</span><span class="meta-value">{html.escape(contrast_class)}</span></div>'
+            f'<div><span class="meta-label">Contrast Ratio</span><span class="meta-value">{fmt_val(contrast_ratio, "{:.2f}")}</span></div>'
+            f'<div><span class="meta-label">HY Start Month</span><span class="meta-value">{fmt_val(hy_start_month, "{:.0f}")}</span></div>'
+            "</div>"
+        )
 
         metadata_html = (
             '<div class="meta-grid">'
@@ -711,7 +867,9 @@ def generate_multisite_timeline_report(
   </summary>
   <div class="site-body">
     {metadata_html}
-    <div class="chart-shell">{timeline_html}</div>
+    {diagnostics_html}
+    <div class="chart-shell" style="margin-top:14px;">{timeline_html}</div>
+    {stress_html}
     {error_block}
   </div>
 </details>"""
@@ -735,163 +893,274 @@ def generate_multisite_timeline_report(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{html.escape(title)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
   <style>
     body {{
-      font-family: sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       margin: 0;
-      background: #f4f1e8;
-      color: #1f2933;
+      background: #f7f6f2;
+      color: #1a2a36;
+      line-height: 1.5;
     }}
     .page {{
-      max-width: 1440px;
+      max-width: 1400px;
       margin: 0 auto;
-      padding: 24px;
+      padding: 32px 24px;
     }}
     .hero {{
-      background: linear-gradient(135deg, #204e5f 0%, #2b6f77 45%, #f2c572 100%);
+      background: linear-gradient(135deg, #112a36 0%, #1e4559 50%, #cca560 100%);
       color: white;
-      padding: 28px;
-      border-radius: 18px;
-      box-shadow: 0 16px 36px rgba(32, 78, 95, 0.22);
+      padding: 40px;
+      border-radius: 20px;
+      box-shadow: 0 20px 40px rgba(17, 42, 54, 0.15);
+      margin-bottom: 28px;
     }}
     .hero h1 {{
-      margin: 0 0 8px;
-      font-size: 30px;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      font-size: 36px;
+      margin: 0 0 12px;
+      letter-spacing: -0.02em;
     }}
     .hero p {{
       margin: 0;
       max-width: 900px;
-      line-height: 1.5;
-    }}
-    .toolbar {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      align-items: center;
-      margin: 18px 0 20px;
-      padding: 16px 18px;
-      background: #fffdf8;
-      border: 1px solid #e5dccb;
-      border-radius: 14px;
-    }}
-    .toolbar input {{
-      flex: 1 1 320px;
-      min-width: 240px;
-      padding: 10px 12px;
-      border-radius: 10px;
-      border: 1px solid #cabda7;
-      font-size: 14px;
-    }}
-    .toolbar button {{
-      padding: 10px 14px;
-      border: 0;
-      border-radius: 10px;
-      background: #204e5f;
-      color: white;
-      cursor: pointer;
+      font-size: 15px;
+      line-height: 1.6;
+      opacity: 0.9;
     }}
     .summary-strip {{
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 14px;
+      gap: 12px;
+      margin-top: 20px;
     }}
-    .summary-pill, .pill {{
+    .summary-pill {{
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      background: rgba(255,255,255,0.18);
-      color: inherit;
+      padding: 8px 16px;
+      border-radius: 99px;
+      font-size: 13px;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: white;
     }}
     .summary-pill.light {{
-      background: #fff;
-      color: #204e5f;
+      background: #ffffff;
+      color: #112a36;
+      border: 0;
+    }}
+    .toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 24px;
+      padding: 20px;
+      background: #ffffff;
+      border: 1px solid rgba(17, 42, 54, 0.06);
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(17, 42, 54, 0.02);
+    }}
+    .search-box {{
+      flex: 1 1 300px;
+      min-width: 200px;
+    }}
+    .search-box input {{
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 16px;
+      border-radius: 10px;
+      border: 1px solid #dcdad5;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fcfcfb;
+      transition: all 0.2s ease;
+    }}
+    .search-box input:focus {{
+      outline: none;
+      border-color: #cca560;
+      background: #ffffff;
+      box-shadow: 0 0 0 3px rgba(202, 165, 96, 0.15);
+    }}
+    .filter-group {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }}
+    .filter-group-label {{
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #61737e;
+      margin-right: 4px;
+    }}
+    .filter-pill {{
+      padding: 8px 14px;
+      border: 1px solid #dcdad5;
+      border-radius: 99px;
+      background: #ffffff;
+      color: #2b3e4a;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s ease;
+    }}
+    .filter-pill:hover {{
+      background: #f7f6f2;
+      border-color: #cca560;
+    }}
+    .filter-pill.active {{
+      background: #112a36;
+      color: #ffffff;
+      border-color: #112a36;
+      font-weight: 600;
+    }}
+    .action-buttons {{
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }}
+    .action-buttons button {{
+      padding: 10px 16px;
+      border: 0;
+      border-radius: 10px;
+      background: #112a36;
+      color: white;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s ease;
+    }}
+    .action-buttons button:hover {{
+      background: #1e4559;
+      transform: translateY(-1px);
     }}
     .site-card {{
-      margin: 16px 0;
-      border: 1px solid #e7decd;
+      margin-bottom: 16px;
+      border: 1px solid rgba(17, 42, 54, 0.08);
       border-radius: 16px;
+      background: #ffffff;
+      box-shadow: 0 6px 16px rgba(17, 42, 54, 0.03);
       overflow: hidden;
-      background: #fffdf8;
-      box-shadow: 0 8px 20px rgba(54, 45, 25, 0.06);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }}
+    .site-card:hover {{
+      transform: translateY(-2px);
+      box-shadow: 0 12px 24px rgba(17, 42, 54, 0.06);
+      border-color: rgba(202, 165, 96, 0.3);
     }}
     .site-card summary {{
       list-style: none;
       cursor: pointer;
-      padding: 16px 18px;
+      padding: 18px 24px;
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 12px;
       align-items: center;
-      background: #fbf6eb;
+      background: #fbfbf9;
+      border-bottom: 1px solid rgba(17, 42, 54, 0.04);
+      user-select: none;
     }}
     .site-card summary::-webkit-details-marker {{
       display: none;
     }}
+    .site-card[open] summary {{
+      background: #f9f8f4;
+    }}
     .site-name {{
+      font-family: 'Outfit', sans-serif;
       font-weight: 700;
-      font-size: 16px;
+      font-size: 18px;
+      color: #112a36;
       margin-right: auto;
     }}
     .pill {{
-      background: #e8eef0;
-      color: #204e5f;
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #e8ecee;
+      color: #1e4559;
     }}
-    .status-pill.ok {{
-      background: #dff3e4;
-      color: #1f6d3d;
+    .pill.status-pill.ok {{
+      background: #e6f6eb;
+      color: #137333;
     }}
-    .status-pill.failed {{
-      background: #ffe0db;
-      color: #9b2c2c;
+    .pill.status-pill.failed {{
+      background: #fdf2f2;
+      color: #c53030;
     }}
     .site-body {{
-      padding: 18px;
+      padding: 24px;
+      background: #ffffff;
     }}
     .meta-grid {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 10px;
-      margin-bottom: 14px;
+      gap: 12px;
+      margin-bottom: 20px;
     }}
     .meta-grid > div {{
-      background: #f7f3ea;
+      background: #fcfbf9;
+      border: 1px solid rgba(17, 42, 54, 0.04);
       border-radius: 12px;
-      padding: 10px 12px;
+      padding: 12px 14px;
+      transition: all 0.2s ease;
+    }}
+    .meta-grid > div:hover {{
+      background: #f7f6f2;
+      border-color: rgba(202, 165, 96, 0.15);
     }}
     .meta-label {{
       display: block;
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #6b7280;
+      color: #71828a;
       margin-bottom: 4px;
+      font-weight: 700;
     }}
     .meta-value {{
       font-size: 14px;
       font-weight: 600;
+      color: #112a36;
     }}
     .chart-shell {{
       border-radius: 12px;
+      border: 1px solid rgba(17, 42, 54, 0.05);
       overflow: hidden;
       background: white;
+      box-shadow: inset 0 2px 8px rgba(17, 42, 54, 0.01);
     }}
     .missing-plot {{
-      padding: 16px;
+      padding: 20px;
       border-radius: 12px;
-      background: #fff4e5;
-      color: #8a4b08;
-      border: 1px solid #efd2a8;
+      background: #fffafa;
+      color: #c53030;
+      border: 1px solid #fde8e8;
+      font-size: 14px;
     }}
     .error-block {{
-      margin-top: 14px;
-      padding: 14px;
+      margin-top: 16px;
+      padding: 16px;
       border-radius: 12px;
-      background: #fff1ef;
-      border: 1px solid #f2c1ba;
+      background: #fffafa;
+      border: 1px solid #fde8e8;
+    }}
+    .error-block strong {{
+      color: #c53030;
+      font-size: 14px;
     }}
     .error-block pre, .summary-json {{
       white-space: pre-wrap;
@@ -901,14 +1170,17 @@ def generate_multisite_timeline_report(
       margin: 8px 0 0;
     }}
     .summary-json {{
-      margin-top: 18px;
-      background: #fffdf8;
-      padding: 14px;
-      border-radius: 12px;
-      border: 1px solid #e7decd;
+      margin-bottom: 24px;
+      background: #ffffff;
+      padding: 16px 20px;
+      border-radius: 16px;
+      border: 1px solid rgba(17, 42, 54, 0.06);
+      font-size: 12px;
+      line-height: 1.5;
+      color: #4a5568;
     }}
     .hidden {{
-      display: none;
+      display: none !important;
     }}
   </style>
 </head>
@@ -916,7 +1188,7 @@ def generate_multisite_timeline_report(
   <div class="page">
     <section class="hero">
       <h1>{html.escape(title)}</h1>
-      <p>Manual inspection gallery for cached HydroSeason site outputs. Each site section shows its season timeline when a classified result is available, along with regime, lat_band, and data_sources. Failed sites stay in the report so gaps are visible during review.</p>
+      <p>Manual inspection gallery for cached HydroSeason site outputs. Each site section shows its season timeline and hydrological stress metrics when available, along with diagnostics. Failed sites stay in the report so gaps are visible during review.</p>
       <div class="summary-strip">
         <span class="summary-pill light">sites: {len(summary)}</span>
         <span class="summary-pill light">ok: {ok_count}</span>
@@ -926,9 +1198,26 @@ def generate_multisite_timeline_report(
     </section>
 
     <section class="toolbar">
-      <input id="site-filter" type="search" placeholder="Filter by site, country, regime, lat_band, data_sources, or status">
-      <button type="button" id="expand-all">Expand all</button>
-      <button type="button" id="collapse-all">Collapse all</button>
+      <div class="search-box">
+        <input id="site-filter" type="search" placeholder="Filter by site, country, lat_band, etc...">
+      </div>
+      <div class="filter-group">
+        <span class="filter-group-label">Regime:</span>
+        <button type="button" class="filter-pill active" data-filter-type="regime" data-filter-value="all">All</button>
+        <button type="button" class="filter-pill" data-filter-type="regime" data-filter-value="seasonal">Seasonal</button>
+        <button type="button" class="filter-pill" data-filter-type="regime" data-filter-value="borderline">Borderline</button>
+        <button type="button" class="filter-pill" data-filter-type="regime" data-filter-value="non_seasonal">Non-Seasonal</button>
+      </div>
+      <div class="filter-group">
+        <span class="filter-group-label">Status:</span>
+        <button type="button" class="filter-pill active" data-filter-type="status" data-filter-value="all">All</button>
+        <button type="button" class="filter-pill" data-filter-type="status" data-filter-value="ok">OK</button>
+        <button type="button" class="filter-pill" data-filter-type="status" data-filter-value="failed">Failed</button>
+      </div>
+      <div class="action-buttons">
+        <button type="button" id="expand-all">Expand all</button>
+        <button type="button" id="collapse-all">Collapse all</button>
+      </div>
     </section>
 
     <pre class="summary-json">{summary_json}</pre>
@@ -942,6 +1231,12 @@ def generate_multisite_timeline_report(
       var cards = Array.prototype.slice.call(document.querySelectorAll('.site-card'));
       var expandAll = document.getElementById('expand-all');
       var collapseAll = document.getElementById('collapse-all');
+      var filterPills = Array.prototype.slice.call(document.querySelectorAll('.filter-pill'));
+
+      var activeFilters = {{
+        regime: 'all',
+        status: 'all'
+      }};
 
       function haystack(card) {{
         return [
@@ -954,20 +1249,48 @@ def generate_multisite_timeline_report(
         ].join(' ');
       }}
 
-      function applyFilter() {{
+      function applyFilters() {{
         var q = (filterInput.value || '').toLowerCase().trim();
         cards.forEach(function (card) {{
-          var match = !q || haystack(card).indexOf(q) >= 0;
-          card.classList.toggle('hidden', !match);
+          var textMatch = !q || haystack(card).indexOf(q) >= 0;
+          var regimeMatch = activeFilters.regime === 'all' || card.dataset.regime === activeFilters.regime;
+          var statusMatch = activeFilters.status === 'all' || card.dataset.status === activeFilters.status;
+          
+          card.classList.toggle('hidden', !(textMatch && regimeMatch && statusMatch));
         }});
       }}
 
-      filterInput.addEventListener('input', applyFilter);
+      filterInput.addEventListener('input', applyFilters);
+
+      filterPills.forEach(function (pill) {{
+        pill.addEventListener('click', function () {{
+          var type = pill.dataset.filterType;
+          var val = pill.dataset.filterValue;
+          
+          // Deactivate siblings
+          filterPills.forEach(function (sibling) {{
+            if (sibling.dataset.filterType === type) {{
+              sibling.classList.remove('active');
+            }}
+          }});
+          
+          pill.classList.add('active');
+          activeFilters[type] = val;
+          applyFilters();
+        }});
+      }});
+
       expandAll.addEventListener('click', function () {{
-        cards.forEach(function (card) {{ card.open = true; }});
+        cards.forEach(function (card) {{
+          if (!card.classList.contains('hidden')) {{
+            card.open = true;
+          }}
+        }});
       }});
       collapseAll.addEventListener('click', function () {{
-        cards.forEach(function (card) {{ card.open = false; }});
+        cards.forEach(function (card) {{
+          card.open = false;
+        }});
       }});
     }})();
   </script>
@@ -982,7 +1305,7 @@ def generate_multisite_timeline_report(
 # Public: full export bundle
 # ---------------------------------------------------------------------------
 def export_bundle(
-    artifacts: "PipelineArtifacts",
+    artifacts: PipelineArtifacts | HydroSeasonResult,
     output_dir: str | Path = "hydroseason_export",
     *,
     title: str = "HydroSeason Report",
@@ -1004,7 +1327,7 @@ def export_bundle(
     Parameters
     ----------
     artifacts:
-        ``PipelineArtifacts`` from :func:`~hydroseason.pipeline.classify_rainfall`.
+        ``PipelineArtifacts`` or ``HydroSeasonResult`` from the pipeline run.
     output_dir:
         Destination folder.  Created (including parents) if it does not exist.
     title:
@@ -1022,7 +1345,8 @@ def export_bundle(
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    result = artifacts.result
+    result_df, fixed_monthly, d, stress_df, daily_df = _normalize_input(artifacts)
+    result = result_df
 
     # 1. HTML report (offline, fully embedded)
     generate_html_report(artifacts, output_dir / "report.html", title=title, value_col=value_col)
@@ -1054,7 +1378,7 @@ def export_bundle(
         data_dir / "results_monthly.csv", index=False
     )
 
-    diag_dict = asdict(artifacts.diagnostics)
+    diag_dict = asdict(d)
     with open(data_dir / "diagnostics.json", "w", encoding="utf-8") as fh:
         json.dump(diag_dict, fh, indent=2, default=str)
 

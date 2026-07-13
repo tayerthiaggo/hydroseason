@@ -487,3 +487,151 @@ def apply_report(report: ValidationReport, *, raise_on_error: bool = True) -> No
         logger.warning(w)
     if report.errors and raise_on_error:
         raise ValueError("Input validation failed: " + "; ".join(report.errors))
+
+
+def validate_daily(
+    df: pd.DataFrame,
+    *,
+    date_col: str = "Date",
+    year_col: str = "Year",
+    month_col: str = "Month",
+    value_col: str = "Rainfall_mm",
+    max_fraction_missing: float = 0.10,
+) -> tuple[pd.DataFrame, ValidationReport]:
+    """Validate and normalise a daily rainfall DataFrame (values in mm).
+
+    Validates that the data is suitable for daily hydrological stress analysis:
+    - Required columns present
+    - Rainfall values numeric and non-negative (mm)
+    - No duplicate dates
+    - Strict daily frequency (gaps detected and filled with NaN)
+    - Sufficient record length (at least 365 days)
+    """
+    report = ValidationReport(n_rows_in=len(df))
+    work = df.copy()
+
+    # ---- presence of value column
+    if value_col not in work.columns:
+        available = ", ".join(map(str, work.columns)) or "(none)"
+        report.errors.append(
+            f"Missing value column: '{value_col}' (expected daily rainfall in mm). "
+            f"Available columns: {available}. "
+            f"Pass value_col=... if your rainfall column has a different name."
+        )
+        return work, report
+
+    # ---- standardise Year / Month to int (if present)
+    work = _coerce_year_month(work, year_col, month_col, report)
+    if not report.ok:
+        return work, report
+
+    # ---- standardise value column (locale strings, floats, etc.)
+    work = _coerce_value_column(work, value_col, report)
+    if work[value_col].isna().all():
+        report.errors.append(f"Value column '{value_col}' is not numeric.")
+        return work, report
+
+    # ---- date column construction / coercion
+    if date_col in work.columns:
+        if pd.api.types.is_datetime64_any_dtype(work[date_col]):
+            pass
+        else:
+            work[date_col] = pd.to_datetime(work[date_col], errors="coerce")
+    elif year_col in work.columns and month_col in work.columns and "day" in work.columns:
+        work[date_col] = pd.to_datetime(
+            work[[year_col, month_col, "day"]], errors="coerce"
+        )
+    else:
+        report.errors.append(
+            f"Need either '{date_col}' or '{year_col}', '{month_col}', and 'day' columns."
+        )
+        return work, report
+
+    if work[date_col].isna().any():
+        n_bad = int(work[date_col].isna().sum())
+        report.errors.append(f"{n_bad} rows have unparseable dates in '{date_col}'.")
+        return work, report
+
+    # ---- sort before duplicate check
+    work = work.sort_values(date_col).reset_index(drop=True)
+
+    # ---- duplicate check — try to recover by keeping last occurrence
+    n_dup = int(work.duplicated(subset=[date_col]).sum())
+    if n_dup:
+        n_full_dup = int(work.duplicated(subset=[date_col, value_col]).sum())
+        if n_full_dup == n_dup:
+            work = work.drop_duplicates(subset=[date_col], keep="last").reset_index(drop=True)
+            report.warnings.append(
+                f"Dropped {n_dup} exact duplicate daily row(s)."
+            )
+        else:
+            dup_dates = (
+                work.loc[work.duplicated(subset=[date_col], keep=False), date_col]
+                .dt.strftime("%Y-%m-%d")
+                .unique()
+            )
+            examples = ", ".join(dup_dates[:5])
+            more = " ..." if len(dup_dates) > 5 else ""
+            report.errors.append(
+                f"{n_dup} duplicate dates with differing values in '{date_col}' "
+                f"(e.g. {examples}{more})."
+            )
+            return work, report
+
+    # ---- frequency check via reindex to daily frequency
+    full_idx = pd.date_range(work[date_col].iloc[0], work[date_col].iloc[-1], freq="D")
+    if len(full_idx) != len(work):
+        report.inferred_freq = "irregular"
+        n_missing = len(full_idx) - len(work)
+        report.warnings.append(
+            f"{n_missing} days missing between {full_idx[0].date()} and {full_idx[-1].date()}; "
+            f"reindexing to daily frequency."
+        )
+        work = (
+            work.set_index(date_col)
+            .reindex(full_idx)
+            .rename_axis(date_col)
+            .reset_index()
+        )
+    else:
+        report.inferred_freq = "D"
+
+    # ---- regenerate Year / Month columns from canonical date
+    work[year_col] = work[date_col].dt.year.astype(int)
+    work[month_col] = work[date_col].dt.month.astype(int)
+
+    n_missing = int(work[value_col].isna().sum())
+    if n_missing:
+        report.fraction_missing = n_missing / len(work)
+        if report.fraction_missing > max_fraction_missing:
+            report.errors.append(
+                f"{n_missing} / {len(work)} days missing ({report.fraction_missing:.1%}) "
+                f"exceeds max_fraction_missing={max_fraction_missing:.0%}."
+            )
+            return work, report
+
+    # ---- non-negative check
+    if (work[value_col] < 0).any():
+        n_neg = int((work[value_col] < 0).sum())
+        report.warnings.append(
+            f"{n_neg} negative values in '{value_col}'; clipped to 0.0."
+        )
+        work[value_col] = work[value_col].clip(lower=0.0)
+
+    # ---- length check
+    if len(work) < 365:
+        report.errors.append(
+            f"Need at least 365 days of data; got {len(work)}."
+        )
+        return work, report
+
+    if report.fraction_missing == 0.0:
+        report.data_confidence = "high"
+    elif report.fraction_missing >= 0.08:
+        report.data_confidence = "low"
+    else:
+        report.data_confidence = "medium"
+
+    report.n_rows_out = len(work)
+    return work, report
+
