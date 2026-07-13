@@ -1,461 +1,296 @@
-"""Step 4 — Dynamic hydrological year assignment."""
+"""Source-agnostic hydrological-year detection from monthly water extent.
 
+Ported from WaterMask-TSFill commit
+90983c1559e7c08951096bbf196c0daedead6b4f. Raster masks, WOfS, and extent
+CSVs converge on this module's monthly ``extent_pct`` input.
+"""
 from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 
-
-def assign_hydro_year(date: pd.Timestamp, start_month: int) -> int:
-    """Calendar-style hydro year for a single date given a fixed start month."""
-    if start_month == 1:
-        return date.year
-    return date.year + 1 if date.month >= start_month else date.year
+if TYPE_CHECKING:
+    import xarray as xr
 
 
-def assign_fixed_hydro_year(
-    df: pd.DataFrame,
+DuplicateMonthPolicy = Literal["raise", "warn"]
+MissingMonthPolicy = Literal["raise", "ignore"]
+
+
+@dataclass(frozen=True)
+class HydroYearConfig:
+    """Supported cross-year wet and same-year dry search windows.
+
+    A record labelled ``Y`` uses wet months Nov(Y-1)..Apr(Y), then dry
+    months Jul(Y)..Dec(Y). Other shapes must retain that geometry.
+    """
+
+    wet_start_month: int = 11
+    wet_end_month: int = 4
+    dry_start_month: int = 7
+    dry_end_month: int = 12
+    min_wet_months: int = 2
+    min_dry_months: int = 2
+    low_confidence_ratio: float = 0.25
+    medium_confidence_ratio: float = 0.50
+
+    def __post_init__(self) -> None:
+        months = (
+            self.wet_start_month,
+            self.wet_end_month,
+            self.dry_start_month,
+            self.dry_end_month,
+        )
+        if any(month < 1 or month > 12 for month in months):
+            raise ValueError("Season months must be in 1..12.")
+        if self.wet_start_month <= self.wet_end_month:
+            raise ValueError(
+                "Unsupported season-window geometry: wet season must cross the year boundary."
+            )
+        if self.dry_start_month > self.dry_end_month:
+            raise ValueError(
+                "Unsupported season-window geometry: dry season must stay within one year."
+            )
+        if self.dry_start_month <= self.wet_end_month:
+            raise ValueError(
+                "Unsupported season-window geometry: dry season must follow wet-season end."
+            )
+        if self.min_wet_months < 1 or self.min_dry_months < 1:
+            raise ValueError("Minimum wet and dry month counts must be positive.")
+        if not 0 <= self.low_confidence_ratio <= self.medium_confidence_ratio <= 1:
+            raise ValueError("Confidence ratios must satisfy 0 <= low <= medium <= 1.")
+
+
+def monthly_water_extent(
+    water_mask: "xr.DataArray",
     *,
-    start_month: int,
-    year_col: str = "Year",
-    month_col: str = "Month",
-    date_col: str = "Date",
-    out_col: str = "Hydro_Year_fixed",
+    water_value: int = 1,
+    dry_value: int = 0,
+    outside_value: int = -2,
+    invalid_value: int = -1,
+    spatial_dims: tuple[str, str] = ("y", "x"),
 ) -> pd.DataFrame:
-    out = df.copy()
-    if date_col not in out.columns:
-        out[date_col] = pd.to_datetime(out[[year_col, month_col]].assign(day=1))
+    """Summarise monthly canonical masks without treating invalid pixels as dry.
+
+    ``n_valid`` counts only pixels explicitly equal to ``water_value`` or
+    ``dry_value``; any other code (unknown values, NaN, out-of-domain codes
+    that bypassed a classifier) counts as invalid rather than silently
+    inflating the valid denominator. Raster dependencies are imported only at
+    this computation boundary. The four scalar summaries share one
+    ``dask.compute`` call.
+    """
+    try:
+        import dask
+    except ImportError as exc:  # pragma: no cover - depends on optional extra
+        raise ImportError("monthly_water_extent requires the raster extra (dask and xarray).") from exc
+
+    dims = list(spatial_dims)
+    n_aoi = (water_mask != outside_value).sum(dim=dims)
+    n_water = (water_mask == water_value).sum(dim=dims)
+    n_dry = (water_mask == dry_value).sum(dim=dims)
+    n_valid = n_water + n_dry
+    n_invalid = n_aoi - n_valid
+    n_aoi, n_valid, n_water, n_invalid = dask.compute(n_aoi, n_valid, n_water, n_invalid)
+
+    n_aoi_arr = np.asarray(n_aoi.values, dtype=float)
+    n_valid_arr = np.asarray(n_valid.values, dtype=float)
+    n_water_arr = np.asarray(n_water.values, dtype=float)
+    n_invalid_arr = np.asarray(n_invalid.values, dtype=float)
+    extent_pct = np.full_like(n_valid_arr, np.nan)
+    np.divide(n_water_arr * 100.0, n_valid_arr, out=extent_pct, where=n_valid_arr > 0)
+    invalid_pct = np.full_like(n_aoi_arr, np.nan)
+    np.divide(n_invalid_arr * 100.0, n_aoi_arr, out=invalid_pct, where=n_aoi_arr > 0)
+
+    return pd.DataFrame(
+        {
+            "n_water": n_water_arr.astype(int),
+            "n_aoi": n_aoi_arr.astype(int),
+            "n_valid": n_valid_arr.astype(int),
+            "n_invalid": n_invalid_arr.astype(int),
+            "extent_pct": extent_pct,
+            "invalid_pct": invalid_pct,
+        },
+        index=pd.DatetimeIndex(np.asarray(water_mask.time.values)),
+    )
+
+
+def detect_hydrological_years(
+    extent: pd.Series | pd.DataFrame,
+    *,
+    value_col: str = "extent_pct",
+    date_col: str | None = None,
+    config: HydroYearConfig | None = None,
+    duplicate_month_policy: DuplicateMonthPolicy = "raise",
+    missing_month_policy: MissingMonthPolicy = "raise",
+    max_invalid_pct: float = 20.0,
+) -> pd.DataFrame:
+    """Detect hydrological years from a complete, quality-screened monthly series.
+
+    ``invalid_pct`` is honoured when supplied in a DataFrame. The conservative
+    default rejects months with more than 20% invalid coverage (see migration
+    plan §6.2); callers may explicitly raise ``max_invalid_pct`` after
+    assessing data quality.
+    """
+    if not 0 <= max_invalid_pct <= 100:
+        raise ValueError("max_invalid_pct must be between 0 and 100.")
+    cfg = config or HydroYearConfig()
+    series, invalid_pct, full_index = _coerce_monthly_series(
+        extent,
+        value_col=value_col,
+        date_col=date_col,
+        duplicate_month_policy=duplicate_month_policy,
+    )
+    if invalid_pct is not None:
+        invalid = invalid_pct.reindex(full_index)
+        if invalid.isna().any() or (invalid > max_invalid_pct).any():
+            raise ValueError(
+                "Invalid coverage exceeds max_invalid_pct or is unknown; "
+                "use completed masks, quality-screen the series, or explicitly raise the threshold."
+            )
+    if series.empty:
+        return _empty_result()
+    _handle_missing_months(series.index, policy=missing_month_policy)
+
+    rows: list[dict] = []
+    for year in range(int(series.index.min().year), int(series.index.max().year) + 1):
+        wet = _window(series, pd.Timestamp(year - 1, cfg.wet_start_month, 1), pd.Timestamp(year, cfg.wet_end_month, 1))
+        dry = _window(series, pd.Timestamp(year, cfg.dry_start_month, 1), pd.Timestamp(year, cfg.dry_end_month, 1))
+        if len(wet) < cfg.min_wet_months or len(dry) < cfg.min_dry_months:
+            continue
+        peak_month = _idxmax_with_middle_tie_break(wet)
+        end_dry_month = _idxmin_with_middle_tie_break(dry)
+        span = _window(series, peak_month, end_dry_month)
+        mid_dry_month = _month_nearest_midpoint(span.index, peak_month, end_dry_month)
+        peak_extent, end_extent, mid_extent = (
+            float(series.loc[peak_month]),
+            float(series.loc[end_dry_month]),
+            float(series.loc[mid_dry_month]),
+        )
+        rows.append({
+            "hy_year": year, "hy_start": wet.index.min(), "hy_end": dry.index.max(),
+            "peak_month": peak_month, "peak_extent_pct": round(peak_extent, 6),
+            "mid_dry_month": mid_dry_month, "mid_extent_pct": round(mid_extent, 6),
+            "end_dry_month": end_dry_month, "end_extent_pct": round(end_extent, 6),
+            "amplitude_pct": round(peak_extent - end_extent, 6), "n_months_cycle": int(len(span)),
+            "confidence": "unassigned", "boundary_source": "annual_window",
+        })
+    result = pd.DataFrame(rows)
+    if result.empty:
+        return _empty_result()
+    return _assign_confidence(_assign_end_dry_spans(result, series.index), cfg)
+
+
+def label_hydrological_months(dates: pd.Index | pd.Series | pd.DatetimeIndex, hy_df: pd.DataFrame) -> pd.DataFrame:
+    """Assign Wet/Dry and hydrological-year labels from detected boundaries."""
+    times = pd.DatetimeIndex(pd.to_datetime(dates)).to_period("M").to_timestamp()
+    labels = pd.DataFrame(index=times)
+    labels["hy_year"], labels["season"] = np.nan, "unassigned"
+    if hy_df.empty:
+        return labels
+    ordered = hy_df.sort_values("hy_year").reset_index(drop=True)
+    for _, row in ordered.iterrows():
+        mask = (labels.index >= pd.Timestamp(row["hy_start"])) & (labels.index <= pd.Timestamp(row["hy_end"]))
+        labels.loc[mask, "hy_year"] = int(row["hy_year"])
+        labels.loc[mask & (labels.index <= pd.Timestamp(row["peak_month"])), "season"] = "Wet"
+        labels.loc[mask & (labels.index > pd.Timestamp(row["peak_month"])), "season"] = "Dry"
+    first, last = ordered.iloc[0], ordered.iloc[-1]
+    before = labels.index <= pd.Timestamp(first["hy_end"])
+    labels.loc[before & labels["hy_year"].isna(), ["hy_year", "season"]] = (int(first["hy_year"]), "Wet")
+    after = labels.index > pd.Timestamp(last["hy_end"])
+    labels.loc[after, ["hy_year", "season"]] = (int(last["hy_year"]), "Dry")
+    return labels
+
+
+def _coerce_monthly_series(extent, *, value_col, date_col, duplicate_month_policy):
+    if isinstance(extent, pd.Series):
+        series, invalid = extent.copy(), None
     else:
-        out[date_col] = pd.to_datetime(out[date_col])
-    out[out_col] = out[date_col].map(lambda d: assign_hydro_year(d, start_month))
+        frame = extent.copy()
+        frame.index = pd.to_datetime(frame[date_col] if date_col is not None else frame.index)
+        series = frame[value_col].copy()
+        invalid = frame["invalid_pct"].copy() if "invalid_pct" in frame else None
+    series.index = pd.to_datetime(series.index).to_period("M").to_timestamp()
+    _handle_duplicate_months(pd.DatetimeIndex(series.index), policy=duplicate_month_policy)
+    if series.index.has_duplicates:
+        series = series[~series.index.duplicated(keep="first")]
+    series = pd.to_numeric(series, errors="coerce").sort_index()
+    full_index = series.index
+    series = series.dropna()
+    if invalid is not None:
+        invalid.index = pd.to_datetime(invalid.index).to_period("M").to_timestamp()
+        invalid = invalid[~invalid.index.duplicated(keep="first")]
+        invalid = pd.to_numeric(invalid, errors="coerce").sort_index()
+    return series, invalid, full_index
+
+
+def _handle_duplicate_months(months: pd.DatetimeIndex, *, policy: DuplicateMonthPolicy) -> None:
+    if months.is_unique:
+        return
+    duplicates = sorted({timestamp.strftime("%Y-%m") for timestamp in months[months.duplicated(keep=False)]})
+    if policy == "raise":
+        raise ValueError(f"duplicate month timestamps: {duplicates}.")
+    if policy != "warn":
+        raise ValueError("duplicate_month_policy must be 'raise' or 'warn'.")
+    import warnings
+    warnings.warn(f"Duplicate month timestamps: {duplicates}; keeping first occurrence.", UserWarning, stacklevel=3)
+
+
+def _handle_missing_months(months: pd.DatetimeIndex, *, policy: MissingMonthPolicy) -> None:
+    if policy not in ("raise", "ignore"):
+        raise ValueError("missing_month_policy must be 'raise' or 'ignore'.")
+    expected = pd.date_range(months.min(), months.max(), freq="MS")
+    missing = expected.difference(months)
+    if len(missing) and policy == "raise":
+        raise ValueError(f"missing month timestamps: {[time.strftime('%Y-%m') for time in missing]}.")
+
+
+def _window(series, start, end):
+    return series.loc[(series.index >= start) & (series.index <= end)]
+
+
+def _idxmax_with_middle_tie_break(series):
+    candidates = series[series == series.max()]
+    return pd.Timestamp(candidates.index[len(candidates) // 2])
+
+
+def _idxmin_with_middle_tie_break(series):
+    candidates = series[series == series.min()]
+    return pd.Timestamp(candidates.index[len(candidates) // 2])
+
+
+def _month_nearest_midpoint(dates, start, end):
+    if len(dates) == 0:
+        return pd.Timestamp(end)
+    midpoint = (start.toordinal() + end.toordinal()) / 2.0
+    return pd.Timestamp(dates[int(np.argmin(np.abs(np.array([date.toordinal() for date in dates]) - midpoint)))])
+
+
+def _assign_confidence(result, cfg):
+    out = result.copy()
+    positive = out.loc[out["amplitude_pct"] > 0, "amplitude_pct"]
+    typical = float(positive.median()) if len(positive) else 0.0
+    out["confidence"] = np.select(
+        [out["amplitude_pct"] <= max(0.0, typical * cfg.low_confidence_ratio), out["amplitude_pct"] <= max(0.0, typical * cfg.medium_confidence_ratio)],
+        ["low", "medium"], default="high",
+    )
+    out.loc[out["confidence"] == "low", "boundary_source"] = "annual_window_low_amplitude"
+    out.loc[out["amplitude_pct"] <= 0, "boundary_source"] = "flat_window"
     return out
 
 
-def assign_hydro_years(
-    df: pd.DataFrame,
-    *,
-    long_period_threshold: int = 16,
-    fallback_month: int = 10,
-    hydro_year_start_month: int | None = None,
-    onset_window_months: int | None = 1,
-    rainfall_col: str = "Rainfall_mm",
-    max_hydro_year_months: int | None = 15,
-    no_dry_split_min_months: int = 9,
-    no_dry_split_max_months: int = 15,
-    min_dry_season_length: int = 2,
-    date_col: str = "Date",
-    year_col: str = "Year",
-    month_col: str = "Month",
-) -> pd.DataFrame:
-    """Dynamic hydro years from successive wet-season onsets.
+def _assign_end_dry_spans(result, dates):
+    out = result.sort_values("hy_year").reset_index(drop=True).copy()
+    out["hy_start"] = [pd.Timestamp(dates.min()) if i == 0 else pd.Timestamp(out.loc[i - 1, "end_dry_month"]) + pd.DateOffset(months=1) for i in range(len(out))]
+    out["hy_end"] = pd.to_datetime(out["end_dry_month"])
+    out["n_months_cycle"] = [len(pd.date_range(start, end, freq="MS")) for start, end in zip(out["hy_start"], out["hy_end"])]
+    return out
 
-    ``Hydro_Year`` advances **only** at real Wet onsets (``SeasonType``
-    transitions to Wet).  Normal onsets are filtered by ``onset_window_months``
-    (circular distance from the anchor month); this prevents off-cycle wet
-    fragments from incrementing the label.  Filtered unimodal runs also allow
-    at most one advancing onset per seasonal cycle, so a widened onset window
-    cannot count multiple shoulder onsets in the same year.  When a gap between
-    accepted onsets reaches ``long_period_threshold``, the nearest excluded
-    real Wet onset to the *next* expected occurrence of ``fallback_month`` is
-    recovered as a boundary.  This step iterates until all remaining gaps are
-    below the threshold or no further Wet onsets are available to recover.  If
-    no real Wet onset exists in a gap, no boundary is inserted — ``Hydro_Year`` never
-    changes inside an ongoing Dry season.
 
-    **Bimodal / two-wet-season regimes** (e.g. East Africa long rains + short
-    rains): set ``onset_window_months=None`` so that *every* Wet onset starts a
-    new ``Hydro_Year``.  In that case ``Hydro_Year`` increments at each wet
-    onset — possibly twice per calendar year — and is a sequential counter, not
-    a calendar-year label.
+def _empty_result():
+    return pd.DataFrame(columns=["hy_year", "hy_start", "hy_end", "peak_month", "peak_extent_pct", "mid_dry_month", "mid_extent_pct", "end_dry_month", "end_extent_pct", "amplitude_pct", "n_months_cycle", "confidence", "boundary_source"])
 
-    **Arid regimes** where dry periods exceed ``long_period_threshold`` are
-    handled correctly: if no wet season occurs during a drought, no boundary is
-    inserted and ``Hydro_Year`` stays constant until the next real Wet onset.
 
-    Parameters
-    ----------
-    long_period_threshold : int
-        Maximum allowable gap (months) between accepted wet onsets before
-        attempting to recover a filtered Wet onset.
-    fallback_month : int
-        Target month when choosing the best fallback Wet onset inside a long
-        gap.  The target date is the **first** occurrence of this month strictly
-        after the gap's opening onset: same calendar year when the onset precedes
-        ``fallback_month``, next year otherwise.
-    hydro_year_start_month : int, optional
-        Anchor month from the fixed-season step. Used to compute the initial
-        ``Hydro_Year`` (defaults to ``fallback_month`` when omitted).
-    onset_window_months : int | None
-        Circular distance (months) from the anchor month within which a Wet
-        shift is accepted in the normal pass.  ``None`` accepts all Wet shifts
-        (required for bimodal regimes so that both wet seasons advance the
-        hydro year).
-    """
-    df = df.copy()
-    df[date_col] = pd.to_datetime(df[date_col])
-    df = df.sort_values(date_col).reset_index(drop=True)
-    df["SeasonShift"] = df["SeasonShift"].astype(bool)
-
-    anchor_month = int(hydro_year_start_month) if hydro_year_start_month is not None else int(fallback_month)
-
-    first_date = pd.Timestamp(df.iloc[0][date_col])
-    # Use the same ending-year convention as assign_fixed_hydro_year:
-    # e.g. Dec 1986 with a November start belongs to Hydro_Year 1987.
-    initial_hydro_year = assign_hydro_year(first_date, anchor_month)
-
-    wet_shifts = df.loc[df["SeasonShift"] & (df["SeasonType"] == "Wet"), date_col]
-    all_wet_shift_dates: list[pd.Timestamp] = sorted(wet_shifts.tolist())
-
-    # The first row is always flagged as a SeasonShift (no prior row to compare
-    # to).  That flag is an artefact, not a real Dry→Wet onset, so drop it.
-    if all_wet_shift_dates and all_wet_shift_dates[0] == df[date_col].iloc[0]:
-        all_wet_shift_dates = all_wet_shift_dates[1:]
-
-    def _month_distance(a: int, b: int) -> int:
-        diff = abs(a - b)
-        return min(diff, 12 - diff)
-
-    def _months_between(a: pd.Timestamp, b: pd.Timestamp) -> int:
-        return (b.year - a.year) * 12 + (b.month - a.month)
-
-    def _fallback_target(start: pd.Timestamp) -> pd.Timestamp:
-        """First occurrence of fallback_month strictly after *start*."""
-        fb = int(fallback_month)
-        yr = start.year if start.month < fb else start.year + 1
-        return pd.Timestamp(year=yr, month=fb, day=1)
-
-    if onset_window_months is not None:
-        accepted: set[pd.Timestamp] = set()
-        accepted_sources: dict[pd.Timestamp, str] = {}
-        for d in all_wet_shift_dates:
-            if _month_distance(int(d.month), anchor_month) <= int(onset_window_months):
-                accepted.add(d)
-                accepted_sources[d] = "wet_onset"
-    else:
-        # Bimodal / no filtering: every real Wet onset advances the hydro year.
-        accepted = set(all_wet_shift_dates)
-        accepted_sources = {d: "wet_onset" for d in all_wet_shift_dates}
-
-    all_wet_set = set(all_wet_shift_dates)
-    last_date = df[date_col].iloc[-1]
-
-    def _unimodal_onset_cycle(d: pd.Timestamp) -> int:
-        """Ending-year label of the seasonal cycle an onset is closest to."""
-        fixed_label = assign_hydro_year(d, anchor_month)
-        months_since_anchor = (int(d.month) - anchor_month) % 12
-        if months_since_anchor > 6:
-            return fixed_label + 1
-        return fixed_label
-
-    def _effective_hy_starts(starts: set[pd.Timestamp]) -> list[pd.Timestamp]:
-        """Drop duplicate unimodal onsets that target an already-counted cycle."""
-        ordered = sorted(starts)
-        if onset_window_months is None:
-            return ordered
-
-        effective: list[pd.Timestamp] = []
-        last_cycle = initial_hydro_year
-        for d in ordered:
-            cycle = _unimodal_onset_cycle(d)
-            if cycle <= last_cycle:
-                continue
-            effective.append(d)
-            last_cycle = cycle
-        return effective
-
-    def _nearest_candidate(
-        start: pd.Timestamp,
-        end: pd.Timestamp,
-        *,
-        include_end: bool = False,
-    ) -> pd.Timestamp | None:
-        """Unaccepted real Wet onset in (start, end] nearest to the fallback target."""
-        target = _fallback_target(start)
-        candidates = [
-            d for d in all_wet_set
-            if d not in accepted
-            and start < d
-            and (d <= end if include_end else d < end)
-        ]
-        if not candidates:
-            return None
-        return min(candidates, key=lambda d: abs(_months_between(target, d)))
-
-    # Iteratively recover filtered Wet onsets from long gaps until no gaps
-    # remain above the threshold or no further candidates exist.
-    # Bounded by the number of available real Wet onsets.
-    for _ in range(len(all_wet_shift_dates) + 1):
-        current = _effective_hy_starts(accepted)
-        new: list[pd.Timestamp] = []
-
-        for s, e in zip(current, current[1:]):
-            if _months_between(s, e) >= long_period_threshold:
-                r = _nearest_candidate(s, e)
-                if r is not None:
-                    new.append(r)
-
-        tail_anchor = current[-1] if current else first_date
-        if _months_between(tail_anchor, last_date) >= long_period_threshold:
-            r = _nearest_candidate(tail_anchor, last_date, include_end=True)
-            if r is not None:
-                new.append(r)
-
-        if not new:
-            break
-        for d in new:
-            accepted.add(d)
-            accepted_sources[d] = "recovered_onset"
-
-    all_hy_starts = _effective_hy_starts(accepted)
-    source_by_date = {
-        d: accepted_sources.get(d, "wet_onset")
-        for d in all_hy_starts
-    }
-
-    def _has_real_dry_run(seasons: pd.Series) -> bool:
-        run = 0
-        for label in seasons.astype(str):
-            if label == "Dry":
-                run += 1
-                if run >= int(min_dry_season_length):
-                    return True
-            else:
-                run = 0
-        return False
-
-    def _candidate_allowed_for_label(
-        candidate: pd.Timestamp,
-        proposed_label: int | None,
-    ) -> bool:
-        if proposed_label is None or onset_window_months is None:
-            return True
-        max_allowed = assign_hydro_year(candidate, anchor_month) + 1
-        return int(proposed_label) <= int(max_allowed)
-
-    def _label_at_span_start(
-        start: pd.Timestamp,
-        starts: list[pd.Timestamp],
-    ) -> int:
-        if start == first_date:
-            return int(initial_hydro_year)
-        return int(initial_hydro_year + np.searchsorted(starts, start, side="right"))
-
-    def _no_dry_minimum_candidate(
-        span_start: pd.Timestamp,
-        span_end_exclusive: pd.Timestamp,
-        proposed_label: int | None = None,
-    ) -> pd.Timestamp | None:
-        if rainfall_col not in df.columns:
-            return None
-        window_start = span_start + pd.DateOffset(months=int(no_dry_split_min_months))
-        window_end = span_start + pd.DateOffset(months=int(no_dry_split_max_months))
-        latest = span_end_exclusive - pd.DateOffset(months=1)
-        if window_end > latest:
-            window_end = latest
-        if window_start > window_end:
-            return None
-
-        prefix = df[
-            (df[date_col] >= span_start)
-            & (df[date_col] <= window_end)
-        ]
-        if prefix.empty or _has_real_dry_run(prefix["SeasonType"]):
-            return None
-        if not bool(prefix["SeasonType"].astype(str).eq("Wet").any()):
-            return None
-
-        candidates = df[
-            (df[date_col] >= window_start)
-            & (df[date_col] <= window_end)
-        ].copy()
-        if candidates.empty:
-            return None
-        values = pd.to_numeric(candidates[rainfall_col], errors="coerce")
-        if values.isna().all():
-            return None
-        idx = values.idxmin()
-        candidate = pd.Timestamp(df.loc[idx, date_col])
-        if candidate <= span_start or candidate >= span_end_exclusive:
-            return None
-        if not _candidate_allowed_for_label(candidate, proposed_label):
-            return None
-        return candidate
-
-    if (
-        max_hydro_year_months is not None
-        and int(max_hydro_year_months) > 0
-        and rainfall_col in df.columns
-    ):
-        end_exclusive = last_date + pd.DateOffset(months=1)
-        starts = sorted(all_hy_starts)
-        for _ in range(len(df) + 1):
-            boundaries = [first_date] + starts + [end_exclusive]
-            new_starts: list[pd.Timestamp] = []
-            for start, end in zip(boundaries, boundaries[1:]):
-                span_rows = df[
-                    (df[date_col] >= start)
-                    & (df[date_col] < end)
-                ]
-                if len(span_rows) <= int(max_hydro_year_months):
-                    continue
-                proposed_label = _label_at_span_start(start, starts) + 1
-                candidate = _no_dry_minimum_candidate(
-                    start,
-                    end,
-                    proposed_label,
-                )
-                if candidate is not None and candidate not in starts:
-                    new_starts.append(candidate)
-                    source_by_date[candidate] = "no_dry_minimum"
-            if not new_starts:
-                break
-            starts = sorted(set(starts).union(new_starts))
-        all_hy_starts = starts
-
-    def _dedupe_unimodal_starts(starts: list[pd.Timestamp]) -> list[pd.Timestamp]:
-        if onset_window_months is None:
-            return sorted(starts)
-        final_starts: list[pd.Timestamp] = []
-        last_cycle = initial_hydro_year
-        for start in sorted(starts):
-            cycle = _unimodal_onset_cycle(start)
-            source = source_by_date.get(start, "wet_onset")
-            if cycle <= last_cycle:
-                if source not in {"no_dry_minimum", "recovered_onset", "dry_anchor"}:
-                    continue
-                proposed_cycle = last_cycle + 1
-                max_allowed = assign_hydro_year(start, anchor_month) + 1
-                if proposed_cycle > max_allowed:
-                    continue
-                last_cycle = proposed_cycle
-            else:
-                last_cycle = cycle
-            final_starts.append(start)
-        return final_starts
-
-    all_hy_starts = _dedupe_unimodal_starts(all_hy_starts)
-
-    def _first_wet_onset_after_real_dry(
-        span_start: pd.Timestamp,
-        span_end_exclusive: pd.Timestamp,
-        proposed_label: int | None = None,
-    ) -> pd.Timestamp | None:
-        rows = df[
-            (df[date_col] >= span_start)
-            & (df[date_col] < span_end_exclusive)
-        ].sort_values(date_col)
-        dry_run = 0
-        seen_real_dry = False
-        previous = None
-        recovering_wet_run = False
-        for _, row in rows.iterrows():
-            label = str(row["SeasonType"])
-            if label == "Dry":
-                dry_run += 1
-                if dry_run >= int(min_dry_season_length):
-                    seen_real_dry = True
-                recovering_wet_run = False
-            else:
-                if label == "Wet" and seen_real_dry and (
-                    previous == "Dry" or recovering_wet_run
-                ):
-                    recovering_wet_run = True
-                    candidate = pd.Timestamp(row[date_col])
-                    if _candidate_allowed_for_label(candidate, proposed_label):
-                        return candidate
-                else:
-                    recovering_wet_run = False
-                dry_run = 0
-            previous = label
-        return None
-
-    def _dry_anchor_candidate(
-        span_start: pd.Timestamp,
-        span_end_exclusive: pd.Timestamp,
-        proposed_label: int | None = None,
-    ) -> pd.Timestamp | None:
-        window_start = span_start + pd.DateOffset(months=int(no_dry_split_min_months))
-        window_end = span_start + pd.DateOffset(months=int(no_dry_split_max_months))
-        latest = span_end_exclusive - pd.DateOffset(months=1)
-        if window_end > latest:
-            window_end = latest
-        candidates = df[
-            (df[date_col] >= window_start)
-            & (df[date_col] <= window_end)
-            & (df[month_col].astype(int) == anchor_month)
-        ]
-        if candidates.empty:
-            fallback = span_start + pd.DateOffset(months=12)
-            candidates = df[df[date_col] == fallback]
-        if candidates.empty:
-            return None
-        candidate = pd.Timestamp(candidates.iloc[0][date_col])
-        if candidate <= span_start or candidate >= span_end_exclusive:
-            return None
-        if not _candidate_allowed_for_label(candidate, proposed_label):
-            return None
-        return candidate
-
-    if (
-        max_hydro_year_months is not None
-        and int(max_hydro_year_months) > 0
-        and rainfall_col in df.columns
-    ):
-        end_exclusive = last_date + pd.DateOffset(months=1)
-        starts = sorted(all_hy_starts)
-        for _ in range(len(df) + 1):
-            boundaries = [first_date] + starts + [end_exclusive]
-            new_starts: list[pd.Timestamp] = []
-            for start, end in zip(boundaries, boundaries[1:]):
-                span_rows = df[
-                    (df[date_col] >= start)
-                    & (df[date_col] < end)
-                ]
-                if len(span_rows) <= int(max_hydro_year_months):
-                    continue
-
-                proposed_label = _label_at_span_start(start, starts) + 1
-                candidate = _first_wet_onset_after_real_dry(
-                    start,
-                    end,
-                    proposed_label,
-                )
-                source = "recovered_onset"
-                if candidate is None:
-                    candidate = _no_dry_minimum_candidate(
-                        start,
-                        end,
-                        proposed_label,
-                    )
-                    source = "no_dry_minimum"
-                if candidate is None:
-                    candidate = _dry_anchor_candidate(start, end, proposed_label)
-                    source = "dry_anchor"
-                if candidate is not None and candidate not in starts:
-                    new_starts.append(candidate)
-                    source_by_date[candidate] = source
-            if not new_starts:
-                break
-            starts = _dedupe_unimodal_starts(sorted(set(starts).union(new_starts)))
-        all_hy_starts = starts
-
-    counts = np.searchsorted(all_hy_starts, df[date_col], side="right")
-    df["Hydro_Year"] = initial_hydro_year + counts
-    df["Hydro_Year_Boundary_Source"] = pd.NA
-    df.loc[df.index[0], "Hydro_Year_Boundary_Source"] = "initial"
-    for start in all_hy_starts:
-        matches = df.index[df[date_col] == start]
-        if len(matches):
-            df.loc[matches[0], "Hydro_Year_Boundary_Source"] = (
-                source_by_date.get(start, "wet_onset")
-            )
-
-    no_dry_by_hy: dict[int, bool] = {}
-    for hy, group in df.groupby("Hydro_Year", sort=False):
-        has_wet = bool(group["SeasonType"].astype(str).eq("Wet").any())
-        no_real_dry = not _has_real_dry_run(group["SeasonType"])
-        no_dry_by_hy[int(hy)] = bool(has_wet and no_real_dry)
-    df["Hydro_Year_No_Dry_Season"] = (
-        df["Hydro_Year"].astype(int).map(no_dry_by_hy).fillna(False).astype(bool)
-    )
-    return df
+__all__ = ["HydroYearConfig", "detect_hydrological_years", "label_hydrological_months", "monthly_water_extent"]

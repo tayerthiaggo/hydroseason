@@ -1,422 +1,356 @@
+import importlib
+import sys
+
+import numpy as np
 import pandas as pd
-
-from hydroseason.dynamic_season import (
-    harmonize_with_zero_preservation,
-    segment_main_wet_season_fixed_threshold,
-)
-from hydroseason.hydro_year import (
-    assign_fixed_hydro_year,
-    assign_hydro_year,
-    assign_hydro_years,
-)
+import pytest
 
 
-def test_assign_hydro_years_accepts_renamed_date_col(monthly_df: pd.DataFrame):
-    """Regression: previously hardcoded 'Date'."""
-    monthly_df["Timestamp"] = pd.to_datetime(monthly_df[["Year", "Month"]].assign(day=1))
-    work = assign_fixed_hydro_year(monthly_df, start_month=11, date_col="Timestamp")
-    work = harmonize_with_zero_preservation(work, window=3)
-    seg, _ = segment_main_wet_season_fixed_threshold(work, date_col="Timestamp")
-    out = assign_hydro_years(seg, date_col="Timestamp")
-    assert "Hydro_Year" in out.columns
-    assert out["Hydro_Year"].dtype.kind in {"i", "u"}
+def _monthly_extent(start="2019-01-01", periods=36, value=50.0):
+    index = pd.date_range(start, periods=periods, freq="MS")
+    return pd.Series(value, index=index, name="extent_pct")
 
 
-def test_assign_hydro_years_initial_year_uses_start_month(monthly_df: pd.DataFrame):
-    """Regression for inverted initial_hydro_year logic."""
-    monthly_df["Date"] = pd.to_datetime(monthly_df[["Year", "Month"]].assign(day=1))
-    work = assign_fixed_hydro_year(monthly_df, start_month=11)
-    work = harmonize_with_zero_preservation(work, window=3)
-    seg, _ = segment_main_wet_season_fixed_threshold(work)
-    out = assign_hydro_years(seg, hydro_year_start_month=11, fallback_month=11)
-    # Jan-Oct 2020 precede the next anchor month 11, so under the ending-year
-    # convention they belong to HY 2020.
-    first_year = out.loc[out["Date"] == pd.Timestamp("2020-01-01"), "Hydro_Year"].iloc[0]
-    assert first_year == 2020
+def test_csv_detection_imports_without_raster_dependencies(monkeypatch):
+    for name in ("xarray", "dask", "rasterio", "geopandas"):
+        monkeypatch.setitem(sys.modules, name, None)
+
+    module = importlib.import_module("hydroseason.hydro_year")
+
+    assert callable(module.detect_hydrological_years)
+    assert callable(module.label_hydrological_months)
 
 
-def test_assign_hydro_years_ignores_mid_year_wet_fragment():
-    dates = pd.date_range("2020-01-01", periods=12, freq="MS")
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-        "SeasonType": [
-            "Wet", "Wet", "Wet", "Dry", "Wet", "Dry",
-            "Dry", "Dry", "Dry", "Wet", "Wet", "Wet",
-        ],
-    })
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+def test_duplicate_months_raise_by_default():
+    from hydroseason.hydro_year import detect_hydrological_years
 
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=11,
-        fallback_month=11,
-        onset_window_months=1,
-    )
+    extent = _monthly_extent(periods=24)
+    duplicate = pd.concat([extent, extent.iloc[[0]]]).sort_index()
 
-    # May is a wet fragment too far from the Oct-Dec onset window, so it stays HY2020.
-    assert out.loc[out["Date"] == pd.Timestamp("2020-05-01"), "Hydro_Year"].iloc[0] == 2020
-    # October is within one month of the November climatological onset, so it starts HY2021.
-    assert out.loc[out["Date"] == pd.Timestamp("2020-10-01"), "Hydro_Year"].iloc[0] == 2021
+    with pytest.raises(ValueError, match="duplicate"):
+        detect_hydrological_years(duplicate)
 
 
-def test_assign_hydro_years_deduplicates_unimodal_january_cycle_onsets():
-    dates = pd.date_range("2018-01-01", "2020-12-01", freq="MS")
-    wet_onsets = {
-        pd.Timestamp("2018-03-01"),
-        pd.Timestamp("2018-11-01"),
-        pd.Timestamp("2019-10-01"),
-        pd.Timestamp("2020-03-01"),
-        pd.Timestamp("2020-10-01"),
-    }
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-        "SeasonType": ["Wet" if d in wet_onsets else "Dry" for d in dates],
-    })
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+def test_duplicate_months_raise_even_when_one_value_is_missing():
+    from hydroseason.hydro_year import detect_hydrological_years
 
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=1,
-        fallback_month=1,
-        onset_window_months=3,
-    )
+    extent = _monthly_extent(periods=24)
+    duplicate = pd.concat([extent, pd.Series([np.nan], index=[extent.index[0]])]).sort_index()
 
-    fixed_hy = out["Date"].map(lambda d: assign_hydro_year(pd.Timestamp(d), 1))
-    assert (out["Hydro_Year"] <= fixed_hy + 1).all()
-    assert out.loc[out["Date"] == pd.Timestamp("2018-11-01"), "Hydro_Year"].iloc[0] == 2019
-    assert out.loc[out["Date"] == pd.Timestamp("2020-03-01"), "Hydro_Year"].iloc[0] == 2020
+    with pytest.raises(ValueError, match="duplicate"):
+        detect_hydrological_years(duplicate)
 
 
-def test_assign_hydro_years_deduplicates_unimodal_may_cycle_onsets():
-    dates = pd.date_range("2013-01-01", "2016-12-01", freq="MS")
-    wet_onsets = {
-        pd.Timestamp("2013-05-01"),
-        pd.Timestamp("2013-07-01"),
-        pd.Timestamp("2014-04-01"),
-        pd.Timestamp("2014-07-01"),
-        pd.Timestamp("2015-04-01"),
-        pd.Timestamp("2015-07-01"),
-        pd.Timestamp("2016-04-01"),
-    }
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-        "SeasonType": ["Wet" if d in wet_onsets else "Dry" for d in dates],
-    })
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+def test_warn_duplicate_policy_collapses_to_first_month_value():
+    from hydroseason.hydro_year import detect_hydrological_years
 
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=5,
-        fallback_month=5,
-        onset_window_months=3,
-    )
+    extent = _monthly_extent(periods=24)
+    duplicate = pd.concat([extent, pd.Series([99.0], index=[pd.Timestamp("2020-02-01")])]).sort_index()
 
-    fixed_hy = out["Date"].map(lambda d: assign_hydro_year(pd.Timestamp(d), 5))
-    assert (out["Hydro_Year"] <= fixed_hy + 1).all()
-    assert out.loc[out["Date"] == pd.Timestamp("2013-07-01"), "Hydro_Year"].iloc[0] == 2014
-    assert out.loc[out["Date"] == pd.Timestamp("2016-04-01"), "Hydro_Year"].iloc[0] == 2017
+    with pytest.warns(UserWarning, match="Duplicate"):
+        result = detect_hydrological_years(duplicate, duplicate_month_policy="warn")
+
+    assert isinstance(result, pd.DataFrame)
 
 
-def test_assign_hydro_years_does_not_insert_fallback_inside_dry_season():
-    dates = pd.date_range("2020-01-01", periods=24, freq="MS")
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-        "SeasonType": ["Wet", "Wet", "Wet"] + ["Dry"] * 21,
-    })
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+def test_missing_months_raise_by_default():
+    from hydroseason.hydro_year import detect_hydrological_years
 
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=11,
-        fallback_month=8,
-        long_period_threshold=12,
-        onset_window_months=1,
-    )
+    extent = _monthly_extent(periods=24).drop(pd.Timestamp("2019-06-01"))
 
-    assert out["Hydro_Year"].nunique() == 1
-    assert not out["Hydro_Year_Boundary_Source"].astype(str).eq("no_dry_minimum").any()
+    with pytest.raises(ValueError, match="missing"):
+        detect_hydrological_years(extent)
 
 
-def test_assign_hydro_years_splits_no_dry_year_at_local_minimum():
-    dates = pd.date_range("2020-01-01", periods=20, freq="MS")
-    rainfall = [
-        120, 110, 100, 95, 90, 85, 70, 60, 40, 5,
-        55, 80, 120, 130, 125, 90, 70, 55, 45, 35,
-    ]
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-        "Rainfall_mm": rainfall,
-        "SeasonType": ["Wet"] * len(dates),
-    })
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+def test_unsupported_season_window_geometry_fails_fast():
+    from hydroseason.hydro_year import HydroYearConfig
 
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=1,
-        fallback_month=1,
-        onset_window_months=1,
-        max_hydro_year_months=15,
-    )
-
-    boundary = out.loc[
-        out["Hydro_Year_Boundary_Source"].eq("no_dry_minimum"),
-        "Date",
-    ]
-    assert boundary.tolist() == [pd.Timestamp("2020-10-01")]
-    assert out.groupby("Hydro_Year").size().max() <= 15
-    assert out["Hydro_Year_No_Dry_Season"].all()
+    with pytest.raises(ValueError, match="supported"):
+        HydroYearConfig(wet_start_month=4, wet_end_month=6)
 
 
-def test_assign_hydro_years_no_dry_split_ignores_real_dry_season():
-    dates = pd.date_range("2020-01-01", periods=20, freq="MS")
-    season = ["Wet"] * 6 + ["Dry"] * 3 + ["Wet"] * 11
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-        "Rainfall_mm": [100.0] * 6 + [0.0] * 3 + [100.0] * 11,
-        "SeasonType": season,
-    })
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+def test_dry_window_cross_year_fails_fast():
+    from hydroseason.hydro_year import HydroYearConfig
 
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=1,
-        fallback_month=1,
-        onset_window_months=1,
-        max_hydro_year_months=15,
-    )
-
-    assert not out["Hydro_Year_Boundary_Source"].astype(str).eq("no_dry_minimum").any()
-    assert not out["Hydro_Year_No_Dry_Season"].all()
+    with pytest.raises(ValueError, match="supported"):
+        HydroYearConfig(dry_start_month=10, dry_end_month=3)
 
 
-def test_assign_hydro_years_recovers_filtered_real_wet_onset_for_long_gap():
-    dates = pd.date_range("2020-01-01", periods=24, freq="MS")
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-        "SeasonType": (
-            ["Wet", "Wet", "Wet"]
-            + ["Dry"] * 8
-            + ["Wet", "Wet", "Wet"]
-            + ["Dry"] * 10
-        ),
-    })
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+def test_dry_window_before_wet_end_fails_fast():
+    from hydroseason.hydro_year import HydroYearConfig
 
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=11,
-        fallback_month=10,
-        long_period_threshold=12,
-        onset_window_months=0,
-    )
-
-    recovered = out.loc[out["Date"] == pd.Timestamp("2020-12-01"), "Hydro_Year"].iloc[0]
-    preceding = out.loc[out["Date"] == pd.Timestamp("2020-11-01"), "Hydro_Year"].iloc[0]
-
-    assert recovered == preceding + 1
-    assert out.loc[out["Date"] == pd.Timestamp("2020-12-01"), "SeasonType"].iloc[0] == "Wet"
+    with pytest.raises(ValueError, match="supported"):
+        HydroYearConfig(wet_start_month=11, wet_end_month=4, dry_start_month=3, dry_end_month=6)
 
 
-def test_assign_hydro_years_bimodal_two_wet_onsets_per_year():
-    """Bimodal regime: onset_window_months=None → every Wet onset advances Hydro_Year.
+def test_invalid_coverage_is_rejected_conservatively_by_default():
+    from hydroseason.hydro_year import detect_hydrological_years
 
-    A pattern with 2 wet seasons per calendar year (e.g. East Africa long rains
-    + short rains) should produce 2 Hydro_Year increments per year.
-    Hydro_Year is a sequential counter, not a calendar-year label.
-    """
-    dates = pd.date_range("2020-01-01", periods=24, freq="MS")
-    # Two wet seasons per year: Mar-May and Sep-Nov
-    season = (
-        ["Dry", "Dry",
-         "Wet", "Wet", "Wet",   # Mar-May 2020 (first wet)
-         "Dry", "Dry", "Dry",
-         "Wet", "Wet", "Wet",   # Sep-Nov 2020 (second wet)
-         "Dry",
-         "Dry", "Dry",
-         "Wet", "Wet", "Wet",   # Mar-May 2021
-         "Dry", "Dry", "Dry",
-         "Wet", "Wet", "Wet",   # Sep-Nov 2021
-         "Dry"]
-    )
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-        "SeasonType": season,
-    })
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
+    extent = _monthly_extent(periods=24).to_frame()
+    extent["invalid_pct"] = 0.0
+    extent.loc[pd.Timestamp("2019-06-01"), "invalid_pct"] = 100.0
 
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=3,
-        fallback_month=3,
-        onset_window_months=None,
-    )
-
-    # 4 real Wet onsets → initial HY + 4 transitions = 5 distinct Hydro_Year values
-    assert out["Hydro_Year"].nunique() == 5
-
-    # Each wet onset increments Hydro_Year relative to the preceding month
-    for onset_date in [
-        pd.Timestamp("2020-03-01"),
-        pd.Timestamp("2020-09-01"),
-        pd.Timestamp("2021-03-01"),
-        pd.Timestamp("2021-09-01"),
-    ]:
-        prev_date = onset_date - pd.DateOffset(months=1)
-        hy_before = out.loc[out["Date"] == prev_date, "Hydro_Year"].iloc[0]
-        hy_at = out.loc[out["Date"] == onset_date, "Hydro_Year"].iloc[0]
-        assert hy_at == hy_before + 1
-        assert out.loc[out["Date"] == onset_date, "SeasonType"].iloc[0] == "Wet"
+    with pytest.raises(ValueError, match="invalid"):
+        detect_hydrological_years(extent)
 
 
-def test_assign_hydro_years_iterative_recovery_fills_multi_year_gap():
-    """Long gaps recover annual Wet onsets without double-counting duplicates.
+def test_invalid_coverage_can_be_explicitly_permitted():
+    from hydroseason.hydro_year import detect_hydrological_years
 
-    Setup: anchor_month=10, onset_window_months=0 (only exact month 10 accepted).
-    Accepted onsets: Oct 2020, Oct 2023 (36-month gap > long_period_threshold=12).
-    Filtered out: Mar 2021, Mar 2022.  Mar 2021 belongs to the same unimodal
-    seasonal cycle as Oct 2020, while Mar 2022 starts a later cycle.
-    """
-    dates = pd.date_range("2020-01-01", periods=48, freq="MS")  # Jan 2020 – Dec 2023
+    extent = _monthly_extent(periods=24).to_frame()
+    extent["invalid_pct"] = 100.0
 
-    # Build SeasonType: Dry everywhere except 3-month wet windows at each onset
-    onset_dates = {
-        pd.Timestamp("2020-10-01"),  # accepted (month 10)
-        pd.Timestamp("2021-03-01"),  # filtered (month 3)
-        pd.Timestamp("2022-03-01"),  # filtered (month 3)
-        pd.Timestamp("2023-10-01"),  # accepted (month 10)
-    }
-    season = []
-    for d in dates:
-        if any(onset <= d < onset + pd.DateOffset(months=3) for onset in onset_dates):
-            season.append("Wet")
-        else:
-            season.append("Dry")
+    result = detect_hydrological_years(extent, max_invalid_pct=100.0)
 
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-        "SeasonType": season,
-    })
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
-
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=10,
-        fallback_month=10,
-        long_period_threshold=12,
-        onset_window_months=0,
-    )
-
-    # Mar 2021 is a duplicate cycle onset; Mar 2022 is recovered as a boundary.
-    assert out["Hydro_Year"].nunique() == 4
-    assert out.loc[out["Date"] == pd.Timestamp("2021-03-01"), "Hydro_Year"].iloc[0] == 2021
-    assert out.loc[out["Date"] == pd.Timestamp("2022-03-01"), "Hydro_Year"].iloc[0] == 2022
-
-    # Every recovered boundary is at a real Wet onset
-    hy_changes = out[out["Hydro_Year"].ne(out["Hydro_Year"].shift()) & (out.index > 0)]
-    for _, row in hy_changes.iterrows():
-        assert row["SeasonType"] == "Wet", (
-            f"Hydro_Year changed at {row['Date']} but SeasonType is {row['SeasonType']!r}"
-        )
+    assert isinstance(result, pd.DataFrame)
 
 
-def test_assign_hydro_years_fallback_target_same_year_when_onset_precedes_fallback_month():
-    """When the gap-opening onset precedes fallback_month within the same year,
-    the recovery target must be fallback_month of the *same* year, not next year.
+def test_default_max_invalid_pct_permits_typical_wofs_cloud_noise():
+    from hydroseason.hydro_year import detect_hydrological_years
 
-    The previous bug used ``start.year + 1`` unconditionally, which biased
-    candidate selection toward later off-window onsets.
+    extent = _monthly_extent(periods=24).to_frame()
+    extent["invalid_pct"] = 5.0
 
-    Setup: anchor_month=4, onset_window_months=0 (only month-4 onsets accepted),
-    fallback_month=11.  Accepted: Apr 2020, Apr 2022.  Filtered: Nov 2020, Sep 2021.
-    Correct target after Apr 2020: Nov 2020 (same year, since 4 < 11).
-    Nov 2020 is 0 months from the target; Sep 2021 is 10 months away.
-    The old (buggy) target was Nov 2021, making Sep 2021 the nearest (2 months)
-    and skipping the Nov 2020 onset entirely.
-    """
-    dates = pd.date_range("2020-01-01", periods=36, freq="MS")  # Jan 2020 – Dec 2022
+    result = detect_hydrological_years(extent)
 
-    onset_dates = {
-        pd.Timestamp("2020-04-01"),  # accepted  (month 4 == anchor_month)
-        pd.Timestamp("2020-11-01"),  # filtered  (month 11 != 4) - should be recovered first
-        pd.Timestamp("2021-09-01"),  # filtered  (month 9 ≠ 4) — recovered in 2nd pass
-        pd.Timestamp("2022-04-01"),  # accepted  (month 4)
-    }
-    season = []
-    for d in dates:
-        if any(onset <= d < onset + pd.DateOffset(months=3) for onset in onset_dates):
-            season.append("Wet")
-        else:
-            season.append("Dry")
-
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-        "SeasonType": season,
-    })
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
-
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=4,
-        fallback_month=11,
-        long_period_threshold=14,
-        onset_window_months=0,
-    )
-
-    # Nov 2020 must be recovered as a Hydro_Year boundary (same-year target fix).
-    # With the old code Nov 2020 was skipped because the target was Nov 2021,
-    # making Sep 2021 (2 months away) win over Nov 2020 (12 months away).
-    oct20_hy = out.loc[out["Date"] == pd.Timestamp("2020-10-01"), "Hydro_Year"].iloc[0]
-    nov20_hy = out.loc[out["Date"] == pd.Timestamp("2020-11-01"), "Hydro_Year"].iloc[0]
-    assert nov20_hy == oct20_hy + 1, "Nov 2020 onset should start a new Hydro_Year"
-    assert out.loc[out["Date"] == pd.Timestamp("2020-11-01"), "SeasonType"].iloc[0] == "Wet"
-
-    # All HY changes must fall on real Wet onsets
-    hy_changes = out[out["Hydro_Year"].ne(out["Hydro_Year"].shift()) & (out.index > 0)]
-    for _, row in hy_changes.iterrows():
-        assert row["SeasonType"] == "Wet"
+    assert isinstance(result, pd.DataFrame)
+    assert not result.empty
 
 
-def test_assign_hydro_year_start_month_1():
-    """Verify that start_month=1 maps to calendar year (no +1 offset)."""
-    dates = pd.date_range("2020-01-01", periods=12, freq="MS")
-    df = pd.DataFrame({
-        "Date": dates,
-        "Year": dates.year,
-        "Month": dates.month,
-    })
-    
-    # Test assign_fixed_hydro_year
-    fixed = assign_fixed_hydro_year(df, start_month=1)
-    assert (fixed["Hydro_Year_fixed"] == 2020).all()
+def test_default_max_invalid_pct_still_rejects_above_twenty_percent():
+    from hydroseason.hydro_year import detect_hydrological_years
 
-    # Test assign_hydro_years
-    df["SeasonType"] = ["Wet"] * 3 + ["Dry"] * 9
-    df["SeasonShift"] = df["SeasonType"].ne(df["SeasonType"].shift())
-    
-    out = assign_hydro_years(
-        df,
-        hydro_year_start_month=1,
-        fallback_month=1,
-        onset_window_months=1,
-    )
-    assert (out["Hydro_Year"] == 2020).all()
+    extent = _monthly_extent(periods=24).to_frame()
+    extent["invalid_pct"] = 0.0
+    extent.loc[pd.Timestamp("2019-06-01"), "invalid_pct"] = 20.1
+
+    with pytest.raises(ValueError, match="invalid"):
+        detect_hydrological_years(extent)
+
+
+def _seasonal_extent(n_years=3):
+    index = pd.date_range("2018-01-01", periods=12 * n_years, freq="MS")
+    month = index.month
+    wet_amplitude = 40.0 * np.cos(2 * np.pi * (month - 2) / 12) + 50.0
+    return pd.Series(wet_amplitude, index=index, name="extent_pct")
+
+
+def test_detect_hydrological_years_golden_path_peak_and_end_dry():
+    from hydroseason.hydro_year import detect_hydrological_years
+
+    extent = _seasonal_extent(n_years=3)
+
+    result = detect_hydrological_years(extent)
+
+    assert list(result["hy_year"]) == [2018, 2019, 2020]
+    for _, row in result.iterrows():
+        assert row["peak_month"].month == 2
+        assert row["end_dry_month"].month == 8
+        assert row["amplitude_pct"] > 0
+
+
+def test_label_hydrological_months_splits_wet_dry_and_edges():
+    from hydroseason.hydro_year import detect_hydrological_years, label_hydrological_months
+
+    extent = _seasonal_extent(n_years=3)
+    hy_df = detect_hydrological_years(extent)
+
+    labels = label_hydrological_months(extent.index, hy_df)
+
+    first_year = hy_df.iloc[0]
+    peak = pd.Timestamp(first_year["peak_month"])
+    assert labels.loc[peak, "season"] == "Wet"
+    assert labels.loc[peak + pd.DateOffset(months=1), "season"] == "Dry"
+    assert labels["hy_year"].isna().sum() == 0
+
+    last_year = hy_df.iloc[-1]
+    after_last = labels.index > pd.Timestamp(last_year["hy_end"])
+    if after_last.any():
+        assert (labels.loc[after_last, "season"] == "Dry").all()
+        assert (labels.loc[after_last, "hy_year"] == int(last_year["hy_year"])).all()
+
+
+def test_month_nearest_midpoint_empty_dates_guard():
+    from hydroseason.hydro_year import _month_nearest_midpoint
+
+    result = _month_nearest_midpoint(pd.DatetimeIndex([]), pd.Timestamp("2020-02-01"), pd.Timestamp("2020-08-01"))
+
+    assert result == pd.Timestamp("2020-08-01")
+
+
+def test_monthly_water_extent_excludes_invalid_pixels_from_water_denominator():
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    import xarray as xr
+
+    from hydroseason.hydro_year import monthly_water_extent
+
+    masks = xr.DataArray(
+        np.array([[[1, -1], [0, -2]]], dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01"])},
+    ).chunk({"time": 1, "y": 1, "x": 1})
+
+    summary = monthly_water_extent(masks)
+
+    assert summary.loc[pd.Timestamp("2020-01-01"), "extent_pct"] == pytest.approx(50.0)
+    assert summary.loc[pd.Timestamp("2020-01-01"), "invalid_pct"] == pytest.approx(100 / 3)
+
+
+def test_monthly_water_extent_nan_pixels_are_invalid_not_dry():
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    import xarray as xr
+
+    from hydroseason.hydro_year import monthly_water_extent
+
+    masks = xr.DataArray(
+        np.full((1, 2, 2), np.nan, dtype=float),
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01"])},
+    ).chunk({"time": 1, "y": 1, "x": 1})
+
+    summary = monthly_water_extent(masks)
+    row = summary.loc[pd.Timestamp("2020-01-01")]
+
+    assert row["n_invalid"] == 4
+    assert row["invalid_pct"] == pytest.approx(100.0)
+    assert not (row["extent_pct"] == 0.0 and row["invalid_pct"] == 0.0)
+
+
+def test_monthly_water_extent_rejects_unknown_canonical_values():
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    import xarray as xr
+
+    from hydroseason.hydro_year import monthly_water_extent
+
+    masks = xr.DataArray(
+        np.full((1, 2, 2), 7, dtype=np.int16),
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01"])},
+    ).chunk({"time": 1, "y": 1, "x": 1})
+
+    summary = monthly_water_extent(masks)
+    row = summary.loc[pd.Timestamp("2020-01-01")]
+
+    assert row["n_invalid"] == 4
+    assert row["invalid_pct"] == pytest.approx(100.0)
+    assert not (row["extent_pct"] == 0.0 and row["invalid_pct"] == 0.0)
+
+
+def test_no_runtime_warning_on_fully_invalid_month(recwarn):
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    import warnings
+    import xarray as xr
+
+    from hydroseason.hydro_year import monthly_water_extent
+
+    masks = xr.DataArray(
+        np.full((1, 2, 2), -1, dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01"])},
+    ).chunk({"time": 1, "y": 1, "x": 1})
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        monthly_water_extent(masks)
+
+
+def test_completed_missing_month_is_rejected_not_dry():
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    import xarray as xr
+
+    from hydroseason.io import complete_monthly_axis
+    from hydroseason.hydro_year import detect_hydrological_years, monthly_water_extent
+
+    masks = xr.DataArray(
+        np.array([[[1, 0]] * 2] * 2, dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01", "2020-03-01"]), "y": [0, 1], "x": [0, 1]},
+    ).chunk({"time": 1, "y": 1, "x": 1})
+
+    completed = complete_monthly_axis(masks, "2020-01-01", "2020-03-01")
+    summary = monthly_water_extent(completed)
+    inserted = summary.loc[pd.Timestamp("2020-02-01")]
+
+    assert inserted["invalid_pct"] == pytest.approx(100.0)
+    assert np.isnan(inserted["extent_pct"])
+
+    # NaN extent_pct + invalid_pct=100 on the inserted month is rejected by
+    # invalid-coverage validation before it could be silently selected as a
+    # dry-window candidate; either failure mode proves it can't leak in as dry.
+    with pytest.raises(ValueError, match="invalid"):
+        detect_hydrological_years(summary)
+
+
+def test_leading_fully_invalid_month_is_rejected_not_silently_dropped():
+    from hydroseason.hydro_year import detect_hydrological_years
+
+    extent = _monthly_extent(start="2019-11-01", periods=14).to_frame()
+    extent["invalid_pct"] = 5.0
+    extent.iloc[0, extent.columns.get_loc("extent_pct")] = np.nan
+    extent.iloc[0, extent.columns.get_loc("invalid_pct")] = 100.0
+
+    with pytest.raises(ValueError, match="invalid"):
+        detect_hydrological_years(extent)
+
+
+def test_trailing_fully_invalid_month_is_rejected_not_silently_dropped():
+    from hydroseason.hydro_year import detect_hydrological_years
+
+    extent = _monthly_extent(start="2019-01-01", periods=14).to_frame()
+    extent["invalid_pct"] = 5.0
+    extent.iloc[-1, extent.columns.get_loc("extent_pct")] = np.nan
+    extent.iloc[-1, extent.columns.get_loc("invalid_pct")] = 100.0
+
+    with pytest.raises(ValueError, match="invalid"):
+        detect_hydrological_years(extent)
+
+
+def test_wofs_cloud_flags_do_not_create_false_end_dry_boundary():
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    import xarray as xr
+
+    from hydroseason.hydro_year import detect_hydrological_years, monthly_water_extent
+
+    n_years = 3
+    index = pd.date_range("2018-01-01", periods=12 * n_years, freq="MS")
+    month = index.month
+    wet_amplitude = 40.0 * np.cos(2 * np.pi * (month - 2) / 12) + 50.0
+    grid = 10
+    frames = []
+    for pct in wet_amplitude:
+        n_water = int(round(pct / 100.0 * grid * grid))
+        flat = np.zeros(grid * grid, dtype=np.int8)
+        flat[:n_water] = 1
+        frames.append(flat.reshape(grid, grid))
+    cube = np.stack(frames, axis=0)
+
+    # Inject light cloud noise (10% of pixels -> invalid) into August months,
+    # the expected end-dry boundary, well under the 20% rejection threshold.
+    rng = np.random.default_rng(0)
+    for i, date in enumerate(index):
+        if date.month == 8:
+            flat = cube[i].reshape(-1)
+            cloud_idx = rng.choice(grid * grid, size=grid * grid // 10, replace=False)
+            flat[cloud_idx] = -1
+
+    masks = xr.DataArray(
+        cube,
+        dims=("time", "y", "x"),
+        coords={"time": index},
+    ).chunk({"time": 1, "y": grid, "x": grid})
+
+    summary = monthly_water_extent(masks)
+    assert (summary["invalid_pct"].dropna() <= 20.0).all()
+
+    result = detect_hydrological_years(summary)
+
+    assert list(result["hy_year"]) == [2018, 2019, 2020]
+    for _, row in result.iterrows():
+        assert row["peak_month"].month == 2
+        assert row["end_dry_month"].month == 8

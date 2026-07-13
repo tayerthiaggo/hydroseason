@@ -1,214 +1,292 @@
-"""Tests for hydroseason.io — SILO and BoM monthly readers."""
-
+import importlib
+import os
+import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason.io import read_bom_monthly, read_rainfall, read_silo
 
-FIXTURES = Path(__file__).parent / "fixtures"
+def _aoi():
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import box
 
-
-# ---------------------------------------------------------------------------
-# read_silo — fixed formats
-# ---------------------------------------------------------------------------
+    return geopandas.GeoDataFrame(geometry=[box(0, 0, 2, 2)], crs="EPSG:4326")
 
 
-class TestReadSiloFixed:
-    def test_daily_rainonly_returns_monthly_totals(self):
-        """Daily SILO Rain Only → 3 monthly rows with correct sums."""
-        df = read_silo(FIXTURES / "silo_rainonly_daily.txt")
+def _write_binary_tif(path):
+    rasterio = pytest.importorskip("rasterio")
+    from rasterio.transform import from_origin
 
-        assert list(df.columns) == ["Date", "Year", "Month", "Rainfall_mm"]
-        assert len(df) == 3
+    proj_data = Path(rasterio.__file__).parent / "proj_data"
+    os.environ["PROJ_DATA"] = str(proj_data)
+    os.environ["PROJ_LIB"] = str(proj_data)
 
-        jan = df[df["Month"] == 1]["Rainfall_mm"].iloc[0]
-        feb = df[df["Month"] == 2]["Rainfall_mm"].iloc[0]
-        mar = df[df["Month"] == 3]["Rainfall_mm"].iloc[0]
-
-        assert jan == pytest.approx(15.0)
-        assert feb == pytest.approx(10.0)
-        assert mar == pytest.approx(6.5)
-
-    def test_daily_output_dtypes(self):
-        df = read_silo(FIXTURES / "silo_rainonly_daily.txt")
-
-        assert pd.api.types.is_datetime64_any_dtype(df["Date"])
-        assert pd.api.types.is_integer_dtype(df["Year"])
-        assert pd.api.types.is_integer_dtype(df["Month"])
-        assert pd.api.types.is_float_dtype(df["Rainfall_mm"])
-
-    def test_daily_date_is_first_of_month(self):
-        df = read_silo(FIXTURES / "silo_rainonly_daily.txt")
-        assert (df["Date"].dt.day == 1).all()
-
-    def test_monthly_format_no_aggregation(self):
-        """SILO monthly-summary fixture: 3 rows, values unchanged."""
-        df = read_silo(FIXTURES / "silo_monthly.txt")
-
-        assert len(df) == 3
-        assert df.loc[df["Month"] == 1, "Rainfall_mm"].iloc[0] == pytest.approx(120.5)
-        assert df.loc[df["Month"] == 2, "Rainfall_mm"].iloc[0] == pytest.approx(230.8)
-        assert df.loc[df["Month"] == 3, "Rainfall_mm"].iloc[0] == pytest.approx(50.0)
-
-    def test_monthly_year_and_month_columns(self):
-        df = read_silo(FIXTURES / "silo_monthly.txt")
-        assert list(df["Year"].unique()) == [2010]
-        assert sorted(df["Month"].tolist()) == [1, 2, 3]
-
-    def test_custom_output_col_name(self):
-        df = read_silo(FIXTURES / "silo_monthly.txt", output_col="Rain_mm")
-        assert "Rain_mm" in df.columns
-        assert "Rainfall_mm" not in df.columns
-
-    def test_sorted_ascending(self):
-        df = read_silo(FIXTURES / "silo_rainonly_daily.txt")
-        assert list(df["Month"]) == [1, 2, 3]
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=2,
+        height=2,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:4326",
+        transform=from_origin(0, 2, 1, 1),
+    ) as dst:
+        dst.write(np.array([[0, 1], [1, 0]], dtype=np.uint8), 1)
 
 
-# ---------------------------------------------------------------------------
-# read_silo — custom CSV (no header block)
-# ---------------------------------------------------------------------------
+def test_csv_loader_imports_without_raster_dependencies(monkeypatch, tmp_path):
+    for name in ("xarray", "dask", "rasterio", "geopandas", "zarr"):
+        monkeypatch.setitem(sys.modules, name, None)
+    sys.modules.pop("hydroseason.io", None)
+
+    path = tmp_path / "extent.csv"
+    path.write_text("date,extent_pct\n2020-01-01,25.0\n", encoding="utf-8")
+    io = importlib.import_module("hydroseason.io")
+
+    result = io.load_extent_csv(path)
+
+    assert result.loc[pd.Timestamp("2020-01-01"), "extent_pct"] == 25.0
 
 
-class TestReadSiloCustomCSV:
-    def test_basic_read(self):
-        df = read_silo(FIXTURES / "silo_custom.csv")
+def test_load_aoi_validates_geometry_and_reprojects():
+    from hydroseason.io import load_aoi
 
-        assert list(df.columns) == ["Date", "Year", "Month", "Rainfall_mm"]
-        assert len(df) == 3
+    loaded = load_aoi(_aoi(), to_crs=3857)
 
-    def test_values_correct(self):
-        df = read_silo(FIXTURES / "silo_custom.csv")
-
-        assert df.loc[df["Month"] == 1, "Rainfall_mm"].iloc[0] == pytest.approx(120.5)
-        assert df.loc[df["Month"] == 2, "Rainfall_mm"].iloc[0] == pytest.approx(230.8)
-        assert df.loc[df["Month"] == 3, "Rainfall_mm"].iloc[0] == pytest.approx(50.0)
-
-    def test_extra_columns_ignored(self):
-        df = read_silo(FIXTURES / "silo_custom.csv")
-        assert "MaxT" not in df.columns
-        assert "MinT" not in df.columns
-
-    def test_unknown_variable_raises(self):
-        with pytest.raises(ValueError, match="not found"):
-            read_silo(FIXTURES / "silo_custom.csv", variable="Evap")
+    assert not loaded.empty
+    assert loaded.crs.to_epsg() == 3857
 
 
-# ---------------------------------------------------------------------------
-# read_bom_monthly
-# ---------------------------------------------------------------------------
+def test_load_aoi_rejects_empty_geometry_frame():
+    geopandas = pytest.importorskip("geopandas")
+    from hydroseason.io import load_aoi
+
+    with pytest.raises(ValueError, match="empty"):
+        load_aoi(geopandas.GeoDataFrame(geometry=[], crs="EPSG:4326"))
 
 
-class TestReadBomMonthly:
-    def test_basic_read_quality_filtered(self):
-        """Quality='N' row (April) is dropped by default."""
-        df = read_bom_monthly(FIXTURES / "bom_idcjac0001.csv")
+def test_load_aoi_rejects_self_intersecting_geometry():
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import Polygon
+    from hydroseason.io import load_aoi
 
-        assert list(df.columns) == ["Date", "Year", "Month", "Rainfall_mm"]
-        # April has Quality=N, so only 4 rows remain
-        assert len(df) == 4
-        assert 4 not in df["Month"].tolist()
+    bowtie = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
+    gdf = geopandas.GeoDataFrame(geometry=[bowtie], crs="EPSG:4326")
 
-    def test_quality_filter_disabled(self):
-        df = read_bom_monthly(FIXTURES / "bom_idcjac0001.csv", quality_filter=False)
-        assert len(df) == 5
-        assert 4 in df["Month"].tolist()
+    with pytest.raises(ValueError, match="valid"):
+        load_aoi(gdf)
 
-    def test_values_correct(self):
-        df = read_bom_monthly(FIXTURES / "bom_idcjac0001.csv")
 
-        assert df.loc[df["Month"] == 1, "Rainfall_mm"].iloc[0] == pytest.approx(120.5)
-        assert df.loc[df["Month"] == 2, "Rainfall_mm"].iloc[0] == pytest.approx(230.8)
-        assert df.loc[df["Month"] == 5, "Rainfall_mm"].iloc[0] == pytest.approx(1.5)
+def test_complete_monthly_axis_preserves_lazy_data_and_marks_missing_months():
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    from hydroseason.io import complete_monthly_axis
 
-    def test_output_dtypes(self):
-        df = read_bom_monthly(FIXTURES / "bom_idcjac0001.csv")
+    masks = xr.DataArray(
+        np.ones((2, 2, 2), dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01", "2020-03-01"]), "y": [0, 1], "x": [0, 1]},
+    ).chunk({"time": 1, "y": 1, "x": 1})
 
-        assert pd.api.types.is_datetime64_any_dtype(df["Date"])
-        assert pd.api.types.is_integer_dtype(df["Year"])
-        assert pd.api.types.is_integer_dtype(df["Month"])
-        assert pd.api.types.is_float_dtype(df["Rainfall_mm"])
+    completed = complete_monthly_axis(masks, "2020-01-01", "2020-03-01")
 
-    def test_date_is_first_of_month(self):
-        df = read_bom_monthly(FIXTURES / "bom_idcjac0001.csv")
-        assert (df["Date"].dt.day == 1).all()
+    assert completed.shape == (3, 2, 2)
+    assert completed.chunks is not None
+    assert completed.attrs["inserted_months"] == ["2020-02"]
+    assert (completed.sel(time="2020-02-01").compute().values == -1).all()
 
-    def test_custom_output_col(self):
-        df = read_bom_monthly(FIXTURES / "bom_idcjac0001.csv", output_col="Rain_mm")
-        assert "Rain_mm" in df.columns
 
-    def test_custom_value_col_override(self):
-        df = read_bom_monthly(
-            FIXTURES / "bom_idcjac0001.csv",
-            value_col="Monthly Precipitation Total (millimetres)",
+def test_generic_raster_loader_requires_aoi(tmp_path):
+    from hydroseason.io import load_monthly_masks
+
+    _write_binary_tif(tmp_path / "water_scene_2020_01_01.tif")
+
+    with pytest.raises(ValueError, match="AOI"):
+        load_monthly_masks(tmp_path, "2020-01-01", "2020-01-01", encoding="binary")
+
+
+def test_generic_raster_loader_requires_explicit_encoding_or_classifier(tmp_path):
+    from hydroseason.io import load_monthly_masks
+
+    _write_binary_tif(tmp_path / "water_scene_2020_01_01.tif")
+
+    with pytest.raises(ValueError, match="encoding"):
+        load_monthly_masks(tmp_path, "2020-01-01", "2020-01-01", aoi=_aoi())
+
+
+def test_uint8_binary_masks_are_not_misclassified_as_wofs(tmp_path):
+    from hydroseason.io import load_monthly_masks
+
+    _write_binary_tif(tmp_path / "water_scene_2020_01_01.tif")
+
+    masks = load_monthly_masks(
+        tmp_path,
+        "2020-01-01",
+        "2020-01-01",
+        aoi=_aoi(),
+        encoding="binary",
+        chunk_x=1,
+        chunk_y=1,
+    )
+
+    assert masks.chunks is not None
+    assert set(np.unique(masks.compute().values)) == {0, 1}
+
+
+def test_clip_to_aoi_excludes_outside_pixels_from_water_denominator():
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
+    geopandas = pytest.importorskip("geopandas")
+    import rioxarray  # noqa: F401
+    from shapely.geometry import box
+    from hydroseason.io import _clip_to_aoi
+    from hydroseason.hydro_year import monthly_water_extent
+
+    ny = nx = 16
+    arr = xr.DataArray(
+        np.ones((ny, nx), dtype=np.int8),
+        dims=("y", "x"),
+        coords={"y": np.arange(ny, 0, -1) - 0.5, "x": np.arange(nx) + 0.5},
+    )
+    arr = arr.rio.set_spatial_dims(x_dim="x", y_dim="y").rio.write_crs("EPSG:3577")
+
+    aoi = geopandas.GeoDataFrame(geometry=[box(0, 0, 8, ny)], crs="EPSG:3577")
+
+    clipped = _clip_to_aoi(arr, aoi)
+    values = np.asarray(clipped.values)
+
+    assert not (values == 0).any()
+    assert set(np.unique(values)).issubset({-2, 1})
+
+    cube = clipped.expand_dims(time=[np.datetime64("2020-01-01")]).chunk({"time": 1, "y": 1, "x": 1})
+    summary = monthly_water_extent(cube)
+    row = summary.iloc[0]
+
+    assert row["n_aoi"] == ny * 8
+    assert row["extent_pct"] == pytest.approx(100.0)
+
+
+def test_raster_loader_fails_closed_when_aoi_cannot_reproject(tmp_path):
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+    from hydroseason.io import AOIRasterizationError, load_monthly_masks
+
+    _write_binary_tif(tmp_path / "water_scene_2020_01_01.tif")
+    no_crs_aoi = geopandas.GeoDataFrame(geometry=[box(0, 0, 2, 2)])
+
+    with pytest.raises(AOIRasterizationError, match="AOI"):
+        load_monthly_masks(
+            tmp_path,
+            "2020-01-01",
+            "2020-01-01",
+            aoi=no_crs_aoi,
+            encoding="binary",
         )
-        assert len(df) == 4
-
-    def test_bad_value_col_raises(self):
-        with pytest.raises(ValueError, match="not found"):
-            read_bom_monthly(FIXTURES / "bom_idcjac0001.csv", value_col="NoSuchCol")
-
-    def test_sorted_ascending(self):
-        df = read_bom_monthly(FIXTURES / "bom_idcjac0001.csv")
-        assert list(df["Month"]) == [1, 2, 3, 5]
 
 
-class TestReadRainfall:
-    def test_auto_detects_bom(self):
-        df = read_rainfall(FIXTURES / "bom_idcjac0001.csv")
-        assert list(df.columns) == ["Date", "Year", "Month", "Rainfall_mm"]
-        assert len(df) == 4
+def test_stac_loader_requires_aoi_before_optional_stac_imports():
+    from hydroseason.io import load_wofs_from_stac
 
-    def test_auto_detects_silo(self):
-        df = read_rainfall(FIXTURES / "silo_monthly.txt")
-        assert list(df.columns) == ["Date", "Year", "Month", "Rainfall_mm"]
-        assert len(df) == 3
-
-    def test_csv_mode_falls_back_to_pandas(self):
-        df = read_rainfall(FIXTURES / "silo_custom.csv", source="csv")
-        assert list(df.columns) == ["Date", "Year", "Month", "Rainfall_mm"]
-
-    def test_csv_mode_does_not_treat_quality_as_rainfall(self, tmp_path: Path):
-        csv = tmp_path / "quality_before_rain.csv"
-        csv.write_text(
-            "Date,Quality,Rain_mm\n2020-01-01,Y,12.3\n",
-            encoding="utf-8",
-        )
-
-        df = read_rainfall(csv, source="csv")
-
-        assert df.loc[0, "Rainfall_mm"] == 12.3
+    with pytest.raises(ValueError, match="AOI"):
+        load_wofs_from_stac("https://example.invalid/stac", "wofs", None, "2020-01-01", "2020-01-01")
 
 
-# ---------------------------------------------------------------------------
-# Integration: readers → validate_monthly_input
-# ---------------------------------------------------------------------------
+def test_classify_canonical_rejects_out_of_domain_codes():
+    xr = pytest.importorskip("xarray")
+    from hydroseason.io import _classify
+
+    arr = xr.DataArray(
+        np.array([[7, 200], [1, -1]], dtype=np.int16),
+        dims=("y", "x"),
+        coords={"y": [0, 1], "x": [0, 1]},
+    )
+
+    result = _classify(arr, "canonical", None)
+    values = np.asarray(result.values)
+
+    assert set(np.unique(values)).issubset({-2, -1, 0, 1})
+    assert values[0, 0] == -1  # out-of-domain code 7
+    assert values[0, 1] == -1  # would int8-wrap to -56 without the guard
+    assert values[1, 0] == 1
+    assert values[1, 1] == -1
 
 
-def test_silo_output_passes_validation():
-    """read_silo output has the columns validate_monthly_input expects."""
-    from hydroseason.validate import validate_monthly_input
+def test_classify_canonical_nan_is_invalid_not_dry():
+    xr = pytest.importorskip("xarray")
+    from hydroseason.io import _classify
 
-    df = read_silo(FIXTURES / "silo_monthly.txt")
-    # Use a loose missing-data threshold so the tiny fixture doesn't trip
-    # the >=24-month check (that's a pipeline concern, not a reader concern).
-    _, report = validate_monthly_input(df, max_fraction_missing=1.0)
+    arr = xr.DataArray(
+        np.array([[np.nan, 1.0], [0.0, np.nan]]),
+        dims=("y", "x"),
+        coords={"y": [0, 1], "x": [0, 1]},
+    )
 
-    # No format errors (wrong columns, non-numeric values, etc.)
-    format_errors = [e for e in report.errors if "months" not in e.lower()]
-    assert format_errors == []
+    result = _classify(arr, "canonical", None)
+    values = np.asarray(result.values)
+
+    assert values[0, 0] == -1
+    assert values[1, 1] == -1
+    assert values[0, 1] == 1
+    assert values[1, 0] == 0
 
 
-def test_bom_output_passes_validation():
-    """read_bom_monthly output has the columns validate_monthly_input expects."""
-    from hydroseason.validate import validate_monthly_input
+def test_monthly_water_extent_raw_canonical_nan_is_invalid_not_dry():
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pd_module = pytest.importorskip("pandas")
+    from hydroseason.hydro_year import monthly_water_extent
 
-    df = read_bom_monthly(FIXTURES / "bom_idcjac0001.csv")
-    # Relax thresholds so the tiny fixture (4 rows, 1 gap) doesn't trigger
-    # data-sufficiency errors — those are pipeline concerns, not reader concerns.
-    _, report = validate_monthly_input(df, max_fraction_missing=1.0)
+    masks = xr.DataArray(
+        np.full((1, 2, 2), np.nan, dtype=float),
+        dims=("time", "y", "x"),
+        coords={"time": pd_module.to_datetime(["2020-01-01"])},
+    ).chunk({"time": 1, "y": 1, "x": 1})
 
-    format_errors = [e for e in report.errors if "months" not in e.lower()]
-    assert format_errors == []
+    summary = monthly_water_extent(masks)
+    row = summary.iloc[0]
+
+    assert row["invalid_pct"] == pytest.approx(100.0)
+    assert not (row["extent_pct"] == 0.0 and row["invalid_pct"] == 0.0)
+
+
+def test_classify_rejects_out_of_domain_classifier_output():
+    xr = pytest.importorskip("xarray")
+    from hydroseason.io import _classify
+
+    arr = xr.DataArray(
+        np.array([[5, 5], [5, 5]], dtype=np.int16),
+        dims=("y", "x"),
+        coords={"y": [0, 1], "x": [0, 1]},
+    )
+
+    def bad_classifier(a):
+        return xr.full_like(a, 256)
+
+    result = _classify(arr, None, bad_classifier)
+    values = np.asarray(result.values)
+
+    assert set(np.unique(values)).issubset({-2, -1, 0, 1})
+    assert not (values == 0).any()
+
+
+def test_zarr_loader_returns_lazy_canonical_cube(tmp_path):
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("zarr")
+    from hydroseason.io import load_monthly_masks_zarr
+
+    source = xr.Dataset(
+        {"water_mask": (("time", "y", "x"), np.array([[[0, 1], [1, 0]]], dtype=np.int8))},
+        coords={"time": pd.to_datetime(["2020-01-01"]), "y": [0, 1], "x": [0, 1]},
+    )
+    path = tmp_path / "masks.zarr"
+    source.chunk({"time": 1, "y": 1, "x": 1}).to_zarr(path)
+
+    masks = load_monthly_masks_zarr(path, "2020-01-01", "2020-01-01", chunk_x=1, chunk_y=1)
+
+    assert masks.shape == (1, 2, 2)
+    assert masks.chunks is not None
