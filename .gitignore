@@ -23,6 +23,8 @@ wheels/
 .env
 .venv
 .venv-release/
+.venv-wheel-test/
+.venv-wheel-final/
 env/
 venv/
 ENV/

@@ -1,5 +1,4 @@
 import importlib
-import tomllib
 from pathlib import Path
 
 
@@ -36,10 +35,10 @@ def test_package_import_exposes_only_migration_safe_surface():
 
 
 def test_package_metadata_has_no_removed_cli_entry_point():
-    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    pyproject_text = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert "scripts" not in pyproject["project"]
-    assert "rainfall" not in pyproject["project"]["description"].lower()
+    assert "[project.scripts]" not in pyproject_text
+    assert "rainfall" not in pyproject_text.lower()
 
 
 def test_conda_recipe_has_no_removed_cli_entry_point():
