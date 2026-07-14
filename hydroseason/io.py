@@ -206,8 +206,13 @@ def load_wofs_from_stac(
         import xarray as xr
         import pystac_client
         import odc.stac
+        import rioxarray  # noqa: F401  (registers the .rio accessor used by _clip_to_aoi)
     except ImportError as exc:  # pragma: no cover
         raise ImportError("load_wofs_from_stac requires the stac extra.") from exc
+    # DEA's public S3 bucket (dea-public-data) rejects unsigned GDAL/rasterio
+    # reads unless explicitly told not to sign requests; without this, every
+    # lazy dask read of the returned cube fails with CPLE_AWSInvalidCredentialsError.
+    os.environ.setdefault("AWS_NO_SIGN_REQUEST", "YES")
     aoi_gdf = load_aoi(aoi)
     try:
         aoi_4326 = aoi_gdf.to_crs("EPSG:4326")
@@ -287,7 +292,8 @@ def _combine_observations(series, majority):
     water_wins = (water > 0) & ((water > dry) if majority else True)
     import xarray as xr
 
-    return xr.where(water_wins, np.int8(1), xr.where(dry > 0, np.int8(0), xr.where(invalid > 0, np.int8(-1), np.int8(-2)))).astype(np.int8)
+    combined = xr.where(water_wins, np.int8(1), xr.where(dry > 0, np.int8(0), xr.where(invalid > 0, np.int8(-1), np.int8(-2)))).astype(np.int8)
+    return _preserve_georef(combined, series)
 
 
 def _clip_to_aoi(mask, aoi_gdf):

@@ -16,6 +16,7 @@ from .io import (
     load_monthly_masks_zarr,
     load_wofs_from_stac,
 )
+from .report import generate_html_report
 
 try:
     __version__ = _pkg_version("hydroseason")
@@ -34,4 +35,5 @@ __all__ = [
     "load_monthly_masks_zarr",
     "load_extent_csv",
     "complete_monthly_axis",
+    "generate_html_report",
 ]

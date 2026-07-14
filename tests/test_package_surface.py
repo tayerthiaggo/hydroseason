@@ -18,6 +18,7 @@ def test_package_import_exposes_only_migration_safe_surface():
         "load_monthly_masks_zarr",
         "load_extent_csv",
         "complete_monthly_axis",
+        "generate_html_report",
     ]
     assert callable(hydroseason.detect_hydrological_years)
     assert callable(hydroseason.label_hydrological_months)
@@ -29,7 +30,6 @@ def test_package_import_exposes_only_migration_safe_surface():
         "run_pipeline",
         "read_rainfall",
         "get_monthly_silo_rainfall",
-        "generate_html_report",
     }
     assert stripped_names.isdisjoint(vars(hydroseason))
 
