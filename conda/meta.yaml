@@ -1,0 +1,46 @@
+{% set name = "hydroseason" %}
+{% set version = "0.1.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  # For a conda-forge submission, point at the PyPI sdist and fill in the sha256.
+  url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
+  sha256: 0000000000000000000000000000000000000000000000000000000000000000
+
+build:
+  noarch: python
+  number: 0
+  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+
+requirements:
+  host:
+    - python >=3.10
+    - pip
+    - setuptools >=68
+    - wheel
+  run:
+    # Core-only: CSV-only detection. Raster/STAC extras (rioxarray, rasterio,
+    # geopandas, dask, zarr, pystac-client, odc-stac) are not modeled by this
+    # recipe; install via pip extras (pip install hydroseason[raster,stac]).
+    - python >=3.10
+    - pandas >=2.0
+    - numpy >=1.24
+
+test:
+  imports:
+    - hydroseason
+
+about:
+  home: https://github.com/tayerthiaggo/hydroseason
+  license: MIT
+  license_file: LICENSE
+  summary: Remote-sensing-first hydro-year detection from monthly surface-water extent
+  doc_url: https://tayerthiaggo.github.io/hydroseason/
+  dev_url: https://github.com/tayerthiaggo/hydroseason
+
+extra:
+  recipe-maintainers:
+    - tayerthiaggo

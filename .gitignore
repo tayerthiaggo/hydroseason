@@ -22,6 +22,9 @@ wheels/
 # ── Virtual environments ──────────────────────────────────────────────────────
 .env
 .venv
+.venv-release/
+.venv-wheel-test/
+.venv-wheel-final/
 env/
 venv/
 ENV/
@@ -46,6 +49,7 @@ pytest.xml
 MANIFEST
 *.manifest
 *.spec
+site/
 
 # ── IDEs / editors ────────────────────────────────────────────────────────────
 .vscode/
@@ -59,11 +63,14 @@ Thumbs.db
 # ── Pipeline output ───────────────────────────────────────────────────────────
 output/
 notebooks/*.html
+notebooks/*_export/
 data/era5_cache/
+data/era5_cache_check/
+data/global_chirps_era5_stress_cache/
+data/global_rainfall_fetch_stress_cache/
+data/natural_earth/
+data/silo_cache/
 data/fitzroy_era5_*.csv
 
 # ── Development-only folder (raw data, paper drafts, prototypes) ──────────────
 dev/
-
-# ── Test suite lives on the development branch only ───────────────────────────
-tests/
