@@ -140,3 +140,126 @@ def _find_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroYearConf
         )
         rows.append(base)
     return pd.DataFrame(rows)
+
+
+ANNUAL_COLUMNS = [
+    "hy_year", "status", "status_reason", "hy_start", "hy_end", "cycle_months",
+    "peak_month", "peak_extent_pct", "peak_invalid_pct",
+    "temporal_mid_dry_month", "temporal_mid_dry_extent_pct",
+    "half_loss_month", "half_loss_extent_pct", "half_loss_target_pct",
+    "trough_month", "trough_extent_pct", "trough_invalid_pct", "boundary_status",
+    "drawdown_pct", "persistence_ratio", "recession_months", "half_loss_months",
+    "n_rewetting_pulses", "n_usable_months", "confidence",
+    "secondary_peak_month", "secondary_peak_extent_pct",
+    "secondary_trough_month", "secondary_trough_extent_pct",
+]
+
+
+def _middle_tie(series: pd.Series, kind: str) -> pd.Timestamp:
+    target = series.max() if kind == "max" else series.min()
+    candidates = series.loc[series == target]
+    return pd.Timestamp(candidates.index[len(candidates) // 2])
+
+
+def _nearest_month(index: pd.DatetimeIndex, start: pd.Timestamp, end: pd.Timestamp) -> pd.Timestamp:
+    target = start + (end - start) / 2
+    return pd.Timestamp(index[int(np.argmin(np.abs(index - target)))])
+
+
+def _secondary_extrema(series: pd.Series, peak: pd.Timestamp, trough: pd.Timestamp) -> tuple[pd.Timestamp | None, float, pd.Timestamp | None, float]:
+    values = series.to_numpy(float)
+    peaks = [i for i in range(1, len(values) - 1) if values[i] > values[i - 1] and values[i] >= values[i + 1] and abs(i - series.index.get_loc(peak)) >= 2]
+    troughs = [i for i in range(1, len(values) - 1) if values[i] < values[i - 1] and values[i] <= values[i + 1] and abs(i - series.index.get_loc(trough)) >= 2]
+    secondary_peak = max(peaks, key=lambda i: values[i]) if peaks else None
+    secondary_trough = min(troughs, key=lambda i: values[i]) if troughs else None
+    return (
+        pd.Timestamp(series.index[secondary_peak]) if secondary_peak is not None else None,
+        float(values[secondary_peak]) if secondary_peak is not None else np.nan,
+        pd.Timestamp(series.index[secondary_trough]) if secondary_trough is not None else None,
+        float(values[secondary_trough]) if secondary_trough is not None else np.nan,
+    )
+
+
+def _confidence(cycle: pd.DataFrame, boundary_status: str) -> str:
+    usable_fraction = float(cycle["candidate_usable"].mean())
+    observed = cycle.loc[cycle["candidate_usable"], "observed_fraction"]
+    quality = float(observed.mean()) if observed.notna().any() else 0.5
+    score = usable_fraction * quality * (0.75 if boundary_status == "provisional" else 1.0)
+    if (cycle["quality_state"] == "unknown").any():
+        score = min(score, 0.59)
+    return "high" if score >= 0.80 else "medium" if score >= 0.60 else "low"
+
+
+def _blank_cycle(opportunity: pd.Series) -> dict:
+    row = {column: np.nan for column in ANNUAL_COLUMNS}
+    row.update(
+        hy_year=int(opportunity["hy_year"]), status=opportunity["status"],
+        status_reason=opportunity["status_reason"], trough_month=opportunity["trough_month"],
+        trough_extent_pct=opportunity["trough_extent_pct"], trough_invalid_pct=opportunity["trough_invalid_pct"],
+        boundary_status=opportunity["boundary_status"], confidence="low",
+    )
+    return row
+
+
+def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig, value_col: str = "extent_pct", date_col: str | None = None, pattern: SeasonalPatternResult | None = None) -> pd.DataFrame:
+    frame = prepare_monthly_extent(
+        extent, value_col=value_col, date_col=date_col,
+        max_invalid_pct=config.max_invalid_pct,
+        allow_unknown_quality=config.allow_unknown_quality,
+    )
+    opportunities = _find_trough_opportunities(frame, config)
+    rows = []
+    previous = None
+    for _, opportunity in opportunities.iterrows():
+        row = _blank_cycle(opportunity)
+        if pd.isna(opportunity["trough_month"]):
+            previous = None
+            rows.append(row)
+            continue
+        if previous is None:
+            row.update(status="partial", status_reason="no_previous_boundary")
+            previous = opportunity
+            rows.append(row)
+            continue
+        start = pd.Timestamp(previous["trough_month"]) + pd.DateOffset(months=1)
+        end = pd.Timestamp(opportunity["trough_month"])
+        cycle = frame.loc[start:end]
+        usable = cycle.loc[cycle["candidate_usable"], "extent_pct"]
+        if len(usable) < config.min_usable_months_per_cycle:
+            row.update(status="partial", status_reason="insufficient_cycle_coverage", hy_start=start, hy_end=end, cycle_months=len(cycle), n_usable_months=len(usable))
+            previous = opportunity
+            rows.append(row)
+            continue
+        peak = _middle_tie(usable, "max")
+        post_peak = usable.loc[peak:end]
+        trough = end
+        peak_value, trough_value = float(usable.loc[peak]), float(frame.loc[trough, "extent_pct"])
+        target = (peak_value + trough_value) / 2.0
+        half_candidates = post_peak.loc[post_peak <= target]
+        half = pd.Timestamp(half_candidates.index[0]) if len(half_candidates) else pd.NaT
+        midpoint = _nearest_month(post_peak.index, peak, trough)
+        after_half = post_peak.loc[half:] if pd.notna(half) else post_peak.iloc[0:0]
+        pulses = int((after_half.diff() > config.measurement_tolerance_pct).sum())
+        secondary = _secondary_extrema(usable, peak, trough) if pattern is not None and pattern.pattern == "bimodal_or_complex" else (None, np.nan, None, np.nan)
+        peak_invalid = frame.loc[peak, "invalid_pct"]
+        row.update(
+            status="complete" if opportunity["boundary_status"] == "confirmed" else "partial",
+            status_reason="ok" if opportunity["boundary_status"] == "confirmed" else "boundary_provisional",
+            hy_start=start, hy_end=end, cycle_months=len(cycle),
+            peak_month=peak, peak_extent_pct=peak_value,
+            peak_invalid_pct=float(peak_invalid) if pd.notna(peak_invalid) else np.nan,
+            temporal_mid_dry_month=midpoint, temporal_mid_dry_extent_pct=float(frame.loc[midpoint, "extent_pct"]),
+            half_loss_month=half, half_loss_extent_pct=float(frame.loc[half, "extent_pct"]) if pd.notna(half) else np.nan,
+            half_loss_target_pct=target, trough_month=trough, trough_extent_pct=trough_value,
+            trough_invalid_pct=opportunity["trough_invalid_pct"], boundary_status=opportunity["boundary_status"],
+            drawdown_pct=peak_value - trough_value,
+            persistence_ratio=trough_value / peak_value if peak_value > 0 else np.nan,
+            recession_months=_month_delta(trough, peak),
+            half_loss_months=_month_delta(half, peak) if pd.notna(half) else np.nan,
+            n_rewetting_pulses=pulses, n_usable_months=len(usable), confidence=_confidence(cycle, opportunity["boundary_status"]),
+            secondary_peak_month=secondary[0], secondary_peak_extent_pct=secondary[1],
+            secondary_trough_month=secondary[2], secondary_trough_extent_pct=secondary[3],
+        )
+        previous = opportunity
+        rows.append(row)
+    return pd.DataFrame(rows, columns=ANNUAL_COLUMNS)

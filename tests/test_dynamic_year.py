@@ -71,3 +71,52 @@ def test_insufficient_candidate_coverage_is_an_explicit_row():
     row = rows.loc[rows["hy_year"] == 2020].iloc[0]
     assert row["status"] == "unresolved"
     assert row["status_reason"] == "insufficient_trough_candidates"
+
+
+from dataclasses import replace
+
+from hydroseason._dynamic_year import detect_dynamic_hydrological_years
+
+
+def test_dynamic_cycle_reports_observed_peak_two_mid_dry_metrics_and_trough():
+    raw = _candidate_frame(start="2017-01-01", periods=72)
+    config = DynamicHydroYearConfig(expected_trough_month=8, dry_plateau_rule="middle")
+    result = detect_dynamic_hydrological_years(raw, config=config)
+    complete = result.loc[result["status"] == "complete"].iloc[0]
+    assert complete["peak_extent_pct"] == raw.loc[complete["peak_month"], "extent_pct"]
+    assert complete["trough_extent_pct"] == raw.loc[complete["trough_month"], "extent_pct"]
+    assert complete["half_loss_target_pct"] == pytest.approx((complete["peak_extent_pct"] + complete["trough_extent_pct"]) / 2)
+    assert complete["peak_month"] <= complete["temporal_mid_dry_month"] <= complete["trough_month"]
+    assert complete["peak_month"] <= complete["half_loss_month"] <= complete["trough_month"]
+
+
+def test_unresolved_nominal_year_breaks_cycles_instead_of_merging():
+    raw = _candidate_frame(start="2017-01-01", periods=84)
+    raw.loc["2020-06-01":"2020-12-01", "invalid_pct"] = 100.0
+    config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle")
+    result = detect_dynamic_hydrological_years(raw, config=config)
+    assert result.loc[result["hy_year"] == 2020, "status"].item() == "unresolved"
+    assert result.loc[result["hy_year"] == 2021, "status_reason"].item() == "no_previous_boundary"
+    resolved_lengths = result.loc[result["status"] == "complete", "cycle_months"]
+    assert (resolved_lengths <= 18).all()
+
+
+def test_temporary_rewetting_after_half_loss_is_counted():
+    raw = _candidate_frame(start="2017-01-01", periods=72)
+    raw.loc["2020-06-01":"2020-09-01", "extent_pct"] = [8.0, 14.0, 7.0, 4.0]
+    result = detect_dynamic_hydrological_years(raw, config=DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle"))
+    assert result.loc[result["hy_year"] == 2020, "n_rewetting_pulses"].item() >= 1
+
+
+def test_zero_peak_has_explicit_nan_persistence_ratio():
+    raw = _candidate_frame(start="2017-01-01", periods=72)
+    raw["extent_pct"] = 0.0
+    result = detect_dynamic_hydrological_years(raw, config=DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle"))
+    assert result.loc[result["status"] == "complete", "persistence_ratio"].isna().all()
+
+
+def test_unknown_quality_never_receives_high_confidence():
+    raw = _candidate_frame(start="2017-01-01", periods=72).drop(columns="invalid_pct")
+    config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle", allow_unknown_quality=True)
+    result = detect_dynamic_hydrological_years(raw, config=config)
+    assert "high" not in set(result["confidence"])
