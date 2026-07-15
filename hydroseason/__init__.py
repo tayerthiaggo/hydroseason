@@ -7,6 +7,7 @@ from .hydro_year import (
     detect_hydrological_years,
     label_hydrological_months,
     monthly_water_extent,
+    suggest_hydro_year_config,
 )
 from .io import (
     complete_monthly_axis,
@@ -29,6 +30,7 @@ __all__ = [
     "detect_hydrological_years",
     "label_hydrological_months",
     "monthly_water_extent",
+    "suggest_hydro_year_config",
     "load_aoi",
     "load_wofs_from_stac",
     "load_monthly_masks",

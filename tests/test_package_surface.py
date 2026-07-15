@@ -12,6 +12,7 @@ def test_package_import_exposes_only_migration_safe_surface():
         "detect_hydrological_years",
         "label_hydrological_months",
         "monthly_water_extent",
+        "suggest_hydro_year_config",
         "load_aoi",
         "load_wofs_from_stac",
         "load_monthly_masks",
