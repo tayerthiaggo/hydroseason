@@ -20,6 +20,7 @@ theme:
 nav:
   - Home: index.md
   - Usage guide: guide.md
+  - Dynamic hydrological state: hydrological-state.md
   - Citation: citation.md
 
 plugins:
