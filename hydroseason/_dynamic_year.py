@@ -56,3 +56,87 @@ def suggest_dynamic_hydro_year_config(extent, *, pattern: SeasonalPatternResult 
     }
     fields.update(overrides)
     return DynamicHydroYearConfig(**fields)
+
+
+def _month_delta(actual: pd.Timestamp, expected: pd.Timestamp) -> int:
+    return (actual.year - expected.year) * 12 + actual.month - expected.month
+
+
+def _recovery_status(frame: pd.DataFrame, low_date: pd.Timestamp, plateau_ceiling: float, config: DynamicHydroYearConfig) -> str:
+    threshold = plateau_ceiling
+    tail = frame.loc[frame.index > low_date]
+    consecutive = 0
+    for position, (_, row) in enumerate(tail.iterrows()):
+        if not bool(row["candidate_usable"]):
+            consecutive = 0
+            continue
+        consecutive = consecutive + 1 if float(row["extent_pct"]) > threshold else 0
+        if consecutive < config.sustained_rise_months:
+            continue
+        end_position = position + config.pulse_rejection_window_months
+        if end_position >= len(tail):
+            return "provisional"
+        rejection = tail.iloc[position + 1 : end_position + 1]
+        if (~rejection["candidate_usable"]).any():
+            return "partial"
+        if (rejection["extent_pct"] <= plateau_ceiling).any():
+            consecutive = 0
+            continue
+        return "confirmed"
+    return "provisional" if len(tail) < config.sustained_rise_months + config.pulse_rejection_window_months else "unconfirmed"
+
+
+def _select_low_candidate(window: pd.DataFrame, full: pd.DataFrame, config: DynamicHydroYearConfig) -> tuple[pd.Timestamp | None, str]:
+    minimum = float(window["extent_pct"].min())
+    plateau = window.loc[window["extent_pct"] <= minimum + config.measurement_tolerance_pct]
+    if config.dry_plateau_rule == "first":
+        return pd.Timestamp(plateau.index[0]), "confirmed"
+    if config.dry_plateau_rule == "middle":
+        return pd.Timestamp(plateau.index[len(plateau) // 2]), "confirmed"
+    provisional = None
+    for candidate in reversed(plateau.index.tolist()):
+        status = _recovery_status(full, pd.Timestamp(candidate), minimum + config.measurement_tolerance_pct, config)
+        if status == "confirmed":
+            return pd.Timestamp(candidate), status
+        if status in {"provisional", "partial"} and provisional is None:
+            provisional = (pd.Timestamp(candidate), status)
+    return provisional if provisional is not None else (None, "unconfirmed")
+
+
+def _find_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroYearConfig) -> pd.DataFrame:
+    rows = []
+    for year in range(int(frame.index.min().year), int(frame.index.max().year) + 1):
+        expected = pd.Timestamp(year, config.expected_trough_month, 1)
+        start = expected - pd.DateOffset(months=config.trough_search_radius_months)
+        end = expected + pd.DateOffset(months=config.trough_search_radius_months)
+        usable = frame.loc[(frame.index >= start) & (frame.index <= end) & frame["candidate_usable"]]
+        base = {
+            "hy_year": year,
+            "status": "unresolved",
+            "status_reason": "insufficient_trough_candidates",
+            "trough_month": pd.NaT,
+            "trough_extent_pct": np.nan,
+            "trough_invalid_pct": np.nan,
+            "boundary_status": "provisional",
+            "phase_shift_months": np.nan,
+        }
+        if len(usable) < config.min_usable_trough_candidates:
+            rows.append(base)
+            continue
+        candidate, recovery = _select_low_candidate(usable, frame, config)
+        if candidate is None:
+            base["status_reason"] = "recovery_not_confirmed"
+            rows.append(base)
+            continue
+        row = frame.loc[candidate]
+        base.update(
+            status="complete" if recovery == "confirmed" else "partial",
+            status_reason="ok" if recovery == "confirmed" else f"boundary_{recovery}",
+            trough_month=candidate,
+            trough_extent_pct=float(row["extent_pct"]),
+            trough_invalid_pct=float(row["invalid_pct"]) if pd.notna(row["invalid_pct"]) else np.nan,
+            boundary_status="confirmed" if recovery == "confirmed" else "provisional",
+            phase_shift_months=_month_delta(candidate, expected),
+        )
+        rows.append(base)
+    return pd.DataFrame(rows)
