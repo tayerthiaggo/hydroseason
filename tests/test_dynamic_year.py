@@ -108,6 +108,88 @@ def test_insufficient_candidate_coverage_is_an_explicit_row():
     assert row["status_reason"] == "insufficient_trough_candidates"
 
 
+from hydroseason._dynamic_year import _find_semi_markov_trough_opportunities
+
+
+def _semi_markov_seasonal_frame(years=6):
+    # Same shape family as tests/test_semi_markov.py's own fixture (a clean
+    # annual cycle repeated), so the HSMM reliably localizes one trough per
+    # year with high transition-posterior support.
+    index = pd.date_range("2019-01-01", periods=years * 12, freq="MS")
+    annual = np.array([80, 75, 60, 40, 25, 15, 8, 4, 3, 5, 20, 55], dtype=float)
+    values = np.tile(annual, years)
+    return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
+
+
+def test_semi_markov_adapter_resolves_every_year_in_a_clean_cycle():
+    raw = _semi_markov_seasonal_frame(6)
+    config = DynamicHydroYearConfig(expected_trough_month=9, trough_search_radius_months=3)
+    rows = _find_semi_markov_trough_opportunities(prepare_monthly_extent(raw), config)
+    assert rows["trough_month"].notna().all()
+    assert (rows["status"] == "complete").all()
+    assert (rows["boundary_status"] == "confirmed").all()
+    assert (rows["selection_support"] >= 0.80).all()
+    # Engine-specific placeholder columns per the adapter's documented contract.
+    assert (rows["raw_trough_month"] == rows["trough_month"]).all()
+    assert (rows["window_status"] == "full").all()
+    assert (rows["selection_status"] == "raw").all()
+    assert rows["low_run_start_month"].isna().all()
+    assert rows["low_run_end_month"].isna().all()
+    assert rows["window_n_expected"].isna().all()
+    assert rows["window_n_usable"].isna().all()
+
+
+def test_semi_markov_adapter_reports_provisional_below_support_threshold():
+    # Making the months adjacent to 2021's trough unusable lowers the summed
+    # +/-1 month transition-posterior support for that year below the shared
+    # 0.80 confirmation threshold, while neighbouring years stay confirmed --
+    # exercising both branches of the confirmed/provisional split in one
+    # cheap synthetic fixture (no need to lean on the experimental promotion
+    # -gate test for this).
+    raw = _semi_markov_seasonal_frame(6)
+    raw.loc["2021-10-01":"2021-11-01", "invalid_pct"] = 100.0
+    config = DynamicHydroYearConfig(expected_trough_month=9, trough_search_radius_months=3)
+    rows = _find_semi_markov_trough_opportunities(prepare_monthly_extent(raw), config)
+    provisional = rows.loc[rows["hy_year"] == 2021].iloc[0]
+    assert provisional["status"] == "partial"
+    assert provisional["status_reason"] == "boundary_provisional"
+    assert provisional["boundary_status"] == "provisional"
+    assert pd.notna(provisional["trough_month"])
+    assert provisional["selection_support"] < 0.80
+    confirmed_years = rows.loc[rows["hy_year"] != 2021]
+    assert (confirmed_years["boundary_status"] == "confirmed").all()
+
+
+def test_semi_markov_adapter_reports_unresolved_when_no_candidate_in_radius():
+    # Truncate the series so the final nominal year's expected trough window
+    # never opens (the HSMM has no data there at all), leaving that year with
+    # no in-radius candidate in result.trough_months.
+    raw = _semi_markov_seasonal_frame(6).iloc[:61]
+    config = DynamicHydroYearConfig(expected_trough_month=9, trough_search_radius_months=3)
+    rows = _find_semi_markov_trough_opportunities(prepare_monthly_extent(raw), config)
+    last_year = rows.loc[rows["hy_year"] == 2024].iloc[0]
+    assert last_year["status"] == "unresolved"
+    assert pd.isna(last_year["trough_month"])
+    assert last_year["status_reason"] == "insufficient_trough_candidates"
+    # Earlier, fully-covered years are unaffected by the truncation.
+    assert (rows.loc[rows["hy_year"] != 2024, "trough_month"].notna()).all()
+
+
+# The "already-used trough_months entry" defensive dedup branch (see the
+# docstring of `_find_semi_markov_trough_opportunities`) is unreachable
+# through this adapter for any valid `DynamicHydroYearConfig`: consecutive
+# nominal years' expected trough dates are always exactly 12 months apart,
+# while `trough_search_radius_months` is capped at 5 by
+# `DynamicHydroYearConfig.__post_init__`. Two windows of radius <=5 centred
+# 12 months apart can jointly reach at most 5+5=10 months towards each
+# other's centre, which is less than the 12-month gap -- so no single
+# `result.trough_months` entry can ever fall within radius of two different
+# nominal years' expected dates, and the dedup guard can never trigger via
+# the public adapter. It is retained as defensive belt-and-suspenders code
+# (mirroring `_select_troughs`'s own "already used" guard) rather than
+# covered by a contrived/invalid-config test.
+
+
 from dataclasses import replace
 
 from hydroseason._dynamic_year import detect_dynamic_hydrological_years
