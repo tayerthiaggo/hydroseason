@@ -23,7 +23,6 @@ from hydroseason._dynamic_year import (
     _find_semi_markov_trough_opportunities,
 )
 from hydroseason._state_input import prepare_monthly_extent
-
 from tests.test_fitzroy_regression import _fitzroy_trough_truth
 
 FIXTURES = Path(__file__).parent / "fixtures"

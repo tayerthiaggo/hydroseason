@@ -15,8 +15,8 @@ from ._boundary import (
     select_cycle_peak,
     select_window_minimum,
 )
-from ._semi_markov import SemiMarkovConfig, fit_semi_markov_boundaries
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
+from ._semi_markov import SemiMarkovConfig, fit_semi_markov_boundaries
 from ._state_input import prepare_monthly_extent
 
 # Fallback values substituted for the deprecated recovery-window fields when a

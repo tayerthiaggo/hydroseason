@@ -1,7 +1,6 @@
 # tests/test_fitzroy_regression.py
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from hydroseason import (
@@ -11,7 +10,6 @@ from hydroseason import (
     suggest_hydro_year_config,
 )
 from hydroseason._boundary_validation import align_events_by_interval, summarize_timing
-
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

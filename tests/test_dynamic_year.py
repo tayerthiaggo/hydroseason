@@ -4,8 +4,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._dynamic_year import DynamicHydroYearConfig, suggest_dynamic_hydro_year_config
+from hydroseason._dynamic_year import (
+    DynamicHydroYearConfig,
+    _find_robust_trough_opportunities,
+    _find_semi_markov_trough_opportunities,
+    detect_dynamic_hydrological_years,
+    suggest_dynamic_hydro_year_config,
+)
 from hydroseason._seasonality import classify_seasonal_pattern
+from hydroseason._state_input import prepare_monthly_extent
 
 
 def _monsoonal(years=12):
@@ -34,10 +41,6 @@ def test_dynamic_config_rejects_invalid_recovery_geometry():
         DynamicHydroYearConfig(expected_trough_month=13)
     with pytest.raises(ValueError):
         DynamicHydroYearConfig(expected_trough_month=9, pulse_rejection_window_months=0)
-
-
-from hydroseason._dynamic_year import _find_robust_trough_opportunities
-from hydroseason._state_input import prepare_monthly_extent
 
 
 def _candidate_frame(start="2018-01-01", periods=60):
@@ -106,9 +109,6 @@ def test_insufficient_candidate_coverage_is_an_explicit_row():
     row = rows.loc[rows["hy_year"] == 2020].iloc[0]
     assert row["status"] == "unresolved"
     assert row["status_reason"] == "insufficient_trough_candidates"
-
-
-from hydroseason._dynamic_year import _find_semi_markov_trough_opportunities
 
 
 def _semi_markov_seasonal_frame(years=6):
@@ -188,11 +188,6 @@ def test_semi_markov_adapter_reports_unresolved_when_no_candidate_in_radius():
 # the public adapter. It is retained as defensive belt-and-suspenders code
 # (mirroring `_select_troughs`'s own "already used" guard) rather than
 # covered by a contrived/invalid-config test.
-
-
-from dataclasses import replace
-
-from hydroseason._dynamic_year import detect_dynamic_hydrological_years
 
 
 def test_dynamic_cycle_reports_observed_peak_two_mid_dry_metrics_and_trough():

@@ -12,7 +12,6 @@ from hydroseason import (
     detect_dynamic_hydrological_years,
 )
 
-
 FIXTURES = Path(__file__).parent / "fixtures"
 
 

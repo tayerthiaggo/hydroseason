@@ -1,6 +1,6 @@
 import pandas as pd
 
-from hydroseason._boundary_validation import summarize_timing, align_events_by_interval
+from hydroseason._boundary_validation import align_events_by_interval, summarize_timing
 
 
 def test_timing_summary_counts_unresolved_truth_as_failure():
