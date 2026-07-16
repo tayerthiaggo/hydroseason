@@ -87,6 +87,7 @@ pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
   "slow: integration or data-backed checks",
+  "experimental: promotion-gate comparison, may fail without blocking release",
 ]
 
 [tool.ruff]

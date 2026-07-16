@@ -15,6 +15,7 @@ from ._boundary import (
     select_cycle_peak,
     select_window_minimum,
 )
+from ._semi_markov import SemiMarkovConfig, fit_semi_markov_boundaries
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._state_input import prepare_monthly_extent
 
@@ -211,6 +212,92 @@ def _find_robust_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroY
     return pd.DataFrame(rows)
 
 
+def _find_semi_markov_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroYearConfig) -> pd.DataFrame:
+    """One trough opportunity per nominal year from the semi-Markov challenger.
+
+    ``fit_semi_markov_boundaries`` is fit exactly once over the whole record
+    (it is a global fit, unlike the robust engine's per-year window scan).
+    Each nominal calendar year then claims the nearest entry in
+    ``result.trough_months`` to its own expected phase, but only within
+    ``config.trough_search_radius_months`` -- the same phase-window
+    discipline the robust engine enforces via its own search window. A year
+    that finds no in-window match, or whose nearest candidate has already
+    been claimed by an earlier year (a defensive dedup that mirrors
+    ``_select_troughs``'s own "already used" guard; the window discipline
+    above means it should not normally trigger), reports ``"unresolved"``
+    with ``trough_month = pd.NaT``.
+
+    This engine has no raw-vs-selected distinction (the transition-posterior
+    argmax IS the only candidate) and no window/run diagnostics (no
+    expected-window truncation concept), so several of the shared opportunity
+    columns are filled with engine-appropriate placeholders documented on
+    each field below rather than left to mean something they do not here.
+    """
+    result = fit_semi_markov_boundaries(
+        frame, expected_trough_month=config.expected_trough_month, config=SemiMarkovConfig()
+    )
+    trough_months = list(result.trough_months)
+    trough_support = list(result.trough_support)
+    used = [False] * len(trough_months)
+
+    years = list(range(int(frame.index.min().year), int(frame.index.max().year) + 1))
+    rows = []
+    for year in years:
+        expected = pd.Timestamp(year, config.expected_trough_month, 1)
+        best_index, best_distance = None, None
+        for index, month in enumerate(trough_months):
+            if used[index]:
+                continue
+            distance = abs(_month_delta(pd.Timestamp(month), expected))
+            if distance > config.trough_search_radius_months:
+                continue
+            if best_distance is None or distance < best_distance:
+                best_index, best_distance = index, distance
+
+        row = {
+            "hy_year": year,
+            "status": "unresolved",
+            "status_reason": "insufficient_trough_candidates",
+            "trough_month": pd.NaT,
+            "trough_extent_pct": np.nan,
+            "trough_invalid_pct": np.nan,
+            "boundary_status": "provisional",
+            "phase_shift_months": np.nan,
+            "raw_trough_month": pd.NaT,
+            "raw_trough_extent_pct": np.nan,
+            "low_run_start_month": pd.NaT,
+            "low_run_end_month": pd.NaT,
+            "window_status": "full",
+            "selection_status": "raw",
+            "selection_support": np.nan,
+            "window_n_expected": np.nan,
+            "window_n_usable": np.nan,
+        }
+        if best_index is None:
+            rows.append(row)
+            continue
+
+        used[best_index] = True
+        selected = pd.Timestamp(trough_months[best_index])
+        support = float(np.clip(trough_support[best_index], 0.0, 1.0))
+        observed = frame.loc[selected]
+        confirmed = support >= RobustBoundaryConfig().support_threshold
+        row.update(
+            status="complete" if confirmed else "partial",
+            status_reason="ok" if confirmed else "boundary_provisional",
+            trough_month=selected,
+            trough_extent_pct=float(observed["extent_pct"]),
+            trough_invalid_pct=float(observed["invalid_pct"]) if pd.notna(observed["invalid_pct"]) else np.nan,
+            boundary_status="confirmed" if confirmed else "provisional",
+            phase_shift_months=_month_delta(selected, expected),
+            raw_trough_month=selected,
+            raw_trough_extent_pct=float(observed["extent_pct"]),
+            selection_support=support,
+        )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 ANNUAL_COLUMNS = [
     "hy_year", "status", "status_reason", "hy_start", "hy_end", "cycle_months",
     "peak_month", "peak_extent_pct", "peak_invalid_pct",
@@ -278,7 +365,10 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         max_invalid_pct=config.max_invalid_pct,
         allow_unknown_quality=config.allow_unknown_quality,
     )
-    opportunities = _find_robust_trough_opportunities(frame, config)
+    if config.detector == "robust_extrema":
+        opportunities = _find_robust_trough_opportunities(frame, config)
+    else:
+        opportunities = _find_semi_markov_trough_opportunities(frame, config)
     amplitude_pp, noise_pp = robust_scale(frame)
     rows = []
     previous = None

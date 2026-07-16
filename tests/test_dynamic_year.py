@@ -237,6 +237,18 @@ def test_peak_diagnostic_columns_populated_for_resolved_cycle():
     assert 0.0 <= complete["peak_selection_support"] <= 1.0
 
 
+def test_both_detectors_return_identical_columns():
+    raw = _candidate_frame(start="2017-01-01", periods=84)
+    robust = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector="robust_extrema")
+    )
+    semi = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector="semi_markov")
+    )
+    assert list(semi.columns) == list(robust.columns)
+    assert semi["trough_month"].notna().any()
+
+
 def test_peak_diagnostic_columns_are_nan_for_unresolved_cycles():
     raw = _candidate_frame(start="2017-01-01", periods=84)
     raw.loc["2020-06-01":"2020-12-01", "invalid_pct"] = 100.0
