@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ._boundary import (
+    _RAW_MINIMUM_REL_TOLERANCE,
     RobustBoundaryConfig,
     robust_scale,
     select_boundary_sequence,
@@ -125,10 +126,15 @@ def _find_robust_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroY
     Robust scale is estimated once over the whole record. For each expected
     trough window the raw observed minimum, its contiguous equivalent low run,
     and coverage evidence come from ``select_window_minimum`` (the raw extremum
-    is never silently replaced). A globally consistent boundary date is then
+    is never silently replaced).     A globally consistent boundary date is then
     chosen per year by ``select_boundary_sequence`` over each year's equivalent
-    low run only -- candidates never include materially higher months, so a
-    cycle-coherent shift can only move within the equivalent run.
+    low run only. That run is built from ``select_window_minimum``'s *absolute*
+    noise-band epsilon, which two independent real rivers showed is too loose
+    relative to near-zero troughs (a sub-noise 0.01pp gap can still be a 50%
+    jump above a 0.02pp minimum). We therefore hand the sequence optimizer a
+    *relative* fidelity tolerance so a cycle-coherent shift can only move onto
+    months that are within measurement noise of the year's raw minimum, never
+    onto a materially higher month.
     """
     amplitude_pp, noise_pp = robust_scale(frame)
     boundary_config = RobustBoundaryConfig(min_usable_candidates=config.min_usable_trough_candidates)
@@ -157,7 +163,9 @@ def _find_robust_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroY
             candidates = []
         sequence_input.append({"year": year, "expected": expected, "candidates": candidates})
 
-    selected_dates = select_boundary_sequence(sequence_input)
+    selected_dates = select_boundary_sequence(
+        sequence_input, raw_minimum_rel_tolerance=_RAW_MINIMUM_REL_TOLERANCE
+    )
 
     rows = []
     for year, expected, selection, selected in zip(years, expecteds, selections, selected_dates):

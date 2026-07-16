@@ -42,6 +42,15 @@ def classify_annual_surface_water_condition(
     out = annual.copy().sort_values("hy_year").reset_index(drop=True)
     complete = out["status"].eq("complete")
     reference_mask = complete.copy()
+    # A cycle may only anchor the baseline if its trough boundary is trustworthy.
+    # ``status == "complete"`` already implies a confirmed boundary for frames
+    # produced by the robust detector, but we add this defensive second gate for
+    # any caller whose frame carries an explicit ``boundary_status`` column
+    # (provisional boundaries must never enter the baseline). The check is
+    # conditional: callers that never ran the robust detector have no such column
+    # and keep the original ``status``-only behaviour.
+    if "boundary_status" in out.columns:
+        reference_mask &= out["boundary_status"].eq("confirmed")
     if reference_start is not None:
         dates = pd.to_datetime(out["hy_end"])
         reference_mask &= dates.between(pd.Timestamp(reference_start), pd.Timestamp(reference_end))

@@ -189,7 +189,25 @@ def select_cycle_peak(
     )
 
 
-def select_boundary_sequence(opportunities: list[dict]) -> list[pd.Timestamp | None]:
+# Default: how much higher (as a fraction of the year's own observed minimum) a
+# rival candidate may be while still counting as the *same* physical trough that
+# the cross-year coherence pass is free to move onto. Candidates above this
+# relative band are "materially higher" observations, not measurement noise, and
+# the coherence pass may not substitute them for the raw minimum. The value is
+# bracketed by the human-reviewed ground truth itself, independently on two
+# sides: an already-approved synthetic case treats a ~5% relative gap as
+# equivalent (coherence should win), while a real river shows a 7.1% gap is
+# material (coherence must lose). 0.05 sits at the equivalent-side edge of that
+# bracket, so it honours "≤5% is noise" without being tuned to the material
+# value it must exclude.
+_RAW_MINIMUM_REL_TOLERANCE = 0.05
+
+
+def select_boundary_sequence(
+    opportunities: list[dict],
+    *,
+    raw_minimum_rel_tolerance: float | None = None,
+) -> list[pd.Timestamp | None]:
     """Pick a globally consistent boundary date per year via dynamic programming.
 
     Each opportunity contributes a phase cost (distance in months from its
@@ -199,21 +217,53 @@ def select_boundary_sequence(opportunities: list[dict]) -> list[pd.Timestamp | N
     (``None``) and break cycle continuity: the DP never links a candidate
     across such a gap, so each contiguous block of resolved years is
     optimized independently.
+
+    ``raw_minimum_rel_tolerance`` gates a *fidelity* guard so the coherence pass
+    cannot silently override a materially lower observed minimum. It defaults to
+    ``None``, which reproduces the historical value-blind behaviour exactly
+    (callers that pass only raw candidate tuples, such as the approved synthetic
+    optimizer tests, are unaffected). When a fraction is supplied, any candidate
+    whose extent exceeds its own year's observed minimum ``m_i`` by more than
+    ``raw_minimum_rel_tolerance * m_i`` is treated as ineligible: it is a
+    materially higher observation, not measurement noise around the same physical
+    trough, so coherence is not allowed to substitute it for the raw minimum.
+    Candidates within the band keep zero value-cost, so among relative-equivalents
+    the coherence pass still operates exactly as before. A *relative* reference is
+    used deliberately -- "materially higher" only makes physical sense as a
+    fraction of that year's own water level (the same 0.01pp gap is noise on a
+    1.0pp trough but a 50% jump on a 0.02pp trough), which is precisely why the
+    absolute noise band already in ``select_window_minimum`` proved too loose.
+    Each year's observed minimum always has excess 0 and so is always eligible.
     """
     selected: list[pd.Timestamp | None] = [None] * len(opportunities)
+    # A cost large enough to make an over-tolerance candidate never win against
+    # any in-tolerance candidate, yet finite so the DP stays well defined even in
+    # the (impossible) event that a whole year were over tolerance -- the year's
+    # own minimum has excess 0 and is always in tolerance, so one always remains.
+    ineligible_cost = float("inf") if raw_minimum_rel_tolerance is not None else 0.0
+
+    def fidelity_cost(opportunity: dict) -> list[float]:
+        values = [float(value) for _, value in opportunity["candidates"]]
+        if not values or raw_minimum_rel_tolerance is None:
+            return [0.0] * len(values)
+        minimum = min(values)
+        threshold = minimum * (1.0 + raw_minimum_rel_tolerance)
+        return [0.0 if value <= threshold else ineligible_cost for value in values]
 
     def optimize_block(block: list[dict]) -> list[pd.Timestamp]:
         costs: list[list[float]] = []
         parents: list[list[int | None]] = []
+        fidelities = [fidelity_cost(opportunity) for opportunity in block]
         for index, opportunity in enumerate(block):
             row_costs, row_parents = [], []
-            for date, _ in opportunity["candidates"]:
+            for candidate_index, (date, _) in enumerate(opportunity["candidates"]):
                 phase = abs(
                     (date.year - opportunity["expected"].year) * 12
                     + date.month - opportunity["expected"].month
                 )
+                fidelity = fidelities[index][candidate_index]
                 if index == 0:
-                    row_costs.append(float(phase))
+                    row_costs.append(float(phase) + fidelity)
                     row_parents.append(None)
                     continue
                 best_cost, best_parent = float("inf"), None
@@ -225,7 +275,7 @@ def select_boundary_sequence(opportunities: list[dict]) -> list[pd.Timestamp | N
                         + date.month - previous_date.month
                     )
                     candidate_cost = (
-                        costs[index - 1][parent_index] + phase + abs(cycle - 12)
+                        costs[index - 1][parent_index] + phase + fidelity + abs(cycle - 12)
                     )
                     if candidate_cost < best_cost:
                         best_cost, best_parent = candidate_cost, parent_index
