@@ -75,3 +75,10 @@ data/fitzroy_era5_*.csv
 
 # ── Development-only folder (raw data, paper drafts, prototypes) ──────────────
 dev/
+
+
+.agents/
+.claude/
+.ruff_cache/
+.superpowers/
+.uv-cache/
