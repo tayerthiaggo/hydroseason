@@ -7,6 +7,12 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+from ._boundary import (
+    RobustBoundaryConfig,
+    robust_scale,
+    select_boundary_sequence,
+    select_window_minimum,
+)
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._state_input import prepare_monthly_extent
 
@@ -101,59 +107,60 @@ def _month_delta(actual: pd.Timestamp, expected: pd.Timestamp) -> int:
     return (actual.year - expected.year) * 12 + actual.month - expected.month
 
 
-def _recovery_status(frame: pd.DataFrame, low_date: pd.Timestamp, plateau_ceiling: float, config: DynamicHydroYearConfig) -> str:
-    threshold = plateau_ceiling
-    sustained_rise_months = config._effective_sustained_rise_months
-    pulse_rejection_window_months = config._effective_pulse_rejection_window_months
-    tail = frame.loc[frame.index > low_date]
-    consecutive = 0
-    for position, (_, row) in enumerate(tail.iterrows()):
-        if not bool(row["candidate_usable"]):
-            consecutive = 0
-            continue
-        consecutive = consecutive + 1 if float(row["extent_pct"]) > threshold else 0
-        if consecutive < sustained_rise_months:
-            continue
-        end_position = position + pulse_rejection_window_months
-        if end_position >= len(tail):
-            return "provisional"
-        rejection = tail.iloc[position + 1 : end_position + 1]
-        if (~rejection["candidate_usable"]).any():
-            return "partial"
-        if (rejection["extent_pct"] <= plateau_ceiling).any():
-            consecutive = 0
-            continue
-        return "confirmed"
-    return "provisional" if len(tail) < sustained_rise_months + pulse_rejection_window_months else "unconfirmed"
+# Diagnostic columns carried straight from each robust trough opportunity into
+# the annual output for every year (resolved or unresolved), so the raw observed
+# minimum and the evidence behind the selected boundary are always auditable.
+_TROUGH_DIAGNOSTIC_COLUMNS = (
+    "raw_trough_month", "raw_trough_extent_pct",
+    "low_run_start_month", "low_run_end_month",
+    "window_status", "selection_status", "selection_support",
+    "window_n_expected", "window_n_usable", "phase_shift_months",
+)
 
 
-def _select_low_candidate(window: pd.DataFrame, full: pd.DataFrame, config: DynamicHydroYearConfig) -> tuple[pd.Timestamp | None, str]:
-    minimum = float(window["extent_pct"].min())
-    plateau = window.loc[window["extent_pct"] <= minimum + config.measurement_tolerance_pct]
-    if config.dry_plateau_rule == "raw_minimum":
-        return pd.Timestamp(plateau.index[-1]), "confirmed"
-    if config.dry_plateau_rule == "first":
-        return pd.Timestamp(plateau.index[0]), "confirmed"
-    if config.dry_plateau_rule == "middle":
-        return pd.Timestamp(plateau.index[len(plateau) // 2]), "confirmed"
-    provisional = None
-    for candidate in reversed(plateau.index.tolist()):
-        status = _recovery_status(full, pd.Timestamp(candidate), minimum + config.measurement_tolerance_pct, config)
-        if status == "confirmed":
-            return pd.Timestamp(candidate), status
-        if status in {"provisional", "partial"} and provisional is None:
-            provisional = (pd.Timestamp(candidate), status)
-    return provisional if provisional is not None else (None, "unconfirmed")
+def _find_robust_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroYearConfig) -> pd.DataFrame:
+    """One trough opportunity per nominal year from the robust boundary engine.
 
+    Robust scale is estimated once over the whole record. For each expected
+    trough window the raw observed minimum, its contiguous equivalent low run,
+    and coverage evidence come from ``select_window_minimum`` (the raw extremum
+    is never silently replaced). A globally consistent boundary date is then
+    chosen per year by ``select_boundary_sequence`` over each year's equivalent
+    low run only -- candidates never include materially higher months, so a
+    cycle-coherent shift can only move within the equivalent run.
+    """
+    amplitude_pp, noise_pp = robust_scale(frame)
+    boundary_config = RobustBoundaryConfig(min_usable_candidates=config.min_usable_trough_candidates)
+    expected_count = 2 * config.trough_search_radius_months + 1
 
-def _find_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroYearConfig) -> pd.DataFrame:
-    rows = []
-    for year in range(int(frame.index.min().year), int(frame.index.max().year) + 1):
+    years = list(range(int(frame.index.min().year), int(frame.index.max().year) + 1))
+    selections = []
+    expecteds = []
+    sequence_input: list[dict] = []
+    for year in years:
         expected = pd.Timestamp(year, config.expected_trough_month, 1)
         start = expected - pd.DateOffset(months=config.trough_search_radius_months)
         end = expected + pd.DateOffset(months=config.trough_search_radius_months)
-        usable = frame.loc[(frame.index >= start) & (frame.index <= end) & frame["candidate_usable"]]
-        base = {
+        window = frame.loc[start:end]
+        selection = select_window_minimum(
+            window, expected=expected, expected_count=expected_count,
+            noise_pp=noise_pp, amplitude_pp=amplitude_pp, config=boundary_config,
+        )
+        selections.append(selection)
+        expecteds.append(expected)
+        if selection.run_start is not None and selection.run_end is not None:
+            run = frame.loc[selection.run_start:selection.run_end]
+            run = run.loc[run["candidate_usable"]]
+            candidates = [(pd.Timestamp(month), float(value)) for month, value in run["extent_pct"].items()]
+        else:
+            candidates = []
+        sequence_input.append({"year": year, "expected": expected, "candidates": candidates})
+
+    selected_dates = select_boundary_sequence(sequence_input)
+
+    rows = []
+    for year, expected, selection, selected in zip(years, expecteds, selections, selected_dates):
+        row = {
             "hy_year": year,
             "status": "unresolved",
             "status_reason": "insufficient_trough_candidates",
@@ -162,26 +169,36 @@ def _find_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroYearConf
             "trough_invalid_pct": np.nan,
             "boundary_status": "provisional",
             "phase_shift_months": np.nan,
+            "raw_trough_month": selection.raw_month if selection.raw_month is not None else pd.NaT,
+            "raw_trough_extent_pct": selection.raw_extent_pct,
+            "low_run_start_month": selection.run_start if selection.run_start is not None else pd.NaT,
+            "low_run_end_month": selection.run_end if selection.run_end is not None else pd.NaT,
+            "window_status": selection.window_status,
+            "selection_status": selection.selection_status,
+            "selection_support": selection.support,
+            "window_n_expected": selection.n_expected,
+            "window_n_usable": selection.n_usable,
         }
-        if len(usable) < config.min_usable_trough_candidates:
-            rows.append(base)
+        if selected is None:
+            rows.append(row)
             continue
-        candidate, recovery = _select_low_candidate(usable, frame, config)
-        if candidate is None:
-            base["status_reason"] = "recovery_not_confirmed"
-            rows.append(base)
-            continue
-        row = frame.loc[candidate]
-        base.update(
-            status="complete" if recovery == "confirmed" else "partial",
-            status_reason="ok" if recovery == "confirmed" else f"boundary_{recovery}",
-            trough_month=candidate,
-            trough_extent_pct=float(row["extent_pct"]),
-            trough_invalid_pct=float(row["invalid_pct"]) if pd.notna(row["invalid_pct"]) else np.nan,
-            boundary_status="confirmed" if recovery == "confirmed" else "provisional",
-            phase_shift_months=_month_delta(candidate, expected),
+        selected = pd.Timestamp(selected)
+        observed = frame.loc[selected]
+        confirmed = (
+            selection.window_status == "full"
+            and selection.selection_status == "raw"
+            and selection.support >= boundary_config.support_threshold
         )
-        rows.append(base)
+        row.update(
+            status="complete" if confirmed else "partial",
+            status_reason="ok" if confirmed else "boundary_provisional",
+            trough_month=selected,
+            trough_extent_pct=float(observed["extent_pct"]),
+            trough_invalid_pct=float(observed["invalid_pct"]) if pd.notna(observed["invalid_pct"]) else np.nan,
+            boundary_status="confirmed" if confirmed else "provisional",
+            phase_shift_months=_month_delta(selected, expected),
+        )
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -195,6 +212,12 @@ ANNUAL_COLUMNS = [
     "n_rewetting_pulses", "n_usable_months", "confidence",
     "secondary_peak_month", "secondary_peak_extent_pct",
     "secondary_trough_month", "secondary_trough_extent_pct",
+    "raw_trough_month", "raw_trough_extent_pct",
+    "low_run_start_month", "low_run_end_month",
+    "window_status", "selection_status", "selection_support",
+    "window_n_expected", "window_n_usable", "phase_shift_months",
+    "raw_peak_month", "raw_peak_extent_pct",
+    "peak_selection_status", "peak_selection_support",
 ]
 
 
@@ -241,6 +264,8 @@ def _blank_cycle(opportunity: pd.Series) -> dict:
         trough_extent_pct=opportunity["trough_extent_pct"], trough_invalid_pct=opportunity["trough_invalid_pct"],
         boundary_status=opportunity["boundary_status"], confidence="low",
     )
+    for column in _TROUGH_DIAGNOSTIC_COLUMNS:
+        row[column] = opportunity[column]
     return row
 
 
@@ -250,7 +275,7 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         max_invalid_pct=config.max_invalid_pct,
         allow_unknown_quality=config.allow_unknown_quality,
     )
-    opportunities = _find_trough_opportunities(frame, config)
+    opportunities = _find_robust_trough_opportunities(frame, config)
     rows = []
     previous = None
     for _, opportunity in opportunities.iterrows():

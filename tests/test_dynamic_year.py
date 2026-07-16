@@ -36,7 +36,7 @@ def test_dynamic_config_rejects_invalid_recovery_geometry():
         DynamicHydroYearConfig(expected_trough_month=9, pulse_rejection_window_months=0)
 
 
-from hydroseason._dynamic_year import _find_trough_opportunities
+from hydroseason._dynamic_year import _find_robust_trough_opportunities
 from hydroseason._state_input import prepare_monthly_extent
 
 
@@ -46,36 +46,48 @@ def _candidate_frame(start="2018-01-01", periods=60):
     return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
 
 
-def test_mid_dry_two_month_rise_is_rejected_when_water_returns_low():
+def test_mid_dry_rise_does_not_replace_later_lower_trough():
     raw = _candidate_frame()
-    raw.loc["2020-07-01":"2021-02-01", "extent_pct"] = [5.0, 8.0, 9.0, 5.0, 8.0, 12.0, 20.0, 25.0]
-    frame = prepare_monthly_extent(raw)
-    with pytest.warns(DeprecationWarning):
-        config = DynamicHydroYearConfig(
-            expected_trough_month=9, measurement_tolerance_pct=0.5,
-            dry_plateau_rule="last_before_confirmed_recovery",
-        )
-    rows = _find_trough_opportunities(frame, config)
-    row = rows.loc[rows["hy_year"] == 2020].iloc[0]
+    raw.loc["2020-07-01":"2021-02-01", "extent_pct"] = [5, 8, 9, 4, 8, 12, 20, 25]
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9)
+    )
+    row = result.loc[result["hy_year"] == 2020].iloc[0]
+    assert row["raw_trough_month"] == pd.Timestamp("2020-10-01")
     assert row["trough_month"] == pd.Timestamp("2020-10-01")
-    assert row["boundary_status"] == "confirmed"
 
 
-def test_final_low_is_retained_as_provisional_when_recovery_window_is_incomplete():
+def test_final_incomplete_search_window_is_provisional():
     raw = _candidate_frame(periods=34)
-    raw.loc["2020-09-01":"2020-10-01", "extent_pct"] = [2.0, 4.0]
-    with pytest.warns(DeprecationWarning):
-        config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="last_before_confirmed_recovery")
-    rows = _find_trough_opportunities(prepare_monthly_extent(raw), config)
-    row = rows.loc[rows["hy_year"] == 2020].iloc[0]
-    assert row["trough_month"] == pd.Timestamp("2020-09-01")
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9)
+    )
+    row = result.loc[result["hy_year"] == 2020].iloc[0]
+    assert row["window_status"] == "right_truncated"
     assert row["boundary_status"] == "provisional"
+
+
+def test_materially_higher_month_outside_equivalent_run_is_never_selected():
+    # Raw minimum sits at Oct (2 pp); Sep (15 pp) is materially higher and inside
+    # the same search window. The equivalent low run is Oct alone, so neither the
+    # sequence optimizer (which would otherwise prefer the expected Sep phase) nor
+    # any tolerance band may promote the higher Sep value over the raw minimum.
+    raw = _candidate_frame()
+    raw.loc["2020-06-01":"2020-12-01", "extent_pct"] = [30, 25, 20, 15, 2, 18, 22]
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9)
+    )
+    row = result.loc[result["hy_year"] == 2020].iloc[0]
+    assert row["raw_trough_month"] == pd.Timestamp("2020-10-01")
+    assert row["trough_month"] == pd.Timestamp("2020-10-01")
+    assert row["low_run_start_month"] == pd.Timestamp("2020-10-01")
+    assert row["low_run_end_month"] == pd.Timestamp("2020-10-01")
 
 
 def test_insufficient_candidate_coverage_is_an_explicit_row():
     raw = _candidate_frame()
     raw.loc["2020-06-01":"2020-12-01", "invalid_pct"] = 100.0
-    rows = _find_trough_opportunities(prepare_monthly_extent(raw), DynamicHydroYearConfig(expected_trough_month=9))
+    rows = _find_robust_trough_opportunities(prepare_monthly_extent(raw), DynamicHydroYearConfig(expected_trough_month=9))
     row = rows.loc[rows["hy_year"] == 2020].iloc[0]
     assert row["status"] == "unresolved"
     assert row["status_reason"] == "insufficient_trough_candidates"
