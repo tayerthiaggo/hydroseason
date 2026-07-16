@@ -126,7 +126,7 @@ def _find_robust_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroY
     Robust scale is estimated once over the whole record. For each expected
     trough window the raw observed minimum, its contiguous equivalent low run,
     and coverage evidence come from ``select_window_minimum`` (the raw extremum
-    is never silently replaced).     A globally consistent boundary date is then
+    is never silently replaced). A globally consistent boundary date is then
     chosen per year by ``select_boundary_sequence`` over each year's equivalent
     low run only. That run is built from ``select_window_minimum``'s *absolute*
     noise-band epsilon, which two independent real rivers showed is too loose

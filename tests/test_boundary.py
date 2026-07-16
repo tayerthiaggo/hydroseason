@@ -162,3 +162,51 @@ def test_sequence_optimizer_returns_none_for_all_unresolved_years():
         {"year": 2021, "expected": pd.Timestamp("2021-09-01"), "candidates": []},
     ]
     assert select_boundary_sequence(opportunities) == [None, None]
+
+
+def test_fidelity_guard_prevents_materially_higher_coherent_candidate():
+    # Test that raw_minimum_rel_tolerance actually constrains the DP to prefer
+    # the true per-year minimum over a materially higher candidate, even when
+    # the higher candidate would create a more coherent 12-month cycle.
+    #
+    # Setup: two years, each with two candidates. Year 2020's minimum (2.0) is
+    # at the off-cycle month (Sept), while an on-cycle month (Aug) has a higher
+    # value (2.15 = 7.5% above minimum, clearly outside 5% tolerance). Year
+    # 2021's minimum (1.9) is at July (2 months off-cycle), while Sept has 2.0
+    # (5.26% above minimum, just outside 5% tolerance). Without the guard, the
+    # DP prefers both Sept months for a clean 12-month cycle. With the guard at
+    # 5%, year 2021 must revert to its true minimum at July.
+    opportunities = [
+        {
+            "year": 2020,
+            "expected": pd.Timestamp("2020-09-01"),
+            "candidates": [
+                (pd.Timestamp("2020-08-01"), 2.15),  # 7.5% above 2020-min
+                (pd.Timestamp("2020-09-01"), 2.0),   # true minimum
+            ],
+        },
+        {
+            "year": 2021,
+            "expected": pd.Timestamp("2021-09-01"),
+            "candidates": [
+                (pd.Timestamp("2021-07-01"), 1.9),   # true minimum
+                (pd.Timestamp("2021-09-01"), 2.0),   # 5.26% above 2021-min
+            ],
+        },
+    ]
+
+    # Without guard (None): old value-blind behavior, coherence wins for both
+    selected_no_guard = select_boundary_sequence(opportunities)
+    assert selected_no_guard == [
+        pd.Timestamp("2020-09-01"),
+        pd.Timestamp("2021-09-01"),
+    ]
+
+    # With guard at 0.05 (5%): true minimum is preserved, year 2021 stays July
+    selected_with_guard = select_boundary_sequence(
+        opportunities, raw_minimum_rel_tolerance=0.05
+    )
+    assert selected_with_guard == [
+        pd.Timestamp("2020-09-01"),
+        pd.Timestamp("2021-07-01"),  # forced back to true minimum
+    ]
