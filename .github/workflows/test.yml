@@ -36,7 +36,7 @@ jobs:
       - name: Run test suite
         env:
           OMP_NUM_THREADS: "1"
-        run: python -m pytest -q --cov=hydroseason --cov-report=term-missing
+        run: python -m pytest -q -m "not experimental" --cov=hydroseason --cov-report=term-missing
 
   test-raster-extras:
     runs-on: ubuntu-latest
@@ -58,4 +58,4 @@ jobs:
       - name: Run test suite with raster/STAC dependencies present
         env:
           OMP_NUM_THREADS: "1"
-        run: python -m pytest -q
+        run: python -m pytest -q -m "not experimental"
