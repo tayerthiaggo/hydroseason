@@ -268,6 +268,34 @@ def _state_posterior(
     return posterior, log_likelihood
 
 
+def _transition_posterior(
+    alpha: np.ndarray, beta: np.ndarray, log_likelihood: float, state: int = _DRY_INDEX
+) -> np.ndarray:
+    """Posterior probability that a ``state`` segment ends exactly at month ``t``.
+
+    This is the actual ``dry -> recovery`` *transition* (segment-boundary)
+    posterior -- ``P(a dry segment ends exactly at month t, i.e. the
+    recovery segment begins at t + 1)`` -- and is distinct from
+    ``_state_posterior``'s ``gamma``-based state-*occupancy* marginal, which
+    answers "P(month t is in the dry state)" and stays high across an
+    entire flat dry plateau rather than localizing the boundary. By
+    ``alpha``'s and ``beta``'s own definitions, ``alpha[t, state]`` is the
+    log-mass of segmentations in which a ``state`` segment ends exactly at
+    ``t``, and ``beta[t, state]`` is the log-likelihood of everything after
+    ``t`` given that same event, so their sum (normalized by the total
+    ``log_likelihood``) is exactly this transition posterior. Months where
+    no feasible segmentation has a ``state`` segment ending at ``t`` have
+    ``alpha[t, state]`` and/or ``beta[t, state]`` equal to ``-inf``; those
+    are mapped to a transition probability of exactly ``0.0`` rather than
+    left to produce a NaN.
+    """
+    combined = alpha[:, state] + beta[:, state]
+    result = np.zeros(combined.shape[0])
+    finite = np.isfinite(combined)
+    result[finite] = np.exp(combined[finite] - log_likelihood)
+    return result
+
+
 def _viterbi(emit: np.ndarray, durations: list[dict[int, float]]) -> list[str]:
     """Best single segmentation (hard state path) via explicit-duration Viterbi."""
     n_months = emit.shape[0]
@@ -315,17 +343,21 @@ def _viterbi(emit: np.ndarray, durations: list[dict[int, float]]) -> list[str]:
 
 def _select_troughs(
     frame: pd.DataFrame,
-    posterior: np.ndarray,
+    transition_posterior: np.ndarray,
     usable: np.ndarray,
     expected_trough_month: int,
 ) -> tuple[tuple[pd.Timestamp, ...], tuple[float, ...]]:
     """Pick, per calendar-year window, the usable dry->recovery transition anchor.
 
-    The trough month is the point of maximum "dry" occupancy posterior within
-    a window around the expected phase; restricting candidates to usable
-    months means an unusable observation can never be selected, satisfying
-    the "never treat a missing observation as a boundary" invariant directly
-    rather than relying on the dynamic program to avoid it incidentally.
+    The trough month is the point of maximum dry->recovery *transition*
+    posterior (``P(a dry segment ends exactly at month t)``, see
+    ``_transition_posterior``) within a window around the expected phase --
+    not the point of maximum raw "dry" state-occupancy, which can be high
+    across an entire flat dry plateau and would not localize a single
+    boundary month. Restricting candidates to usable months means an
+    unusable observation can never be selected, satisfying the "never treat
+    a missing observation as a boundary" invariant directly rather than
+    relying on the dynamic program to avoid it incidentally.
     """
     index = frame.index
     trough_months: list[pd.Timestamp] = []
@@ -339,7 +371,7 @@ def _select_troughs(
         for position in positions:
             if not usable[position]:
                 continue
-            score = float(posterior[position, _DRY_INDEX])
+            score = float(transition_posterior[position])
             if score > best_score:
                 best_score, best_position = score, position
         if best_position is None:
@@ -348,7 +380,7 @@ def _select_troughs(
         if date in trough_months:
             continue
         support = sum(
-            float(posterior[best_position + offset, _DRY_INDEX])
+            float(transition_posterior[best_position + offset])
             for offset in (-1, 0, 1)
             if 0 <= best_position + offset < len(index)
         )
@@ -448,8 +480,11 @@ def fit_semi_markov_boundaries(
     alpha, cumulative = _forward(emit, durations)
     beta = _backward(emit, durations, cumulative)
     posterior, log_likelihood = _state_posterior(emit, alpha, beta, durations, cumulative)
+    transition_posterior = _transition_posterior(alpha, beta, log_likelihood)
 
-    trough_months, trough_support = _select_troughs(frame, posterior, usable, expected_trough_month)
+    trough_months, trough_support = _select_troughs(
+        frame, transition_posterior, usable, expected_trough_month
+    )
     peak_months = _select_peaks(frame, state_path, usable, trough_months)
 
     return SemiMarkovResult(
