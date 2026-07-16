@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Literal
 
@@ -9,15 +10,22 @@ import pandas as pd
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._state_input import prepare_monthly_extent
 
+# Fallback values substituted for the deprecated recovery-window fields when a
+# caller has not supplied them. These match the historical defaults (2 and 4)
+# so that the legacy `last_before_confirmed_recovery` dry_plateau_rule keeps
+# behaving exactly as before during the one-release deprecation window.
+_DEFAULT_SUSTAINED_RISE_MONTHS = 2
+_DEFAULT_PULSE_REJECTION_WINDOW_MONTHS = 4
+
 
 @dataclass(frozen=True)
 class DynamicHydroYearConfig:
     expected_trough_month: int
     expected_peak_month: int | None = None
     trough_search_radius_months: int = 3
-    dry_plateau_rule: Literal["last_before_confirmed_recovery", "middle", "first"] = "last_before_confirmed_recovery"
-    sustained_rise_months: int = 2
-    pulse_rejection_window_months: int = 4
+    dry_plateau_rule: Literal["raw_minimum", "last_before_confirmed_recovery", "middle", "first"] = "raw_minimum"
+    sustained_rise_months: int | None = None
+    pulse_rejection_window_months: int | None = None
     max_invalid_pct: float = 20.0
     allow_unknown_quality: bool = False
     min_usable_months_per_cycle: int = 8
@@ -26,6 +34,7 @@ class DynamicHydroYearConfig:
     low_percentile: float = 20.0
     high_percentile: float = 80.0
     measurement_tolerance_pct: float = 1.0
+    detector: Literal["robust_extrema", "semi_markov"] = "robust_extrema"
 
     def __post_init__(self) -> None:
         if self.expected_trough_month not in range(1, 13):
@@ -34,7 +43,9 @@ class DynamicHydroYearConfig:
             raise ValueError("expected_peak_month must be in 1..12.")
         if not 0 <= self.trough_search_radius_months <= 5:
             raise ValueError("trough_search_radius_months must be in 0..5.")
-        if self.sustained_rise_months < 1 or self.pulse_rejection_window_months < 1:
+        if self.sustained_rise_months is not None and self.sustained_rise_months < 1:
+            raise ValueError("recovery windows must be positive.")
+        if self.pulse_rejection_window_months is not None and self.pulse_rejection_window_months < 1:
             raise ValueError("recovery windows must be positive.")
         if not 0 <= self.max_invalid_pct <= 100:
             raise ValueError("max_invalid_pct must be between 0 and 100.")
@@ -42,6 +53,34 @@ class DynamicHydroYearConfig:
             raise ValueError("condition percentiles must satisfy 0 <= low < high <= 100.")
         if self.measurement_tolerance_pct < 0:
             raise ValueError("measurement_tolerance_pct must be non-negative.")
+        if self.detector not in {"robust_extrema", "semi_markov"}:
+            raise ValueError("detector must be 'robust_extrema' or 'semi_markov'")
+        if self.sustained_rise_months is not None or self.pulse_rejection_window_months is not None:
+            warnings.warn(
+                "recovery-window fields (sustained_rise_months, pulse_rejection_window_months) "
+                "are deprecated and ignored by robust_extrema; they are retained only for "
+                "backward compatibility with dry_plateau_rule='last_before_confirmed_recovery'.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if self.dry_plateau_rule == "last_before_confirmed_recovery":
+            warnings.warn(
+                "dry_plateau_rule='last_before_confirmed_recovery' is deprecated; use 'raw_minimum'.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+    @property
+    def _effective_sustained_rise_months(self) -> int:
+        return self.sustained_rise_months if self.sustained_rise_months is not None else _DEFAULT_SUSTAINED_RISE_MONTHS
+
+    @property
+    def _effective_pulse_rejection_window_months(self) -> int:
+        return (
+            self.pulse_rejection_window_months
+            if self.pulse_rejection_window_months is not None
+            else _DEFAULT_PULSE_REJECTION_WINDOW_MONTHS
+        )
 
 
 def suggest_dynamic_hydro_year_config(extent, *, pattern: SeasonalPatternResult | None = None, **overrides) -> DynamicHydroYearConfig:
@@ -64,6 +103,8 @@ def _month_delta(actual: pd.Timestamp, expected: pd.Timestamp) -> int:
 
 def _recovery_status(frame: pd.DataFrame, low_date: pd.Timestamp, plateau_ceiling: float, config: DynamicHydroYearConfig) -> str:
     threshold = plateau_ceiling
+    sustained_rise_months = config._effective_sustained_rise_months
+    pulse_rejection_window_months = config._effective_pulse_rejection_window_months
     tail = frame.loc[frame.index > low_date]
     consecutive = 0
     for position, (_, row) in enumerate(tail.iterrows()):
@@ -71,9 +112,9 @@ def _recovery_status(frame: pd.DataFrame, low_date: pd.Timestamp, plateau_ceilin
             consecutive = 0
             continue
         consecutive = consecutive + 1 if float(row["extent_pct"]) > threshold else 0
-        if consecutive < config.sustained_rise_months:
+        if consecutive < sustained_rise_months:
             continue
-        end_position = position + config.pulse_rejection_window_months
+        end_position = position + pulse_rejection_window_months
         if end_position >= len(tail):
             return "provisional"
         rejection = tail.iloc[position + 1 : end_position + 1]
@@ -83,12 +124,14 @@ def _recovery_status(frame: pd.DataFrame, low_date: pd.Timestamp, plateau_ceilin
             consecutive = 0
             continue
         return "confirmed"
-    return "provisional" if len(tail) < config.sustained_rise_months + config.pulse_rejection_window_months else "unconfirmed"
+    return "provisional" if len(tail) < sustained_rise_months + pulse_rejection_window_months else "unconfirmed"
 
 
 def _select_low_candidate(window: pd.DataFrame, full: pd.DataFrame, config: DynamicHydroYearConfig) -> tuple[pd.Timestamp | None, str]:
     minimum = float(window["extent_pct"].min())
     plateau = window.loc[window["extent_pct"] <= minimum + config.measurement_tolerance_pct]
+    if config.dry_plateau_rule == "raw_minimum":
+        return pd.Timestamp(plateau.index[-1]), "confirmed"
     if config.dry_plateau_rule == "first":
         return pd.Timestamp(plateau.index[0]), "confirmed"
     if config.dry_plateau_rule == "middle":

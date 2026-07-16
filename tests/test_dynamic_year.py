@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -48,7 +50,11 @@ def test_mid_dry_two_month_rise_is_rejected_when_water_returns_low():
     raw = _candidate_frame()
     raw.loc["2020-07-01":"2021-02-01", "extent_pct"] = [5.0, 8.0, 9.0, 5.0, 8.0, 12.0, 20.0, 25.0]
     frame = prepare_monthly_extent(raw)
-    config = DynamicHydroYearConfig(expected_trough_month=9, measurement_tolerance_pct=0.5)
+    with pytest.warns(DeprecationWarning):
+        config = DynamicHydroYearConfig(
+            expected_trough_month=9, measurement_tolerance_pct=0.5,
+            dry_plateau_rule="last_before_confirmed_recovery",
+        )
     rows = _find_trough_opportunities(frame, config)
     row = rows.loc[rows["hy_year"] == 2020].iloc[0]
     assert row["trough_month"] == pd.Timestamp("2020-10-01")
@@ -58,7 +64,9 @@ def test_mid_dry_two_month_rise_is_rejected_when_water_returns_low():
 def test_final_low_is_retained_as_provisional_when_recovery_window_is_incomplete():
     raw = _candidate_frame(periods=34)
     raw.loc["2020-09-01":"2020-10-01", "extent_pct"] = [2.0, 4.0]
-    rows = _find_trough_opportunities(prepare_monthly_extent(raw), DynamicHydroYearConfig(expected_trough_month=9))
+    with pytest.warns(DeprecationWarning):
+        config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="last_before_confirmed_recovery")
+    rows = _find_trough_opportunities(prepare_monthly_extent(raw), config)
     row = rows.loc[rows["hy_year"] == 2020].iloc[0]
     assert row["trough_month"] == pd.Timestamp("2020-09-01")
     assert row["boundary_status"] == "provisional"
@@ -120,3 +128,53 @@ def test_unknown_quality_never_receives_high_confidence():
     config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle", allow_unknown_quality=True)
     result = detect_dynamic_hydrological_years(raw, config=config)
     assert "high" not in set(result["confidence"])
+
+
+def test_old_recovery_fields_warn_for_one_release():
+    with pytest.warns(DeprecationWarning, match="recovery-window"):
+        DynamicHydroYearConfig(expected_trough_month=9, sustained_rise_months=2)
+
+
+def test_old_recovery_field_pulse_rejection_window_also_warns():
+    with pytest.warns(DeprecationWarning, match="recovery-window"):
+        DynamicHydroYearConfig(expected_trough_month=9, pulse_rejection_window_months=4)
+
+
+def test_old_dry_plateau_rule_literal_warns():
+    with pytest.warns(DeprecationWarning, match="raw_minimum"):
+        DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="last_before_confirmed_recovery")
+
+
+def test_new_default_dry_plateau_rule_is_raw_minimum_and_does_not_warn():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        config = DynamicHydroYearConfig(expected_trough_month=9)
+    assert config.dry_plateau_rule == "raw_minimum"
+
+
+def test_new_config_without_recovery_overrides_does_not_warn():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        config = DynamicHydroYearConfig(expected_trough_month=9)
+    assert config.sustained_rise_months is None
+    assert config.pulse_rejection_window_months is None
+
+
+def test_detector_field_defaults_to_robust_extrema():
+    config = DynamicHydroYearConfig(expected_trough_month=9)
+    assert config.detector == "robust_extrema"
+
+
+def test_detector_field_rejects_unknown_value():
+    with pytest.raises(ValueError, match="detector"):
+        DynamicHydroYearConfig(expected_trough_month=9, detector="not_a_real_detector")
+
+
+def test_detector_field_accepts_semi_markov():
+    config = DynamicHydroYearConfig(expected_trough_month=9, detector="semi_markov")
+    assert config.detector == "semi_markov"
+
+
+def test_explicit_zero_pulse_rejection_window_still_rejected():
+    with pytest.raises(ValueError):
+        DynamicHydroYearConfig(expected_trough_month=9, pulse_rejection_window_months=0)
