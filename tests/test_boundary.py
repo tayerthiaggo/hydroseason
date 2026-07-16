@@ -4,6 +4,7 @@ import pytest
 from hydroseason._boundary import (
     BoundarySelection,
     RobustBoundaryConfig,
+    select_boundary_sequence,
     select_window_minimum,
 )
 
@@ -92,3 +93,50 @@ def test_right_truncated_window_is_provisional_evidence():
                                    expected_count=7, noise_pp=0.2, amplitude_pp=4.0)
     assert result.window_status == "right_truncated"
     assert result.support < 0.80
+
+
+def test_sequence_optimizer_uses_equivalent_date_to_avoid_short_cycle():
+    opportunities = [
+        {"year": 2020, "expected": pd.Timestamp("2020-09-01"),
+         "candidates": [(pd.Timestamp("2020-08-01"), 2.0),
+                        (pd.Timestamp("2020-09-01"), 2.1)]},
+        {"year": 2021, "expected": pd.Timestamp("2021-09-01"),
+         "candidates": [(pd.Timestamp("2021-07-01"), 1.9),
+                        (pd.Timestamp("2021-09-01"), 2.0)]},
+    ]
+    selected = select_boundary_sequence(opportunities)
+    assert selected == [pd.Timestamp("2020-09-01"), pd.Timestamp("2021-09-01")]
+
+
+def test_sequence_optimizer_preserves_unresolved_year_and_restarts():
+    opportunities = [
+        {"year": 2020, "expected": pd.Timestamp("2020-09-01"),
+         "candidates": [(pd.Timestamp("2020-09-01"), 2.0)]},
+        {"year": 2021, "expected": pd.Timestamp("2021-09-01"), "candidates": []},
+        {"year": 2022, "expected": pd.Timestamp("2022-09-01"),
+         "candidates": [(pd.Timestamp("2022-09-01"), 2.0)]},
+    ]
+    assert select_boundary_sequence(opportunities) == [
+        pd.Timestamp("2020-09-01"), None, pd.Timestamp("2022-09-01")
+    ]
+
+
+def test_sequence_optimizer_handles_single_opportunity_block():
+    opportunities = [
+        {"year": 2020, "expected": pd.Timestamp("2020-09-01"),
+         "candidates": [(pd.Timestamp("2020-08-01"), 3.0),
+                        (pd.Timestamp("2020-09-01"), 2.5)]},
+    ]
+    assert select_boundary_sequence(opportunities) == [pd.Timestamp("2020-09-01")]
+
+
+def test_sequence_optimizer_handles_empty_opportunity_list():
+    assert select_boundary_sequence([]) == []
+
+
+def test_sequence_optimizer_returns_none_for_all_unresolved_years():
+    opportunities = [
+        {"year": 2020, "expected": pd.Timestamp("2020-09-01"), "candidates": []},
+        {"year": 2021, "expected": pd.Timestamp("2021-09-01"), "candidates": []},
+    ]
+    assert select_boundary_sequence(opportunities) == [None, None]

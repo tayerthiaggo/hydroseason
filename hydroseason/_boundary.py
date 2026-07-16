@@ -131,3 +131,78 @@ def select_window_minimum(
         expected_count, n_usable,
         (raw_month.year - expected.year) * 12 + raw_month.month - expected.month,
     )
+
+
+def select_boundary_sequence(opportunities: list[dict]) -> list[pd.Timestamp | None]:
+    """Pick a globally consistent boundary date per year via dynamic programming.
+
+    Each opportunity contributes a phase cost (distance in months from its
+    expected date) and, for consecutive opportunities within an unbroken run
+    of non-empty candidate lists, a cycle cost (deviation of the inter-year
+    gap from 12 months). Years with an empty candidate list are unresolved
+    (``None``) and break cycle continuity: the DP never links a candidate
+    across such a gap, so each contiguous block of resolved years is
+    optimized independently.
+    """
+    selected: list[pd.Timestamp | None] = [None] * len(opportunities)
+
+    def optimize_block(block: list[dict]) -> list[pd.Timestamp]:
+        costs: list[list[float]] = []
+        parents: list[list[int | None]] = []
+        for index, opportunity in enumerate(block):
+            row_costs, row_parents = [], []
+            for date, _ in opportunity["candidates"]:
+                phase = abs(
+                    (date.year - opportunity["expected"].year) * 12
+                    + date.month - opportunity["expected"].month
+                )
+                if index == 0:
+                    row_costs.append(float(phase))
+                    row_parents.append(None)
+                    continue
+                best_cost, best_parent = float("inf"), None
+                for parent_index, (previous_date, _) in enumerate(
+                    block[index - 1]["candidates"]
+                ):
+                    cycle = (
+                        (date.year - previous_date.year) * 12
+                        + date.month - previous_date.month
+                    )
+                    candidate_cost = (
+                        costs[index - 1][parent_index] + phase + abs(cycle - 12)
+                    )
+                    if candidate_cost < best_cost:
+                        best_cost, best_parent = candidate_cost, parent_index
+                row_costs.append(best_cost)
+                row_parents.append(best_parent)
+            costs.append(row_costs)
+            parents.append(row_parents)
+        cursor = int(np.argmin(costs[-1]))
+        chosen = []
+        for index in range(len(block) - 1, -1, -1):
+            chosen.append(pd.Timestamp(block[index]["candidates"][cursor][0]))
+            parent = parents[index][cursor]
+            if parent is not None:
+                cursor = parent
+        return list(reversed(chosen))
+
+    block_start = 0
+    while block_start < len(opportunities):
+        while (
+            block_start < len(opportunities)
+            and not opportunities[block_start]["candidates"]
+        ):
+            block_start += 1
+        if block_start == len(opportunities):
+            break
+        block_end = block_start
+        while (
+            block_end < len(opportunities)
+            and opportunities[block_end]["candidates"]
+        ):
+            block_end += 1
+        selected[block_start:block_end] = optimize_block(
+            opportunities[block_start:block_end]
+        )
+        block_start = block_end
+    return selected
