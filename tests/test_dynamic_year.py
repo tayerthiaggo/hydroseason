@@ -331,6 +331,58 @@ def test_both_detectors_return_identical_columns():
     assert semi["trough_month"].notna().any()
 
 
+def test_additive_diagnostic_columns_present_and_populated_for_both_detectors():
+    # test_both_detectors_return_identical_columns above only checks column-name
+    # parity between the two detectors; it never checks the additive robust-
+    # extrema diagnostic columns against the full ANNUAL_COLUMNS contract, nor
+    # that they are actually populated (not all-NaN) for a resolved cycle under
+    # either detector choice. This closes that gap.
+    from hydroseason._dynamic_year import ANNUAL_COLUMNS
+
+    raw = _candidate_frame(start="2017-01-01", periods=84)
+    additive_columns = [
+        "raw_trough_month", "raw_trough_extent_pct",
+        "low_run_start_month", "low_run_end_month",
+        "window_status", "selection_status", "selection_support",
+        "window_n_expected", "window_n_usable", "phase_shift_months",
+        "raw_peak_month", "raw_peak_extent_pct",
+        "peak_selection_status", "peak_selection_support",
+    ]
+    for column in additive_columns:
+        assert column in ANNUAL_COLUMNS
+
+    # The semi-Markov engine has no raw-vs-selected window/run concept (see
+    # _find_semi_markov_trough_opportunities's docstring): it always fills
+    # these trough-window diagnostics with placeholders rather than real
+    # per-window measurements, so they are excluded from the "must be
+    # populated" check for that detector only.
+    always_populated = [c for c in additive_columns if c not in {"low_run_start_month", "low_run_end_month", "window_n_expected", "window_n_usable"}]
+
+    for detector in ("robust_extrema", "semi_markov"):
+        result = detect_dynamic_hydrological_years(
+            raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector=detector)
+        )
+        assert list(result.columns) == ANNUAL_COLUMNS
+        complete = result.loc[result["status"] == "complete"]
+        assert not complete.empty, f"no resolved cycle for detector={detector}"
+        row = complete.iloc[0]
+        for column in always_populated:
+            assert pd.notna(row[column]), f"{column} is NaN for detector={detector}"
+        assert row["window_status"] in {"full", "left_truncated", "right_truncated", "internal_gap"}
+        assert row["selection_status"] in {"raw", "ambiguous", "quality_adjusted", "unresolved"}
+        assert 0.0 <= row["selection_support"] <= 1.0
+        assert row["boundary_status"] in {"confirmed", "provisional"}
+
+    # The robust_extrema detector, by contrast, does populate every additive
+    # column, including the window/run diagnostics the semi-Markov engine
+    # cannot provide.
+    robust_row = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector="robust_extrema")
+    ).pipe(lambda df: df.loc[df["status"] == "complete"]).iloc[0]
+    for column in additive_columns:
+        assert pd.notna(robust_row[column]), f"{column} is NaN for robust_extrema"
+
+
 def test_peak_diagnostic_columns_are_nan_for_unresolved_cycles():
     raw = _candidate_frame(start="2017-01-01", periods=84)
     raw.loc["2020-06-01":"2020-12-01", "invalid_pct"] = 100.0

@@ -5,6 +5,38 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+- Robust-extrema trough/peak boundary detector (`detector="robust_extrema"`,
+  the new default) on `detect_dynamic_hydrological_years`, gated on real
+  Fitzroy/Kimberley and Gilbert River evidence. It identifies the raw observed
+  extremum in each year's expected window plus its contiguous "equivalent low
+  run", then a sequence-consistent optimizer (`select_boundary_sequence`) may
+  select another month from within that same run to keep consecutive cycle
+  lengths coherent; a raw observed extremum is never silently replaced.
+- New additive diagnostic columns on the annual output for both raw/selected
+  boundary auditability and confidence grading: `raw_trough_month`,
+  `raw_trough_extent_pct`, `raw_peak_month`, `raw_peak_extent_pct`,
+  `low_run_start_month`, `low_run_end_month`, `window_status`,
+  `selection_status`, `selection_support`, `window_n_expected`,
+  `window_n_usable`, `peak_selection_status`, `peak_selection_support`, and
+  `phase_shift_months`. `selection_support` is a 0-1 quality grade, not yet a
+  calibrated probability.
+- Experimental, opt-in semi-Markov boundary challenger
+  (`detector="semi_markov"`, a four-state hidden semi-Markov model) selectable
+  via the same `DynamicHydroYearConfig.detector` field, producing the same
+  output schema as the default detector. It remains experimental and is
+  **not** promoted to default: its own promotion gate
+  (`tests/test_detector_comparison.py::test_semi_markov_promotion_gate`) did
+  not pass on available fixtures.
+
+### Deprecated
+- `DynamicHydroYearConfig.sustained_rise_months`,
+  `pulse_rejection_window_months`, and `dry_plateau_rule="last_before_confirmed_recovery"`
+  are deprecated and emit `DeprecationWarning`. They are retained, functional,
+  for one minor release for backward compatibility, but are ignored by the new
+  default `robust_extrema` detector. The new default `dry_plateau_rule` is
+  `"raw_minimum"`.
+
 ### Changed (breaking)
 - **Re-platformed from rainfall-first to remote-sensing (water-mask) first.**
   Rainfall-based season/hydro-year detection did not generalize well across

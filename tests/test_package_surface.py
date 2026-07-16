@@ -43,3 +43,28 @@ def test_conda_recipe_has_no_removed_cli_entry_point():
 
     assert "hydroseason.cli:main" not in recipe
     assert "hydroseason --version" not in recipe
+
+
+def test_robust_extrema_and_semi_markov_internals_stay_unexported():
+    # Tasks 3-10 added the robust-extrema default detector, its diagnostic
+    # columns, and the opt-in semi-Markov challenger entirely behind
+    # underscore-prefixed internal modules (_boundary, _boundary_validation,
+    # _semi_markov). None of that should have widened the top-level surface:
+    # their public symbols must not appear in __all__ or be importable as
+    # `hydroseason.<symbol>`. (The submodules themselves become accessible as
+    # `hydroseason._boundary` etc. purely as a side effect of Python import
+    # machinery once anything imports from them internally -- that is true of
+    # every underscore-prefixed module and is not a re-export, so it is not
+    # asserted against here.) detect_dynamic_hydrological_years and
+    # DynamicHydroYearConfig (already asserted above) remain the only public
+    # entry points for this behavior.
+    hydroseason = importlib.import_module("hydroseason")
+
+    internal_names = {
+        "RobustBoundaryConfig", "BoundarySelection", "select_window_minimum",
+        "select_cycle_peak", "select_boundary_sequence", "robust_scale",
+        "SemiMarkovConfig", "fit_semi_markov_boundaries",
+        "WindowStatus", "SelectionStatus",
+    }
+    assert internal_names.isdisjoint(vars(hydroseason))
+    assert internal_names.isdisjoint(hydroseason.__all__)

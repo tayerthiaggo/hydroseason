@@ -172,6 +172,16 @@ The classifier is advisory:
 
 ### 6.1 Configuration
 
+**Superseded shape.** The field list and defaults below reflect this
+document's original proposal and are kept for historical context only. The
+current dataclass (see `hydroseason/_dynamic_year.py`) additionally has a
+`detector: Literal["robust_extrema", "semi_markov"] = "robust_extrema"` field,
+defaults `dry_plateau_rule` to `"raw_minimum"`, and makes `sustained_rise_months`
+/ `pulse_rejection_window_months` optional (`int | None = None`) deprecated
+compatibility inputs rather than fixed-default fields. See
+`docs/superpowers/specs/2026-07-15-transferable-hydrological-boundary-design.md`
+for the authoritative current configuration and mechanics.
+
 ```python
 @dataclass(frozen=True)
 class DynamicHydroYearConfig:
@@ -213,21 +223,24 @@ Within each window:
 5. report the opportunity as unresolved when candidate coverage is
    insufficient.
 
-`last_before_confirmed_recovery` is default. It selects the last usable month in
-a low plateau before a recovery is confirmed. Confirmation requires
-`sustained_rise_months` consecutive usable months above the plateau by
-`measurement_tolerance_pct`, followed by no return to that low plateau during
-`pulse_rejection_window_months`. Thus a mid-dry rainfall pulse which rises for
-two months then recedes is not allowed to end a hydrological year: the detector
-continues to the later low-water opportunity and records the reversal as a
-rewetting pulse. This represents the end of dry-refuge conditions better than
-the arbitrary middle of a long zero-water plateau.
+**Superseded.** This section originally specified `last_before_confirmed_recovery`
+(a recovery-confirmation state machine keyed on `sustained_rise_months` and
+`pulse_rejection_window_months`) as the default rule for resolving equal or
+near-equal minima. That mechanism has been replaced by a robust-extrema
+detector and a sequence-consistent DP boundary selector; `raw_minimum` is now
+the default `dry_plateau_rule`. The current, authoritative description of
+trough-opportunity resolution — raw extrema, contiguous equivalent-low runs,
+window/selection status, support, and the `confirmed`/`provisional` boundary
+gate — lives in
+`docs/superpowers/specs/2026-07-15-transferable-hydrological-boundary-design.md`;
+treat that document, not this section, as the source of truth for boundary-
+selection mechanics.
 
-If recovery cannot yet be confirmed because the record ends inside the
-rejection window, retain the best trough but set `boundary_status=provisional`
-and lower confidence. A return to the plateau rejects the putative recovery; a
-coverage gap makes the transition partial rather than assumed. `middle` and
-`first` remain explicit alternatives for studies needing those conventions.
+The old fields (`sustained_rise_months`, `pulse_rejection_window_months`, and
+`dry_plateau_rule="last_before_confirmed_recovery"`) remain accepted for one
+minor release as deprecated, warned-but-functional compatibility inputs; they
+are ignored by the new default detector. `middle` and `first` remain explicit
+`dry_plateau_rule` alternatives for studies needing those conventions.
 
 One nominal opportunity per year prevents adjacent hydrological years from
 being merged. An unresolved opportunity breaks the sequence; detection does
