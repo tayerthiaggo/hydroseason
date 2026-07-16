@@ -46,6 +46,21 @@ def _candidate_frame(start="2018-01-01", periods=60):
     return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
 
 
+def _post_trough_peak_frame(start="2017-01-01", periods=84):
+    """Monotonic decline from an October peak to the following September trough.
+
+    The annual maximum therefore falls in October -- the month immediately after
+    the previous September trough (i.e. the very first month of the cycle). This
+    exposes an off-by-one that over-excludes the first cycle month from peak
+    candidacy and would otherwise report the second-highest month instead.
+    """
+    index = pd.date_range(start, periods=periods, freq="MS")
+    by_month = {10: 60.0, 11: 52.0, 12: 44.0, 1: 38.0, 2: 32.0, 3: 27.0,
+                4: 22.0, 5: 18.0, 6: 13.0, 7: 9.0, 8: 5.0, 9: 2.0}
+    values = [by_month[month] for month in index.month]
+    return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
+
+
 def test_mid_dry_rise_does_not_replace_later_lower_trough():
     raw = _candidate_frame()
     raw.loc["2020-07-01":"2021-02-01", "extent_pct"] = [5, 8, 9, 4, 8, 12, 20, 25]
@@ -190,3 +205,48 @@ def test_detector_field_accepts_semi_markov():
 def test_explicit_zero_pulse_rejection_window_still_rejected():
     with pytest.raises(ValueError):
         DynamicHydroYearConfig(expected_trough_month=9, pulse_rejection_window_months=0)
+
+
+def test_raw_peak_reports_maximum_in_first_month_after_previous_trough():
+    # cycle 2019 spans Oct-2018 .. Sep-2019; the true observed maximum is the
+    # first month, Oct-2018 (60 pp), which must be reported as the raw peak --
+    # not the second-highest month (Nov-2018, 52 pp) that an off-by-one exclusion
+    # of the first cycle month would leave behind.
+    raw = _post_trough_peak_frame()
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9)
+    )
+    row = result.loc[result["hy_year"] == 2019].iloc[0]
+    assert row["raw_peak_month"] == pd.Timestamp("2018-10-01")
+    assert row["raw_peak_extent_pct"] == pytest.approx(60.0)
+    assert row["peak_month"] == pd.Timestamp("2018-10-01")
+    assert row["peak_extent_pct"] == pytest.approx(60.0)
+
+
+def test_peak_diagnostic_columns_populated_for_resolved_cycle():
+    raw = _post_trough_peak_frame()
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9)
+    )
+    complete = result.loc[result["status"] == "complete"].iloc[0]
+    assert pd.notna(complete["raw_peak_month"])
+    assert complete["raw_peak_month"] == complete["peak_month"]
+    assert complete["raw_peak_extent_pct"] == pytest.approx(complete["peak_extent_pct"])
+    assert complete["peak_selection_status"] in {"raw", "ambiguous", "quality_adjusted"}
+    assert pd.notna(complete["peak_selection_support"])
+    assert 0.0 <= complete["peak_selection_support"] <= 1.0
+
+
+def test_peak_diagnostic_columns_are_nan_for_unresolved_cycles():
+    raw = _candidate_frame(start="2017-01-01", periods=84)
+    raw.loc["2020-06-01":"2020-12-01", "invalid_pct"] = 100.0
+    config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle")
+    result = detect_dynamic_hydrological_years(raw, config=config)
+    # 2020 is unresolved (insufficient_trough_candidates); 2021 has no previous
+    # boundary. Neither reaches peak selection, so all four peak diagnostics stay NaN.
+    for year in (2020, 2021):
+        row = result.loc[result["hy_year"] == year].iloc[0]
+        assert pd.isna(row["raw_peak_month"])
+        assert pd.isna(row["raw_peak_extent_pct"])
+        assert pd.isna(row["peak_selection_status"])
+        assert pd.isna(row["peak_selection_support"])

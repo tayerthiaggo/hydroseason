@@ -294,8 +294,9 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
             previous = opportunity
             rows.append(row)
             continue
+        previous_trough = pd.Timestamp(previous["trough_month"])
         peak_selection = select_cycle_peak(
-            cycle, start=start, end=end, noise_pp=noise_pp, amplitude_pp=amplitude_pp,
+            cycle, start=previous_trough, end=end, noise_pp=noise_pp, amplitude_pp=amplitude_pp,
         )
         if peak_selection.selected_month is None:
             row.update(status="partial", status_reason="insufficient_cycle_coverage", hy_start=start, hy_end=end, cycle_months=len(cycle), n_usable_months=len(usable))
