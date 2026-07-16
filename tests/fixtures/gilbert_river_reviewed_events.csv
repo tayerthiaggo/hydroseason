@@ -1,12 +1,12 @@
 event_id,interval_start,interval_end,trough_month,peak_month,detectable,reviewer,review_notes
-WY2015,01/01/2015,01/10/2015,01/10/2015,01/01/2015,yes,Thiaggo,dynamic HY: series start to first trough (no prior trough available)
-WY2016,01/11/2015,01/10/2016,01/10/2016,01/03/2016,yes,Thiaggo,dynamic HY: prior trough (2015-10-01) exclusive to this trough
-WY2017,01/11/2016,01/09/2017,01/09/2017,01/01/2017,yes,Thiaggo,dynamic HY: prior trough (2016-10-01) exclusive to this trough
-WY2018,01/10/2017,01/11/2018,01/11/2018,01/03/2018,yes,Thiaggo,dynamic HY: prior trough (2017-09-01) exclusive to this trough
-WY2019,01/12/2018,01/11/2019,01/11/2019,01/02/2019,yes,Thiaggo,dynamic HY: prior trough (2018-11-01) exclusive to this trough
-WY2020,01/12/2019,01/10/2020,01/10/2020,01/02/2020,yes,Thiaggo,dynamic HY: prior trough (2019-11-01) exclusive to this trough
-WY2021,01/11/2020,01/10/2021,01/10/2021,01/02/2021,yes,Thiaggo,dynamic HY: prior trough (2020-10-01) exclusive to this trough
-WY2022,01/11/2021,01/11/2022,01/11/2022,01/01/2022,yes,Thiaggo,dynamic HY: prior trough (2021-10-01) exclusive to this trough
-WY2023,01/12/2022,01/11/2023,01/11/2023,01/02/2023,yes,Thiaggo,dynamic HY: prior trough (2022-11-01) exclusive to this trough
-WY2024,01/12/2023,01/11/2024,01/11/2024,01/02/2024,yes,Thiaggo,dynamic HY: prior trough (2023-11-01) exclusive to this trough
-WY2025,01/12/2024,01/10/2025,01/10/2025,01/04/2025,yes,Thiaggo,dynamic HY: prior trough (2024-11-01) exclusive to this trough; series end 2025-12-31 falls after this trough
+WY2015,2015-01-01,2015-10-01,2015-10-01,2015-01-01,yes,Thiaggo,dynamic HY: series start to first trough (no prior trough available)
+WY2016,2015-11-01,2016-10-01,2016-10-01,2016-03-01,yes,Thiaggo,dynamic HY: prior trough (2015-10-01) exclusive to this trough
+WY2017,2016-11-01,2017-09-01,2017-09-01,2017-01-01,yes,Thiaggo,dynamic HY: prior trough (2016-10-01) exclusive to this trough
+WY2018,2017-10-01,2018-11-01,2018-11-01,2018-03-01,yes,Thiaggo,dynamic HY: prior trough (2017-09-01) exclusive to this trough
+WY2019,2018-12-01,2019-11-01,2019-11-01,2019-02-01,yes,Thiaggo,dynamic HY: prior trough (2018-11-01) exclusive to this trough
+WY2020,2019-12-01,2020-10-01,2020-10-01,2020-02-01,yes,Thiaggo,dynamic HY: prior trough (2019-11-01) exclusive to this trough
+WY2021,2020-11-01,2021-10-01,2021-10-01,2021-02-01,yes,Thiaggo,dynamic HY: prior trough (2020-10-01) exclusive to this trough
+WY2022,2021-11-01,2022-11-01,2022-11-01,2022-01-01,yes,Thiaggo,dynamic HY: prior trough (2021-10-01) exclusive to this trough
+WY2023,2022-12-01,2023-11-01,2023-11-01,2023-02-01,yes,Thiaggo,dynamic HY: prior trough (2022-11-01) exclusive to this trough
+WY2024,2023-12-01,2024-11-01,2024-11-01,2024-02-01,yes,Thiaggo,dynamic HY: prior trough (2023-11-01) exclusive to this trough
+WY2025,2024-12-01,2025-10-01,2025-10-01,2025-04-01,yes,Thiaggo,dynamic HY: prior trough (2024-11-01) exclusive to this trough; series end 2025-12-31 falls after this trough

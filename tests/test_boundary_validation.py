@@ -38,3 +38,35 @@ def test_interval_alignment_uses_cycle_dates_not_raw_year_label():
     })
     aligned = align_events_by_interval(truth, actual)
     assert aligned.loc[0, "actual_month"] == pd.Timestamp("2016-03-01")
+
+
+def test_interval_alignment_includes_exact_match_on_interval_end():
+    # interval_end IS this event's own target boundary month; an actual date
+    # landing exactly there is the best possible match, not an exclusion.
+    truth = pd.DataFrame({
+        "event_id": ["a"],
+        "interval_start": pd.to_datetime(["2015-11-01"]),
+        "interval_end": pd.to_datetime(["2016-10-01"]),
+        "truth_month": pd.to_datetime(["2016-10-01"]),
+    })
+    actual = pd.DataFrame({
+        "actual_month": pd.to_datetime(["2016-10-01"]),
+    })
+    aligned = align_events_by_interval(truth, actual)
+    assert aligned.loc[0, "actual_month"] == pd.Timestamp("2016-10-01")
+
+
+def test_interval_alignment_excludes_exact_match_on_interval_start():
+    # interval_start is the PREVIOUS event's own boundary month; an actual
+    # date landing exactly there belongs to that previous event, not this one.
+    truth = pd.DataFrame({
+        "event_id": ["a"],
+        "interval_start": pd.to_datetime(["2015-11-01"]),
+        "interval_end": pd.to_datetime(["2016-10-01"]),
+        "truth_month": pd.to_datetime(["2016-10-01"]),
+    })
+    actual = pd.DataFrame({
+        "actual_month": pd.to_datetime(["2015-11-01"]),
+    })
+    aligned = align_events_by_interval(truth, actual)
+    assert pd.isna(aligned.loc[0, "actual_month"])

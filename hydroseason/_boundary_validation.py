@@ -11,10 +11,18 @@ def month_delta(left: pd.Series, right: pd.Series) -> pd.Series:
 
 
 def align_events_by_interval(truth: pd.DataFrame, actual: pd.DataFrame) -> pd.DataFrame:
+    """Match each truth event to the nearest actual date inside its cycle interval.
+
+    Intervals are half-open ``(interval_start, interval_end]``: the previous
+    cycle's own boundary month (``interval_start``) is excluded so it is never
+    double-counted against two consecutive events, but ``interval_end`` is
+    included because it IS this event's target boundary month -- an exact
+    match there must count as resolved, not be excluded by its own target date.
+    """
     rows = []
     actual_dates = pd.to_datetime(actual["actual_month"]).dropna()
     for row in truth.itertuples(index=False):
-        candidates = actual_dates.loc[actual_dates.gt(row.interval_start) & actual_dates.lt(row.interval_end)]
+        candidates = actual_dates.loc[actual_dates.gt(row.interval_start) & actual_dates.le(row.interval_end)]
         chosen = pd.NaT
         if len(candidates):
             delta = (candidates - row.truth_month).abs()
