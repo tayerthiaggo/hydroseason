@@ -149,6 +149,54 @@ def test_detect_hydrological_years_golden_path_peak_and_end_dry():
         assert row["amplitude_pct"] > 0
 
 
+def test_suggest_hydro_year_config_centres_windows_on_climatology():
+    from hydroseason.hydro_year import HydroYearConfig, suggest_hydro_year_config
+
+    extent = _seasonal_extent(n_years=3)
+
+    cfg = suggest_hydro_year_config(extent)
+
+    assert isinstance(cfg, HydroYearConfig)
+    assert cfg.wet_start_month == 12
+    assert cfg.wet_end_month == 4
+    assert cfg.dry_start_month == 5
+    assert cfg.dry_end_month == 11
+
+
+def test_suggest_hydro_year_config_roundtrips_into_detection():
+    from hydroseason.hydro_year import detect_hydrological_years, suggest_hydro_year_config
+
+    extent = _seasonal_extent(n_years=3)
+    cfg = suggest_hydro_year_config(extent)
+
+    result = detect_hydrological_years(extent, config=cfg)
+
+    assert list(result["hy_year"]) == [2018, 2019, 2020]
+    for _, row in result.iterrows():
+        assert row["peak_month"].month == 2
+        assert row["amplitude_pct"] > 0
+
+
+def test_suggest_hydro_year_config_accepts_overrides():
+    from hydroseason.hydro_year import suggest_hydro_year_config
+
+    extent = _seasonal_extent(n_years=3)
+
+    cfg = suggest_hydro_year_config(extent, min_wet_months=5)
+
+    assert cfg.min_wet_months == 5
+    assert cfg.wet_start_month == 12 and cfg.wet_end_month == 4
+
+
+def test_suggest_hydro_year_config_requires_full_year_coverage():
+    from hydroseason.hydro_year import suggest_hydro_year_config
+
+    extent = _monthly_extent(periods=6)
+
+    with pytest.raises(ValueError, match="missing calendar months"):
+        suggest_hydro_year_config(extent)
+
+
 def test_label_hydrological_months_splits_wet_dry_and_edges():
     from hydroseason.hydro_year import detect_hydrological_years, label_hydrological_months
 

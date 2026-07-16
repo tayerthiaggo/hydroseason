@@ -64,6 +64,90 @@ class HydroYearConfig:
             raise ValueError("Confidence ratios must satisfy 0 <= low <= medium <= 1.")
 
 
+def suggest_hydro_year_config(
+    extent: pd.Series | pd.DataFrame,
+    *,
+    value_col: str = "extent_pct",
+    date_col: str | None = None,
+    **overrides,
+) -> HydroYearConfig:
+    """Propose a ``HydroYearConfig`` from a monthly-mean climatology of ``extent``.
+
+    Averages ``extent`` by calendar month, then centres the wet window on the
+    climatological peak and the dry window on the trough. The result still
+    obeys ``HydroYearConfig``'s fixed geometry (wet season crosses the year
+    boundary, dry season follows within the same year), so this is a
+    first-guess for review, not a substitute for it: bimodal, flat, or noisy
+    climatologies can produce a split that doesn't match physical wet/dry
+    seasons. Pass explicit ``HydroYearConfig`` fields as ``overrides`` (e.g.
+    ``min_wet_months=3``) to keep the suggested months but override other
+    settings.
+    """
+    series, _, _ = _coerce_monthly_series(
+        extent, value_col=value_col, date_col=date_col, duplicate_month_policy="warn"
+    )
+    if series.empty:
+        raise ValueError("suggest_hydro_year_config requires at least one non-missing monthly value.")
+    climatology = series.groupby(series.index.month).mean().reindex(range(1, 13))
+    if climatology.isna().any():
+        missing = sorted(climatology[climatology.isna()].index)
+        raise ValueError(
+            f"climatology is missing calendar months {missing}; need coverage of all 12 months."
+        )
+
+    peak_month = int(climatology.idxmax())
+    trough_month = int(climatology.idxmin())
+
+    # Classify each calendar month as "wet" (above the climatological mean)
+    # by walking outward from the peak month, and "dry" by walking outward
+    # from the trough month, so the split follows the shape of the annual
+    # cycle rather than a fixed threshold.
+    overall_mean = float(climatology.mean())
+    is_wet = climatology > overall_mean
+
+    def _contiguous_run(center: int, keep: pd.Series) -> list[int]:
+        run = [center]
+        month = center % 12 + 1
+        while keep.loc[month] and month not in run:
+            run.append(month)
+            month = month % 12 + 1
+        month = (center - 2) % 12 + 1
+        while keep.loc[month] and month not in run:
+            run.insert(0, month)
+            month = (month - 2) % 12 + 1
+        return run
+
+    wet_months = _contiguous_run(peak_month, is_wet)
+    dry_months = _contiguous_run(trough_month, ~is_wet)
+
+    wet_start_month, wet_end_month = wet_months[0], wet_months[-1]
+    dry_start_month, dry_end_month = dry_months[0], dry_months[-1]
+
+    # HydroYearConfig requires the wet window to cross the year boundary
+    # (wet_start_month > wet_end_month) and the dry window to sit fully
+    # within one year, after the wet window ends.
+    if wet_start_month <= wet_end_month:
+        wet_end_month = peak_month
+        wet_start_month = peak_month + 1 if peak_month < 12 else 1
+        if wet_start_month <= wet_end_month:
+            wet_start_month, wet_end_month = 12, 1
+    if dry_start_month > dry_end_month:
+        dry_start_month, dry_end_month = trough_month, trough_month
+    if dry_start_month <= wet_end_month:
+        dry_start_month = wet_end_month + 1 if wet_end_month < 12 else 1
+        if dry_end_month < dry_start_month:
+            dry_end_month = dry_start_month
+
+    fields = {
+        "wet_start_month": wet_start_month,
+        "wet_end_month": wet_end_month,
+        "dry_start_month": dry_start_month,
+        "dry_end_month": dry_end_month,
+    }
+    fields.update(overrides)
+    return HydroYearConfig(**fields)
+
+
 def monthly_water_extent(
     water_mask: "xr.DataArray",
     *,
@@ -293,4 +377,10 @@ def _empty_result():
     return pd.DataFrame(columns=["hy_year", "hy_start", "hy_end", "peak_month", "peak_extent_pct", "mid_dry_month", "mid_extent_pct", "end_dry_month", "end_extent_pct", "amplitude_pct", "n_months_cycle", "confidence", "boundary_source"])
 
 
-__all__ = ["HydroYearConfig", "detect_hydrological_years", "label_hydrological_months", "monthly_water_extent"]
+__all__ = [
+    "HydroYearConfig",
+    "detect_hydrological_years",
+    "label_hydrological_months",
+    "monthly_water_extent",
+    "suggest_hydro_year_config",
+]
