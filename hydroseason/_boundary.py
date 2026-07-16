@@ -75,39 +75,44 @@ def _epsilon_pp(row: pd.Series, *, noise_pp: float, amplitude_pp: float) -> floa
     return min(0.10 * amplitude_pp, max(resolution, noise_pp)) if amplitude_pp > 0 else 0.0
 
 
-def select_window_minimum(
+def _select_window_extreme(
     window: pd.DataFrame,
     *,
     expected: pd.Timestamp,
     expected_count: int,
     noise_pp: float,
     amplitude_pp: float,
-    config: RobustBoundaryConfig = RobustBoundaryConfig(),
+    config: RobustBoundaryConfig,
+    kind: Literal["min", "max"],
 ) -> BoundarySelection:
-    """Select the boundary month within a window around an expected date.
+    """Select an extremum (minimum or maximum) within a window.
 
-    Always reports the true observed minimum (``raw_month``/``raw_extent_pct``)
-    even when the selection is flagged ambiguous or the window is truncated —
-    the raw extremum is never silently replaced or dropped.
+    For maxima the extent sign is inverted for comparisons only; the returned
+    ``raw_*``/``selected_*`` extents are always the original observed values, so
+    a raw observed extremum is never silently replaced. Passing ``kind="min"``
+    reproduces the historical minimum-selection behaviour exactly.
     """
+    sign = 1.0 if kind == "min" else -1.0
     usable = window.loc[window["candidate_usable"]].copy()
     n_usable = len(usable)
     if n_usable < config.min_usable_candidates:
         return BoundarySelection(None, np.nan, None, np.nan, None, None,
                                  "internal_gap", "unresolved", 0.0,
                                  expected_count, n_usable, None)
-    raw_month = pd.Timestamp(usable["extent_pct"].idxmin())
+    comparison = usable["extent_pct"] * sign
+    raw_month = pd.Timestamp(comparison.idxmin())
     raw_extent = float(usable.loc[raw_month, "extent_pct"])
+    raw_comparison = float(comparison.loc[raw_month])
     epsilon = _epsilon_pp(usable.loc[raw_month], noise_pp=noise_pp, amplitude_pp=amplitude_pp)
     equivalent = (
         window["candidate_usable"]
-        & window["extent_pct"].le(raw_extent + epsilon)
+        & (window["extent_pct"] * sign).le(raw_comparison + epsilon)
     )
     groups = equivalent.ne(equivalent.shift(fill_value=False)).cumsum()
     raw_group = groups.loc[raw_month]
     run = window.loc[equivalent & groups.eq(raw_group)]
-    local = usable["extent_pct"].rolling(3, center=True, min_periods=2).median()
-    residual = float(local.loc[raw_month] - raw_extent)
+    local = comparison.rolling(3, center=True, min_periods=2).median()
+    residual = float(local.loc[raw_month] - raw_comparison)
     ambiguous = noise_pp > 0 and residual > config.anomaly_noise_scales * noise_pp
     full_start = expected - pd.DateOffset(months=(expected_count - 1) // 2)
     full_end = expected + pd.DateOffset(months=(expected_count - 1) // 2)
@@ -130,6 +135,57 @@ def select_window_minimum(
         window_status, "ambiguous" if ambiguous else "raw", support,
         expected_count, n_usable,
         (raw_month.year - expected.year) * 12 + raw_month.month - expected.month,
+    )
+
+
+def select_window_minimum(
+    window: pd.DataFrame,
+    *,
+    expected: pd.Timestamp,
+    expected_count: int,
+    noise_pp: float,
+    amplitude_pp: float,
+    config: RobustBoundaryConfig = RobustBoundaryConfig(),
+) -> BoundarySelection:
+    """Select the boundary month within a window around an expected date.
+
+    Always reports the true observed minimum (``raw_month``/``raw_extent_pct``)
+    even when the selection is flagged ambiguous or the window is truncated —
+    the raw extremum is never silently replaced or dropped.
+    """
+    return _select_window_extreme(
+        window, expected=expected, expected_count=expected_count,
+        noise_pp=noise_pp, amplitude_pp=amplitude_pp, config=config, kind="min",
+    )
+
+
+def select_cycle_peak(
+    cycle: pd.DataFrame,
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    noise_pp: float,
+    amplitude_pp: float,
+    config: RobustBoundaryConfig = RobustBoundaryConfig(),
+) -> BoundarySelection:
+    """Select the seasonal peak (maximum) strictly between two trough boundaries.
+
+    The two enclosing troughs (``start`` and ``end``) are never eligible as the
+    peak -- only strictly-interior months are candidates. Selection reuses the
+    minimum selector's machinery via ``_select_window_extreme(kind="max")``, so
+    the true observed maximum (``raw_month``/``raw_extent_pct``) is always
+    reported even when the selection is flagged ambiguous.
+    """
+    start, end = pd.Timestamp(start), pd.Timestamp(end)
+    interior = cycle.loc[(cycle.index > start) & (cycle.index < end)]
+    n_interior = len(interior)
+    if n_interior == 0:
+        return BoundarySelection(None, np.nan, None, np.nan, None, None,
+                                 "internal_gap", "unresolved", 0.0, 0, 0, None)
+    expected = pd.Timestamp(interior.index[n_interior // 2])
+    return _select_window_extreme(
+        interior, expected=expected, expected_count=n_interior,
+        noise_pp=noise_pp, amplitude_pp=amplitude_pp, config=config, kind="max",
     )
 
 

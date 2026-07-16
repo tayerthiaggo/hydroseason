@@ -5,8 +5,30 @@ from hydroseason._boundary import (
     BoundarySelection,
     RobustBoundaryConfig,
     select_boundary_sequence,
+    select_cycle_peak,
     select_window_minimum,
 )
+
+
+def test_peak_selector_flags_isolated_high_without_hiding_raw_maximum():
+    index = pd.date_range("2020-01-01", periods=8, freq="MS")
+    cycle = pd.DataFrame({
+        "extent_pct": [2, 10, 90, 11, 8, 6, 4, 2],
+        "invalid_pct": 0.0, "candidate_usable": True,
+    }, index=index)
+    peak = select_cycle_peak(cycle, start=index[0], end=index[-1], noise_pp=5, amplitude_pp=88)
+    assert peak.raw_month == pd.Timestamp("2020-03-01")
+    assert peak.selection_status == "ambiguous"
+
+
+def test_peak_candidates_exclude_both_trough_boundaries():
+    index = pd.date_range("2020-01-01", periods=8, freq="MS")
+    cycle = pd.DataFrame({
+        "extent_pct": [90, 10, 30, 40, 50, 45, 20, 88],
+        "invalid_pct": 0.0, "candidate_usable": True,
+    }, index=index)
+    peak = select_cycle_peak(cycle, start=index[0], end=index[-1], noise_pp=1, amplitude_pp=10)
+    assert index[0] < peak.selected_month < index[-1]
 
 
 def test_boundary_selection_keeps_raw_and_selected_observations():

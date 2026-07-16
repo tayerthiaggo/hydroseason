@@ -11,6 +11,7 @@ from ._boundary import (
     RobustBoundaryConfig,
     robust_scale,
     select_boundary_sequence,
+    select_cycle_peak,
     select_window_minimum,
 )
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
@@ -221,12 +222,6 @@ ANNUAL_COLUMNS = [
 ]
 
 
-def _middle_tie(series: pd.Series, kind: str) -> pd.Timestamp:
-    target = series.max() if kind == "max" else series.min()
-    candidates = series.loc[series == target]
-    return pd.Timestamp(candidates.index[len(candidates) // 2])
-
-
 def _nearest_month(index: pd.DatetimeIndex, start: pd.Timestamp, end: pd.Timestamp) -> pd.Timestamp:
     target = start + (end - start) / 2
     return pd.Timestamp(index[int(np.argmin(np.abs(index - target)))])
@@ -276,6 +271,7 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         allow_unknown_quality=config.allow_unknown_quality,
     )
     opportunities = _find_robust_trough_opportunities(frame, config)
+    amplitude_pp, noise_pp = robust_scale(frame)
     rows = []
     previous = None
     for _, opportunity in opportunities.iterrows():
@@ -298,7 +294,15 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
             previous = opportunity
             rows.append(row)
             continue
-        peak = _middle_tie(usable, "max")
+        peak_selection = select_cycle_peak(
+            cycle, start=start, end=end, noise_pp=noise_pp, amplitude_pp=amplitude_pp,
+        )
+        if peak_selection.selected_month is None:
+            row.update(status="partial", status_reason="insufficient_cycle_coverage", hy_start=start, hy_end=end, cycle_months=len(cycle), n_usable_months=len(usable))
+            previous = opportunity
+            rows.append(row)
+            continue
+        peak = pd.Timestamp(peak_selection.selected_month)
         post_peak = usable.loc[peak:end]
         trough = end
         peak_value, trough_value = float(usable.loc[peak]), float(frame.loc[trough, "extent_pct"])
@@ -306,8 +310,15 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         half_candidates = post_peak.loc[post_peak <= target]
         half = pd.Timestamp(half_candidates.index[0]) if len(half_candidates) else pd.NaT
         midpoint = _nearest_month(post_peak.index, peak, trough)
-        after_half = post_peak.loc[half:] if pd.notna(half) else post_peak.iloc[0:0]
-        pulses = int((after_half.diff() > config.measurement_tolerance_pct).sum())
+        post = cycle.loc[peak:end, ["extent_pct", "candidate_usable"]]
+        delta = post["extent_pct"].diff()
+        month_number = post.index.year * 12 + post.index.month
+        adjacent = pd.Series(
+            np.diff(month_number, prepend=month_number[0] - 1) == 1,
+            index=post.index,
+        )
+        rise = post["candidate_usable"] & post["candidate_usable"].shift(fill_value=False) & adjacent & delta.gt(noise_pp)
+        pulses = int((rise & ~rise.shift(fill_value=False)).sum())
         secondary = _secondary_extrema(usable, peak, trough) if pattern is not None and pattern.pattern == "bimodal_or_complex" else (None, np.nan, None, np.nan)
         peak_invalid = frame.loc[peak, "invalid_pct"]
         row.update(
@@ -327,6 +338,10 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
             n_rewetting_pulses=pulses, n_usable_months=len(usable), confidence=_confidence(cycle, opportunity["boundary_status"]),
             secondary_peak_month=secondary[0], secondary_peak_extent_pct=secondary[1],
             secondary_trough_month=secondary[2], secondary_trough_extent_pct=secondary[3],
+            raw_peak_month=peak_selection.raw_month if peak_selection.raw_month is not None else pd.NaT,
+            raw_peak_extent_pct=peak_selection.raw_extent_pct,
+            peak_selection_status=peak_selection.selection_status,
+            peak_selection_support=peak_selection.support,
         )
         previous = opportunity
         rows.append(row)
