@@ -290,3 +290,110 @@ def test_zarr_loader_returns_lazy_canonical_cube(tmp_path):
 
     assert masks.shape == (1, 2, 2)
     assert masks.chunks is not None
+
+
+def _known_bbox_area_m2():
+    """Independently reproject the test bbox with pyproj and return its area.
+
+    Cross-checks ``plan_resolution``'s internal reprojection against a direct
+    call to the same industry-standard library, rather than hard-coding a
+    number derived from the implementation itself.
+    """
+    pyproj = pytest.importorskip("pyproj")
+    transformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:32750", always_xy=True)
+    lons, lats = [150.0, 150.1, 150.0, 150.1], [-32.0, -32.0, -31.9, -31.9]
+    xs, ys = transformer.transform(lons, lats)
+    return (max(xs) - min(xs)) * (max(ys) - min(ys))
+
+
+_BBOX_WGS84 = (150.0, -32.0, 150.1, -31.9)
+_TARGET_CRS = "EPSG:32750"
+
+
+def test_plan_resolution_picks_finest_resolution_that_fits_memory_budget():
+    pytest.importorskip("pyproj")
+    from hydroseason.io import plan_resolution
+
+    area = _known_bbox_area_m2()
+    bytes_per_scratch = 5
+    time_chunk = 24
+    # Hand-calculated: finest candidate (30 m) peak_gb from the same formula
+    # the function must use; budget is set comfortably above it so 30 m must
+    # be picked (it is the smallest candidate, i.e. the finest available).
+    expected_peak_gb_30m = (area / 30**2) * time_chunk * bytes_per_scratch / 1e9
+    assert expected_peak_gb_30m < 1.0  # sanity: budget below is a real discriminator
+
+    resolution_m, peak_gb, floor_pp, reason = plan_resolution(
+        _BBOX_WGS84, _TARGET_CRS, memory_budget_gb=1.0,
+        bytes_per_scratch=bytes_per_scratch, time_chunk=time_chunk,
+    )
+
+    assert resolution_m == 30
+    assert peak_gb == pytest.approx(expected_peak_gb_30m, rel=1e-6)
+    assert reason == "ok"
+    assert floor_pp == pytest.approx(100.0 / (area / 30**2), rel=1e-6)
+
+
+def test_plan_resolution_signal_veto_when_amplitude_too_small_to_fit_both():
+    pytest.importorskip("pyproj")
+    from hydroseason.io import plan_resolution
+
+    area = _known_bbox_area_m2()
+    bytes_per_scratch = 5
+    time_chunk = 24
+    # Budget admits 100 m (peak ~0.0026 GB) but not 60 m (peak ~0.0072 GB), so
+    # the memory-only pick is 100 m. Its noise floor (100 / n_pixels_at_100m)
+    # is ~0.00461 pp. observed_amplitude_pp=0.02 sets the allowed floor to
+    # SIGNAL_FLOOR_FRACTION * 0.02 = 0.002 pp, which the 100 m floor violates.
+    # No coarser-or-equal-cost candidate can do better (floor only improves at
+    # finer resolutions, which all cost more memory than the 100 m pick, the
+    # finest the budget allows) -- so no candidate clears both constraints.
+    budget_gb = (area / 100**2) * time_chunk * bytes_per_scratch / 1e9 * 1.5
+    assert (area / 60**2) * time_chunk * bytes_per_scratch / 1e9 > budget_gb  # 60m must not fit
+
+    resolution_m, peak_gb, floor_pp, reason = plan_resolution(
+        _BBOX_WGS84, _TARGET_CRS, memory_budget_gb=budget_gb,
+        observed_amplitude_pp=0.02,
+        bytes_per_scratch=bytes_per_scratch, time_chunk=time_chunk,
+    )
+
+    assert reason == "signal_veto_no_fit"
+
+
+def test_plan_resolution_reason_coarsened_when_budget_forces_coarser_but_signal_clears():
+    pytest.importorskip("pyproj")
+    from hydroseason.io import plan_resolution
+
+    area = _known_bbox_area_m2()
+    bytes_per_scratch = 5
+    time_chunk = 24
+    # Same budget as the signal-veto case (memory pick = 100 m), but a large
+    # enough observed amplitude that 100 m's noise floor clears the bound.
+    budget_gb = (area / 100**2) * time_chunk * bytes_per_scratch / 1e9 * 1.5
+
+    resolution_m, peak_gb, floor_pp, reason = plan_resolution(
+        _BBOX_WGS84, _TARGET_CRS, memory_budget_gb=budget_gb,
+        observed_amplitude_pp=0.1,
+        bytes_per_scratch=bytes_per_scratch, time_chunk=time_chunk,
+    )
+
+    assert resolution_m == 100
+    assert reason == "coarsened"
+
+
+def test_plan_resolution_flags_native_no_fit_when_even_coarsest_exceeds_budget():
+    pytest.importorskip("pyproj")
+    from hydroseason.io import plan_resolution
+
+    area = _known_bbox_area_m2()
+    bytes_per_scratch = 5
+    time_chunk = 24
+    peak_gb_300m = (area / 300**2) * time_chunk * bytes_per_scratch / 1e9
+    budget_gb = peak_gb_300m / 2.0  # tighter than even the coarsest candidate
+
+    resolution_m, peak_gb, floor_pp, reason = plan_resolution(
+        _BBOX_WGS84, _TARGET_CRS, memory_budget_gb=budget_gb,
+        bytes_per_scratch=bytes_per_scratch, time_chunk=time_chunk,
+    )
+
+    assert reason == "native_no_fit"
