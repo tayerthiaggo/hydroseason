@@ -199,7 +199,7 @@ def load_monthly_masks_zarr(
 def load_wofs_from_stac(
     stac_url: str, collection: str, aoi, start_date: str, end_date: str, *, crs: int | str | None = 3577,
     chunk_x: int = 512, chunk_y: int = 512, time_chunk: int = 24, majority: bool = True,
-    duplicate_month_policy: Literal["raise", "warn"] = "raise",
+    duplicate_month_policy: Literal["raise", "warn"] = "raise", resolution: float | None = None,
 ):
     """Load WOfS STAC observations, compose them monthly, and clip to required AOI."""
     if aoi is None:
@@ -232,7 +232,7 @@ def load_wofs_from_stac(
     masks, dates, reference = [], [], None
     for month, month_items in sorted(groups.items()):
         try:
-            ds = odc.stac.stac_load(month_items, bands=["water"], chunks={"x": chunk_x, "y": chunk_y}, geopolygon=target.geometry, **({"crs": _crs_value(crs)} if crs is not None else {}))
+            ds = odc.stac.stac_load(month_items, bands=["water"], chunks={"x": chunk_x, "y": chunk_y}, geopolygon=target.geometry, **({"crs": _crs_value(crs)} if crs is not None else {}), **({"resolution": resolution, "resampling": "mode"} if resolution is not None else {}))
             mask = _combine_observations(_classify(ds["water"], "wofs", None), majority)
             mask = _clip_to_aoi(mask, target)
         except AOIRasterizationError:

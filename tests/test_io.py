@@ -195,6 +195,114 @@ def test_stac_loader_requires_aoi_before_optional_stac_imports():
         load_wofs_from_stac("https://example.invalid/stac", "wofs", None, "2020-01-01", "2020-01-01")
 
 
+def test_stac_loader_passes_resolution_to_stac_load(monkeypatch):
+    """Test that resolution parameter is passed to odc.stac.stac_load when provided."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("pystac_client")
+    pytest.importorskip("odc.stac")
+    pytest.importorskip("rioxarray")
+    from unittest.mock import Mock
+    from hydroseason.io import load_wofs_from_stac
+
+    # Mock the STAC client and items
+    mock_item = Mock()
+    mock_item.properties = {"datetime": "2020-01-01T00:00:00Z"}
+
+    # Create a minimal mock Dataset to be returned by stac_load
+    # (must have a "water" variable as a DataArray)
+    mock_ds = xr.Dataset(
+        {"water": (("time", "y", "x"), np.ones((1, 2, 2), dtype=np.int8))},
+        coords={"time": pd.to_datetime(["2020-01-01"]), "y": [0, 1], "x": [0, 1]},
+    )
+
+    # Track calls to stac_load
+    mock_stac_load = Mock(return_value=mock_ds)
+    monkeypatch.setattr("odc.stac.stac_load", mock_stac_load)
+
+    # Mock pystac_client.Client.open
+    mock_client_instance = Mock()
+    mock_search_result = Mock()
+    mock_search_result.items.return_value = [mock_item]
+    mock_client_instance.search.return_value = mock_search_result
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=mock_client_instance))
+
+    # Mock _clip_to_aoi to avoid additional complications
+    monkeypatch.setattr(
+        "hydroseason.io._clip_to_aoi",
+        Mock(return_value=mock_ds["water"]),
+    )
+
+    # Test with resolution=100
+    load_wofs_from_stac(
+        "https://example.invalid/stac",
+        "wofs",
+        _aoi(),
+        "2020-01-01",
+        "2020-01-01",
+        resolution=100,
+    )
+
+    # Assert that stac_load was called with resolution and resampling kwargs
+    assert mock_stac_load.called
+    call_kwargs = mock_stac_load.call_args[1]
+    assert call_kwargs.get("resolution") == 100
+    assert call_kwargs.get("resampling") == "mode"
+
+
+def test_stac_loader_omits_resolution_when_none(monkeypatch):
+    """Test that resolution and resampling are NOT passed when resolution=None."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("pystac_client")
+    pytest.importorskip("odc.stac")
+    pytest.importorskip("rioxarray")
+    from unittest.mock import Mock
+    from hydroseason.io import load_wofs_from_stac
+
+    # Mock the STAC client and items
+    mock_item = Mock()
+    mock_item.properties = {"datetime": "2020-01-01T00:00:00Z"}
+
+    # Create a minimal mock Dataset to be returned by stac_load
+    mock_ds = xr.Dataset(
+        {"water": (("time", "y", "x"), np.ones((1, 2, 2), dtype=np.int8))},
+        coords={"time": pd.to_datetime(["2020-01-01"]), "y": [0, 1], "x": [0, 1]},
+    )
+
+    # Track calls to stac_load
+    mock_stac_load = Mock(return_value=mock_ds)
+    monkeypatch.setattr("odc.stac.stac_load", mock_stac_load)
+
+    # Mock pystac_client.Client.open
+    mock_client_instance = Mock()
+    mock_search_result = Mock()
+    mock_search_result.items.return_value = [mock_item]
+    mock_client_instance.search.return_value = mock_search_result
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=mock_client_instance))
+
+    # Mock _clip_to_aoi to avoid additional complications
+    monkeypatch.setattr(
+        "hydroseason.io._clip_to_aoi",
+        Mock(return_value=mock_ds["water"]),
+    )
+
+    # Test with resolution=None (default)
+    load_wofs_from_stac(
+        "https://example.invalid/stac",
+        "wofs",
+        _aoi(),
+        "2020-01-01",
+        "2020-01-01",
+    )
+
+    # Assert that stac_load was called WITHOUT resolution and resampling kwargs
+    assert mock_stac_load.called
+    call_kwargs = mock_stac_load.call_args[1]
+    assert "resolution" not in call_kwargs
+    assert "resampling" not in call_kwargs
+
+
 def test_classify_canonical_rejects_out_of_domain_codes():
     xr = pytest.importorskip("xarray")
     from hydroseason.io import _classify
