@@ -270,15 +270,32 @@ def plan_resolution(
     Memory model: for a candidate resolution ``res`` (metres), pixel count is
     ``area_m2 / res**2``. Peak scratch bytes per pixel per timestep default to
     ``bytes_per_scratch=5``, representing the canonical int8 water mask (1
-    byte) plus four boolean comparison arrays materialised while computing
-    ``monthly_water_extent``'s four reduction accumulators (n_aoi, n_valid,
-    n_water, n_invalid) -- each comparison (``== water_value``, ``==
-    dry_value``, ``!= outside_value``, plus one derived difference) is a
-    pixel-shaped boolean/int8 array (1 byte/pixel) before it collapses to a
-    scalar via ``.sum()``. ``peak_gb = n_pixels * time_chunk * bytes_per_scratch
-    / 1e9``. Candidates are walked finest-first (ascending ``res_m``, since
-    smaller pixels mean more pixels); the first (finest) one with
-    ``peak_gb <= memory_budget_gb`` is the memory pick.
+    byte) plus four boolean comparison arrays (``== water_value``, ``==
+    dry_value``, ``!= outside_value``, plus one derived difference), each a
+    pixel-shaped boolean/int8 array (1 byte/pixel).
+
+    ``time_chunk`` here is a proxy for the *loaded cube's* chunk depth, not
+    the reduction's peak. ``monthly_water_extent`` streams its four
+    reduction accumulators (n_aoi, n_valid, n_water, n_invalid) over ``time``
+    in blocks of its own ``time_block`` parameter (default 1) -- see
+    ``hydroseason.hydro_year.monthly_water_extent`` -- so the reduction's
+    actual peak concurrent footprint is bounded by ``time_block``, not by
+    however deep the cube is chunked. What *does* still scale with
+    ``time_chunk`` is ``load_wofs_from_stac``: it rechunks the dask cube it
+    returns to ``{"time": min(time_chunk, len(dates)), ...}``, so a single
+    chunk in the resulting dask graph genuinely spans up to ``time_chunk``
+    timesteps. Even though ``monthly_water_extent`` only asks the scheduler
+    for one ``time_block``-sized slice at a time, dask's scheduler operates
+    on whole chunks -- depending on how tasks are fused/scheduled it can
+    still materialise a full chunk's worth of data to serve a slice that
+    only touches part of it. Multiplying by ``time_chunk`` therefore models
+    conservative headroom for that chunk depth rather than the reduction's
+    real streamed peak; it deliberately overestimates so the memory gate
+    stays safe even if the scheduler doesn't fuse as favourably as
+    ``time_block=1`` alone would suggest. ``peak_gb = n_pixels * time_chunk *
+    bytes_per_scratch / 1e9``. Candidates are walked finest-first (ascending
+    ``res_m``, since smaller pixels mean more pixels); the first (finest) one
+    with ``peak_gb <= memory_budget_gb`` is the memory pick.
 
     Signal model: noise floor is ``100 / n_valid_at_res``, using
     ``n_valid_at_res ~= n_pixels`` (in-AOI valid fraction assumed ~1 for this
