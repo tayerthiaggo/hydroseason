@@ -505,3 +505,102 @@ def test_plan_resolution_flags_native_no_fit_when_even_coarsest_exceeds_budget()
     )
 
     assert reason == "native_no_fit"
+
+
+def _synthetic_monthly_mask(xr, np, pd, *, n_months, y, x, water_row_fraction):
+    """Build a canonical water mask cube with a fixed fraction of wet rows.
+
+    ``water_row_fraction`` of the ``y`` rows are set fully wet (1); the rest
+    are fully dry (0). Every pixel is valid (no -1/-2 codes), so
+    ``monthly_water_extent``'s ``extent_pct`` for each month equals
+    ``water_row_fraction`` exactly (in percent) -- this gives full control
+    over the mean water fraction the probe/guard compares, independent of
+    resolution-specific resampling behaviour (which is mocked away here; the
+    two passes differ only in the y/x shape supplied, standing in for what a
+    coarser ``resolution=`` would have produced upstream in the real
+    pipeline).
+    """
+    n_wet_rows = max(1, round(water_row_fraction * y))
+    row = np.zeros(x, dtype=np.int8)
+    wet_row = np.ones(x, dtype=np.int8)
+    plane = np.stack([wet_row if i < n_wet_rows else row for i in range(y)])
+    data = np.stack([plane for _ in range(n_months)])
+    dates = pd.date_range("2020-01-01", periods=n_months, freq="MS")
+    da = xr.DataArray(
+        data,
+        dims=("time", "y", "x"),
+        coords={"time": dates, "y": np.arange(y), "x": np.arange(x)},
+    )
+    return da
+
+
+def test_probe_amplitude_guard_fires_on_disproportionate_thin_channel_collapse(monkeypatch):
+    """Braided/thin-channel case: water fraction collapses going one step coarser.
+
+    Probe-resolution pass sees 30% of rows wet; the coarser pass sees only 5%
+    wet -- a collapse to ~1/6 of the probe fraction, far below the 70%
+    retention floor. The guard must fire: ``refuse_coarsen_past`` pinned to
+    the probe resolution, and a non-empty, human-readable ``guard_caveat``.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    from hydroseason.io import probe_amplitude
+
+    calls = {"n": 0}
+
+    def fake_load_wofs_from_stac(stac_url, collection, aoi, start, end, *, crs=None, resolution=None, **kwargs):
+        calls["n"] += 1
+        fraction = 0.30 if calls["n"] == 1 else 0.05
+        return _synthetic_monthly_mask(
+            xr, np, pd, n_months=12, y=20, x=5, water_row_fraction=fraction
+        )
+
+    monkeypatch.setattr("hydroseason.io.load_wofs_from_stac", fake_load_wofs_from_stac)
+
+    result = probe_amplitude(
+        "https://example.invalid/stac", "wofs", _aoi(), "2020-01-01", "2020-12-01",
+        crs=3577, probe_res_m=300,
+    )
+
+    assert calls["n"] == 2
+    assert result["refuse_coarsen_past"] == 300
+    assert isinstance(result["guard_caveat"], str) and result["guard_caveat"]
+    assert 300 in result["water_fraction_by_res"]
+    probe_fraction = result["water_fraction_by_res"][300]
+    coarser_res = next(k for k in result["water_fraction_by_res"] if k != 300)
+    coarser_fraction = result["water_fraction_by_res"][coarser_res]
+    assert coarser_fraction < 0.70 * probe_fraction
+    assert result["amplitude_pp"] >= 0.0
+
+
+def test_probe_amplitude_guard_silent_on_stable_water_fraction(monkeypatch):
+    """Normal cube: water fraction barely moves between probe and coarser pass.
+
+    Both passes see 30% wet rows (a tiny difference within noise, not a
+    disproportionate collapse), so retention is ~100% -- well above the 70%
+    floor. The guard must stay silent: ``guard_caveat`` and
+    ``refuse_coarsen_past`` both ``None``.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    from hydroseason.io import probe_amplitude
+
+    calls = {"n": 0}
+
+    def fake_load_wofs_from_stac(stac_url, collection, aoi, start, end, *, crs=None, resolution=None, **kwargs):
+        calls["n"] += 1
+        fraction = 0.30 if calls["n"] == 1 else 0.29
+        return _synthetic_monthly_mask(
+            xr, np, pd, n_months=12, y=20, x=5, water_row_fraction=fraction
+        )
+
+    monkeypatch.setattr("hydroseason.io.load_wofs_from_stac", fake_load_wofs_from_stac)
+
+    result = probe_amplitude(
+        "https://example.invalid/stac", "wofs", _aoi(), "2020-01-01", "2020-12-01",
+        crs=3577, probe_res_m=300,
+    )
+
+    assert calls["n"] == 2
+    assert result["guard_caveat"] is None
+    assert result["refuse_coarsen_past"] is None

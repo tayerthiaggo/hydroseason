@@ -14,7 +14,9 @@ from typing import Callable, Literal
 import numpy as np
 import pandas as pd
 
-from hydroseason._boundary import SIGNAL_FLOOR_FRACTION
+from hydroseason._boundary import SIGNAL_FLOOR_FRACTION, robust_scale
+from hydroseason._state_input import prepare_monthly_extent
+from hydroseason.hydro_year import monthly_water_extent
 
 MaskEncoding = Literal["canonical", "binary", "wofs"]
 
@@ -344,6 +346,148 @@ def plan_resolution(
     return memory_pick, peak_gb, floor_pp, reason
 
 
+# Default candidate ladder mirrored from ``plan_resolution`` -- kept as a
+# separate literal (rather than a shared import-time default) so a caller can
+# pass a custom ``candidate_res_m`` to ``plan_resolution`` without silently
+# changing what "one step coarser" means here.
+_DEFAULT_CANDIDATE_RES_M: tuple[float, ...] = (30, 60, 100, 150, 300)
+
+# Guard fires when the coarser pass retains less than this fraction of the
+# probe pass's mean water fraction. 0.70 (retain >=70%) is chosen so that
+# ordinary resampling noise -- a few percent drift from mode-resampling
+# aggregation -- never trips the guard, while a real thin-channel collapse
+# (braided/anabranching rivers where channels are only 1-2 pixels wide at the
+# probe resolution and vanish entirely one step coarser) reliably does: losing
+# a channel that carries a material share of total wetted area typically more
+# than halves the observed fraction, well past a 30% drop. The threshold is a
+# documented judgement call (not derived from a dataset), deliberately loose
+# enough to avoid false positives on ordinary resampling variance.
+_DEFAULT_RETENTION_THRESHOLD = 0.70
+
+
+def _next_coarser_res_m(
+    probe_res_m: float, guard_step_m: float | None, candidate_res_m: tuple[float, ...],
+) -> float:
+    """Resolve the "one step coarser" resolution used for the guard pass.
+
+    If ``guard_step_m`` is given explicitly, it is used as-is (an absolute
+    resolution in metres, not a multiplier) -- this lets a caller override the
+    default ladder-based lookup entirely. Otherwise, "one step coarser" is
+    defined relative to ``candidate_res_m`` (the same ladder
+    ``plan_resolution`` walks): the smallest candidate strictly greater than
+    ``probe_res_m``. If ``probe_res_m`` is at or beyond the coarsest candidate
+    (or the ladder has no coarser entry), fall back to doubling
+    ``probe_res_m`` -- a simple, well-understood step that still probes
+    meaningfully coarser sampling without depending on the ladder's contents.
+    """
+    if guard_step_m is not None:
+        return guard_step_m
+    coarser_candidates = sorted(res for res in candidate_res_m if res > probe_res_m)
+    return coarser_candidates[0] if coarser_candidates else probe_res_m * 2.0
+
+
+def _mean_water_fraction(prepared: pd.DataFrame) -> float:
+    """Mean observed water fraction over usable months.
+
+    Takes the output of ``prepare_monthly_extent`` -- the exact same
+    quality-screened frame fed to ``_boundary.robust_scale`` -- so the guard's
+    fraction comparison and the amplitude estimate agree on which months
+    count as usable. ``extent_pct`` is already ``100 * n_water / n_valid``
+    restricted to usable rows, so dividing by 100 gives the mean water
+    fraction on the same basis ``robust_scale`` uses for amplitude.
+    """
+    usable = prepared.loc[prepared["candidate_usable"], "extent_pct"]
+    if not len(usable):
+        return 0.0
+    return float(usable.mean()) / 100.0
+
+
+def probe_amplitude(
+    stac_url: str, collection: str, aoi, start_date: str, end_date: str, *,
+    crs: int | str | None = 3577, probe_res_m: float = 300, guard_step_m: float | None = None,
+    candidate_res_m: tuple[float, ...] = _DEFAULT_CANDIDATE_RES_M,
+    retention_threshold: float = _DEFAULT_RETENTION_THRESHOLD,
+) -> dict:
+    """Cheaply probe seasonal amplitude and guard against thin-channel loss when coarsening.
+
+    Loads WOfS twice via ``load_wofs_from_stac``: once at ``probe_res_m``, once
+    at one step coarser (see ``_next_coarser_res_m``) -- both coarse relative
+    to any native-resolution run, so this is ~100x cheaper than a full
+    fine-resolution load. This is a *probe*, not the real load: callers still
+    do the real ``load_wofs_from_stac`` at whatever resolution ``plan_resolution``
+    ultimately picks.
+
+    Amplitude pipeline (matches ``_boundary.robust_scale``'s definition exactly,
+    so the signal gate in ``plan_resolution`` and this detector agree): the
+    probe-resolution mask goes through ``monthly_water_extent`` (raw pixel
+    counts) -> ``prepare_monthly_extent`` (quality screening, produces
+    ``candidate_usable`` + ``extent_pct``) -> ``robust_scale`` (10th-90th
+    percentile spread of ``extent_pct`` among usable rows). Only the first
+    (``probe_res_m``) pass feeds ``amplitude_pp``; the coarser pass exists
+    solely to drive the guard below.
+
+    Thin-channel guard: mean water fraction (mean ``extent_pct / 100`` over
+    usable months -- see ``_mean_water_fraction``) is compared between the two
+    passes. If the coarser pass retains less than ``retention_threshold``
+    (default 0.70, i.e. a drop of more than 30%) of the probe pass's fraction,
+    braided/thin channels that are sub-pixel at the coarser resolution are the
+    most likely explanation (a real reduction in wetted area, rather than
+    measurement noise, would not typically collapse this fast from one step
+    on a resolution ladder). The guard then sets ``guard_caveat`` to a
+    human-readable string describing the collapse (for reports, not just
+    logs) and pins ``refuse_coarsen_past`` to ``probe_res_m`` -- meaning
+    callers should never coarsen past this resolution for this AOI. If
+    retention holds, both are ``None``.
+
+    Returns a dict:
+    - ``amplitude_pp``: seasonal amplitude estimate (percentage points) at
+      ``probe_res_m``, from ``robust_scale``.
+    - ``water_fraction_by_res``: ``{probe_res_m: fraction, coarser_res_m:
+      fraction}`` mean water fraction at each probed resolution, so
+      callers/reports can see both data points behind the guard decision.
+    - ``guard_caveat``: ``None``, or a labelled human-readable string
+      describing the thin-channel collapse.
+    - ``refuse_coarsen_past``: ``None``, or ``probe_res_m`` if the guard fired.
+    """
+    coarser_res_m = _next_coarser_res_m(probe_res_m, guard_step_m, candidate_res_m)
+
+    probe_mask = load_wofs_from_stac(
+        stac_url, collection, aoi, start_date, end_date, crs=crs, resolution=probe_res_m,
+    )
+    probe_prepared = prepare_monthly_extent(monthly_water_extent(probe_mask))
+    amplitude_pp, _noise_pp = robust_scale(probe_prepared)
+    probe_fraction = _mean_water_fraction(probe_prepared)
+
+    coarser_mask = load_wofs_from_stac(
+        stac_url, collection, aoi, start_date, end_date, crs=crs, resolution=coarser_res_m,
+    )
+    coarser_prepared = prepare_monthly_extent(monthly_water_extent(coarser_mask))
+    coarser_fraction = _mean_water_fraction(coarser_prepared)
+
+    water_fraction_by_res = {probe_res_m: probe_fraction, coarser_res_m: coarser_fraction}
+
+    retention = (coarser_fraction / probe_fraction) if probe_fraction > 0 else 1.0
+    if probe_fraction > 0 and retention < retention_threshold:
+        guard_caveat = (
+            f"Thin-channel guard: mean water fraction dropped from "
+            f"{probe_fraction:.4f} at {probe_res_m:.0f} m to {coarser_fraction:.4f} at "
+            f"{coarser_res_m:.0f} m (retained {retention:.0%}, below the "
+            f"{retention_threshold:.0%} threshold). Coarsening past {probe_res_m:.0f} m "
+            f"risks losing sub-pixel/thin channels; refusing to coarsen beyond it."
+        )
+        refuse_coarsen_past = probe_res_m
+    else:
+        guard_caveat = None
+        refuse_coarsen_past = None
+
+    return {
+        "amplitude_pp": amplitude_pp,
+        "water_fraction_by_res": water_fraction_by_res,
+        "guard_caveat": guard_caveat,
+        "refuse_coarsen_past": refuse_coarsen_past,
+    }
+
+
 def _validate_classifier(encoding, classifier):
     if classifier is not None and not callable(classifier):
         raise TypeError("classifier must be callable.")
@@ -494,4 +638,4 @@ def _crs_value(crs):
     return f"EPSG:{crs}" if isinstance(crs, int) else crs
 
 
-__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "plan_resolution"]
+__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "plan_resolution", "probe_amplitude"]
