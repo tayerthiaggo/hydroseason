@@ -214,7 +214,22 @@ def _comparison_figure(results: list[dict]) -> str:
 
 
 def _area_pattern_figure(results: list[dict]) -> str:
-    """Bubble chart: catchment area vs. seasonal amplitude, sized by area, colored by pattern."""
+    """Bubble chart: catchment area vs. seasonal amplitude, sized by area, colored by pattern.
+
+    Per-point resolution stamp and flagged styling: each bubble's peak/trough
+    amplitude is only a trustworthy quantitative figure when the catchment's
+    ``pattern_claim_excluded`` is falsy (see ``plan_resolution``'s
+    ``signal_veto_no_fit`` reason and ``_characterization_card``'s
+    "resolution-flagged" framing). This chart previously plotted every
+    catchment identically regardless of that flag. It now follows the same
+    convention as ``_comparison_figure``: the resolution is folded into the
+    hover text (via ``_resolution_label``) and flagged points get a visually
+    distinct marker outline (thicker, red-tinted ring) so a reader can spot
+    at a glance which bubbles' amplitude numbers are not meant for
+    quantitative pattern comparison. Uses ``.get(..., default)`` for
+    ``pattern_claim_excluded``/``resolution_m`` for the same backward
+    compatibility reason documented on ``_characterization_card``.
+    """
     div_id = "chart-area-pattern"
     pattern_colors = {
         "unimodal_annual": "#0284c7", "bimodal_or_complex": "#7c3aed",
@@ -222,24 +237,33 @@ def _area_pattern_figure(results: list[dict]) -> str:
         "insufficient_record": "#cbd5e1",
     }
     xs, ys, sizes, colors, texts = [], [], [], [], []
+    marker_line_colors, marker_line_widths = [], []
     for r in results:
         spec, geo, hy = r["spec"], r["geo"], r["hydro_years"]
         complete = hy[hy["status"] == "complete"]
         amp = float((complete["peak_extent_pct"] - complete["trough_extent_pct"]).mean()) if not complete.empty else 0.0
+        flagged = bool(r.get("pattern_claim_excluded", False))
         xs.append(geo["area_km2"])
         ys.append(round(amp, 1))
         sizes.append(max(18, min(70, (geo["area_km2"] ** 0.5) / 4)))
         colors.append(pattern_colors.get(r["pattern"].pattern, "#94a3b8"))
-        texts.append(f"{spec.display_name}<br>{PATTERN_LABELS.get(r['pattern'].pattern, r['pattern'].pattern)}<br>{geo['area_km2']:,.0f} km²")
+        label = _resolution_label(r)
+        flag_note = "<br><b>Resolution-flagged: excluded from pattern claims</b>" if flagged else ""
+        texts.append(f"{label}<br>{PATTERN_LABELS.get(r['pattern'].pattern, r['pattern'].pattern)}<br>{geo['area_km2']:,.0f} km²{flag_note}")
+        marker_line_colors.append("#dc2626" if flagged else "#1e293b")
+        marker_line_widths.append(3 if flagged else 1)
 
     trace = {
         "x": xs, "y": ys, "mode": "markers+text", "type": "scatter",
         "text": [r["spec"].display_name for r in results], "textposition": "top center",
-        "marker": {"size": sizes, "color": colors, "line": {"width": 1, "color": "#1e293b"}},
+        "marker": {
+            "size": sizes, "color": colors,
+            "line": {"width": marker_line_widths, "color": marker_line_colors},
+        },
         "hovertext": texts, "hoverinfo": "text",
     }
     layout = {
-        "title": {"text": "Catchment area vs. mean seasonal amplitude (bubble = area, color = seasonal pattern)", "font": {"size": 15}},
+        "title": {"text": "Catchment area vs. mean seasonal amplitude (bubble = area, color = seasonal pattern, red outline = resolution-flagged)", "font": {"size": 15}},
         "margin": {"l": 60, "r": 20, "t": 50, "b": 50},
         "height": 420,
         "xaxis": {"title": "Catchment area (km²)", "type": "log"},

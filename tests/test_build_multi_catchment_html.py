@@ -12,6 +12,7 @@ from its file path via ``importlib``, matching the pattern used in
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -200,3 +201,65 @@ class TestComparisonAndSummaryResolutionStamp:
 
         assert "Resolution" in doc
         assert "—" in doc
+
+
+class TestAreaPatternFigureResolutionStamp:
+    def test_bubble_chart_hovertext_includes_resolution(self, mod):
+        result = _fake_result(resolution_m=50.0)
+        chart_html = mod._area_pattern_figure([result])
+
+        assert "50" in chart_html
+        assert "m)" in chart_html or "50m" in chart_html
+
+    def test_flagged_point_marker_differs_from_unflagged(self, mod):
+        flagged = _fake_result(
+            spec=_FakeSpec(key="flagged_catchment", display_name="Flagged Catchment"),
+            pattern_claim_excluded=True,
+        )
+        unflagged = _fake_result(
+            spec=_FakeSpec(key="ok_catchment", display_name="OK Catchment"),
+            pattern_claim_excluded=False,
+        )
+        chart_html = mod._area_pattern_figure([flagged, unflagged])
+
+        # Extract the embedded traces array (second Plotly.newPlot argument)
+        # and compare per-point marker line styling -- flagged points must
+        # be visually distinguishable. Traces is a self-contained JSON array
+        # (unlike the layout/config args, which include bare JS keys), so it
+        # can be parsed directly by locating its matching brackets.
+        marker_start = chart_html.index('"marker": {')
+        line_key_start = chart_html.index('"line": {', marker_start)
+        obj_start = chart_html.index("{", line_key_start)
+        obj_end = chart_html.index("}", obj_start) + 1
+        line_obj = json.loads(chart_html[obj_start:obj_end])
+        line_colors = line_obj["color"]
+        line_widths = line_obj["width"]
+
+        assert line_colors[0] != line_colors[1]
+        assert line_widths[0] != line_widths[1]
+
+    def test_flagged_point_hovertext_contains_flag_indicator(self, mod):
+        result = _fake_result(pattern_claim_excluded=True)
+        chart_html = mod._area_pattern_figure([result])
+
+        assert "flagged" in chart_html.lower()
+
+    def test_unflagged_point_hovertext_has_no_flag_indicator(self, mod):
+        result = _fake_result(pattern_claim_excluded=False)
+        chart_html = mod._area_pattern_figure([result])
+
+        # The chart's static title legend always mentions "resolution-flagged"
+        # (it explains what the red outline means), so check the per-point
+        # hovertext specifically rather than the whole HTML blob.
+        hovertext_start = chart_html.index('"hovertext": [') + len('"hovertext": ')
+        hovertext_end = chart_html.index("]", hovertext_start) + 1
+        hovertext = json.loads(chart_html[hovertext_start:hovertext_end])
+        assert not any("resolution-flagged" in t.lower() for t in hovertext)
+
+    def test_bubble_chart_handles_missing_new_keys_without_crash(self, mod):
+        result = _fake_result()
+        for key in ("resolution_m", "pattern_claim_excluded"):
+            result.pop(key, None)
+
+        chart_html = mod._area_pattern_figure([result])
+        assert "chart-area-pattern" in chart_html
