@@ -156,6 +156,7 @@ def monthly_water_extent(
     outside_value: int = -2,
     invalid_value: int = -1,
     spatial_dims: tuple[str, str] = ("y", "x"),
+    time_block: int = 1,
 ) -> pd.DataFrame:
     """Summarise monthly canonical masks without treating invalid pixels as dry.
 
@@ -163,8 +164,14 @@ def monthly_water_extent(
     ``dry_value``; any other code (unknown values, NaN, out-of-domain codes
     that bypassed a classifier) counts as invalid rather than silently
     inflating the valid denominator. Raster dependencies are imported only at
-    this computation boundary. The four scalar summaries share one
-    ``dask.compute`` call.
+    this computation boundary. The four scalar summaries are computed in
+    streamed blocks of ``time_block`` steps along ``time`` rather than in one
+    all-at-once ``dask.compute`` call, so peak memory stays bounded by
+    ``time_block`` (times the spatial chunk footprint) instead of scaling
+    with the full length of ``time``. Raising ``time_block`` trades scheduler
+    overhead (more, smaller ``dask.compute`` calls) for locality (fewer calls,
+    more spatial chunks held concurrently); lower it to bound memory more
+    tightly, raise it to reduce per-call scheduling overhead.
     """
     try:
         import dask
@@ -172,17 +179,30 @@ def monthly_water_extent(
         raise ImportError("monthly_water_extent requires the raster extra (dask and xarray).") from exc
 
     dims = list(spatial_dims)
-    n_aoi = (water_mask != outside_value).sum(dim=dims)
-    n_water = (water_mask == water_value).sum(dim=dims)
-    n_dry = (water_mask == dry_value).sum(dim=dims)
-    n_valid = n_water + n_dry
-    n_invalid = n_aoi - n_valid
-    n_aoi, n_valid, n_water, n_invalid = dask.compute(n_aoi, n_valid, n_water, n_invalid)
+    n_time = water_mask.sizes["time"]
+    n_aoi_parts: list[np.ndarray] = []
+    n_valid_parts: list[np.ndarray] = []
+    n_water_parts: list[np.ndarray] = []
+    n_invalid_parts: list[np.ndarray] = []
+    for start in range(0, n_time, time_block):
+        block = water_mask.isel(time=slice(start, start + time_block))
+        n_aoi_block = (block != outside_value).sum(dim=dims)
+        n_water_block = (block == water_value).sum(dim=dims)
+        n_dry_block = (block == dry_value).sum(dim=dims)
+        n_valid_block = n_water_block + n_dry_block
+        n_invalid_block = n_aoi_block - n_valid_block
+        n_aoi_block, n_valid_block, n_water_block, n_invalid_block = dask.compute(
+            n_aoi_block, n_valid_block, n_water_block, n_invalid_block
+        )
+        n_aoi_parts.append(np.asarray(n_aoi_block.values, dtype=float))
+        n_valid_parts.append(np.asarray(n_valid_block.values, dtype=float))
+        n_water_parts.append(np.asarray(n_water_block.values, dtype=float))
+        n_invalid_parts.append(np.asarray(n_invalid_block.values, dtype=float))
 
-    n_aoi_arr = np.asarray(n_aoi.values, dtype=float)
-    n_valid_arr = np.asarray(n_valid.values, dtype=float)
-    n_water_arr = np.asarray(n_water.values, dtype=float)
-    n_invalid_arr = np.asarray(n_invalid.values, dtype=float)
+    n_aoi_arr = np.concatenate(n_aoi_parts)
+    n_valid_arr = np.concatenate(n_valid_parts)
+    n_water_arr = np.concatenate(n_water_parts)
+    n_invalid_arr = np.concatenate(n_invalid_parts)
     extent_pct = np.full_like(n_valid_arr, np.nan)
     np.divide(n_water_arr * 100.0, n_valid_arr, out=extent_pct, where=n_valid_arr > 0)
     invalid_pct = np.full_like(n_aoi_arr, np.nan)
