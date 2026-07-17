@@ -15,8 +15,11 @@ import sys
 from pathlib import Path
 from unittest.mock import Mock
 
+import numpy as np
 import pandas as pd
 import pytest
+
+from hydroseason.io import _DEFAULT_CANDIDATE_RES_M
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "run_multi_catchment_report.py"
@@ -360,6 +363,96 @@ class TestNoInteractivePrompt:
             spec, force=False, resolution_override=None, allow_large=False, memory_budget_gb=12.0,
         )
         # reaching here without the monkeypatched input() firing is the assertion.
+
+
+def _synthetic_water_mask_cube(*, n_time=24, ny=8, nx=8, seed=0):
+    """Build a real, small dask-backed water-mask cube with a seasonal cycle.
+
+    Values use the canonical WOfS-style codes ``monthly_water_extent``
+    expects: ``1`` (water), ``0`` (dry), ``-2`` (outside AOI, on a 1-pixel
+    border so ``n_aoi`` and ``n_valid`` genuinely differ). The wet fraction
+    is high in months 1-3, low in 7-9, and middling otherwise, so
+    ``robust_scale``'s 10th-90th percentile amplitude is non-trivial and the
+    whole real pipeline (prepare_monthly_extent -> robust_scale) has a
+    meaningful signal to chew on, not a degenerate all-same-value series.
+    """
+    import dask.array as da
+    import xarray as xr
+
+    dates = pd.date_range("2015-01-01", periods=n_time, freq="MS")
+    rng = np.random.default_rng(seed)
+    data = np.empty((n_time, ny, nx), dtype=np.int8)
+    for t in range(n_time):
+        month = dates[t].month
+        wet_frac = 0.7 if month in (1, 2, 3) else (0.15 if month in (7, 8, 9) else 0.4)
+        data[t] = np.where(rng.random((ny, nx)) < wet_frac, 1, 0)
+        data[t, 0, :] = -2
+        data[t, :, 0] = -2
+
+    arr = da.from_array(data, chunks=(4, ny, nx))
+    return xr.DataArray(arr, dims=("time", "y", "x"), coords={"time": dates})
+
+
+class TestRealWiredEndToEnd:
+    """Exercises the real, wired-together gate/probe/reduction seam.
+
+    Every other test in this file mocks ``probe_amplitude``/``plan_resolution``/
+    ``monthly_water_extent`` directly, which means none of them would catch a
+    genuine kwarg-name or return-shape mismatch between those real functions
+    (each individually covered by its own unit tests, but never called
+    together here). This test patches ONLY the actual network-touching
+    ``load_wofs_from_stac`` -- in both the module under test (for the real
+    load) and in ``hydroseason.io`` itself (for ``probe_amplitude``'s two
+    internal probe/guard loads, since ``probe_amplitude`` resolves
+    ``load_wofs_from_stac`` against its own module's namespace, not the
+    runner script's) -- to return a small synthetic in-memory dask cube.
+    ``plan_resolution``, ``probe_amplitude``, ``monthly_water_extent``, and
+    ``_choose_resolution`` all run for real, so a real signature/kwarg
+    mismatch between any pair of them would surface here.
+
+    ``analyze_hydrological_state`` is still mocked: it is pattern/regime
+    detection, explicitly out of scope for this plan's "extent feeder +
+    runner only" scope guard, and already covered elsewhere.
+    """
+
+    def test_real_gate_probe_reduction_chain_wires_together(self, mod, monkeypatch, tmp_path):
+        monkeypatch.setattr(mod, "CATCHMENTS_DIR", tmp_path)
+        monkeypatch.setattr(mod, "OUTPUT_DIR", tmp_path / "out")
+        monkeypatch.setattr(mod, "_catchment_geo_summary", lambda key: _fake_geo())
+        monkeypatch.setattr(mod, "analyze_hydrological_state", Mock(return_value=_fake_state()))
+
+        cube = _synthetic_water_mask_cube()
+        load_mock = Mock(return_value=cube)
+        # probe_amplitude calls load_wofs_from_stac resolved in hydroseason.io's
+        # own namespace -- patch it there, not just on the runner module.
+        import hydroseason.io as hio
+        monkeypatch.setattr(hio, "load_wofs_from_stac", load_mock)
+        monkeypatch.setattr(mod, "load_wofs_from_stac", load_mock)
+
+        spec = _fake_spec(mod)
+        result = mod.run_one_catchment(
+            spec, force=False, resolution_override=None, allow_large=False,
+            memory_budget_gb=12.0,
+        )
+
+        # probe_amplitude made 2 real loads (probe + one-coarser guard pass),
+        # plus 1 real load for the full run at the chosen resolution.
+        assert load_mock.call_count == 3
+
+        # plan_resolution's real signal veto is a function of the AOI's tiny
+        # (test-fixture) bounds and the real amplitude probe_amplitude computed
+        # from the synthetic cube -- whatever it picked, it must be one of the
+        # real candidate ladder's resolutions, and the stamped keys must be
+        # internally consistent with each other (not just individually present).
+        assert result["resolution_m"] in _DEFAULT_CANDIDATE_RES_M or result["reason"] == "native_no_fit"
+        assert isinstance(result["projected_noise_floor_pp"], float)
+        assert result["reason"] in {"ok", "coarsened", "signal_veto_no_fit", "native_no_fit"}
+        assert result["pattern_claim_excluded"] == (result["reason"] == "signal_veto_no_fit")
+
+        # n_valid was genuinely derived from monthly_water_extent's real counts
+        # on the synthetic cube (8x8 grid minus a 1px AOI border -> 49 valid
+        # pixels per timestep, all water/dry so none invalid).
+        assert result["n_valid"] == 49
 
 
 class TestCLIArgs:
