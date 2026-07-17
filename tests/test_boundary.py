@@ -2,9 +2,9 @@ import pandas as pd
 import pytest
 
 from hydroseason._boundary import (
+    SIGNAL_FLOOR_FRACTION,
     BoundarySelection,
     RobustBoundaryConfig,
-    SIGNAL_FLOOR_FRACTION,
     select_boundary_sequence,
     select_cycle_peak,
     select_window_minimum,

@@ -239,7 +239,7 @@ def _area_pattern_figure(results: list[dict]) -> str:
     xs, ys, sizes, colors, texts = [], [], [], [], []
     marker_line_colors, marker_line_widths = [], []
     for r in results:
-        spec, geo, hy = r["spec"], r["geo"], r["hydro_years"]
+        geo, hy = r["geo"], r["hydro_years"]
         complete = hy[hy["status"] == "complete"]
         amp = float((complete["peak_extent_pct"] - complete["trough_extent_pct"]).mean()) if not complete.empty else 0.0
         flagged = bool(r.get("pattern_claim_excluded", False))

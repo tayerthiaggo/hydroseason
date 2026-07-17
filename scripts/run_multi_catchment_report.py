@@ -47,7 +47,7 @@ from hydroseason import (  # noqa: E402
 # plan_resolution/probe_amplitude are NOT re-exported from the top-level
 # hydroseason package (tests/test_package_surface.py freezes __all__), so
 # they're imported directly from hydroseason.io.
-from hydroseason.io import plan_resolution, probe_amplitude  # noqa: E402
+from hydroseason.io import _DEFAULT_CANDIDATE_RES_M, plan_resolution, probe_amplitude  # noqa: E402
 
 STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 COLLECTION = "ga_ls_wo_3"
@@ -182,8 +182,7 @@ def _choose_resolution(
         }
 
     if refuse_coarsen_past is not None and gate_resolution_m > refuse_coarsen_past:
-        default_ladder = (30, 60, 100, 150, 300)
-        clamped_ladder = tuple(r for r in default_ladder if r <= refuse_coarsen_past)
+        clamped_ladder = tuple(r for r in _DEFAULT_CANDIDATE_RES_M if r <= refuse_coarsen_past)
         resolution_m, peak_gb, floor_pp, reason = plan_resolution(
             geo["bounds_wgs84"], OUTPUT_CRS,
             memory_budget_gb=memory_budget_gb, observed_amplitude_pp=amplitude_pp,
