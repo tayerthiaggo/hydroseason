@@ -15,6 +15,7 @@
 - `hydroseason/__init__.py`'s public API surface (`__all__` list) does not change.
 - Lazy geo imports (`import geopandas`, `import rioxarray`, etc. inside function bodies) stay exactly where they are — do not hoist any of them to module level.
 - `tests/test_io.py`, `tests/test_report.py`, `tests/test_run_multi_catchment_report.py` must pass **unmodified** — do not edit these files. Their current import statements are the acceptance check.
+- **Monkeypatch-through-facade (do not skip):** three existing tests patch a dependency on the `hydroseason.io` module and then call a function that uses it — `test_io.py:232`/`:286` patch `hydroseason.io._clip_to_aoi` then call `load_wofs_from_stac`; `test_run_multi_catchment_report.py:429` patches `hydroseason.io.load_wofs_from_stac` then (via `run_one_catchment`) drives `probe_amplitude`. A `monkeypatch.setattr` rebinds a name **only** on the module object it targets; a re-export in the facade is a separate binding it does not reach. So after the split the call sites must resolve those two dependencies off `hydroseason.io` at **call time** (`import hydroseason.io as _io; _io.<name>(...)` inside the function body), not via a module-level `from hydroseason._io_geo import <name>` into the submodule's own globals. This is the one place a naive "move + re-export" silently breaks green tests — see T2 (`probe_amplitude` → `load_wofs_from_stac`) and T3 (`load_wofs_from_stac` → `_clip_to_aoi`).
 - `tests/test_io.py::test_csv_loader_imports_without_raster_dependencies` is the specific regression check for the lazy-import guarantee — it stubs `xarray`/`dask`/`rasterio`/`geopandas`/`zarr` to `None` in `sys.modules` and asserts `hydroseason.io` still imports and `load_extent_csv` still works. Watch this one after every io.py-related step.
 - `scripts/run_multi_catchment_report.py` and `scripts/compare_resolution_signal_fidelity.py` must still import successfully (both do `from hydroseason.io import ...`).
 
@@ -183,7 +184,7 @@ git commit -m "refactor: extract _io_extent.py (pandas-only loaders, not yet wir
 **Interfaces:**
 - Consumes: `hydroseason._boundary.SIGNAL_FLOOR_FRACTION`, `hydroseason._boundary.robust_scale`, `hydroseason._state_input.prepare_monthly_extent`, `hydroseason.hydro_year.monthly_water_extent`.
 - Produces: `plan_resolution(...) -> tuple[float, float, float, str]`, `probe_amplitude(...) -> dict`, `_next_coarser_res_m(...)`, `_mean_water_fraction(...)`, `_DEFAULT_CANDIDATE_RES_M: tuple[float, ...]`, `_DEFAULT_RETENTION_THRESHOLD: float`.
-- `probe_amplitude` calls `load_wofs_from_stac`, which lives in `_io_geo.py` (T3) — import it from there: `from hydroseason._io_geo import load_wofs_from_stac`.
+- `probe_amplitude` calls `load_wofs_from_stac`, which lives in `_io_geo.py` (T3). **Monkeypatch-compatibility:** `tests/test_run_multi_catchment_report.py:429` does `monkeypatch.setattr(hio, "load_wofs_from_stac", ...)` where `hio = hydroseason.io`, relying on `probe_amplitude` resolving `load_wofs_from_stac` off the `hydroseason.io` module namespace at call time. A plain `from hydroseason._io_geo import load_wofs_from_stac` would bind the name in `_io_resolution`'s own globals, which that `setattr` does **not** touch — the test would then attempt real STAC I/O and its `load_mock.call_count == 3` assertion would fail. So `probe_amplitude` must call it via a **deferred, module-level lookup** on `hydroseason.io`: `import hydroseason.io as _io; _io.load_wofs_from_stac(...)`. `_crs_value` is not monkeypatched — import it normally.
 
 - [ ] **Step 1: Create `hydroseason/_io_resolution.py`** with this exact content (moved verbatim from `hydroseason/io.py` lines 252-505, `_crs_value` helper reused from `_io_geo` per the import below):
 
@@ -200,9 +201,15 @@ from __future__ import annotations
 import pandas as pd
 
 from hydroseason._boundary import SIGNAL_FLOOR_FRACTION, robust_scale
-from hydroseason._io_geo import _crs_value, load_wofs_from_stac
+from hydroseason._io_geo import _crs_value
 from hydroseason._state_input import prepare_monthly_extent
 from hydroseason.hydro_year import monthly_water_extent
+
+# NOTE: ``load_wofs_from_stac`` is intentionally NOT imported at module level.
+# ``probe_amplitude`` looks it up on ``hydroseason.io`` at call time so that
+# ``monkeypatch.setattr(hydroseason.io, "load_wofs_from_stac", ...)`` in
+# tests/test_run_multi_catchment_report.py is honoured (a name bound into this
+# module's globals would be invisible to a setattr on the facade).
 
 
 def plan_resolution(
@@ -424,14 +431,18 @@ def probe_amplitude(
     """
     coarser_res_m = _next_coarser_res_m(probe_res_m, guard_step_m, candidate_res_m)
 
-    probe_mask = load_wofs_from_stac(
+    # Resolve load_wofs_from_stac off the hydroseason.io facade at call time so
+    # tests that patch hydroseason.io.load_wofs_from_stac take effect here.
+    import hydroseason.io as _io
+
+    probe_mask = _io.load_wofs_from_stac(
         stac_url, collection, aoi, start_date, end_date, crs=crs, resolution=probe_res_m,
     )
     probe_prepared = prepare_monthly_extent(monthly_water_extent(probe_mask))
     amplitude_pp, _noise_pp = robust_scale(probe_prepared)
     probe_fraction = _mean_water_fraction(probe_prepared)
 
-    coarser_mask = load_wofs_from_stac(
+    coarser_mask = _io.load_wofs_from_stac(
         stac_url, collection, aoi, start_date, end_date, crs=crs, resolution=coarser_res_m,
     )
     coarser_prepared = prepare_monthly_extent(monthly_water_extent(coarser_mask))
@@ -464,7 +475,7 @@ def probe_amplitude(
 __all__ = ["plan_resolution", "probe_amplitude"]
 ```
 
-Note: this file imports `from hydroseason._io_geo import _crs_value, load_wofs_from_stac`, so it will not import successfully until T3 creates `_io_geo.py`. That's expected — T4 wires everything together before anything is asked to actually run.
+Note: this file does `from hydroseason._io_geo import _crs_value` at module level, so it will not import successfully until T3 creates `_io_geo.py`. That's expected — T4 wires everything together before anything is asked to actually run. `load_wofs_from_stac` is deliberately **not** imported here (see the module note and the monkeypatch-compatibility constraint) — `probe_amplitude` resolves it via `hydroseason.io` at call time.
 
 - [ ] **Step 2: Verify syntax only (not import) since `_io_geo` doesn't exist yet**
 
@@ -488,6 +499,8 @@ git commit -m "refactor: extract _io_resolution.py (plan_resolution/probe_amplit
 **Interfaces:**
 - Consumes: `hydroseason._io_extent.complete_monthly_axis` (for `load_monthly_masks`, `load_monthly_masks_zarr`, `load_wofs_from_stac`).
 - Produces: `load_aoi`, `load_monthly_masks`, `load_monthly_masks_zarr`, `load_wofs_from_stac`, `mark_in_aoi_nodata_as_invalid`, `AOIRasterizationError`, `GeoreferencingError`, `IrregularGridError`, plus private helpers `_validate_classifier`, `_classify`, `_preserve_georef`, `_combine_observations`, `_clip_to_aoi`, `_inside_aoi_mask_like`, `_resolve_raster_crs`, `_resolve_raster_transform`, `_spatial_transform_from_xy`, `_is_identity_transform`, `_assert_compatible_georef`, `_parse_date_from_name`, `_crs_value`.
+
+**Monkeypatch-compatibility (critical):** `tests/test_io.py:232` and `:286` do `monkeypatch.setattr("hydroseason.io._clip_to_aoi", Mock(...))` and then call `load_wofs_from_stac`. Those tests rely on `load_wofs_from_stac` resolving `_clip_to_aoi` off the `hydroseason.io` namespace at call time. If `load_wofs_from_stac` calls a bare `_clip_to_aoi` (resolved in `_io_geo`'s own globals), the facade `setattr` is invisible and the real `_clip_to_aoi` runs on the mock dataset — raising `AOIRasterizationError`, so both tests fail. Therefore **only inside `load_wofs_from_stac`**, resolve `_clip_to_aoi` via a deferred facade lookup: `import hydroseason.io as _io; _io._clip_to_aoi(mask, target)`. `load_monthly_masks`'s own `_clip_to_aoi(mask, aoi_gdf)` call is **not** monkeypatched by any test, so leave it as a bare call — do not change it.
 
 - [ ] **Step 1: Create `hydroseason/_io_geo.py`** with this exact content (moved verbatim from `hydroseason/io.py` lines 1-33 header/exceptions, 60-89 `load_aoi`, 127-249 raster/STAC loaders, 508-655 classify/georef helpers):
 
@@ -651,6 +664,10 @@ def load_wofs_from_stac(
     # reads unless explicitly told not to sign requests; without this, every
     # lazy dask read of the returned cube fails with CPLE_AWSInvalidCredentialsError.
     os.environ.setdefault("AWS_NO_SIGN_REQUEST", "YES")
+    # Resolve _clip_to_aoi off the hydroseason.io facade at call time so
+    # tests that patch hydroseason.io._clip_to_aoi take effect here.
+    import hydroseason.io as _io
+
     aoi_gdf = load_aoi(aoi)
     try:
         aoi_4326 = aoi_gdf.to_crs("EPSG:4326")
@@ -670,7 +687,7 @@ def load_wofs_from_stac(
         try:
             ds = odc.stac.stac_load(month_items, bands=["water"], chunks={"x": chunk_x, "y": chunk_y}, geopolygon=target.geometry, **({"crs": _crs_value(crs)} if crs is not None else {}), **({"resolution": resolution, "resampling": "mode"} if resolution is not None else {}))
             mask = _combine_observations(_classify(ds["water"], "wofs", None), majority)
-            mask = _clip_to_aoi(mask, target)
+            mask = _io._clip_to_aoi(mask, target)
         except AOIRasterizationError:
             raise
         except Exception as exc:
@@ -916,32 +933,39 @@ from hydroseason._io_resolution import (
 __all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "plan_resolution", "probe_amplitude"]
 ```
 
-- [ ] **Step 2: Run the lazy-import regression test specifically**
+- [ ] **Step 2: No import cycle at module load**
+
+The facade imports `_io_resolution`, which (top-level) imports `_io_geo._crs_value`, which (top-level) imports `_io_extent` — a straight chain, no back-edge to `hydroseason.io`. The `import hydroseason.io` statements added in `load_wofs_from_stac` / `probe_amplitude` are inside function bodies, so they only run at call time, not at import. Confirm the chain loads clean:
+
+Run: `python -c "import hydroseason.io; print('ok')"`
+Expected: `ok`. A `ImportError` / `partially initialized module` here means one of the deferred `import hydroseason.io as _io` statements leaked to module level — put it back inside the function body.
+
+- [ ] **Step 3: Run the lazy-import regression test specifically**
 
 Run: `pytest tests/test_io.py::test_csv_loader_imports_without_raster_dependencies -v`
 Expected: PASS. If it fails, the facade's top-level imports are pulling in a geo dependency eagerly — check that `_io_geo.py` and `_io_resolution.py` have no module-level `import geopandas`/`rioxarray`/etc. (they shouldn't per T2/T3 content above).
 
-- [ ] **Step 3: Run the full io test file**
+- [ ] **Step 4: Run the full io test file**
 
 Run: `pytest tests/test_io.py -v`
-Expected: all pass (same count as before the split — 24 tests per the pre-check).
+Expected: all pass (same count as before the split — 24 tests per the pre-check). Watch specifically `test_stac_loader_passes_resolution_to_stac_load` and `test_stac_loader_omits_resolution_when_none`: they `monkeypatch.setattr("hydroseason.io._clip_to_aoi", ...)` and only pass if `load_wofs_from_stac` resolves `_clip_to_aoi` via the facade (the `_io._clip_to_aoi` call from T3). A failure here with `AOIRasterizationError` means that indirection was dropped.
 
-- [ ] **Step 4: Run the multi-catchment report test file (imports `_DEFAULT_CANDIDATE_RES_M` and does `import hydroseason.io as hio`)**
+- [ ] **Step 5: Run the multi-catchment report test file (imports `_DEFAULT_CANDIDATE_RES_M` and does `import hydroseason.io as hio`)**
 
 Run: `pytest tests/test_run_multi_catchment_report.py -v`
-Expected: all pass (12 tests per the pre-check).
+Expected: all pass (12 tests per the pre-check). The test that patches `hio.load_wofs_from_stac` and asserts `load_mock.call_count == 3` only passes if `probe_amplitude` resolves `load_wofs_from_stac` via the facade (the `_io.load_wofs_from_stac` calls from T2). A `call_count` mismatch or a real network attempt means that indirection was dropped.
 
-- [ ] **Step 5: Verify the two scripts that import from `hydroseason.io` still import cleanly**
+- [ ] **Step 6: Verify the two scripts that import from `hydroseason.io` still import cleanly**
 
 Run: `python -c "import ast,sys; [ast.parse(open(f).read(), f) for f in ('scripts/run_multi_catchment_report.py','scripts/compare_resolution_signal_fidelity.py')]; print('ok')"`
-Expected: `ok`. (Syntax-only check; both scripts have side effects at import time via `sys.path` manipulation so a full import isn't safe to run here — the real import check is T4 Step 3/4 exercising the same `hydroseason.io` surface those scripts use.)
+Expected: `ok`. (Syntax-only check; both scripts have side effects at import time via `sys.path` manipulation so a full import isn't safe to run here — the real import check is T4 Step 4/5 exercising the same `hydroseason.io` surface those scripts use.)
 
-- [ ] **Step 6: Run the full test suite**
+- [ ] **Step 7: Run the full test suite**
 
 Run: `pytest -q`
 Expected: same pass count as the pre-split baseline, zero failures.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add hydroseason/io.py
