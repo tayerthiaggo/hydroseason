@@ -72,6 +72,7 @@ data/global_rainfall_fetch_stress_cache/
 data/natural_earth/
 data/silo_cache/
 data/fitzroy_era5_*.csv
+data/catchments/
 
 # ── Development-only folder (raw data, paper drafts, prototypes) ──────────────
 dev/
