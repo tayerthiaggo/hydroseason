@@ -141,7 +141,6 @@ def generate_html_report(
     start_date = kpis["start_date"]
     end_date = kpis["end_date_label"]
     n_years = kpis["n_years"]
-    mean_peak = kpis["mean_peak"]
     mean_end = kpis["mean_end"]
     mean_amp = kpis["mean_amp"]
     mean_len = kpis["mean_len"]

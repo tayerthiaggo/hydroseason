@@ -10,8 +10,8 @@ used directly by scripts and tests.
 
 from __future__ import annotations
 
-from hydroseason._io_extent import complete_monthly_axis, load_extent_csv
-from hydroseason._io_geo import (
+from hydroseason._io_extent import complete_monthly_axis, load_extent_csv  # noqa: F401
+from hydroseason._io_geo import (  # noqa: F401
     AOIRasterizationError,
     GeoreferencingError,
     IrregularGridError,
@@ -35,7 +35,7 @@ from hydroseason._io_geo import (
     _spatial_transform_from_xy,
     _validate_classifier,
 )
-from hydroseason._io_resolution import (
+from hydroseason._io_resolution import (  # noqa: F401
     _DEFAULT_CANDIDATE_RES_M,
     _DEFAULT_RETENTION_THRESHOLD,
     _mean_water_fraction,
