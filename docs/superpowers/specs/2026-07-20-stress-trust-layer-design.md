@@ -61,8 +61,15 @@ baseline, and combines those into `annual_condition` (e.g. `dry_low_refuge`,
 ### 1. Adaptive rolling baseline
 
 `classify_annual_surface_water_condition` gains `reference="rolling"` with
-parameters `window_cycles: int = 10` and `min_baseline_cycles: int = 5`
-(the existing `min_baseline_cycles` parameter is reused for this new floor).
+parameters `rolling_window_cycles: int = 10` and `rolling_min_cycles: int = 5`.
+
+> **Audit correction (2026-07-20).** An earlier draft said the existing
+> `min_baseline_cycles` parameter would be reused for the floor. It cannot:
+> `min_baseline_cycles` defaults to **10** (`DynamicHydroYearConfig`) and
+> `tests/test_condition.py` depends on that value for the `full_record`
+> activation gate. The rolling floor is therefore a **separate**
+> `rolling_min_cycles` parameter (default 5), leaving `min_baseline_cycles`
+> untouched.
 
 For each HY row, in chronological order:
 
