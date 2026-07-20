@@ -753,6 +753,134 @@ git commit -m "test: prove additive backward-compatibility of stress-trust colum
 
 ---
 
+---
+
+### Task 9: Activate rolling baseline in the production runner
+
+> **Added post-final-review (2026-07-20).** The final whole-branch review
+> found Tasks 1-8 wire the adaptive rolling baseline end-to-end but
+> `scripts/run_multi_catchment_report.py` never turns it on — it calls
+> `analyze_hydrological_state(extent)` with no `reference` argument, so
+> every production run silently uses `full_record` (the non-adaptive
+> baseline this whole plan was meant to replace). The noise-hedge and
+> timing-confidence flag *are* live (they don't depend on `reference`),
+> but the rolling baseline itself — feature #1, the headline fix — ships
+> dormant. Human decision: activate it in the runner now, as a CLI flag
+> defaulting to rolling, with a test proving it flows through.
+
+**Files:**
+- Modify: `scripts/run_multi_catchment_report.py` — `run_one_catchment` (currently at line 235, signature ends line 245; the `analyze_hydrological_state(extent)` call is at line 328; `run_config` dict at lines ~247-261; `_build_arg_parser` at line 367; the `run_kwargs={...}` construction in `main()` at lines ~458-465)
+- Test: `tests/test_run_multi_catchment_report.py`
+
+**Interfaces:**
+- Consumes: `analyze_hydrological_state(extent, *, reference="full_record", rolling_window_cycles=10, rolling_min_cycles=5, ...)` from Task 6 (`hydroseason/hydrological_state.py`), already accepts these kwargs.
+- Produces: `run_one_catchment` gains a `baseline: str = "rolling"` keyword parameter (new default for *this function*, distinct from `analyze_hydrological_state`'s own `full_record` default — the runner opts every catchment into rolling unless told otherwise). `_build_arg_parser` gains `--baseline {rolling,full_record}` (default `"rolling"`). `run_config` (the checkpoint-identity dict) gains a `"baseline"` key so changing `--baseline` invalidates stale checkpoints, matching how `resolution_override`/`allow_large`/etc. already work.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `tests/test_run_multi_catchment_report.py` (find the nearest existing test that calls `run_one_catchment` with mocked `load_wofs_monthly_extent`/`probe_amplitude`/`analyze_hydrological_state` collaborators — copy its mock-setup pattern). The new test:
+
+```python
+def test_run_one_catchment_defaults_to_rolling_baseline(monkeypatch):
+    calls = []
+
+    def _fake_analyze(extent, **kwargs):
+        calls.append(kwargs)
+        # Return a minimal, valid HydrologicalStateResult-shaped stand-in.
+        return _minimal_state_result()  # reuse this file's existing helper/fixture
+        # for constructing a HydrologicalStateResult, if one exists; otherwise
+        # build one inline matching the shape other tests in this file already use.
+
+    monkeypatch.setattr(
+        "scripts.run_multi_catchment_report.analyze_hydrological_state", _fake_analyze
+    )
+    # ... mock load_wofs_monthly_extent, probe_amplitude, _catchment_geo_summary,
+    # checkpoint I/O, etc. exactly as the nearest existing run_one_catchment test does.
+
+    run_one_catchment(spec, force=True)  # default baseline
+
+    assert calls[-1]["reference"] == "rolling"
+    assert calls[-1]["rolling_window_cycles"] == 10
+    assert calls[-1]["rolling_min_cycles"] == 5
+
+
+def test_run_one_catchment_baseline_override_to_full_record(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "scripts.run_multi_catchment_report.analyze_hydrological_state",
+        lambda extent, **kwargs: (calls.append(kwargs), _minimal_state_result())[1],
+    )
+    # ... same mocking as above ...
+
+    run_one_catchment(spec, force=True, baseline="full_record")
+
+    assert calls[-1]["reference"] == "full_record"
+```
+
+Adapt the mocking boilerplate to match whatever helper(s) `tests/test_run_multi_catchment_report.py` already uses for its existing `run_one_catchment` tests — do not invent a new mocking style. If the file has no `_minimal_state_result()` helper, build the `HydrologicalStateResult` inline the same way the file's nearest existing test does.
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `python -m pytest tests/test_run_multi_catchment_report.py::test_run_one_catchment_defaults_to_rolling_baseline -v`
+Expected: FAIL — `run_one_catchment() got an unexpected keyword argument 'baseline'` (or the call to `analyze_hydrological_state` shows no `reference` kwarg at all).
+
+- [ ] **Step 3: Add the `baseline` parameter and thread it into the call**
+
+In `run_one_catchment`'s signature (`scripts/run_multi_catchment_report.py:235-245`), add:
+
+```python
+    baseline: str = "rolling",
+```
+
+In the `run_config` dict (used for checkpoint staleness detection), add a `"baseline": baseline,` entry alongside the existing keys.
+
+Change the `analyze_hydrological_state(extent)` call (line 328) to:
+
+```python
+    state = analyze_hydrological_state(
+        extent,
+        reference=baseline,
+        rolling_window_cycles=10,
+        rolling_min_cycles=5,
+    )
+```
+
+- [ ] **Step 4: Add the CLI flag and thread it through `main()`**
+
+In `_build_arg_parser` (line 367+), add alongside the other `parser.add_argument` calls:
+
+```python
+    parser.add_argument(
+        "--baseline", choices=["rolling", "full_record"], default="rolling",
+        help="condition baseline mode: adaptive rolling (default) or single full-record baseline",
+    )
+```
+
+In `main()`'s `run_kwargs={...}` construction (~line 458-465), add:
+
+```python
+            "baseline": args.baseline,
+```
+
+- [ ] **Step 5: Run the new tests to verify they pass**
+
+Run: `python -m pytest tests/test_run_multi_catchment_report.py::test_run_one_catchment_defaults_to_rolling_baseline tests/test_run_multi_catchment_report.py::test_run_one_catchment_baseline_override_to_full_record -v`
+Expected: both PASS
+
+- [ ] **Step 6: Run the full sibling suite to confirm no regression**
+
+Run: `python -m pytest tests/test_run_multi_catchment_report.py -v`
+Expected: all PASS (existing tests unaffected — `baseline` has a default, so calls without it keep working, just now opted into rolling instead of the old implicit full_record).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add scripts/run_multi_catchment_report.py tests/test_run_multi_catchment_report.py
+git commit -m "feat: activate rolling baseline by default in production runner, add --baseline override"
+```
+
+---
+
 ## Self-Review
 
 **Spec coverage:**
