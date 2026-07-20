@@ -91,3 +91,39 @@ def test_low_quality_month_has_no_condition_rank():
     )
     result = compute_monthly_surface_water_condition(frame)
     assert pd.isna(result.loc["2001-01-01", "condition_percentile"])
+
+
+def _annual_n(n_years, peak, trough, start=2000):
+    years = np.arange(start, start + n_years)
+    return pd.DataFrame(
+        {
+            "hy_year": years,
+            "status": "complete",
+            "boundary_status": "confirmed",
+            "hy_end": pd.to_datetime([f"{year}-09-01" for year in years]),
+            "peak_extent_pct": peak,
+            "trough_extent_pct": trough,
+        }
+    )
+
+
+def test_rolling_baseline_phases_label_every_year_past_floor():
+    n = 21
+    rng = np.random.default_rng(0)
+    peak = 50 + rng.normal(0, 5, n)
+    trough = 10 + rng.normal(0, 2, n)
+    annual = _annual_n(n, peak, trough)
+    result = classify_annual_surface_water_condition(
+        annual, reference="rolling", rolling_window_cycles=10, rolling_min_cycles=5
+    ).set_index("hy_year")
+    # First 5 rows (0..4 prior cycles) are below the floor.
+    assert (result["baseline_mode"].iloc[:5] == "insufficient").all()
+    # Rows with 5..9 prior cycles are the expanding phase.
+    assert (result["baseline_mode"].iloc[5:10] == "expanding").all()
+    assert result["baseline_uncertain"].iloc[5:10].all()
+    # Rows with >=10 prior cycles are the rolling phase, window pinned to 10.
+    assert (result["baseline_mode"].iloc[10:] == "rolling").all()
+    assert (result["baseline_n"].iloc[10:] == 10).all()
+    assert not result["baseline_uncertain"].iloc[10:].any()
+    # Every row past the floor has a real (non-insufficient) label.
+    assert (result["annual_condition"].iloc[5:] != "insufficient_baseline").all()
