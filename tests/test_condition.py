@@ -138,10 +138,11 @@ def test_rolling_baseline_forgets_pre_shift_regime():
     result = classify_annual_surface_water_condition(
         annual, reference="rolling", rolling_window_cycles=10, rolling_min_cycles=5
     ).set_index("hy_year")
-    # By the last year (2024), all 10 prior cycles (2014..2023 -> positions 14..23)
-    # are post-shift-valued (position 14 is still 30, positions 15..23 are 70), and
-    # 2024's own peak (70) matches the new regime -> should NOT read as "high".
-    # Use a fully-past-shift year: 2024 has prior positions 14..23; test the median.
+    # By the last year (2024), the trailing-10 window (2014..2023 -> positions
+    # 14..23) holds 9 post-shift values (70) and only 1 pre-shift value (30 at
+    # position 14), so its median is already 70 -- the baseline has adapted to
+    # the new regime despite one straggling pre-shift cycle still in view.
+    # 2024's own peak (70) matches that median -> should NOT read as "high".
     assert result.loc[2024, "baseline_mode"] == "rolling"
     # A clean post-shift year whose window is entirely post-shift: position 25 would
     # be needed for a pure window, but with n=25 the last row's window still holds
