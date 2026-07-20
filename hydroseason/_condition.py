@@ -157,6 +157,13 @@ def classify_annual_surface_water_condition(
     out["consecutive_wet_cycles"] = wet_counts
 
     # Baseline median per row, per axis, matching the reference mode used above.
+    # Re-derives the same row-set the percentile loop above already selected
+    # (identical _rolling_baseline_index args in rolling mode, identical
+    # reference_mask self-drop in the other modes). Safe only because nothing
+    # between the two passes mutates reference_mask, out[source], or the
+    # rolling params -- if a future edit introduces such a mutation, this
+    # second pass and the percentile loop could silently disagree on what
+    # "baseline" means for a row.
     def _baseline_median(source):
         medians = []
         if reference == "rolling":

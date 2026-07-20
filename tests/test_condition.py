@@ -152,7 +152,7 @@ def test_rolling_baseline_forgets_pre_shift_regime():
 
 
 def test_noise_floor_hedge_downgrades_within_band_only():
-    # 11 confirmed years; year 2010 peak (110) is the record high -> "high" unhedged.
+    # 12 confirmed years (2000..2011); year 2011 peak (120) is the record high -> "high" unhedged.
     annual = _annual().copy()
     annual["boundary_status"] = "confirmed"
     # Large noise_pp so the peak's departure from baseline median is inside the band.
