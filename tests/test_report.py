@@ -1,12 +1,7 @@
-import pandas as pd
 import numpy as np
-import pytest
-from pathlib import Path
-from hydroseason import (
-    detect_hydrological_years,
-    label_hydrological_months,
-    generate_html_report,
-)
+import pandas as pd
+
+from hydroseason import detect_hydrological_years, generate_html_report
 
 
 def _seasonal_extent(n_years=3):
