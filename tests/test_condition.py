@@ -173,3 +173,22 @@ def test_noise_floor_hedge_downgrades_within_band_only():
     ).set_index("hy_year")
     assert none.loc[2011, "recharge_condition_qualified"] == none.loc[2011, "recharge_condition"]
     assert pd.isna(none.loc[2011, "noise_floor_pp"])
+
+
+def test_timing_confidence_from_amplitude_vs_noise():
+    annual = _annual().copy()
+    annual["boundary_status"] = "confirmed"
+    # amplitudes (peak-trough) for _annual(): 9,8,27,36,45,54,63,72,81,90,108,109
+    result = classify_annual_surface_water_condition(
+        annual, min_baseline_cycles=5, noise_pp=10.0, timing_amplitude_k=2.0
+    ).set_index("hy_year")
+    # 2000 amplitude 9 < 2*10=20 -> low; 2001 amplitude 8 < 20 -> low
+    assert result.loc[2000, "timing_confidence"] == "low"
+    assert result.loc[2001, "timing_confidence"] == "low"
+    # 2003 amplitude 36 >= 20 -> high
+    assert result.loc[2003, "timing_confidence"] == "high"
+    # noise_pp None -> unknown
+    unknown = classify_annual_surface_water_condition(
+        annual, min_baseline_cycles=5
+    ).set_index("hy_year")
+    assert (unknown["timing_confidence"] == "unknown").all()

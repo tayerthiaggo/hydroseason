@@ -69,6 +69,7 @@ def classify_annual_surface_water_condition(
     low_variability: bool = False,
     allow_low_variability_labels: bool = False,
     noise_pp: float | None = None,
+    timing_amplitude_k: float = 2.0,
 ) -> pd.DataFrame:
     if reference not in ("full_record", "rolling") and (reference_start is None or reference_end is None):
         raise ValueError("reference must be 'full_record', 'rolling', or include reference_start and reference_end.")
@@ -209,6 +210,14 @@ def classify_annual_surface_water_condition(
     # Preserve the special-case labels the unhedged annual_condition uses.
     special = out["annual_condition"].isin(["insufficient_baseline", "not_applicable_low_variability"])
     out.loc[special, "annual_condition_qualified"] = out.loc[special, "annual_condition"]
+
+    if noise_pp is None:
+        out["timing_confidence"] = "unknown"
+    else:
+        amplitude = out["peak_extent_pct"] - out["trough_extent_pct"]
+        threshold = float(timing_amplitude_k) * float(noise_pp)
+        out["timing_confidence"] = np.where(amplitude < threshold, "low", "high")
+        out.loc[amplitude.isna(), "timing_confidence"] = "unknown"
 
     return out
 
