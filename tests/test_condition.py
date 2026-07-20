@@ -192,3 +192,24 @@ def test_timing_confidence_from_amplitude_vs_noise():
         annual, min_baseline_cycles=5
     ).set_index("hy_year")
     assert (unknown["timing_confidence"] == "unknown").all()
+
+
+def test_existing_columns_unchanged_for_full_record_mode():
+    # The default (full_record) call must yield the same pre-existing columns
+    # it always did; new columns are purely additive.
+    annual = _annual().copy()
+    annual["boundary_status"] = "confirmed"
+    result = classify_annual_surface_water_condition(annual, min_baseline_cycles=5)
+    # Pre-existing columns still present and populated.
+    for col in ["recharge_condition", "refuge_condition", "annual_condition",
+                "peak_percentile", "trough_percentile",
+                "consecutive_dry_cycles", "consecutive_wet_cycles"]:
+        assert col in result.columns
+    # New columns are additive.
+    for col in ["baseline_mode", "baseline_n", "baseline_uncertain",
+                "noise_floor_pp", "recharge_condition_qualified",
+                "refuge_condition_qualified", "annual_condition_qualified",
+                "timing_confidence"]:
+        assert col in result.columns
+    # With noise_pp None (default), qualified mirrors unhedged exactly.
+    assert (result["annual_condition_qualified"] == result["annual_condition"]).all()
