@@ -6,6 +6,19 @@ import pandas as pd
 from ._state_input import prepare_monthly_extent
 
 
+_JOINT_STATE_MAP: dict[tuple[str, str], str] = {
+    ("high", "high"): "wet_persistent",
+    ("high", "low"): "recharged_then_contracting",
+    ("low", "high"): "buffered_low_recharge",
+    ("low", "low"): "dry_low_refuge",
+}
+
+
+def _join_conditions(recharge: str, refuge: str) -> str:
+    """Combine recharge/refuge conditions into the joint annual label."""
+    return _JOINT_STATE_MAP.get((recharge, refuge), "typical_or_mixed")
+
+
 def _empirical_percentile(value: float, reference: pd.Series) -> float:
     clean = reference.dropna().to_numpy(float)
     if not len(clean):
@@ -71,13 +84,10 @@ def classify_annual_surface_water_condition(
     else:
         out["recharge_condition"] = "insufficient_baseline"
         out["refuge_condition"] = "insufficient_baseline"
-    mapping = {
-        ("high", "high"): "wet_persistent",
-        ("high", "low"): "recharged_then_contracting",
-        ("low", "high"): "buffered_low_recharge",
-        ("low", "low"): "dry_low_refuge",
-    }
-    out["annual_condition"] = [mapping.get(pair, "typical_or_mixed") for pair in zip(out["recharge_condition"], out["refuge_condition"])]
+    out["annual_condition"] = [
+        _join_conditions(recharge, refuge)
+        for recharge, refuge in zip(out["recharge_condition"], out["refuge_condition"])
+    ]
     if not enough:
         out["annual_condition"] = "insufficient_baseline"
     if low_variability and not allow_low_variability_labels:
