@@ -307,6 +307,42 @@ def _characterization_card(r: dict) -> str:
         for c, n in sorted(condition_counts.items())
     )
 
+    # Noise-hedged view of annual_condition (stress-trust layer, Tasks 1-6):
+    # collapses condition labels judged indistinguishable from the median
+    # under the catchment's projected noise floor into "typical_uncertain".
+    # Same completeness scoping as the plain condition chips above -- an
+    # incomplete hydro-year's condition/timing isn't a settled observation
+    # either, so it's excluded from both chip strips for consistency.
+    qualified_counts = (
+        complete["annual_condition_qualified"].value_counts().to_dict()
+        if "annual_condition_qualified" in complete.columns else {}
+    )
+    qualified_condition_html = "".join(
+        f'<span class="cond-chip" style="background:{CONDITION_COLORS.get(c, "#94a3b8")}22;'
+        f'color:{CONDITION_COLORS.get(c, "#94a3b8")};border:1px solid {CONDITION_COLORS.get(c, "#94a3b8")}55">'
+        f"{html.escape(c.replace('_', ' '))}: {n}</span>"
+        for c, n in sorted(qualified_counts.items())
+    )
+
+    # timing_confidence has no purpose-built color map (only three values:
+    # low/high/unknown) -- reuse CONDITION_COLORS.get(..., fallback) for a
+    # consistent muted-grey default rather than inventing a new palette.
+    timing_counts = (
+        complete["timing_confidence"].value_counts().to_dict()
+        if "timing_confidence" in complete.columns else {}
+    )
+    timing_confidence_html = "".join(
+        f'<span class="cond-chip" style="background:{CONDITION_COLORS.get(c, "#94a3b8")}22;'
+        f'color:{CONDITION_COLORS.get(c, "#94a3b8")};border:1px solid {CONDITION_COLORS.get(c, "#94a3b8")}55">'
+        f"{html.escape(c.replace('_', ' '))}: {n}</span>"
+        for c, n in sorted(timing_counts.items())
+    )
+    stress_trust_row_html = (
+        f'<div class="cond-row"><span class="kpi-label">Qualified</span> {qualified_condition_html}'
+        f'<span class="kpi-label">Timing confidence</span> {timing_confidence_html}</div>'
+        if qualified_condition_html or timing_confidence_html else ""
+    )
+
     resolution_m = r.get("resolution_m")
     n_valid = r.get("n_valid")
     noise_floor_pp = r.get("projected_noise_floor_pp")
@@ -355,6 +391,7 @@ def _characterization_card(r: dict) -> str:
         <div class="kpi"><span class="kpi-label">Projected noise floor</span><span class="kpi-value">{noise_floor_html}</span></div>
       </div>
       <div class="cond-row">{condition_html or '<span class="cond-chip">no complete cycles</span>'}</div>
+      {stress_trust_row_html}
       {caveat_html}
       {_catchment_extent_figure(spec, r['extent'], hy, pattern)}
     </section>

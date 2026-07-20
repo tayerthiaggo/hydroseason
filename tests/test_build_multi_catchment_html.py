@@ -149,6 +149,38 @@ class TestPatternClaimExcludedFraming:
         assert "resolution-flagged" not in card.lower()
 
 
+class TestStressTrustChips:
+    def test_card_shows_qualified_condition_and_timing_confidence_chips(self, mod):
+        hy = _fake_hydro_years()
+        hy["annual_condition_qualified"] = ["typical_uncertain", "high"]
+        hy["timing_confidence"] = ["low", "high"]
+        result = _fake_result(hydro_years=hy)
+
+        card = mod._characterization_card(result)
+
+        assert "typical uncertain: 1" in card
+        assert "high: 1" in card
+        assert "low: 1" in card
+
+    def test_card_handles_missing_stress_trust_columns_without_crash(self, mod):
+        result = _fake_result()  # _fake_hydro_years() has no qualified/timing_confidence cols
+
+        card = mod._characterization_card(result)
+
+        assert "catchment-section" in card
+
+    def test_stress_trust_chip_values_are_html_escaped(self, mod):
+        hy = _fake_hydro_years()
+        hy["annual_condition_qualified"] = ["<script>evil</script>", "high"]
+        hy["timing_confidence"] = ["low", "high"]
+        result = _fake_result(hydro_years=hy)
+
+        card = mod._characterization_card(result)
+
+        assert "<script>evil" not in card
+        assert "&lt;script&gt;" in card
+
+
 class TestBackwardCompatibility:
     def test_card_handles_missing_new_keys_without_crash(self, mod):
         result = _fake_result()
