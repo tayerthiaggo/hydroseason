@@ -127,3 +127,24 @@ def test_rolling_baseline_phases_label_every_year_past_floor():
     assert not result["baseline_uncertain"].iloc[10:].any()
     # Every row past the floor has a real (non-insufficient) label.
     assert (result["annual_condition"].iloc[5:] != "insufficient_baseline").all()
+
+
+def test_rolling_baseline_forgets_pre_shift_regime():
+    # 25 years: peak ~30 for years 0..14, steps up to ~70 for years 15..24.
+    n = 25
+    peak = np.concatenate([np.full(15, 30.0), np.full(10, 70.0)])
+    trough = np.full(n, 5.0)
+    annual = _annual_n(n, peak, trough)
+    result = classify_annual_surface_water_condition(
+        annual, reference="rolling", rolling_window_cycles=10, rolling_min_cycles=5
+    ).set_index("hy_year")
+    # By the last year (2024), all 10 prior cycles (2014..2023 -> positions 14..23)
+    # are post-shift-valued (position 14 is still 30, positions 15..23 are 70), and
+    # 2024's own peak (70) matches the new regime -> should NOT read as "high".
+    # Use a fully-past-shift year: 2024 has prior positions 14..23; test the median.
+    assert result.loc[2024, "baseline_mode"] == "rolling"
+    # A clean post-shift year whose window is entirely post-shift: position 25 would
+    # be needed for a pure window, but with n=25 the last row's window still holds
+    # one pre-shift value (pos 14). Assert the softer, still-meaningful claim:
+    # the last year is NOT labelled "high" (pre-shift baseline would have made 70 high).
+    assert result.loc[2024, "recharge_condition"] != "high"
