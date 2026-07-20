@@ -242,6 +242,7 @@ def run_one_catchment(
     start_date: str | None = None,
     end_date: str | None = None,
     time_block: int = TIME_BLOCK,
+    baseline: str = "rolling",
 ) -> dict:
     start_date = start_date or START_DATE
     end_date = end_date or END_DATE
@@ -258,6 +259,7 @@ def run_one_catchment(
         "memory_budget_gb": memory_budget_gb,
         "time_block": time_block,
         "boundary_sha256": boundary_sha256,
+        "baseline": baseline,
     }
     checkpoint = OUTPUT_DIR / f"{spec.key}_state.pkl"
     if checkpoint.exists() and not force:
@@ -325,7 +327,12 @@ def run_one_catchment(
     n_valid = int(extent["n_valid"].median())
 
     print(f"[{spec.key}] running analyze_hydrological_state", flush=True)
-    state = analyze_hydrological_state(extent)
+    state = analyze_hydrological_state(
+        extent,
+        reference=baseline,
+        rolling_window_cycles=10,
+        rolling_min_cycles=5,
+    )
     print(
         f"[{spec.key}] pattern={state.pattern.pattern} "
         f"n_hydro_years={len(state.hydro_years)}",
@@ -391,6 +398,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--start-date", default=START_DATE)
     parser.add_argument("--end-date", default=END_DATE)
+    parser.add_argument(
+        "--baseline", choices=["rolling", "full_record"], default="rolling",
+        help="condition baseline mode: adaptive rolling (default) or single full-record baseline",
+    )
     return parser
 
 
@@ -463,6 +474,7 @@ def main() -> None:
             "start_date": args.start_date,
             "end_date": args.end_date,
             "time_block": args.time_block,
+            "baseline": args.baseline,
         },
     )
 

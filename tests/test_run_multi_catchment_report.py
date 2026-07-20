@@ -311,6 +311,73 @@ class TestResultStamping:
         assert result["n_valid"] == 100  # median of (90, 100, 110)
 
 
+class TestBaselineWiring:
+    def test_run_one_catchment_defaults_to_rolling_baseline(self, mod, monkeypatch, tmp_path):
+        monkeypatch.setattr(mod, "CATCHMENTS_DIR", tmp_path)
+        monkeypatch.setattr(mod, "OUTPUT_DIR", tmp_path / "out")
+        monkeypatch.setattr(mod, "_catchment_geo_summary", lambda key: _fake_geo())
+
+        calls = []
+
+        def _fake_analyze(extent, **kwargs):
+            calls.append(kwargs)
+            return _fake_state()
+
+        probe_mock, plan_mock, load_mock, extent_mock, state_mock = _patch_common(
+            mod, monkeypatch,
+            plan_resolution_return=(30.0, 1.0, 0.001, "ok"),
+        )
+        monkeypatch.setattr(mod, "analyze_hydrological_state", _fake_analyze)
+
+        spec = _fake_spec(mod)
+        mod.run_one_catchment(
+            spec, force=False, resolution_override=None, allow_large=False, memory_budget_gb=12.0,
+        )
+
+        assert calls[-1]["reference"] == "rolling"
+        assert calls[-1]["rolling_window_cycles"] == 10
+        assert calls[-1]["rolling_min_cycles"] == 5
+
+    def test_run_one_catchment_baseline_override_to_full_record(self, mod, monkeypatch, tmp_path):
+        monkeypatch.setattr(mod, "CATCHMENTS_DIR", tmp_path)
+        monkeypatch.setattr(mod, "OUTPUT_DIR", tmp_path / "out")
+        monkeypatch.setattr(mod, "_catchment_geo_summary", lambda key: _fake_geo())
+
+        calls = []
+
+        def _fake_analyze(extent, **kwargs):
+            calls.append(kwargs)
+            return _fake_state()
+
+        probe_mock, plan_mock, load_mock, extent_mock, state_mock = _patch_common(
+            mod, monkeypatch,
+            plan_resolution_return=(30.0, 1.0, 0.001, "ok"),
+        )
+        monkeypatch.setattr(mod, "analyze_hydrological_state", _fake_analyze)
+
+        spec = _fake_spec(mod)
+        mod.run_one_catchment(
+            spec, force=False, resolution_override=None, allow_large=False, memory_budget_gb=12.0,
+            baseline="full_record",
+        )
+
+        assert calls[-1]["reference"] == "full_record"
+
+    def test_baseline_is_part_of_run_config_checkpoint_identity(self, mod, monkeypatch, tmp_path):
+        monkeypatch.setattr(mod, "CATCHMENTS_DIR", tmp_path)
+        monkeypatch.setattr(mod, "OUTPUT_DIR", tmp_path / "out")
+        monkeypatch.setattr(mod, "_catchment_geo_summary", lambda key: _fake_geo())
+
+        _patch_common(mod, monkeypatch, plan_resolution_return=(30.0, 1.0, 0.001, "ok"))
+
+        spec = _fake_spec(mod)
+        result = mod.run_one_catchment(
+            spec, force=False, resolution_override=None, allow_large=False, memory_budget_gb=12.0,
+        )
+
+        assert result["run_config"]["baseline"] == "rolling"
+
+
 class TestCheckpointSkipsReprobe:
     def test_checkpoint_hit_does_not_call_probe_or_plan_again(self, mod, monkeypatch, tmp_path):
         monkeypatch.setattr(mod, "CATCHMENTS_DIR", tmp_path)
@@ -497,6 +564,11 @@ class TestCLIArgs:
         assert args.memory_budget_gb == 12.0
         assert args.workers == 2
         assert args.time_block == 12
+        assert args.baseline == "rolling"
+
+    def test_argparse_accepts_baseline_override(self, mod):
+        args = mod._build_arg_parser().parse_args(["--baseline", "full_record"])
+        assert args.baseline == "full_record"
 
 
 class TestParallelCatchments:
