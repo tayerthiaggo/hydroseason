@@ -211,5 +211,8 @@ def test_existing_columns_unchanged_for_full_record_mode():
                 "refuge_condition_qualified", "annual_condition_qualified",
                 "timing_confidence"]:
         assert col in result.columns
-    # With noise_pp None (default), qualified mirrors unhedged exactly.
+    # With noise_pp None (default), all three qualified columns mirror their
+    # unhedged counterparts exactly.
+    assert (result["recharge_condition_qualified"] == result["recharge_condition"]).all()
+    assert (result["refuge_condition_qualified"] == result["refuge_condition"]).all()
     assert (result["annual_condition_qualified"] == result["annual_condition"]).all()
