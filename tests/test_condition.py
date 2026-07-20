@@ -149,3 +149,27 @@ def test_rolling_baseline_forgets_pre_shift_regime():
     # one pre-shift value (pos 14). Assert the softer, still-meaningful claim:
     # the last year is NOT labelled "high" (pre-shift baseline would have made 70 high).
     assert result.loc[2024, "recharge_condition"] != "high"
+
+
+def test_noise_floor_hedge_downgrades_within_band_only():
+    # 11 confirmed years; year 2010 peak (110) is the record high -> "high" unhedged.
+    annual = _annual().copy()
+    annual["boundary_status"] = "confirmed"
+    # Large noise_pp so the peak's departure from baseline median is inside the band.
+    big = classify_annual_surface_water_condition(
+        annual, min_baseline_cycles=5, noise_pp=1000.0
+    ).set_index("hy_year")
+    assert big.loc[2011, "recharge_condition"] == "high"          # unhedged unchanged
+    assert big.loc[2011, "recharge_condition_qualified"] == "typical_uncertain"
+    assert big.loc[2011, "noise_floor_pp"] == 1000.0
+    # Small noise_pp: real departure survives -> qualified equals unhedged.
+    small = classify_annual_surface_water_condition(
+        annual, min_baseline_cycles=5, noise_pp=0.01
+    ).set_index("hy_year")
+    assert small.loc[2011, "recharge_condition_qualified"] == "high"
+    # None: hedge skipped, qualified mirrors unhedged, noise_floor_pp is NaN.
+    none = classify_annual_surface_water_condition(
+        annual, min_baseline_cycles=5
+    ).set_index("hy_year")
+    assert none.loc[2011, "recharge_condition_qualified"] == none.loc[2011, "recharge_condition"]
+    assert pd.isna(none.loc[2011, "noise_floor_pp"])

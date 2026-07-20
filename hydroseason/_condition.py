@@ -68,6 +68,7 @@ def classify_annual_surface_water_condition(
     high_percentile: float = 80.0,
     low_variability: bool = False,
     allow_low_variability_labels: bool = False,
+    noise_pp: float | None = None,
 ) -> pd.DataFrame:
     if reference not in ("full_record", "rolling") and (reference_start is None or reference_end is None):
         raise ValueError("reference must be 'full_record', 'rolling', or include reference_start and reference_end.")
@@ -154,6 +155,54 @@ def classify_annual_surface_water_condition(
         wet_counts.append(wet_count)
     out["consecutive_dry_cycles"] = dry_counts
     out["consecutive_wet_cycles"] = wet_counts
+
+    # Baseline median per row, per axis, matching the reference mode used above.
+    def _baseline_median(source):
+        medians = []
+        if reference == "rolling":
+            order = list(range(len(out)))
+            eligible = reference_mask.to_numpy()
+            for position in order:
+                labels, _mode, _unc = _rolling_baseline_index(
+                    order, position, eligible, rolling_window_cycles, rolling_min_cycles
+                )
+                base = out.iloc[labels][source] if labels else out[source].iloc[0:0]
+                medians.append(float(base.median()) if len(base) else np.nan)
+        else:
+            for index, _row in out.iterrows():
+                base = out.loc[reference_mask, source]
+                if reference_mask.loc[index]:
+                    base = base.drop(index=index)
+                medians.append(float(base.median()) if len(base) else np.nan)
+        return medians
+
+    peak_median = _baseline_median("peak_extent_pct")
+    trough_median = _baseline_median("trough_extent_pct")
+
+    out["noise_floor_pp"] = float(noise_pp) if noise_pp is not None else np.nan
+
+    def _qualify(condition_col, extent_col, medians):
+        qualified = []
+        for position, (_index, row) in enumerate(out.iterrows()):
+            label = row[condition_col]
+            if noise_pp is None or label not in ("low", "high"):
+                qualified.append(label)
+                continue
+            median = medians[position]
+            departure = abs(float(row[extent_col]) - median) if pd.notna(median) else np.inf
+            qualified.append("typical_uncertain" if departure < float(noise_pp) else label)
+        return qualified
+
+    out["recharge_condition_qualified"] = _qualify("recharge_condition", "peak_extent_pct", peak_median)
+    out["refuge_condition_qualified"] = _qualify("refuge_condition", "trough_extent_pct", trough_median)
+    out["annual_condition_qualified"] = [
+        _join_conditions(recharge, refuge)
+        for recharge, refuge in zip(out["recharge_condition_qualified"], out["refuge_condition_qualified"])
+    ]
+    # Preserve the special-case labels the unhedged annual_condition uses.
+    special = out["annual_condition"].isin(["insufficient_baseline", "not_applicable_low_variability"])
+    out.loc[special, "annual_condition_qualified"] = out.loc[special, "annual_condition"]
+
     return out
 
 
