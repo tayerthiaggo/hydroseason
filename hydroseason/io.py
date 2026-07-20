@@ -11,6 +11,7 @@ used directly by scripts and tests.
 from __future__ import annotations
 
 from hydroseason._io_extent import complete_monthly_axis, load_extent_csv  # noqa: F401
+from hydroseason._io_extent_cache import load_wofs_monthly_extent  # noqa: F401
 from hydroseason._io_geo import (  # noqa: F401
     AOIRasterizationError,
     GeoreferencingError,
@@ -44,4 +45,4 @@ from hydroseason._io_resolution import (  # noqa: F401
     probe_amplitude,
 )
 
-__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "plan_resolution", "probe_amplitude"]
+__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude"]

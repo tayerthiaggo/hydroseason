@@ -12,7 +12,6 @@ import pandas as pd
 from hydroseason._boundary import SIGNAL_FLOOR_FRACTION, robust_scale
 from hydroseason._io_geo import _crs_value
 from hydroseason._state_input import prepare_monthly_extent
-from hydroseason.hydro_year import monthly_water_extent
 
 # NOTE: ``load_wofs_from_stac`` is intentionally NOT imported at module level.
 # ``probe_amplitude`` looks it up on ``hydroseason.io`` at call time so that
@@ -196,6 +195,7 @@ def probe_amplitude(
     crs: int | str | None = 3577, probe_res_m: float = 300, guard_step_m: float | None = None,
     candidate_res_m: tuple[float, ...] = _DEFAULT_CANDIDATE_RES_M,
     retention_threshold: float = _DEFAULT_RETENTION_THRESHOLD,
+    cache_dir=None, force: bool = False, time_block: int = 12,
 ) -> dict:
     """Cheaply probe seasonal amplitude and guard against thin-channel loss when coarsening.
 
@@ -244,17 +244,19 @@ def probe_amplitude(
     # tests that patch hydroseason.io.load_wofs_from_stac take effect here.
     import hydroseason.io as _io
 
-    probe_mask = _io.load_wofs_from_stac(
-        stac_url, collection, aoi, start_date, end_date, crs=crs, resolution=probe_res_m,
+    probe_extent = _io.load_wofs_monthly_extent(
+        stac_url, collection, aoi, start_date, end_date, crs=crs,
+        resolution=probe_res_m, cache_dir=cache_dir, force=force, time_block=time_block,
     )
-    probe_prepared = prepare_monthly_extent(monthly_water_extent(probe_mask))
+    probe_prepared = prepare_monthly_extent(probe_extent)
     amplitude_pp, _noise_pp = robust_scale(probe_prepared)
     probe_fraction = _mean_water_fraction(probe_prepared)
 
-    coarser_mask = _io.load_wofs_from_stac(
-        stac_url, collection, aoi, start_date, end_date, crs=crs, resolution=coarser_res_m,
+    coarser_extent = _io.load_wofs_monthly_extent(
+        stac_url, collection, aoi, start_date, end_date, crs=crs,
+        resolution=coarser_res_m, cache_dir=cache_dir, force=force, time_block=time_block,
     )
-    coarser_prepared = prepare_monthly_extent(monthly_water_extent(coarser_mask))
+    coarser_prepared = prepare_monthly_extent(coarser_extent)
     coarser_fraction = _mean_water_fraction(coarser_prepared)
 
     water_fraction_by_res = {probe_res_m: probe_fraction, coarser_res_m: coarser_fraction}

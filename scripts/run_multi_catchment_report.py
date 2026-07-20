@@ -26,9 +26,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import pickle
 import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,22 +41,24 @@ os.environ.pop("PROJ_DATA", None)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from hydroseason import (  # noqa: E402
-    analyze_hydrological_state,
-    load_wofs_from_stac,
-    monthly_water_extent,
-)
+from hydroseason import analyze_hydrological_state  # noqa: E402
 
 # plan_resolution/probe_amplitude are NOT re-exported from the top-level
 # hydroseason package (tests/test_package_surface.py freezes __all__), so
 # they're imported directly from hydroseason.io.
-from hydroseason.io import _DEFAULT_CANDIDATE_RES_M, plan_resolution, probe_amplitude  # noqa: E402
+from hydroseason.io import (  # noqa: E402
+    _DEFAULT_CANDIDATE_RES_M,
+    load_wofs_monthly_extent,
+    plan_resolution,
+    probe_amplitude,
+)
 
 STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 COLLECTION = "ga_ls_wo_3"
 START_DATE = "2015-01-01"
 END_DATE = "2025-12-31"
 OUTPUT_CRS = 3577  # GDA94 / Australian Albers
+TIME_BLOCK = 12
 
 # Effectively-unlimited budget used to re-derive costs when a gate decision is
 # bypassed/overridden -- large enough that peak_gb never exceeds it for any
@@ -132,6 +137,7 @@ def _choose_resolution(
     memory_budget_gb: float,
     amplitude_pp: float,
     refuse_coarsen_past: float | None,
+    time_chunk: int,
 ) -> dict:
     """Run the gate, apply precedence rules, and pick the resolution to load at.
 
@@ -167,13 +173,14 @@ def _choose_resolution(
     gate_resolution_m, gate_peak_gb, gate_floor_pp, gate_reason = plan_resolution(
         geo["bounds_wgs84"], OUTPUT_CRS,
         memory_budget_gb=memory_budget_gb, observed_amplitude_pp=amplitude_pp,
+        time_chunk=time_chunk,
     )
 
     if resolution_override is not None:
         _, peak_gb, floor_pp, reason = plan_resolution(
             geo["bounds_wgs84"], OUTPUT_CRS,
             memory_budget_gb=_UNLIMITED_MEMORY_BUDGET_GB, observed_amplitude_pp=amplitude_pp,
-            candidate_res_m=(resolution_override,),
+            candidate_res_m=(resolution_override,), time_chunk=time_chunk,
         )
         return {
             "resolution_m": resolution_override, "peak_gb": peak_gb,
@@ -186,7 +193,7 @@ def _choose_resolution(
         resolution_m, peak_gb, floor_pp, reason = plan_resolution(
             geo["bounds_wgs84"], OUTPUT_CRS,
             memory_budget_gb=memory_budget_gb, observed_amplitude_pp=amplitude_pp,
-            candidate_res_m=clamped_ladder,
+            candidate_res_m=clamped_ladder, time_chunk=time_chunk,
         )
         print(
             f"[{spec_key}] guard clamp: gate wanted {gate_resolution_m:.0f} m, "
@@ -204,6 +211,7 @@ def _choose_resolution(
         resolution_m, peak_gb, floor_pp, reason = plan_resolution(
             geo["bounds_wgs84"], OUTPUT_CRS,
             memory_budget_gb=_UNLIMITED_MEMORY_BUDGET_GB, observed_amplitude_pp=amplitude_pp,
+            time_chunk=time_chunk,
         )
         print(
             f"[{spec_key}] --allow-large bypass: memory_budget_gb={memory_budget_gb} "
@@ -231,21 +239,46 @@ def run_one_catchment(
     resolution_override: float | None = None,
     allow_large: bool = False,
     memory_budget_gb: float = 12.0,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    time_block: int = TIME_BLOCK,
 ) -> dict:
+    start_date = start_date or START_DATE
+    end_date = end_date or END_DATE
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    boundary_path = CATCHMENTS_DIR / f"{spec.key}_boundary.geojson"
+    boundary_sha256 = (
+        hashlib.sha256(boundary_path.read_bytes()).hexdigest() if boundary_path.exists() else None
+    )
+    run_config = {
+        "start_date": start_date,
+        "end_date": end_date,
+        "resolution_override": resolution_override,
+        "allow_large": allow_large,
+        "memory_budget_gb": memory_budget_gb,
+        "time_block": time_block,
+        "boundary_sha256": boundary_sha256,
+    }
     checkpoint = OUTPUT_DIR / f"{spec.key}_state.pkl"
     if checkpoint.exists() and not force:
-        print(f"[{spec.key}] checkpoint found, skipping run — use --force to redo", flush=True)
-        with open(checkpoint, "rb") as f:
-            return pickle.load(f)
+        try:
+            with open(checkpoint, "rb") as f:
+                cached_result = pickle.load(f)
+        except (OSError, EOFError, pickle.UnpicklingError):
+            cached_result = None
+        if cached_result is not None and cached_result.get("run_config") == run_config:
+            print(f"[{spec.key}] checkpoint found, skipping run — use --force to redo", flush=True)
+            return cached_result
+        print(f"[{spec.key}] checkpoint is stale for current settings; recomputing", flush=True)
 
     print(f"[{spec.key}] loading boundary + geo summary", flush=True)
     geo = _catchment_geo_summary(spec.key)
-    boundary_path = CATCHMENTS_DIR / f"{spec.key}_boundary.geojson"
 
     print(f"[{spec.key}] probing seasonal amplitude + thin-channel guard", flush=True)
     guard = probe_amplitude(
-        STAC_URL, COLLECTION, boundary_path, START_DATE, END_DATE, crs=OUTPUT_CRS,
+        STAC_URL, COLLECTION, boundary_path, start_date, end_date, crs=OUTPUT_CRS,
+        cache_dir=OUTPUT_DIR / "extent_cache" / spec.key,
+        force=force, time_block=time_block,
     )
     amplitude_pp = guard["amplitude_pp"]
     guard_caveat = guard["guard_caveat"]
@@ -256,6 +289,7 @@ def run_one_catchment(
         resolution_override=resolution_override, allow_large=allow_large,
         memory_budget_gb=memory_budget_gb, amplitude_pp=amplitude_pp,
         refuse_coarsen_past=refuse_coarsen_past,
+        time_chunk=time_block,
     )
     resolution_m = plan["resolution_m"]
     reason = plan["reason"]
@@ -281,15 +315,12 @@ def run_one_catchment(
             flush=True,
         )
 
-    print(f"[{spec.key}] querying DEA STAC ({COLLECTION}, {START_DATE}..{END_DATE})", flush=True)
-    water_mask = load_wofs_from_stac(
-        STAC_URL, COLLECTION, boundary_path, START_DATE, END_DATE, crs=OUTPUT_CRS,
-        resolution=resolution_m,
+    print(f"[{spec.key}] loading cached annual extent ({COLLECTION}, {start_date}..{end_date})", flush=True)
+    extent = load_wofs_monthly_extent(
+        STAC_URL, COLLECTION, boundary_path, start_date, end_date, crs=OUTPUT_CRS,
+        resolution=resolution_m, time_block=time_block, force=force,
+        cache_dir=OUTPUT_DIR / "extent_cache" / spec.key,
     )
-    print(f"[{spec.key}] cube loaded: {dict(water_mask.sizes)}", flush=True)
-
-    print(f"[{spec.key}] computing monthly extent (this triggers the dask graph)", flush=True)
-    extent = monthly_water_extent(water_mask)
     print(f"[{spec.key}] extent series: {len(extent)} months", flush=True)
     n_valid = int(extent["n_valid"].median())
 
@@ -316,9 +347,19 @@ def run_one_catchment(
         "reason": reason,
         "guard_caveat": guard_caveat,
         "pattern_claim_excluded": pattern_claim_excluded,
+        "run_config": run_config,
     }
-    with open(checkpoint, "wb") as f:
-        pickle.dump(result, f)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=OUTPUT_DIR, prefix=f".{spec.key}-", suffix=".tmp"
+    )
+    os.close(descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        with open(temporary_path, "wb") as f:
+            pickle.dump(result, f)
+        os.replace(temporary_path, checkpoint)
+    finally:
+        temporary_path.unlink(missing_ok=True)
     print(f"[{spec.key}] checkpointed -> {checkpoint}", flush=True)
     return result
 
@@ -341,14 +382,60 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--memory-budget-gb", type=float, default=12.0,
-        help="memory budget passed to plan_resolution (default: 12.0)",
+        help="total memory budget shared across concurrent workers (default: 12.0)",
     )
+    parser.add_argument("--workers", type=int, default=2, help="parallel catchments (default: 2)")
+    parser.add_argument(
+        "--time-block", type=int, default=TIME_BLOCK,
+        help="months per dask compute block (default: 12)",
+    )
+    parser.add_argument("--start-date", default=START_DATE)
+    parser.add_argument("--end-date", default=END_DATE)
     return parser
+
+
+def _run_catchments(
+    specs, *, workers: int, run_kwargs: dict
+) -> tuple[list[dict], list[tuple[str, str]]]:
+    """Run independent catchments concurrently while preserving report order."""
+    ordered_results: list[dict | None] = [None] * len(specs)
+    failures: list[tuple[str, str]] = []
+
+    def record(index, spec, *, result=None, error=None):
+        if error is None:
+            ordered_results[index] = result
+        else:
+            print(f"[{spec.key}] FAILED: {error!r}", flush=True)
+            failures.append((spec.key, repr(error)))
+
+    if workers == 1:
+        for index, spec in enumerate(specs):
+            try:
+                record(index, spec, result=run_one_catchment(spec, **run_kwargs))
+            except Exception as exc:  # noqa: BLE001
+                record(index, spec, error=exc)
+    else:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="hydroseason") as executor:
+            futures = {
+                executor.submit(run_one_catchment, spec, **run_kwargs): (index, spec)
+                for index, spec in enumerate(specs)
+            }
+            for future in as_completed(futures):
+                index, spec = futures[future]
+                try:
+                    record(index, spec, result=future.result())
+                except Exception as exc:  # noqa: BLE001
+                    record(index, spec, error=exc)
+    return [result for result in ordered_results if result is not None], failures
 
 
 def main() -> None:
     parser = _build_arg_parser()
     args = parser.parse_args()
+    if args.workers < 1:
+        parser.error("--workers must be at least 1")
+    if args.time_block < 1:
+        parser.error("--time-block must be at least 1")
 
     specs = CATCHMENTS
     if args.only:
@@ -358,19 +445,26 @@ def main() -> None:
         if missing:
             raise SystemExit(f"Unknown catchment key(s): {missing}")
 
-    results = []
-    failures = []
-    for spec in specs:
-        try:
-            results.append(run_one_catchment(
-                spec, args.force,
-                resolution_override=args.resolution,
-                allow_large=args.allow_large,
-                memory_budget_gb=args.memory_budget_gb,
-            ))
-        except Exception as exc:  # noqa: BLE001 - report and continue to next catchment
-            print(f"[{spec.key}] FAILED: {exc!r}", flush=True)
-            failures.append((spec.key, repr(exc)))
+    active_workers = min(args.workers, len(specs))
+    per_worker_budget_gb = args.memory_budget_gb / active_workers
+    print(
+        f"Running {len(specs)} catchments with {active_workers} worker(s); "
+        f"{per_worker_budget_gb:.2f} GB planning budget per worker",
+        flush=True,
+    )
+    results, failures = _run_catchments(
+        specs,
+        workers=active_workers,
+        run_kwargs={
+            "force": args.force,
+            "resolution_override": args.resolution,
+            "allow_large": args.allow_large,
+            "memory_budget_gb": per_worker_budget_gb,
+            "start_date": args.start_date,
+            "end_date": args.end_date,
+            "time_block": args.time_block,
+        },
+    )
 
     if not results:
         raise SystemExit("No catchments produced results; nothing to report.")

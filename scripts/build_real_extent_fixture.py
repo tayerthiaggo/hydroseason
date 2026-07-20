@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from hydroseason import load_aoi, load_wofs_from_stac, monthly_water_extent
+from hydroseason import load_aoi
+from hydroseason.io import load_wofs_monthly_extent
 
 
 def add_provenance(frame: pd.DataFrame, *, source: str, aoi: str) -> pd.DataFrame:
@@ -17,17 +18,19 @@ def add_provenance(frame: pd.DataFrame, *, source: str, aoi: str) -> pd.DataFram
     return result
 
 
-def build(aoi_path: Path, output: Path, start: str, end: str) -> None:
+def build(aoi_path: Path, output: Path, start: str, end: str, cache_dir: Path) -> None:
     aoi = load_aoi(aoi_path)
-    masks = load_wofs_from_stac(
+    extent = load_wofs_monthly_extent(
         "https://explorer.dea.ga.gov.au/stac",
         "ga_ls_wo_3",
         aoi,
         start,
         end,
+        cache_dir=cache_dir,
+        time_block=12,
     )
     extent = add_provenance(
-        monthly_water_extent(masks),
+        extent,
         source="DEA Water Observations ga_ls_wo_3",
         aoi=aoi_path.as_posix(),
     )
@@ -44,8 +47,11 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--start", default="2015-01-01")
     parser.add_argument("--end", default="2025-12-31")
+    parser.add_argument(
+        "--cache-dir", type=Path, default=Path("output/real_extent_cache")
+    )
     args = parser.parse_args()
-    build(args.aoi, args.output, args.start, args.end)
+    build(args.aoi, args.output, args.start, args.end, args.cache_dir)
 
 
 if __name__ == "__main__":

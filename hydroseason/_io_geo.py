@@ -143,7 +143,13 @@ def load_wofs_from_stac(
     chunk_x: int = 512, chunk_y: int = 512, time_chunk: int = 24, majority: bool = True,
     duplicate_month_policy: Literal["raise", "warn"] = "raise", resolution: float | None = None,
 ):
-    """Load WOfS STAC observations, compose them monthly, and clip to required AOI."""
+    """Load WOfS observations in annual batches, compose monthly, and clip to the AOI.
+
+    A calendar year is sent to ``odc.stac.stac_load`` at once.  The returned
+    lazy cube is then split into monthly composites, avoiding the substantial
+    graph/setup overhead of one loader call per month while retaining the same
+    monthly result.
+    """
     if aoi is None:
         raise ValueError("AOI is required for WOfS/STAC loading.")
     try:
@@ -173,24 +179,53 @@ def load_wofs_from_stac(
     groups: dict[pd.Timestamp, list] = {}
     for item in items:
         date = pd.Timestamp(item.properties.get("datetime") or item.properties.get("start_datetime"))
+        if date.tzinfo is not None:
+            date = date.tz_convert(None)
         groups.setdefault(date.to_period("M").to_timestamp(), []).append(item)
+    annual_groups: dict[int, list[tuple[pd.Timestamp, list]]] = {}
+    for month, month_items in sorted(groups.items()):
+        annual_groups.setdefault(month.year, []).append((month, month_items))
+
     target = aoi_gdf.to_crs(_crs_value(crs)) if crs is not None else aoi_gdf
     masks, dates, reference = [], [], None
-    for month, month_items in sorted(groups.items()):
+    for year, year_groups in sorted(annual_groups.items()):
         try:
-            ds = odc.stac.stac_load(month_items, bands=["water"], chunks={"x": chunk_x, "y": chunk_y}, geopolygon=target.geometry, **({"crs": _crs_value(crs)} if crs is not None else {}), **({"resolution": resolution, "resampling": "mode"} if resolution is not None else {}))
-            mask = _combine_observations(_classify(ds["water"], "wofs", None), majority)
-            mask = _io._clip_to_aoi(mask, target)
+            year_items = [item for _month, month_items in year_groups for item in month_items]
+            ds = odc.stac.stac_load(year_items, bands=["water"], chunks={"x": chunk_x, "y": chunk_y}, geopolygon=target.geometry, **({"crs": _crs_value(crs)} if crs is not None else {}), **({"resolution": resolution, "resampling": "mode"} if resolution is not None else {}))
+            classified = _classify(ds["water"], "wofs", None)
+            loaded_months = pd.DatetimeIndex(classified["time"].values).to_period("M")
         except AOIRasterizationError:
             raise
         except Exception as exc:
-            raise AOIRasterizationError("AOI clip failed; refusing to process an unclipped STAC month.") from exc
-        if reference is not None:
-            _assert_compatible_georef(reference, mask, context=f"month {month:%Y-%m}")
-        reference = mask if reference is None else reference
-        masks.append(mask)
-        dates.append(month)
-    return complete_monthly_axis(xr.concat(masks, dim="time").assign_coords(time=("time", dates)), start_date, end_date, duplicate_month_policy=duplicate_month_policy).chunk({"time": min(time_chunk, len(dates)), "x": chunk_x, "y": chunk_y})
+            raise AOIRasterizationError(f"STAC load failed for batch year {year}.") from exc
+
+        for month, _month_items in year_groups:
+            try:
+                indices = np.flatnonzero(loaded_months == month.to_period("M"))
+                if not len(indices):
+                    raise ValueError(f"loaded STAC batch has no observations for {month:%Y-%m}")
+                observations = classified.isel(time=indices)
+                mask = _combine_observations(observations, majority)
+                mask = _io._clip_to_aoi(mask, target)
+            except AOIRasterizationError:
+                raise
+            except Exception as exc:
+                raise AOIRasterizationError(
+                    f"AOI clip failed; refusing to process STAC month {month:%Y-%m}."
+                ) from exc
+            if reference is not None:
+                _assert_compatible_georef(reference, mask, context=f"month {month:%Y-%m}")
+            reference = mask if reference is None else reference
+            masks.append(mask)
+            dates.append(month)
+
+    completed = complete_monthly_axis(
+        xr.concat(masks, dim="time").assign_coords(time=("time", dates)),
+        start_date,
+        end_date,
+        duplicate_month_policy=duplicate_month_policy,
+    )
+    return completed.chunk({"time": min(time_chunk, completed.sizes["time"]), "x": chunk_x, "y": chunk_y})
 
 
 def _validate_classifier(encoding, classifier):

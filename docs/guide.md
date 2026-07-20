@@ -95,17 +95,22 @@ Requires `pip install hydroseason[stac]`. Queries a STAC catalog, groups
 items by month, classifies WOfS pixel flags, and clips to the AOI — lazy and
 Dask-backed end to end.
 
-```python
-from hydroseason import load_wofs_from_stac, monthly_water_extent, detect_hydrological_years
+For long-running analyses, use the resumable loader below. It batches STAC
+reads by calendar year, aligns Dask computation to 12-month chunks, and caches
+the small extent table so reruns resume from completed years.
 
-masks = load_wofs_from_stac(
+```python
+from hydroseason import load_wofs_monthly_extent, detect_hydrological_years
+
+extent = load_wofs_monthly_extent(
     stac_url="<your-stac-catalog-url>",
     collection="<wofs-collection-id>",
     aoi="aoi.geojson",
     start_date="2015-01-01",
     end_date="2020-12-31",
+    cache_dir="output/extent_cache/my_aoi",
+    time_block=12,
 )
-extent = monthly_water_extent(masks)
 hydro_years = detect_hydrological_years(extent)
 ```
 

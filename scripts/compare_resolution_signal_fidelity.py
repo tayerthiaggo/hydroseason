@@ -90,8 +90,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from hydroseason._boundary import robust_scale  # noqa: E402
 from hydroseason._state_input import prepare_monthly_extent  # noqa: E402
-from hydroseason.hydro_year import monthly_water_extent  # noqa: E402
-from hydroseason.io import load_wofs_from_stac, plan_resolution  # noqa: E402
+from hydroseason.io import load_wofs_monthly_extent, plan_resolution  # noqa: E402
 
 STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 COLLECTION = "ga_ls_wo_3"
@@ -180,11 +179,12 @@ def _run_pipeline_at_resolution(resolution_m: float) -> dict:
     """Mirror probe_amplitude's exact pipeline at a given resolution: load -> extent -> prepare -> robust_scale."""
     print(f"\n--- Loading real DEA STAC WOfS at {resolution_m:.0f} m resolution ---")
     aoi = _subwindow_aoi_gdf()
-    water_mask = load_wofs_from_stac(
+    extent = load_wofs_monthly_extent(
         STAC_URL, COLLECTION, aoi, START_DATE, END_DATE, crs=OUTPUT_CRS, resolution=resolution_m,
+        time_block=12,
+        cache_dir=OUTPUT_JSON.parent / "resolution_fidelity_extent_cache",
     )
-    print(f"Cube loaded: {dict(water_mask.sizes)}")
-    extent = monthly_water_extent(water_mask)
+    print(f"Extent loaded: {len(extent)} months")
     prepared = prepare_monthly_extent(extent)
     amplitude_pp, noise_pp = robust_scale(prepared)
     n_usable = int(prepared["candidate_usable"].sum())

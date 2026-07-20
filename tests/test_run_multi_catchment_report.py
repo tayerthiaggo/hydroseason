@@ -1,8 +1,8 @@
 """Tests for scripts/run_multi_catchment_report.py's resolution gate/probe wiring.
 
 These exercise the CLI argument plumbing and resolution-selection LOGIC with
-mocked ``probe_amplitude``/``plan_resolution``/``load_wofs_from_stac``/
-``analyze_hydrological_state``/``monthly_water_extent`` -- no real network or
+mocked ``probe_amplitude``/``plan_resolution``/``load_wofs_monthly_extent``/
+``analyze_hydrological_state`` -- no real network or
 STAC access, no real raster compute. The module under test lives outside the
 ``hydroseason`` package (it's a standalone script in ``scripts/``), so it is
 loaded directly from its file path via ``importlib``.
@@ -93,14 +93,13 @@ def _patch_common(mod, monkeypatch, *, plan_resolution_return, guard_return=None
     }
     probe_mock = Mock(return_value=guard_return)
     plan_mock = Mock(return_value=plan_resolution_return)
-    load_mock = Mock(return_value=Mock(sizes={"time": 3, "y": 10, "x": 10}))
-    extent_mock = Mock(return_value=_fake_extent(list(n_valid)))
+    load_mock = Mock(return_value=_fake_extent(list(n_valid)))
+    extent_mock = load_mock
     state_mock = Mock(return_value=_fake_state())
 
     monkeypatch.setattr(mod, "probe_amplitude", probe_mock)
     monkeypatch.setattr(mod, "plan_resolution", plan_mock)
-    monkeypatch.setattr(mod, "load_wofs_from_stac", load_mock)
-    monkeypatch.setattr(mod, "monthly_water_extent", extent_mock)
+    monkeypatch.setattr(mod, "load_wofs_monthly_extent", load_mock)
     monkeypatch.setattr(mod, "analyze_hydrological_state", state_mock)
 
     return probe_mock, plan_mock, load_mock, extent_mock, state_mock
@@ -174,8 +173,7 @@ class TestGuardClamp:
         }
         monkeypatch.setattr(mod, "probe_amplitude", Mock(return_value=guard_return))
         monkeypatch.setattr(mod, "plan_resolution", plan_mock)
-        monkeypatch.setattr(mod, "load_wofs_from_stac", Mock(return_value=Mock(sizes={"time": 3})))
-        monkeypatch.setattr(mod, "monthly_water_extent", Mock(return_value=_fake_extent([100, 200])))
+        monkeypatch.setattr(mod, "load_wofs_monthly_extent", Mock(return_value=_fake_extent([100, 200])))
         monkeypatch.setattr(mod, "analyze_hydrological_state", Mock(return_value=_fake_state()))
 
         spec = _fake_spec(mod)
@@ -209,8 +207,7 @@ class TestAllowLargeBypass:
             "refuse_coarsen_past": None,
         }))
         monkeypatch.setattr(mod, "plan_resolution", plan_mock)
-        monkeypatch.setattr(mod, "load_wofs_from_stac", Mock(return_value=Mock(sizes={"time": 3})))
-        monkeypatch.setattr(mod, "monthly_water_extent", Mock(return_value=_fake_extent([100])))
+        monkeypatch.setattr(mod, "load_wofs_monthly_extent", Mock(return_value=_fake_extent([100])))
         monkeypatch.setattr(mod, "analyze_hydrological_state", Mock(return_value=_fake_state()))
 
         spec = _fake_spec(mod)
@@ -235,8 +232,7 @@ class TestAllowLargeBypass:
             "refuse_coarsen_past": None,
         }))
         monkeypatch.setattr(mod, "plan_resolution", plan_mock)
-        monkeypatch.setattr(mod, "load_wofs_from_stac", Mock(return_value=Mock(sizes={"time": 3})))
-        monkeypatch.setattr(mod, "monthly_water_extent", Mock(return_value=_fake_extent([100])))
+        monkeypatch.setattr(mod, "load_wofs_monthly_extent", Mock(return_value=_fake_extent([100])))
         monkeypatch.setattr(mod, "analyze_hydrological_state", Mock(return_value=_fake_state()))
 
         spec = _fake_spec(mod)
@@ -345,6 +341,21 @@ class TestCheckpointSkipsReprobe:
         for key in ("resolution_m", "n_valid", "reason", "guard_caveat", "pattern_claim_excluded"):
             assert second[key] == first[key]
 
+    def test_checkpoint_is_recomputed_when_date_range_changes(self, mod, monkeypatch, tmp_path):
+        monkeypatch.setattr(mod, "CATCHMENTS_DIR", tmp_path)
+        monkeypatch.setattr(mod, "OUTPUT_DIR", tmp_path / "out")
+        monkeypatch.setattr(mod, "_catchment_geo_summary", lambda key: _fake_geo())
+        probe_mock, _, load_mock, _, _ = _patch_common(
+            mod, monkeypatch, plan_resolution_return=(30.0, 1.0, 0.001, "ok")
+        )
+
+        spec = _fake_spec(mod)
+        mod.run_one_catchment(spec, force=False, end_date="2024-12-31")
+        mod.run_one_catchment(spec, force=False, end_date="2025-12-31")
+
+        assert probe_mock.call_count == 2
+        assert load_mock.call_count == 2
+
 
 class TestNoInteractivePrompt:
     def test_input_builtin_is_never_called(self, mod, monkeypatch, tmp_path):
@@ -421,13 +432,19 @@ class TestRealWiredEndToEnd:
         monkeypatch.setattr(mod, "_catchment_geo_summary", lambda key: _fake_geo())
         monkeypatch.setattr(mod, "analyze_hydrological_state", Mock(return_value=_fake_state()))
 
-        cube = _synthetic_water_mask_cube()
+        # Keep this integration slice to one year: probe_amplitude makes two
+        # loads (probe + guard), plus one annual cached full-resolution load.
+        monkeypatch.setattr(mod, "START_DATE", "2015-01-01")
+        monkeypatch.setattr(mod, "END_DATE", "2015-12-31")
+        (tmp_path / "test_catchment_boundary.geojson").write_text(
+            '{"type":"FeatureCollection","features":[]}', encoding="utf-8"
+        )
+        cube = _synthetic_water_mask_cube(n_time=12)
         load_mock = Mock(return_value=cube)
         # probe_amplitude calls load_wofs_from_stac resolved in hydroseason.io's
         # own namespace -- patch it there, not just on the runner module.
         import hydroseason.io as hio
         monkeypatch.setattr(hio, "load_wofs_from_stac", load_mock)
-        monkeypatch.setattr(mod, "load_wofs_from_stac", load_mock)
 
         spec = _fake_spec(mod)
         result = mod.run_one_catchment(
@@ -435,8 +452,6 @@ class TestRealWiredEndToEnd:
             memory_budget_gb=12.0,
         )
 
-        # probe_amplitude made 2 real loads (probe + one-coarser guard pass),
-        # plus 1 real load for the full run at the chosen resolution.
         assert load_mock.call_count == 3
 
         # plan_resolution's real signal veto is a function of the AOI's tiny
@@ -461,14 +476,57 @@ class TestCLIArgs:
             "--resolution", "50",
             "--allow-large",
             "--memory-budget-gb", "8",
+            "--workers", "3",
+            "--time-block", "6",
+            "--start-date", "2005-01-01",
+            "--end-date", "2025-12-31",
         ]
         args = mod._build_arg_parser().parse_args(parser_args)
         assert args.resolution == 50.0
         assert args.allow_large is True
         assert args.memory_budget_gb == 8.0
+        assert args.workers == 3
+        assert args.time_block == 6
+        assert args.start_date == "2005-01-01"
+        assert args.end_date == "2025-12-31"
 
     def test_argparse_defaults(self, mod):
         args = mod._build_arg_parser().parse_args([])
         assert args.resolution is None
         assert args.allow_large is False
         assert args.memory_budget_gb == 12.0
+        assert args.workers == 2
+        assert args.time_block == 12
+
+
+class TestParallelCatchments:
+    def test_workers_overlap_and_results_keep_input_order(self, mod, monkeypatch):
+        import threading
+
+        lock = threading.Lock()
+        two_active = threading.Event()
+        active = 0
+        peak = 0
+
+        def fake_run(spec, **kwargs):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+                if active == 2:
+                    two_active.set()
+            assert two_active.wait(timeout=2)
+            with lock:
+                active -= 1
+            return {"key": spec.key}
+
+        monkeypatch.setattr(mod, "run_one_catchment", fake_run)
+        specs = [_fake_spec(mod, key) for key in ("first", "second", "third")]
+
+        results, failures = mod._run_catchments(
+            specs, workers=2, run_kwargs={"force": False}
+        )
+
+        assert peak == 2
+        assert [result["key"] for result in results] == ["first", "second", "third"]
+        assert failures == []

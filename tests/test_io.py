@@ -303,6 +303,47 @@ def test_stac_loader_omits_resolution_when_none(monkeypatch):
     assert "resampling" not in call_kwargs
 
 
+def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
+    """Long ranges should pay one odc.stac load per year, not per month."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("pystac_client")
+    pytest.importorskip("odc.stac")
+    pytest.importorskip("rioxarray")
+    from unittest.mock import Mock
+
+    from hydroseason.io import load_wofs_from_stac
+
+    dates = pd.to_datetime(["2020-01-05", "2020-02-05", "2020-03-05", "2021-01-05"])
+    items = []
+    for date in dates:
+        item = Mock()
+        item.properties = {"datetime": date.isoformat()}
+        items.append(item)
+
+    def fake_stac_load(batch_items, **kwargs):
+        batch_dates = pd.to_datetime([item.properties["datetime"] for item in batch_items])
+        return xr.Dataset(
+            {"water": (("time", "y", "x"), np.full((len(batch_dates), 2, 2), 128, dtype=np.uint16))},
+            coords={"time": batch_dates, "y": [0, 1], "x": [0, 1]},
+        )
+
+    stac_load = Mock(side_effect=fake_stac_load)
+    monkeypatch.setattr("odc.stac.stac_load", stac_load)
+    client = Mock()
+    client.search.return_value.items.return_value = items
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
+    monkeypatch.setattr("hydroseason.io._clip_to_aoi", lambda mask, target: mask)
+
+    result = load_wofs_from_stac(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2021-01-31", resolution=100,
+    )
+
+    assert stac_load.call_count == 2
+    assert result.sizes["time"] == 13
+
+
 def test_classify_canonical_rejects_out_of_domain_codes():
     xr = pytest.importorskip("xarray")
     from hydroseason.io import _classify
@@ -532,6 +573,40 @@ def _synthetic_monthly_mask(xr, np, pd, *, n_months, y, x, water_row_fraction):
         coords={"time": dates, "y": np.arange(y), "x": np.arange(x)},
     )
     return da
+
+
+def test_probe_amplitude_propagates_annual_cache_settings(monkeypatch, tmp_path):
+    from unittest.mock import Mock
+
+    import hydroseason.io as hio
+    from hydroseason.io import probe_amplitude
+
+    dates = pd.date_range("2020-01-01", periods=12, freq="MS")
+    extent = pd.DataFrame(
+        {
+            "n_water": np.arange(1, 13),
+            "n_aoi": [100] * 12,
+            "n_valid": [100] * 12,
+            "n_invalid": [0] * 12,
+            "extent_pct": np.arange(1.0, 13.0),
+            "invalid_pct": [0.0] * 12,
+        },
+        index=dates,
+    )
+    cached_load = Mock(return_value=extent)
+    monkeypatch.setattr(hio, "load_wofs_monthly_extent", cached_load)
+
+    probe_amplitude(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2020-12-31",
+        cache_dir=tmp_path, force=True, time_block=6,
+    )
+
+    assert cached_load.call_count == 2
+    for call in cached_load.call_args_list:
+        assert call.kwargs["cache_dir"] == tmp_path
+        assert call.kwargs["force"] is True
+        assert call.kwargs["time_block"] == 6
 
 
 def test_probe_amplitude_guard_fires_on_disproportionate_thin_channel_collapse(monkeypatch):
