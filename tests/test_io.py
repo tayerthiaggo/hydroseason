@@ -436,6 +436,43 @@ def test_tiled_stac_iterator_queries_once_reuses_items_and_skips_cached_tiles(mo
     assert all(call.kwargs["geobox"] is not None for call in load_items.call_args_list)
 
 
+def test_tile_intersects_aoi_true_for_overlapping_tile():
+    pytest.importorskip("odc.geo")
+    from odc.geo.geobox import GeoBox
+
+    from hydroseason._io_geo import _tile_intersects_aoi
+
+    aoi = _aoi()  # box(0, 0, 2, 2) in EPSG:4326
+    tile_geobox = GeoBox.from_bbox((1, 1, 3, 3), crs="EPSG:4326", shape=(10, 10))
+
+    assert _tile_intersects_aoi(tile_geobox, aoi) is True
+
+
+def test_tile_intersects_aoi_false_for_disjoint_tile():
+    pytest.importorskip("odc.geo")
+    from odc.geo.geobox import GeoBox
+
+    from hydroseason._io_geo import _tile_intersects_aoi
+
+    aoi = _aoi()  # box(0, 0, 2, 2) in EPSG:4326
+    tile_geobox = GeoBox.from_bbox((100, 100, 110, 110), crs="EPSG:4326", shape=(10, 10))
+
+    assert _tile_intersects_aoi(tile_geobox, aoi) is False
+
+
+def test_output_geobox_for_aoi_raises_when_odc_returns_none(monkeypatch):
+    pytest.importorskip("odc.stac")
+    import odc.stac
+
+    from hydroseason._io_geo import AOIRasterizationError, _output_geobox_for_aoi
+
+    monkeypatch.setattr(odc.stac, "parse_items", lambda items: list(items))
+    monkeypatch.setattr(odc.stac, "output_geobox", lambda *args, **kwargs: None)
+
+    with pytest.raises(AOIRasterizationError, match="output GeoBox"):
+        _output_geobox_for_aoi([object()], _aoi(), crs=3577, resolution=30)
+
+
 def test_classify_canonical_rejects_out_of_domain_codes():
     xr = pytest.importorskip("xarray")
     from hydroseason.io import _classify
