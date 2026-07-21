@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -17,7 +18,7 @@ def test_add_provenance_preserves_counts_and_identifies_source():
     assert result.loc[pd.Timestamp("2020-01-01"), "aoi"] == "data/a.geojson"
 
 
-def test_build_propagates_native_tiled_defaults():
+def test_build_propagates_native_tiled_defaults(tmp_path):
     """Step 1: Test that build() passes resolution and tile_pixels through to load_wofs_monthly_extent."""
     with patch("scripts.build_real_extent_fixture.load_aoi") as mock_load_aoi, \
          patch("scripts.build_real_extent_fixture.load_wofs_monthly_extent") as mock_load_wofs, \
@@ -37,9 +38,7 @@ def test_build_propagates_native_tiled_defaults():
         # Make date_range return an index that equals the mock DataFrame's index
         mock_date_range.return_value = test_index
 
-        from pathlib import Path
-        output_path = Path("output/test.csv")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path = tmp_path / "output" / "test.csv"
 
         # Call with explicit resolution and tile_pixels
         build_real_extent_fixture.build(
