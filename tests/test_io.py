@@ -372,6 +372,70 @@ def test_stac_wrapper_queries_once_and_loads_the_returned_items(monkeypatch):
     assert result is loaded
 
 
+def test_tile_slices_cover_parent_once_without_overlap():
+    from hydroseason.io import _tile_slices
+
+    coverage = np.zeros((2050, 1030), dtype=np.uint8)
+    tiles = list(_tile_slices(coverage.shape, 1024))
+    for _tile_id, ys, xs in tiles:
+        coverage[ys, xs] += 1
+
+    assert len(tiles) == 6
+    assert coverage.min() == 1
+    assert coverage.max() == 1
+    assert tiles[-1] == ("r0002_c0001", slice(2048, 2050), slice(1024, 1030))
+
+
+@pytest.mark.parametrize("tile_pixels", [0, -1])
+def test_tile_slices_reject_non_positive_edge(tile_pixels):
+    from hydroseason.io import _tile_slices
+
+    with pytest.raises(ValueError, match="tile_pixels"):
+        list(_tile_slices((100, 100), tile_pixels))
+
+
+def test_tiled_stac_iterator_queries_once_reuses_items_and_skips_cached_tiles(monkeypatch):
+    from unittest.mock import Mock
+
+    import hydroseason._io_geo as geo
+
+    class FakeGeoBox:
+        def __init__(self, shape, origin=(0, 0)):
+            self.shape = shape
+            self.origin = origin
+
+        def __getitem__(self, roi):
+            ys, xs = roi
+            return FakeGeoBox(
+                (ys.stop - ys.start, xs.stop - xs.start),
+                (ys.start, xs.start),
+            )
+
+    items = [object(), object()]
+    parent = FakeGeoBox(shape=(2048, 2048))
+    query = Mock(return_value=(items, _aoi()))
+    load_items = Mock(return_value="mask")
+    monkeypatch.setattr(geo, "_query_wofs_items", query)
+    monkeypatch.setattr(geo, "_output_geobox_for_aoi", Mock(return_value=parent))
+    monkeypatch.setattr(geo, "_tile_intersects_aoi", Mock(return_value=True))
+    monkeypatch.setattr(geo, "_load_wofs_items", load_items)
+
+    result = list(geo.iter_wofs_tiles_from_stac(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2020-12-31",
+        crs=3577, resolution=30, tile_pixels=1024,
+        skip_tile_ids={"r0000_c0001"},
+    ))
+
+    query.assert_called_once()
+    assert [tile_id for tile_id, _mask in result] == [
+        "r0000_c0000", "r0001_c0000", "r0001_c0001",
+    ]
+    assert load_items.call_count == 3
+    assert all(call.args[0] is items for call in load_items.call_args_list)
+    assert all(call.kwargs["geobox"] is not None for call in load_items.call_args_list)
+
+
 def test_classify_canonical_rejects_out_of_domain_codes():
     xr = pytest.importorskip("xarray")
     from hydroseason.io import _classify

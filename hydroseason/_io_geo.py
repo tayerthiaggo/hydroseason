@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable, Collection, Iterator, Literal
 
 import numpy as np
 import pandas as pd
@@ -306,6 +306,113 @@ def load_wofs_from_stac(
         majority=majority,
         duplicate_month_policy=duplicate_month_policy,
     )
+
+
+def _tile_slices(shape: tuple[int, int], tile_pixels: int) -> Iterator[tuple[str, slice, slice]]:
+    """Yield ``(tile_id, y_slice, x_slice)`` tuples covering ``shape`` exactly once.
+
+    Tiles are laid out on a fixed pixel grid starting at the origin, in
+    row-major order, with no overlap. The final row/column of tiles may be
+    smaller than ``tile_pixels`` when the shape does not divide evenly.
+    """
+    if tile_pixels < 1:
+        raise ValueError("tile_pixels must be at least 1.")
+    height, width = shape
+    for row, y0 in enumerate(range(0, height, tile_pixels)):
+        for column, x0 in enumerate(range(0, width, tile_pixels)):
+            yield (
+                f"r{row:04d}_c{column:04d}",
+                slice(y0, min(y0 + tile_pixels, height)),
+                slice(x0, min(x0 + tile_pixels, width)),
+            )
+
+
+def _output_geobox_for_aoi(items, target, *, crs, resolution):
+    """Derive one parent GeoBox spanning the whole AOI from parsed STAC items."""
+    import odc.stac
+
+    parsed = list(odc.stac.parse_items(items))
+    geobox = odc.stac.output_geobox(
+        parsed,
+        crs=_crs_value(crs),
+        resolution=resolution,
+        geopolygon=target.geometry,
+    )
+    if geobox is None:
+        raise AOIRasterizationError("Cannot derive an output GeoBox for the AOI.")
+    return geobox
+
+
+def _tile_intersects_aoi(tile_geobox, target):
+    """Cheap bounding-box intersection test to skip tiles with no AOI overlap."""
+    from shapely.geometry import box
+
+    bounds = tile_geobox.extent.boundingbox
+    tile_polygon = box(bounds.left, bounds.bottom, bounds.right, bounds.top)
+    return bool(target.to_crs(tile_geobox.crs).geometry.intersects(tile_polygon).any())
+
+
+def iter_wofs_tiles_from_stac(
+    stac_url: str, collection: str, aoi, start_date: str, end_date: str, *, crs: int | str | None = 3577,
+    resolution: float, tile_pixels: int, skip_tile_ids: Collection[str] = (),
+    chunk_x: int = 512, chunk_y: int = 512, time_chunk: int = 24, majority: bool = True,
+    duplicate_month_policy: Literal["raise", "warn"] = "raise",
+) -> Iterator[tuple[str, "object"]]:
+    """Query STAC once, then load WOfS one native-resolution Albers tile at a time.
+
+    A single parent :class:`odc.geo.geobox.GeoBox` is derived for the whole
+    AOI, then split into a fixed pixel grid via :func:`_tile_slices`. Each
+    tile is loaded independently with :func:`_load_wofs_items`, reusing the
+    same STAC item list so the catalog is queried exactly once regardless of
+    tile count. Tiles outside the AOI bounding box, or whose id is present in
+    ``skip_tile_ids`` (e.g. already cached from a previous run), are skipped
+    without loading.
+    """
+    if aoi is None:
+        raise ValueError("AOI is required for WOfS/STAC loading.")
+    if resolution is None:
+        raise ValueError("resolution is required for tiled WOfS/STAC loading.")
+    try:
+        import xarray as xr  # noqa: F401
+        import pystac_client  # noqa: F401
+        import odc.stac  # noqa: F401
+        import rioxarray  # noqa: F401  (registers the .rio accessor used by _clip_to_aoi)
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("iter_wofs_tiles_from_stac requires the stac extra.") from exc
+    # DEA's public S3 bucket (dea-public-data) rejects unsigned GDAL/rasterio
+    # reads unless explicitly told not to sign requests; without this, every
+    # lazy dask read of the returned cube fails with CPLE_AWSInvalidCredentialsError.
+    os.environ.setdefault("AWS_NO_SIGN_REQUEST", "YES")
+
+    try:
+        items, aoi_gdf = _query_wofs_items(stac_url, collection, aoi, start_date, end_date)
+    except Exception as exc:
+        raise AOIRasterizationError("STAC AOI query failed; refusing to load an unclipped raster.") from exc
+
+    target = aoi_gdf.to_crs(_crs_value(crs)) if crs is not None else aoi_gdf
+    parent_geobox = _output_geobox_for_aoi(items, target, crs=crs, resolution=resolution)
+
+    for tile_id, ys, xs in _tile_slices(parent_geobox.shape, tile_pixels):
+        if tile_id in skip_tile_ids:
+            continue
+        tile_geobox = parent_geobox[ys, xs]
+        if not _tile_intersects_aoi(tile_geobox, target):
+            continue
+        mask = _load_wofs_items(
+            items,
+            aoi_gdf,
+            start_date,
+            end_date,
+            crs=crs,
+            resolution=resolution,
+            geobox=tile_geobox,
+            chunk_x=chunk_x,
+            chunk_y=chunk_y,
+            time_chunk=time_chunk,
+            majority=majority,
+            duplicate_month_policy=duplicate_month_policy,
+        )
+        yield tile_id, mask
 
 
 def _validate_classifier(encoding, classifier):
