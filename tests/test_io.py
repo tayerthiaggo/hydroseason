@@ -808,3 +808,44 @@ def test_probe_amplitude_guard_silent_on_stable_water_fraction(monkeypatch):
     assert calls["n"] == 2
     assert result["guard_caveat"] is None
     assert result["refuse_coarsen_past"] is None
+
+
+def test_canonical_masks_outside_aoi_pixels_excluded_from_counts():
+    """Raster-level regression: outside-AOI -2 pixels never enter any count.
+
+    This test proves that the canonical mask encoding (outside=-2, invalid=-1,
+    dry=0, water=1) is correctly interpreted by monthly_water_extent such that
+    only inside-AOI pixels contribute to the counts.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    from hydroseason.hydro_year import monthly_water_extent
+
+    # Create a canonical mask with:
+    # - 2 outside-AOI pixels (-2): should not enter any count
+    # - 1 invalid inside-AOI pixel (-1)
+    # - 1 dry pixel (0)
+    # - 2 water pixels (1)
+    # Expected counts:
+    # - n_water=2 (only the water pixels)
+    # - n_aoi=4 (only inside-AOI: -1, 0, 1, 1)
+    # - n_valid=3 (0 and two 1s)
+    # - n_invalid=1 (one -1)
+    # - extent_pct = 2/3 * 100 = 66.666...
+    # - invalid_pct = 1/4 * 100 = 25.0
+    values = np.array([[[-2, -2, -1], [0, 1, 1]]], dtype=np.int8)
+    masks = xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01"]), "y": [0, 1], "x": [0, 1, 2]},
+    ).chunk({"time": 1, "y": 1, "x": 1})
+
+    summary = monthly_water_extent(masks)
+    row = summary.iloc[0]
+
+    assert row["n_water"] == 2, f"expected n_water=2, got {row['n_water']}"
+    assert row["n_valid"] == 3, f"expected n_valid=3, got {row['n_valid']}"
+    assert row["n_invalid"] == 1, f"expected n_invalid=1, got {row['n_invalid']}"
+    assert row["n_aoi"] == 4, f"expected n_aoi=4, got {row['n_aoi']}"
+    assert row["extent_pct"] == pytest.approx(200.0 / 3.0), f"expected extent_pct≈66.67, got {row['extent_pct']}"
+    assert row["invalid_pct"] == pytest.approx(25.0), f"expected invalid_pct=25.0, got {row['invalid_pct']}"

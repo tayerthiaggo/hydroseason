@@ -8,6 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from hydroseason.hydro_year import monthly_water_extent
@@ -105,6 +106,41 @@ def _missing_year_extent(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame
         },
         index=index,
     )
+
+
+def _aggregate_extent_parts(parts, index):
+    """Aggregate per-tile monthly extent counts into annual totals.
+
+    Sums raw integer pixel counts across tiles (n_water, n_aoi, n_valid, n_invalid),
+    then recomputes percentages from the summed counts. Enforces the invariant
+    n_aoi == n_valid + n_invalid, and produces NaN percentages when denominators are zero.
+    """
+    count_columns = ["n_water", "n_aoi", "n_valid", "n_invalid"]
+    totals = pd.DataFrame(0, index=index, columns=count_columns, dtype="int64")
+    for part in parts:
+        aligned = part.reindex(index)
+        totals = totals.add(aligned[count_columns].fillna(0).astype("int64"), fill_value=0)
+
+    if not (totals["n_aoi"] == totals["n_valid"] + totals["n_invalid"]).all():
+        raise ValueError("tile counts violate n_aoi == n_valid + n_invalid")
+
+    extent_pct = np.full(len(totals), np.nan, dtype=float)
+    invalid_pct = np.full(len(totals), np.nan, dtype=float)
+    np.divide(
+        totals["n_water"].to_numpy(dtype=float) * 100.0,
+        totals["n_valid"].to_numpy(dtype=float),
+        out=extent_pct,
+        where=totals["n_valid"].to_numpy() > 0,
+    )
+    np.divide(
+        totals["n_invalid"].to_numpy(dtype=float) * 100.0,
+        totals["n_aoi"].to_numpy(dtype=float),
+        out=invalid_pct,
+        where=totals["n_aoi"].to_numpy() > 0,
+    )
+    totals["extent_pct"] = extent_pct
+    totals["invalid_pct"] = invalid_pct
+    return totals.loc[:, _EXTENT_COLUMNS]
 
 
 def load_wofs_monthly_extent(

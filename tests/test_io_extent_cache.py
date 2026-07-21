@@ -96,3 +96,39 @@ def test_year_without_stac_items_becomes_unusable_months(monkeypatch):
     assert (extent.loc["2020", "n_valid"] == 0).all()
     assert extent.loc["2020", "extent_pct"].isna().all()
     assert (extent.loc["2021", "n_valid"] == 4).all()
+
+
+def test_tile_extent_aggregation_sums_counts_then_recomputes_percentages():
+    from hydroseason._io_extent_cache import _aggregate_extent_parts
+
+    index = pd.DatetimeIndex(["2020-01-01"])
+    left = pd.DataFrame({
+        "n_water": [3], "n_aoi": [8], "n_valid": [6], "n_invalid": [2],
+        "extent_pct": [50.0], "invalid_pct": [25.0],
+    }, index=index)
+    right = pd.DataFrame({
+        "n_water": [1], "n_aoi": [2], "n_valid": [2], "n_invalid": [0],
+        "extent_pct": [50.0], "invalid_pct": [0.0],
+    }, index=index)
+
+    result = _aggregate_extent_parts([left, right], index)
+
+    assert result.loc[index[0], "n_water"] == 4
+    assert result.loc[index[0], "n_valid"] == 8
+    assert result.loc[index[0], "n_invalid"] == 2
+    assert result.loc[index[0], "n_aoi"] == 10
+    assert result.loc[index[0], "extent_pct"] == 50.0
+    assert result.loc[index[0], "invalid_pct"] == 20.0
+    assert result.loc[index[0], "n_aoi"] == (
+        result.loc[index[0], "n_valid"] + result.loc[index[0], "n_invalid"]
+    )
+
+
+def test_tile_extent_aggregation_keeps_empty_month_percentages_nan():
+    from hydroseason._io_extent_cache import _aggregate_extent_parts
+
+    index = pd.DatetimeIndex(["2020-01-01"])
+    result = _aggregate_extent_parts([], index)
+
+    assert (result[["n_water", "n_aoi", "n_valid", "n_invalid"]] == 0).all().all()
+    assert result[["extent_pct", "invalid_pct"]].isna().all().all()
