@@ -83,3 +83,4 @@ dev/
 .ruff_cache/
 .superpowers/
 .uv-cache/
+.worktrees/
