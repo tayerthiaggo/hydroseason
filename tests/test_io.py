@@ -344,6 +344,34 @@ def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
     assert result.sizes["time"] == 13
 
 
+def test_stac_wrapper_queries_once_and_loads_the_returned_items(monkeypatch):
+    from unittest.mock import Mock
+
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("pystac_client")
+    pytest.importorskip("odc.stac")
+    pytest.importorskip("rioxarray")
+    import hydroseason._io_geo as geo
+
+    items = [object(), object()]
+    query = Mock(return_value=(items, _aoi()))
+    loaded = object()
+    load_items = Mock(return_value=loaded)
+    monkeypatch.setattr(geo, "_query_wofs_items", query)
+    monkeypatch.setattr(geo, "_load_wofs_items", load_items)
+
+    result = geo.load_wofs_from_stac(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2020-02-29", crs=3577, resolution=30,
+    )
+
+    query.assert_called_once()
+    assert load_items.call_args.args[0] is items
+    assert load_items.call_args.kwargs["geobox"] is None
+    assert result is loaded
+
+
 def test_classify_canonical_rejects_out_of_domain_codes():
     xr = pytest.importorskip("xarray")
     from hydroseason.io import _classify

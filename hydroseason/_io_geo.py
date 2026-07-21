@@ -138,50 +138,68 @@ def load_monthly_masks_zarr(
     return masks.chunk({"time": min(time_chunk, masks.sizes["time"]), "x": chunk_x, "y": chunk_y})
 
 
-def load_wofs_from_stac(
-    stac_url: str, collection: str, aoi, start_date: str, end_date: str, *, crs: int | str | None = 3577,
-    chunk_x: int = 512, chunk_y: int = 512, time_chunk: int = 24, majority: bool = True,
-    duplicate_month_policy: Literal["raise", "warn"] = "raise", resolution: float | None = None,
-):
-    """Load WOfS observations in annual batches, compose monthly, and clip to the AOI.
+def _collect_stac_items(client, collections, datetime, bbox):
+    """Collect all items from a STAC search result."""
+    return list(client.search(collections=collections, datetime=datetime, bbox=bbox).items())
 
-    A calendar year is sent to ``odc.stac.stac_load`` at once.  The returned
-    lazy cube is then split into monthly composites, avoiding the substantial
-    graph/setup overhead of one loader call per month while retaining the same
-    monthly result.
+
+def _query_wofs_items(stac_url, collection, aoi, start_date, end_date):
+    """Query STAC for WOfS items in an AOI and date range.
+
+    Returns a tuple of (items, aoi_gdf) where items is a list of STAC items
+    and aoi_gdf is the loaded AOI GeoDataFrame.
     """
-    if aoi is None:
-        raise ValueError("AOI is required for WOfS/STAC loading.")
-    try:
-        import xarray as xr
-        import pystac_client
-        import odc.stac
-        import rioxarray  # noqa: F401  (registers the .rio accessor used by _clip_to_aoi)
-    except ImportError as exc:  # pragma: no cover
-        raise ImportError("load_wofs_from_stac requires the stac extra.") from exc
-    # DEA's public S3 bucket (dea-public-data) rejects unsigned GDAL/rasterio
-    # reads unless explicitly told not to sign requests; without this, every
-    # lazy dask read of the returned cube fails with CPLE_AWSInvalidCredentialsError.
-    os.environ.setdefault("AWS_NO_SIGN_REQUEST", "YES")
-    # Resolve _clip_to_aoi off the hydroseason.io facade at call time so
-    # tests that patch hydroseason.io._clip_to_aoi take effect here.
-    import hydroseason.io as _io
+    import pystac_client
 
     aoi_gdf = load_aoi(aoi)
-    try:
-        aoi_4326 = aoi_gdf.to_crs("EPSG:4326")
-        client = pystac_client.Client.open(stac_url)
-        items = list(client.search(collections=[collection], datetime=f"{start_date}/{end_date}", bbox=list(aoi_4326.total_bounds)).items())
-    except Exception as exc:
-        raise AOIRasterizationError("STAC AOI query failed; refusing to load an unclipped raster.") from exc
+    aoi_4326 = aoi_gdf.to_crs("EPSG:4326")
+    client = pystac_client.Client.open(stac_url)
+    start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
+    items = _collect_stac_items(
+        client,
+        collections=[collection],
+        datetime=f"{start:%Y-%m-%d}/{end:%Y-%m-%d}",
+        bbox=list(aoi_4326.total_bounds),
+    )
     if not items:
         raise ValueError("No STAC items found for requested AOI and date range.")
+    return items, aoi_gdf
+
+
+def _load_wofs_items(
+    items,
+    aoi_gdf,
+    start_date,
+    end_date,
+    *,
+    crs=3577,
+    resolution=None,
+    geobox=None,
+    chunk_x=512,
+    chunk_y=512,
+    time_chunk=24,
+    majority=True,
+    duplicate_month_policy="raise",
+):
+    """Load WOfS items, classify, compose monthly, and clip to AOI.
+
+    Items are processed in annual batches with monthly composition,
+    returning a lazy xarray.DataArray.
+    """
+    import xarray as xr
+    import odc.stac
+    import hydroseason.io as _io
+
     groups: dict[pd.Timestamp, list] = {}
     for item in items:
-        date = pd.Timestamp(item.properties.get("datetime") or item.properties.get("start_datetime"))
+        date = pd.Timestamp(
+            item.properties.get("datetime")
+            or item.properties.get("start_datetime")
+        )
         if date.tzinfo is not None:
             date = date.tz_convert(None)
         groups.setdefault(date.to_period("M").to_timestamp(), []).append(item)
+
     annual_groups: dict[int, list[tuple[pd.Timestamp, list]]] = {}
     for month, month_items in sorted(groups.items()):
         annual_groups.setdefault(month.year, []).append((month, month_items))
@@ -191,7 +209,18 @@ def load_wofs_from_stac(
     for year, year_groups in sorted(annual_groups.items()):
         try:
             year_items = [item for _month, month_items in year_groups for item in month_items]
-            ds = odc.stac.stac_load(year_items, bands=["water"], chunks={"x": chunk_x, "y": chunk_y}, geopolygon=target.geometry, **({"crs": _crs_value(crs)} if crs is not None else {}), **({"resolution": resolution, "resampling": "mode"} if resolution is not None else {}))
+            spatial = {"geobox": geobox} if geobox is not None else {
+                "geopolygon": target.geometry,
+                **({"crs": _crs_value(crs)} if crs is not None else {}),
+                **({"resolution": resolution} if resolution is not None else {}),
+            }
+            ds = odc.stac.stac_load(
+                year_items,
+                bands=["water"],
+                chunks={"x": chunk_x, "y": chunk_y},
+                **({"resampling": "mode"} if resolution is not None else {}),
+                **spatial,
+            )
             classified = _classify(ds["water"], "wofs", None)
             loaded_months = pd.DatetimeIndex(classified["time"].values).to_period("M")
         except AOIRasterizationError:
@@ -225,7 +254,58 @@ def load_wofs_from_stac(
         end_date,
         duplicate_month_policy=duplicate_month_policy,
     )
-    return completed.chunk({"time": min(time_chunk, completed.sizes["time"]), "x": chunk_x, "y": chunk_y})
+    return completed.chunk({
+        "time": min(time_chunk, completed.sizes["time"]),
+        "x": chunk_x,
+        "y": chunk_y,
+    })
+
+
+def load_wofs_from_stac(
+    stac_url: str, collection: str, aoi, start_date: str, end_date: str, *, crs: int | str | None = 3577,
+    chunk_x: int = 512, chunk_y: int = 512, time_chunk: int = 24, majority: bool = True,
+    duplicate_month_policy: Literal["raise", "warn"] = "raise", resolution: float | None = None,
+):
+    """Load WOfS observations in annual batches, compose monthly, and clip to the AOI.
+
+    A calendar year is sent to ``odc.stac.stac_load`` at once.  The returned
+    lazy cube is then split into monthly composites, avoiding the substantial
+    graph/setup overhead of one loader call per month while retaining the same
+    monthly result.
+    """
+    if aoi is None:
+        raise ValueError("AOI is required for WOfS/STAC loading.")
+    try:
+        import xarray as xr
+        import pystac_client
+        import odc.stac
+        import rioxarray  # noqa: F401  (registers the .rio accessor used by _clip_to_aoi)
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("load_wofs_from_stac requires the stac extra.") from exc
+    # DEA's public S3 bucket (dea-public-data) rejects unsigned GDAL/rasterio
+    # reads unless explicitly told not to sign requests; without this, every
+    # lazy dask read of the returned cube fails with CPLE_AWSInvalidCredentialsError.
+    os.environ.setdefault("AWS_NO_SIGN_REQUEST", "YES")
+
+    try:
+        items, aoi_gdf = _query_wofs_items(stac_url, collection, aoi, start_date, end_date)
+    except Exception as exc:
+        raise AOIRasterizationError("STAC AOI query failed; refusing to load an unclipped raster.") from exc
+
+    return _load_wofs_items(
+        items,
+        aoi_gdf,
+        start_date,
+        end_date,
+        crs=crs,
+        resolution=resolution,
+        geobox=None,
+        chunk_x=chunk_x,
+        chunk_y=chunk_y,
+        time_chunk=time_chunk,
+        majority=majority,
+        duplicate_month_policy=duplicate_month_policy,
+    )
 
 
 def _validate_classifier(encoding, classifier):
