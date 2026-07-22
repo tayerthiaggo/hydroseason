@@ -51,8 +51,6 @@ def wet_aoi_polygon(
     ``buffer_m`` grows a safety margin. All distances are meters, invariant
     to pixel size. Returns a single dissolved GeoDataFrame row in raster CRS.
     """
-    import re
-
     import geopandas as gpd
     import rasterio.features
     from shapely.geometry import shape
@@ -80,15 +78,10 @@ def wet_aoi_polygon(
     if buffer_m > 0.0:
         merged = merged.buffer(buffer_m)
 
-    # Extract EPSG code from CRS WKT string to get simple "EPSG:XXXX" format.
-    # This ensures str(gdf.crs) ends with the code number, not WKT chars.
-    crs_str = str(crs)
-    matches = re.findall(
-        r'AUTHORITY\[\"EPSG\",\"(\d+)\"\]', crs_str
-    )
-    if matches:
-        epsg_code = matches[-1]
-        crs = f"EPSG:{epsg_code}"
+    from pyproj import CRS as ProjCRS
+    epsg = ProjCRS.from_wkt(str(crs)).to_epsg()
+    if epsg is not None:
+        crs = f"EPSG:{epsg}"
 
     return gpd.GeoDataFrame(
         {"geometry": [merged]}, geometry="geometry", crs=crs
