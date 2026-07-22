@@ -14,7 +14,7 @@ import pandas as pd
 
 from hydroseason.hydro_year import monthly_water_extent
 
-_CACHE_SCHEMA_VERSION = 1
+_CACHE_SCHEMA_VERSION = 2
 _EXTENT_COLUMNS = (
     "n_water",
     "n_aoi",
@@ -51,6 +51,7 @@ def _cache_path(
     crs,
     resolution,
     majority: bool,
+    wet_aoi_hash: str = "",
 ) -> Path:
     identity = {
         "schema": _CACHE_SCHEMA_VERSION,
@@ -62,6 +63,7 @@ def _cache_path(
         "crs": crs,
         "resolution": resolution,
         "majority": majority,
+        "wet_aoi_sha256": wet_aoi_hash,
     }
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     return cache_dir / f"extent_{start:%Y%m%d}_{end:%Y%m%d}_{digest}.csv"
@@ -160,13 +162,19 @@ def load_wofs_monthly_extent(
     majority: bool = True,
     force: bool = False,
     tile_pixels: int | None = None,
+    wet_aoi=None,
+    precompute_wet_aoi: bool = False,
+    persistence_min: float = 0.0,
+    close_m: float = 150.0,
+    buffer_m: float = 300.0,
 ) -> pd.DataFrame:
     """Compute monthly WOfS extent in resumable calendar-year pieces.
 
     Each year is loaded and reduced independently, bounding graph size and
     allowing a stopped run to resume from its last completed year.  When
     ``cache_dir`` is supplied, CSV cache identity includes all data-affecting
-    inputs and the AOI content hash.
+    inputs, the AOI content hash, and (when a wet AOI is in play) its content
+    hash too -- a different wet AOI never silently reads a stale cache.
 
     When ``tile_pixels`` is set, each annual window is loaded tile-by-tile via
     :func:`hydroseason.io.iter_wofs_tiles_from_stac` instead of as one whole-AOI
@@ -176,6 +184,17 @@ def load_wofs_monthly_extent(
     the next call. This has no effect on the annual cache's identity: a
     complete annual result is tile-shape-independent, so it is written to and
     read from the same cache file as the untiled path.
+
+    ``wet_aoi``, if given, is an already-computed wet-AOI GeoDataFrame (see
+    :func:`hydroseason.io.compute_wet_aoi`) threaded into every tiled per-year
+    load as a second, independent tile-skip gate. If ``precompute_wet_aoi`` is
+    True and ``wet_aoi`` is not supplied, one full-time-series
+    ``load_wofs_from_stac`` pass over the whole requested window is used to
+    derive it via :func:`hydroseason.io.compute_wet_aoi` (using
+    ``persistence_min``, ``close_m``, ``buffer_m``), before any per-year tiled
+    loads happen. ``precompute_wet_aoi`` requires ``tile_pixels`` -- pruning
+    only exists on the tiled path, so precomputing a wet AOI without tiling
+    would be a no-op the caller almost certainly didn't intend.
     """
     if time_block < 1:
         raise ValueError("time_block must be at least 1.")
@@ -184,6 +203,8 @@ def load_wofs_monthly_extent(
             raise ValueError("tile_pixels must be at least 1.")
         if resolution is None or resolution <= 0:
             raise ValueError("tiled loading requires a positive resolution.")
+    if precompute_wet_aoi and tile_pixels is None:
+        raise ValueError("precompute_wet_aoi requires tile_pixels (pruning is tiled-only).")
     start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
     if end < start:
         raise ValueError("end_date must be on or after start_date.")
@@ -195,6 +216,19 @@ def load_wofs_monthly_extent(
     # Resolve through the facade at call time to preserve the existing loader
     # monkeypatch seam and keep this module independent of optional STAC deps.
     import hydroseason.io as _io
+
+    if precompute_wet_aoi and wet_aoi is None:
+        full_ts = _io.load_wofs_from_stac(
+            stac_url, collection, aoi,
+            start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"),
+            crs=crs, resolution=resolution,
+            chunk_x=chunk_x, chunk_y=chunk_y, time_chunk=time_block, majority=majority,
+        )
+        wet_aoi = _io.compute_wet_aoi(
+            full_ts, persistence_min=persistence_min, close_m=close_m, buffer_m=buffer_m,
+        )
+
+    wet_aoi_hash = _aoi_digest(wet_aoi) if (cache_root is not None and wet_aoi is not None) else ""
 
     for year_start, year_end in _year_windows(start, end):
         expected_index = pd.date_range(
@@ -214,6 +248,7 @@ def load_wofs_monthly_extent(
                 crs=crs,
                 resolution=resolution,
                 majority=majority,
+                wet_aoi_hash=wet_aoi_hash,
             )
             cached = None if force or not cache_path.exists() else _read_cached_extent(cache_path)
             if cached is not None and not cached.index.equals(expected_index):
@@ -249,6 +284,7 @@ def load_wofs_monthly_extent(
                     time_chunk=time_block,
                     majority=majority,
                     skip_tile_ids=set(tile_parts),
+                    wet_aoi=wet_aoi,
                 )
             )
             # The STAC query fires lazily, on the generator's first advancement.

@@ -286,3 +286,153 @@ def test_tiled_extent_force_ignores_annual_and_tile_caches(monkeypatch, tmp_path
     assert len(calls) == 2
     assert calls[0] == set()
     assert calls[1] == set()
+
+
+def test_cache_path_depends_on_wet_aoi_hash(tmp_path):
+    from hydroseason._io_extent_cache import _cache_path
+
+    common = dict(
+        cache_dir=tmp_path, stac_url="s", collection="c", aoi_hash="a",
+        start=pd.Timestamp("2020-01-01"), end=pd.Timestamp("2020-12-31"),
+        crs=3577, resolution=30.0, majority=True,
+    )
+    p_none = _cache_path(**common, wet_aoi_hash="")
+    p_wet = _cache_path(**common, wet_aoi_hash="deadbeef")
+    assert p_none != p_wet  # wet AOI is data-affecting -> distinct cache file
+
+
+def test_cache_path_wet_aoi_hash_defaults_to_empty(tmp_path):
+    # Default (no wet_aoi_hash kwarg) must match explicitly passing "" so that
+    # pre-Task-5 callers of _cache_path (no wet AOI involved) are unaffected.
+    from hydroseason._io_extent_cache import _cache_path
+
+    common = dict(
+        cache_dir=tmp_path, stac_url="s", collection="c", aoi_hash="a",
+        start=pd.Timestamp("2020-01-01"), end=pd.Timestamp("2020-12-31"),
+        crs=3577, resolution=30.0, majority=True,
+    )
+    assert _cache_path(**common) == _cache_path(**common, wet_aoi_hash="")
+
+
+def test_precompute_requires_tile_pixels(tmp_path):
+    from hydroseason._io_extent_cache import load_wofs_monthly_extent
+
+    aoi = tmp_path / "aoi.geojson"
+    aoi.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="precompute_wet_aoi requires tile_pixels"):
+        load_wofs_monthly_extent(
+            "https://example.invalid/stac", "wofs", aoi, "2020-01-01", "2020-12-31",
+            cache_dir=tmp_path / "cache", resolution=30.0,
+            precompute_wet_aoi=True,  # no tile_pixels -> error
+        )
+
+
+def test_precompute_wet_aoi_runs_full_ts_pass_and_threads_into_tiles(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    full_ts_calls = []
+    compute_wet_aoi_calls = []
+    tile_calls = []
+
+    sentinel_wet_aoi = object()
+
+    def fake_load_full_ts(_url, _collection, _aoi, start, end, **kwargs):
+        full_ts_calls.append((start, end))
+        return _fake_monthly_cube(start, end)
+
+    def fake_compute_wet_aoi(mask, **kwargs):
+        compute_wet_aoi_calls.append(kwargs)
+        return sentinel_wet_aoi
+
+    def fake_tiles(*args, wet_aoi=None, skip_tile_ids=(), **kwargs):
+        tile_calls.append(wet_aoi)
+        yield "r0000_c0000", _fake_monthly_cube("2020-01-01", "2020-12-01")
+
+    monkeypatch.setattr(hio, "load_wofs_from_stac", fake_load_full_ts)
+    monkeypatch.setattr(hio, "compute_wet_aoi", fake_compute_wet_aoi)
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+
+    result = hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac", "wofs", object(),
+        "2020-01-01", "2020-12-31",
+        cache_dir=tmp_path / "cache",
+        crs=3577,
+        resolution=30,
+        tile_pixels=1024,
+        precompute_wet_aoi=True,
+        persistence_min=0.25,
+        close_m=100.0,
+        buffer_m=200.0,
+    )
+
+    # One full-time-series pass over the whole requested window.
+    assert full_ts_calls == [("2020-01-01", "2020-12-31")]
+    # compute_wet_aoi received the precompute knobs.
+    assert compute_wet_aoi_calls == [
+        {"persistence_min": 0.25, "close_m": 100.0, "buffer_m": 200.0}
+    ]
+    # The computed wet AOI is threaded into the tiled per-year load.
+    assert tile_calls == [sentinel_wet_aoi]
+    assert (result["n_water"] == 4).all()
+
+
+def test_wet_aoi_passed_explicitly_skips_precompute_pass_and_reaches_tiles(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    full_ts_calls = []
+    tile_calls = []
+    explicit_wet_aoi = object()
+
+    def fake_load_full_ts(*args, **kwargs):
+        full_ts_calls.append(args)
+        raise AssertionError("full-TS pass must not run when wet_aoi is already given")
+
+    def fake_tiles(*args, wet_aoi=None, skip_tile_ids=(), **kwargs):
+        tile_calls.append(wet_aoi)
+        yield "r0000_c0000", _fake_monthly_cube("2020-01-01", "2020-12-01")
+
+    monkeypatch.setattr(hio, "load_wofs_from_stac", fake_load_full_ts)
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+
+    hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac", "wofs", object(),
+        "2020-01-01", "2020-12-31",
+        cache_dir=tmp_path / "cache",
+        crs=3577,
+        resolution=30,
+        tile_pixels=1024,
+        wet_aoi=explicit_wet_aoi,
+    )
+
+    assert full_ts_calls == []
+    assert tile_calls == [explicit_wet_aoi]
+
+
+def test_different_wet_aoi_produces_different_cache_file(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    def fake_tiles(*args, wet_aoi=None, skip_tile_ids=(), **kwargs):
+        yield "r0000_c0000", _fake_monthly_cube("2020-01-01", "2020-12-01")
+
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+    cache_dir = tmp_path / "cache"
+    kwargs = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=object(),
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        cache_dir=cache_dir,
+        crs=3577,
+        resolution=30,
+        tile_pixels=1024,
+    )
+
+    hio.load_wofs_monthly_extent(**kwargs, wet_aoi=None)
+    files_without_wet_aoi = set(cache_dir.glob("extent_*.csv"))
+
+    hio.load_wofs_monthly_extent(**kwargs, wet_aoi=object())
+    files_with_wet_aoi = set(cache_dir.glob("extent_*.csv")) - files_without_wet_aoi
+
+    assert files_with_wet_aoi  # a new, distinct annual cache file was written
