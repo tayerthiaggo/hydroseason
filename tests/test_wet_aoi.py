@@ -54,3 +54,47 @@ def test_persistence_denominator_is_clear_not_scene_count():
     # With clear denominator (wet+dry at that pixel = 1+1=2): 1/2=0.5 -> included at 0.5
     result = compute_ever_wet(cube, persistence_min=0.5)
     assert bool(result.sel(y=0, x=0)) is True
+
+
+def _wet_grid(bool_2d, *, res=30.0):
+    """Build a georeferenced boolean DataArray on a res-meter grid at origin."""
+    h, w = bool_2d.shape
+    da = xr.DataArray(
+        np.asarray(bool_2d, dtype=bool),
+        dims=("y", "x"),
+        coords={"y": np.arange(h) * -res, "x": np.arange(w) * res},
+    )
+    return da.rio.write_crs("EPSG:3577").rio.write_transform()
+
+
+def test_wet_aoi_polygon_buffers_outward_in_meters():
+    from hydroseason._wet_aoi import wet_aoi_polygon
+    grid = np.zeros((5, 5), bool)
+    grid[2, 2] = True  # single wet pixel
+    gdf = wet_aoi_polygon(_wet_grid(grid), close_m=0.0, buffer_m=300.0)
+    assert len(gdf) == 1
+    assert str(gdf.crs).endswith("3577")
+    # one 30m pixel (~900 m2) buffered by 300m must be far larger than raw pixel
+    assert gdf.geometry.area.iloc[0] > 300.0 ** 2
+
+
+def test_wet_aoi_closing_connects_gap():
+    from hydroseason._wet_aoi import wet_aoi_polygon
+    # two wet pixels separated by one dry pixel horizontally, 30m apart
+    grid = np.zeros((3, 5), bool)
+    grid[1, 1] = True
+    grid[1, 3] = True
+    # closing radius >= the 30m gap should merge into ONE polygon; buffer 0
+    gdf = wet_aoi_polygon(_wet_grid(grid), close_m=60.0, buffer_m=0.0)
+    assert len(gdf) == 1
+    assert gdf.geometry.iloc[0].geom_type in ("Polygon", "MultiPolygon")
+    # merged extent spans both pixels: bounds width > 2 pixels
+    minx, _, maxx, _ = gdf.total_bounds
+    assert maxx - minx >= 60.0
+
+
+def test_wet_aoi_polygon_empty_when_no_wet():
+    from hydroseason._wet_aoi import wet_aoi_polygon
+    grid = np.zeros((4, 4), bool)
+    gdf = wet_aoi_polygon(_wet_grid(grid), buffer_m=300.0)
+    assert gdf.empty or gdf.geometry.is_empty.all()
