@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import os
 import tempfile
@@ -233,8 +234,8 @@ def load_wofs_monthly_extent(
                     if cached_tile is not None and cached_tile.index.equals(expected_index):
                         tile_parts[path.stem] = cached_tile
 
-            try:
-                tiles = _io.iter_wofs_tiles_from_stac(
+            tiles = iter(
+                _io.iter_wofs_tiles_from_stac(
                     stac_url,
                     collection,
                     aoi,
@@ -249,19 +250,40 @@ def load_wofs_monthly_extent(
                     majority=majority,
                     skip_tile_ids=set(tile_parts),
                 )
-                for tile_id, water_mask in tiles:
-                    tile_extent = monthly_water_extent(water_mask, time_block=time_block)
-                    if not tile_extent.index.equals(expected_index):
-                        raise ValueError(f"tile {tile_id} has an unexpected monthly index")
-                    if tile_cache_dir is not None:
-                        _write_extent_atomic(tile_extent, tile_cache_dir / f"{tile_id}.csv")
-                    tile_parts[tile_id] = tile_extent
+            )
+            # The STAC query fires lazily, on the generator's first advancement.
+            # Isolate that single `next()` in a narrow try/except so only the
+            # intentional "No STAC items found" ValueError it can raise is ever
+            # caught here -- ValueErrors raised later, while reducing tiles in
+            # the loop body below, must never be misrouted into this branch.
+            try:
+                first_tile = next(tiles)
+            except StopIteration:
+                first_tile = None
             except ValueError as exc:
                 if "No STAC items found" not in str(exc):
                     raise
                 extent = _missing_year_extent(year_start, year_end)
-            else:
-                extent = _aggregate_extent_parts(tile_parts.values(), expected_index)
+                if cache_path is not None:
+                    _write_extent_atomic(extent, cache_path)
+                parts.append(extent)
+                continue
+
+            remaining_tiles = tiles if first_tile is None else itertools.chain([first_tile], tiles)
+            for tile_id, water_mask in remaining_tiles:
+                tile_extent = monthly_water_extent(water_mask, time_block=time_block)
+                if not tile_extent.index.equals(expected_index):
+                    raise ValueError(f"tile {tile_id} has an unexpected monthly index")
+                if tile_cache_dir is not None:
+                    _write_extent_atomic(tile_extent, tile_cache_dir / f"{tile_id}.csv")
+                tile_parts[tile_id] = tile_extent
+
+            if not tile_parts:
+                raise ValueError(
+                    f"no tiles were produced for {year_start:%Y-%m} - {year_end:%Y-%m} "
+                    "despite STAC items being found"
+                )
+            extent = _aggregate_extent_parts(tile_parts.values(), expected_index)
             if cache_path is not None:
                 _write_extent_atomic(extent, cache_path)
             parts.append(extent)

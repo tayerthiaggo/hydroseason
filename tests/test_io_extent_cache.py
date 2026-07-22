@@ -201,6 +201,62 @@ def test_tiled_extent_no_data_year_continues_to_next_year(monkeypatch, tmp_path)
     assert (result.loc["2021", "n_water"] == 4).all()
 
 
+def test_tiled_extent_zero_tiles_yielded_raises_and_does_not_cache(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    def fake_tiles(*args, skip_tile_ids=(), **kwargs):
+        return
+        yield  # pragma: no cover - makes this a generator function that yields nothing
+
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+    cache_dir = tmp_path / "cache"
+    kwargs = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=object(),
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        cache_dir=cache_dir,
+        crs=3577,
+        resolution=30,
+        tile_pixels=1024,
+    )
+
+    with pytest.raises(ValueError, match="no tiles were produced"):
+        hio.load_wofs_monthly_extent(**kwargs)
+
+    assert not cache_dir.exists() or list(cache_dir.glob("*.csv")) == []
+
+
+def test_tiled_extent_per_tile_value_error_propagates_uncached(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    def fake_tiles(*args, skip_tile_ids=(), **kwargs):
+        # A tile whose reduced monthly index doesn't match the expected year
+        # window -- this triggers the "unexpected monthly index" ValueError
+        # inside the reduction loop, not from the generator/STAC query itself.
+        yield "r0000_c0000", _fake_monthly_cube("2020-06-01", "2020-08-01")
+
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+    cache_dir = tmp_path / "cache"
+    kwargs = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=object(),
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        cache_dir=cache_dir,
+        crs=3577,
+        resolution=30,
+        tile_pixels=1024,
+    )
+
+    with pytest.raises(ValueError, match="unexpected monthly index"):
+        hio.load_wofs_monthly_extent(**kwargs)
+
+    assert not cache_dir.exists() or list(cache_dir.glob("*.csv")) == []
+
+
 def test_tiled_extent_force_ignores_annual_and_tile_caches(monkeypatch, tmp_path):
     import hydroseason.io as hio
 
