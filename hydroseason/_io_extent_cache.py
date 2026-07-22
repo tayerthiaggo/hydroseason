@@ -447,7 +447,7 @@ def load_wofs_monthly_extent(
                 raise
             extent = _missing_year_extent(year_start, year_end)
         else:
-            extent = monthly_water_extent(water_mask, time_block=time_block)
+            extent = monthly_water_extent(water_mask, time_block=time_block, wet_aoi=wet_aoi)
         if cache_path is not None:
             _write_extent_atomic(extent, cache_path)
         parts.append(extent)

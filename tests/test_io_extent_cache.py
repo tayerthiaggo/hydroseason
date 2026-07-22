@@ -455,6 +455,69 @@ def test_wet_aoi_passed_explicitly_skips_precompute_pass_but_does_not_prune_tile
     assert monthly_water_extent_calls == [explicit_wet_aoi]
 
 
+def test_untiled_path_threads_caller_supplied_wet_aoi_into_wet_fill_pct(monkeypatch, tmp_path):
+    """Finding 2 regression: wet_aoi given without tile_pixels must still flow
+    into monthly_water_extent on the untiled branch, so wet_fill_pct reflects
+    the real wet AOI instead of silently falling back to n_valid/extent_pct.
+    """
+    pytest.importorskip("dask")
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("rasterio")
+    pytest.importorskip("rioxarray")
+    gpd = pytest.importorskip("geopandas")
+    import rioxarray  # noqa: F401  (registers the .rio accessor)
+    from shapely.geometry import box
+
+    import hydroseason.io as hio
+    from hydroseason.io import load_wofs_monthly_extent
+
+    aoi = tmp_path / "aoi.geojson"
+    aoi.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+
+    # 4x4 grid, one wet pixel; wet AOI covers only the top-left quadrant, so
+    # n_wet_aoi (4) differs from n_valid (16) and wet_fill_pct != extent_pct.
+    def fake_load(_url, _collection, _aoi, start, end, **kwargs):
+        dates = pd.date_range(start, end, freq="MS")
+        cube = np.zeros((len(dates), 4, 4), dtype=np.int8)
+        cube[:, 0, 0] = 1
+        masks = xr.DataArray(
+            cube,
+            dims=("time", "y", "x"),
+            coords={
+                "time": dates,
+                "y": np.arange(4) * -30.0,
+                "x": np.arange(4) * 30.0,
+            },
+        ).chunk({"time": 1, "y": 4, "x": 4})
+        return masks.rio.write_crs("EPSG:3577")
+
+    monkeypatch.setattr(hio, "load_wofs_from_stac", fake_load)
+
+    wet_aoi = gpd.GeoDataFrame(
+        {"geometry": [box(-15, -75, 45, 15)]}, geometry="geometry", crs="EPSG:3577"
+    )
+
+    result = load_wofs_monthly_extent(
+        "https://example.invalid/stac", "wofs", aoi,
+        "2020-01-01", "2020-01-31",
+        cache_dir=tmp_path / "cache",
+        crs=3577,
+        resolution=30,
+        wet_aoi=wet_aoi,
+    )
+
+    row = result.loc[pd.Timestamp("2020-01-01")]
+    assert row["n_valid"] == 16
+    # The wet AOI covers only part of the grid, so n_wet_aoi must differ from
+    # n_valid/n_aoi -- proving the untiled branch actually rasterised the
+    # real, caller-supplied wet_aoi rather than silently aliasing n_wet_aoi
+    # to n_valid (the pre-fix, no-wet-AOI fallback behaviour).
+    assert 0 < row["n_wet_aoi"] < 16
+    assert row["wet_fill_pct"] == pytest.approx(100.0 * row["n_water"] / row["n_wet_aoi"])
+    assert row["extent_pct"] == pytest.approx(6.25)
+    assert row["wet_fill_pct"] != row["extent_pct"]
+
+
 def test_different_wet_aoi_produces_different_cache_file(monkeypatch, tmp_path):
     import hydroseason.io as hio
 
