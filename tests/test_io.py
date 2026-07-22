@@ -671,6 +671,150 @@ def test_tiled_stac_iterator_loads_all_tiles_when_wet_aoi_is_none(monkeypatch):
     assert load_items.call_count == 4
 
 
+def test_wet_aoi_pruning_does_not_change_extent_pct(monkeypatch, tmp_path):
+    """extent_pct with wet-AOI pruning == extent_pct without it (anti-drift).
+
+    End-to-end integration test through ``load_wofs_monthly_extent`` with a
+    real tiled fake-STAC scaffold: only the STAC network boundary
+    (``pystac_client.Client.open``, ``odc.stac.stac_load``) and
+    ``_output_geobox_for_aoi`` (which needs real ``pystac.Item`` proj
+    metadata odc.stac cannot derive from bare mocks) are faked -- the same
+    mocking altitude as ``test_tiled_stac_iterator_prunes_tiles_outside_wet_aoi``
+    above. Every other step (``_load_wofs_items``, ``_clip_to_aoi``,
+    ``_classify``, ``_tile_slices``, ``compute_wet_aoi``,
+    ``tile_intersects_wet_aoi``, ``monthly_water_extent``,
+    ``_aggregate_extent_parts``) runs for real.
+
+    The parent AOI covers a 1x3 tile grid in EPSG:3577 (tile_pixels=2 over a
+    2x6-pixel extent): only the leftmost 1-pixel-wide column (x in [0, 1),
+    strictly inside tile ``r0000_c0000``'s [0, 2) span, leaving a real gap
+    before the tile boundary at x=2 -- shapely's ``intersects`` treats
+    boundary-touching polygons as intersecting, so the wet AOI must not
+    reach all the way to a tile edge or every adjacent tile would trivially
+    "intersect" it too) is water in every one of 12 months. Every other
+    pixel, including the rest of ``r0000_c0000`` and all of tiles
+    ``r0000_c0001`` and ``r0000_c0002``, is dry in every one of 12 months.
+    Tiles ``c0001`` and ``c0002`` never contribute a wet pixel to the
+    ever-wet union, so ``precompute_wet_aoi=True`` must prune both of them
+    from the tiled load entirely. Because pruned tiles that were
+    always-dry contribute zero water either way, ``extent_pct`` (measured
+    against the user AOI, not the wet AOI) must be identical whether or not
+    they are pruned.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("pystac_client")
+    pytest.importorskip("odc.stac")
+    pytest.importorskip("odc.geo")
+    pytest.importorskip("rioxarray")
+    geopandas = pytest.importorskip("geopandas")
+    from unittest.mock import Mock
+    from shapely.geometry import box
+    from odc.geo.geobox import GeoBox
+
+    import hydroseason._io_geo as geo
+    from hydroseason._io_extent_cache import load_wofs_monthly_extent
+
+    # Parent grid: 2 rows x 6 cols of 1m pixels in EPSG:3577, tiled 2x2 ->
+    # a 1x3 tile grid (r0000_c0000 covers x in [0,2), r0000_c0001 covers x
+    # in [2,4), r0000_c0002 covers x in [4,6)). See
+    # test_tile_slices_cover_parent_once_without_overlap for the exact
+    # tiling contract this relies on.
+    parent_geobox = GeoBox.from_bbox((0, 0, 6, 2), crs="EPSG:3577", shape=(2, 6))
+    aoi = geopandas.GeoDataFrame(geometry=[box(0, 0, 6, 2)], crs="EPSG:3577")
+
+    dates = pd.date_range("2020-01-01", periods=12, freq="MS") + pd.Timedelta(days=4)
+
+    class FakeItem:
+        def __init__(self, date):
+            self.properties = {"datetime": date.isoformat()}
+
+    items = [FakeItem(d) for d in dates]
+
+    def fake_search(*, datetime, **kwargs):
+        start, end = [pd.Timestamp(part) for part in datetime.split("/")]
+        matched = [
+            item for item in items
+            if start <= pd.Timestamp(item.properties["datetime"]).tz_localize(None) <= end
+        ]
+        result = Mock()
+        result.items.return_value = matched
+        return result
+
+    client = Mock()
+    client.search.side_effect = fake_search
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
+    monkeypatch.setattr(geo, "_output_geobox_for_aoi", Mock(return_value=parent_geobox))
+
+    tile_x_origins = []
+
+    def fake_stac_load(batch_items, *, geobox=None, geopolygon=None, **kwargs):
+        batch_dates = pd.to_datetime(
+            [item.properties["datetime"] for item in batch_items]
+        ).tz_localize(None)
+        gb = geobox if geobox is not None else parent_geobox
+        ny, nx = gb.shape.y, gb.shape.x
+        x0 = gb.affine.c  # x-origin of this geobox, in the parent CRS units
+        if geobox is not None:
+            tile_x_origins.append(x0)
+        x_coords = np.asarray(gb.coordinates["x"].values)
+        # Water only in the pixel column whose center falls in [0, 1) --
+        # strictly inside r0000_c0000, never touching a tile boundary. Raw
+        # WOfS encoding (128=water observed, 0=dry), matching
+        # _load_wofs_items's encoding="wofs" classification.
+        wet_column = (x_coords >= 0.0) & (x_coords < 1.0)
+        row = np.where(wet_column, np.uint16(128), np.uint16(0))
+        data = np.broadcast_to(row, (len(batch_dates), ny, nx)).copy()
+        ds = xr.Dataset(
+            {"water": (("time", "y", "x"), data)},
+            coords={
+                "time": batch_dates,
+                "y": np.asarray(gb.coordinates["y"].values),
+                "x": x_coords,
+            },
+        )
+        return ds.rio.write_crs(gb.crs)
+
+    stac_load_mock = Mock(side_effect=fake_stac_load)
+    monkeypatch.setattr("odc.stac.stac_load", stac_load_mock)
+
+    common = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=aoi,
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        resolution=1.0,
+        crs=3577,
+        tile_pixels=2,
+    )
+
+    unpruned = load_wofs_monthly_extent(**common, cache_dir=tmp_path / "a")
+    tile_x_origins_unpruned = list(tile_x_origins)
+    tile_x_origins.clear()
+
+    pruned = load_wofs_monthly_extent(
+        **common, cache_dir=tmp_path / "b", precompute_wet_aoi=True,
+        # Tight to the wet pixels: default close_m/buffer_m are in meters
+        # and would balloon far past this toy 6x2m grid, engulfing the
+        # dry tiles too and defeating the point of this test.
+        close_m=0.0, buffer_m=0.0,
+    )
+    tile_x_origins_pruned = list(tile_x_origins)
+
+    # Sanity: pruning must actually have happened, or this test would pass
+    # trivially without ever exercising the pruning path. Unpruned loads
+    # all three tiles (x0=0, 2, 4); pruned loads only the tile containing
+    # the wet column (x0=0) -- the two always-dry tiles are skipped
+    # entirely.
+    assert sorted(tile_x_origins_unpruned) == [0.0, 2.0, 4.0]
+    assert tile_x_origins_pruned == [0.0]
+
+    pd.testing.assert_series_equal(
+        unpruned["extent_pct"], pruned["extent_pct"], check_names=False
+    )
+
+
 def test_tile_intersects_aoi_true_for_overlapping_tile():
     pytest.importorskip("odc.geo")
     from odc.geo.geobox import GeoBox

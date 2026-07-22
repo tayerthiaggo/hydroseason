@@ -159,6 +159,39 @@ def _aggregate_extent_parts(parts, index):
     return totals.loc[:, _EXTENT_COLUMNS]
 
 
+def _reconcile_pruned_tile_denominator(tiled_extent, full_ts, year_start, year_end, expected_index, time_block):
+    """Replace a tiled/pruned year's denominator columns with the full-TS ground truth.
+
+    Wet-AOI pruning skips loading tiles the ever-wet union never touches, so
+    those tiles' n_aoi/n_valid/n_invalid pixel counts (which can genuinely
+    vary month to month, e.g. cloud-affected pixels, and cannot be inferred
+    from geometry alone) are simply absent from ``tiled_extent`` -- not zero,
+    just missing, which silently shrinks the denominator and corrupts
+    extent_pct/invalid_pct relative to an unpruned run over the identical
+    data. ``full_ts`` is the whole-AOI cube already loaded (at no extra STAC
+    cost) to derive the wet AOI in the first place, so slicing it to this
+    year and reducing it once with monthly_water_extent (no wet_aoi -- this
+    is the plain, untiled ground truth) gives the exact n_water/n_aoi/
+    n_valid/n_invalid/extent_pct/invalid_pct an unpruned tiled run would have
+    produced (the tiled sum-then-percentage aggregation is bit-exact versus
+    a whole-cube reduction; see
+    test_tiled_reduction_matches_whole_cube_reduction_with_boundary_canonical_values).
+    Only n_wet_aoi/wet_fill_pct are left untouched, since pruning is allowed
+    to change those two.
+    """
+    year_slice = full_ts.sel(time=slice(year_start, year_end))
+    ground_truth = monthly_water_extent(year_slice, time_block=time_block)
+    if not ground_truth.index.equals(expected_index):
+        raise ValueError(
+            f"full-TS cube has an unexpected monthly index for "
+            f"{year_start:%Y-%m} - {year_end:%Y-%m}"
+        )
+    reconciled = tiled_extent.copy()
+    for column in ("n_water", "n_aoi", "n_valid", "n_invalid", "extent_pct", "invalid_pct"):
+        reconciled[column] = ground_truth[column]
+    return reconciled
+
+
 def load_wofs_monthly_extent(
     stac_url: str,
     collection: str,
@@ -208,6 +241,30 @@ def load_wofs_monthly_extent(
     loads happen. ``precompute_wet_aoi`` requires ``tile_pixels`` -- pruning
     only exists on the tiled path, so precomputing a wet AOI without tiling
     would be a no-op the caller almost certainly didn't intend.
+
+    Pruning tiles that the wet AOI excludes guarantees those tiles contribute
+    no water -- but ``iter_wofs_tiles_from_stac`` never loads them, so their
+    ``n_aoi``/``n_valid``/``n_invalid`` pixel counts (which genuinely can
+    differ per month, e.g. cloud-affected pixels, and cannot be inferred from
+    geometry alone) would otherwise silently vanish from the tiled
+    aggregate's denominator instead of being counted as unseen-but-real AOI
+    pixels -- corrupting ``extent_pct`` even though pruning never touches
+    which pixels contribute *water*. When ``wet_aoi`` was derived internally
+    here (not supplied by the caller), the already-loaded ``full_ts`` cube
+    covers the exact same AOI/CRS/resolution as the tiled path and was fetched
+    regardless of pruning, so it is reduced once per year with
+    :func:`hydroseason.hydro_year.monthly_water_extent` and its
+    ``n_water``/``n_aoi``/``n_valid``/``n_invalid``/``extent_pct``/
+    ``invalid_pct`` replace the (potentially pruning-truncated) tiled
+    aggregate's for that year -- an exact, no-extra-STAC-cost source of
+    truth, computed from data already resident rather than reconstructed.
+    Only ``n_wet_aoi``/``wet_fill_pct`` are left to the tiled aggregate,
+    since those two are legitimately allowed to differ under pruning. This
+    reconciliation only applies when ``precompute_wet_aoi`` derived
+    ``wet_aoi`` here; a caller-supplied ``wet_aoi`` has no accompanying
+    full-time-series cube to reconcile against, so pruning under an
+    explicitly-passed ``wet_aoi`` remains the caller's own responsibility to
+    have derived correctly (matching this function's own precompute pass).
     """
     if time_block < 1:
         raise ValueError("time_block must be at least 1.")
@@ -230,6 +287,7 @@ def load_wofs_monthly_extent(
     # monkeypatch seam and keep this module independent of optional STAC deps.
     import hydroseason.io as _io
 
+    full_ts = None
     if precompute_wet_aoi and wet_aoi is None:
         full_ts = _io.load_wofs_from_stac(
             stac_url, collection, aoi,
@@ -333,6 +391,10 @@ def load_wofs_monthly_extent(
                     "despite STAC items being found"
                 )
             extent = _aggregate_extent_parts(tile_parts.values(), expected_index)
+            if full_ts is not None:
+                extent = _reconcile_pruned_tile_denominator(
+                    extent, full_ts, year_start, year_end, expected_index, time_block,
+                )
             if cache_path is not None:
                 _write_extent_atomic(extent, cache_path)
             parts.append(extent)
