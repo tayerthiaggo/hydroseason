@@ -474,3 +474,36 @@ def test_monthly_extent_wet_fill_defaults_to_extent_when_no_wet_aoi():
 
     assert summary["n_wet_aoi"].iloc[0] == summary["n_aoi"].iloc[0]
     assert summary["wet_fill_pct"].iloc[0] == summary["extent_pct"].iloc[0]
+
+
+def test_monthly_extent_wet_fill_exactly_matches_extent_with_invalid_pixels_and_no_wet_aoi():
+    # Regression test for the n_aoi-vs-n_valid fallback fix: when wet_aoi is
+    # None, wet_fill_pct must equal extent_pct EXACTLY and UNCONDITIONALLY,
+    # even in the presence of invalid pixels (where n_aoi != n_valid). This
+    # is the exact case the old n_aoi-fallback got wrong: with invalid
+    # pixels present, n_wet_aoi (aliased to n_aoi) != n_valid, so
+    # wet_fill_pct = 100*n_water/n_aoi diverged from extent_pct =
+    # 100*n_water/n_valid.
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    import xarray as xr
+
+    from hydroseason.hydro_year import monthly_water_extent
+
+    # 2x2 grid: one water pixel, one dry pixel, one invalid pixel, one
+    # outside-AOI pixel -- so n_aoi (3) != n_valid (2) for this month,
+    # which is exactly the condition needed to distinguish the two
+    # fallback choices.
+    masks = xr.DataArray(
+        np.array([[[1, 0], [-1, -2]]], dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01"])},
+    ).chunk({"time": 1, "y": 1, "x": 1})
+
+    summary = monthly_water_extent(masks)
+
+    assert summary["n_aoi"].iloc[0] == 3
+    assert summary["n_valid"].iloc[0] == 2
+    assert summary["n_invalid"].iloc[0] == 1
+    assert summary["n_wet_aoi"].iloc[0] == summary["n_valid"].iloc[0]
+    assert summary["wet_fill_pct"].equals(summary["extent_pct"])

@@ -182,17 +182,18 @@ def monthly_water_extent(
     inside the wet AOI that are also not ``outside_value`` -- and the derived
     ``wet_fill_pct = 100 * n_water / n_wet_aoi`` drought-signal ratio (NaN when
     ``n_wet_aoi`` is 0). When ``wet_aoi`` is ``None`` (the default), no
-    rasterisation happens at all and ``n_wet_aoi`` is set equal to ``n_aoi``,
-    so existing callers adding no wet AOI see no change to any pre-existing
-    column, and get a well-defined ``wet_fill_pct`` computed with the same
-    ``100 * n_water / n_wet_aoi`` formula used in the ``wet_aoi``-given case
-    (this keeps ``wet_fill_pct`` an exact sum-then-percentage tiled
-    aggregation of ``n_water``/``n_wet_aoi``, matching how ``extent_pct`` and
-    ``invalid_pct`` already aggregate). ``wet_fill_pct`` therefore equals
-    ``extent_pct`` exactly whenever the mask has no invalid pixels (``n_aoi
-    == n_valid``); when invalid pixels are present the two ratios use
-    different denominators (``n_aoi`` vs. ``n_valid``) and legitimately
-    differ, the same way ``invalid_pct`` already differs from ``extent_pct``.
+    rasterisation happens at all and ``n_wet_aoi`` is set equal to
+    ``n_valid``, so existing callers adding no wet AOI see no change to any
+    pre-existing column, and get a well-defined ``wet_fill_pct`` computed
+    with the same ``100 * n_water / n_wet_aoi`` formula used in the
+    ``wet_aoi``-given case (this keeps ``wet_fill_pct`` an exact
+    sum-then-percentage tiled aggregation of ``n_water``/``n_wet_aoi``,
+    matching how ``extent_pct`` and ``invalid_pct`` already aggregate).
+    ``wet_fill_pct`` therefore equals ``extent_pct`` exactly and
+    unconditionally when ``wet_aoi`` is ``None``, regardless of whether
+    invalid pixels are present, because both ratios reduce to the same
+    ``100 * n_water / n_valid`` formula in that case (they can legitimately
+    differ only when a real ``wet_aoi`` is supplied).
     """
     try:
         import dask
@@ -263,8 +264,12 @@ def monthly_water_extent(
     if inside_wet is not None:
         n_wet_aoi_arr = np.concatenate(n_wet_aoi_parts)
     else:
-        # No wet AOI given: n_wet_aoi falls back to n_aoi (see docstring).
-        n_wet_aoi_arr = n_aoi_arr
+        # No wet AOI given: fall back to n_valid (not n_aoi) so wet_fill_pct
+        # is an EXACT alias of extent_pct in this case (same formula and
+        # denominator), not merely equal when there happen to be zero
+        # invalid pixels -- while remaining tiling-exact, since n_valid is
+        # itself already a tiling-exact summed count.
+        n_wet_aoi_arr = n_valid_arr
     wet_fill_pct = np.full_like(n_wet_aoi_arr, np.nan)
     with np.errstate(invalid="ignore", divide="ignore"):
         np.divide(n_water_arr * 100.0, n_wet_aoi_arr, out=wet_fill_pct, where=n_wet_aoi_arr > 0)
