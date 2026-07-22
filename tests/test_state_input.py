@@ -46,3 +46,15 @@ def test_unknown_quality_can_be_explicitly_enabled():
     series = pd.Series([12.0], index=pd.to_datetime(["2020-01-01"]))
     assert prepare_monthly_extent(series)["candidate_usable"].tolist() == [False]
     assert prepare_monthly_extent(series, allow_unknown_quality=True)["candidate_usable"].tolist() == [True]
+
+
+def test_flag_quality_policy_keeps_high_invalid_observed_values_usable():
+    frame = pd.DataFrame(
+        {"extent_pct": [10.0, 20.0], "invalid_pct": [0.0, 90.0]},
+        index=pd.date_range("2020-01-01", periods=2, freq="MS"),
+    )
+
+    prepared = prepare_monthly_extent(frame, max_invalid_pct=10.0, quality_policy="flag")
+
+    assert prepared["quality_state"].tolist() == ["usable", "low"]
+    assert prepared["candidate_usable"].tolist() == [True, True]

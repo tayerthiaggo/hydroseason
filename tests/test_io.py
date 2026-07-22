@@ -304,7 +304,7 @@ def test_stac_loader_omits_resolution_when_none(monkeypatch):
 
 
 def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
-    """Long ranges should pay one odc.stac load per year, not per month."""
+    """Long direct ranges should pay one STAC search and one odc.stac load per year."""
     xr = pytest.importorskip("xarray")
     pytest.importorskip("dask")
     pytest.importorskip("pystac_client")
@@ -331,7 +331,18 @@ def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
     stac_load = Mock(side_effect=fake_stac_load)
     monkeypatch.setattr("odc.stac.stac_load", stac_load)
     client = Mock()
-    client.search.return_value.items.return_value = items
+
+    def fake_search(*, datetime, **kwargs):
+        start, end = [pd.Timestamp(part) for part in datetime.split("/")]
+        matched_items = [
+            item for item in items
+            if start <= pd.Timestamp(item.properties["datetime"]).tz_localize(None) <= end
+        ]
+        result = Mock()
+        result.items.return_value = matched_items
+        return result
+
+    client.search.side_effect = fake_search
     monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
     monkeypatch.setattr("hydroseason.io._clip_to_aoi", lambda mask, target: mask)
 
@@ -340,8 +351,54 @@ def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
         "2020-01-01", "2021-01-31", resolution=100,
     )
 
+    assert client.search.call_count == 1
     assert stac_load.call_count == 2
     assert result.sizes["time"] == 13
+
+
+def test_stac_loader_retries_transient_search_failure(monkeypatch):
+    """Transient STAC listing failures should retry before failing the AOI query."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("pystac_client")
+    pytest.importorskip("odc.stac")
+    pytest.importorskip("rioxarray")
+    from unittest.mock import Mock
+
+    from hydroseason.io import load_wofs_from_stac
+
+    item = Mock()
+    item.properties = {"datetime": "2020-01-05T00:00:00Z"}
+    ds = xr.Dataset(
+        {"water": (("time", "y", "x"), np.full((1, 2, 2), 128, dtype=np.uint16))},
+        coords={"time": pd.to_datetime(["2020-01-05"]), "y": [0, 1], "x": [0, 1]},
+    )
+
+    attempts = {"n": 0}
+    client = Mock()
+
+    def fake_search(**kwargs):
+        attempts["n"] += 1
+        result = Mock()
+        if attempts["n"] == 1:
+            result.items.side_effect = RuntimeError("504 Gateway Time-out")
+        else:
+            result.items.return_value = [item]
+        return result
+
+    client.search.side_effect = fake_search
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
+    monkeypatch.setattr("odc.stac.stac_load", Mock(return_value=ds))
+    monkeypatch.setattr("hydroseason.io._clip_to_aoi", lambda mask, target: mask)
+    monkeypatch.setattr("hydroseason._io_geo.time.sleep", Mock())
+
+    result = load_wofs_from_stac(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2020-01-31", resolution=100,
+    )
+
+    assert attempts["n"] == 2
+    assert result.sizes["time"] == 1
 
 
 def test_classify_canonical_rejects_out_of_domain_codes():

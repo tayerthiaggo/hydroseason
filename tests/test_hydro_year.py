@@ -128,6 +128,22 @@ def test_default_max_invalid_pct_still_rejects_above_twenty_percent():
         detect_hydrological_years(extent)
 
 
+def test_flag_quality_policy_continues_with_high_invalid_observations():
+    from hydroseason.hydro_year import detect_hydrological_years
+
+    extent = _monthly_extent(periods=36).to_frame()
+    extent["invalid_pct"] = 0.0
+    extent.loc[extent.index[6], "invalid_pct"] = 90.0
+
+    result = detect_hydrological_years(
+        extent,
+        max_invalid_pct=10.0,
+        quality_policy="flag",
+    )
+
+    assert not result.empty
+
+
 def _seasonal_extent(n_years=3):
     index = pd.date_range("2018-01-01", periods=12 * n_years, freq="MS")
     month = index.month

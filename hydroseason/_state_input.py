@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from typing import Literal
+
+
+QualityPolicy = Literal["exclude", "flag"]
 
 
 def prepare_monthly_extent(
@@ -11,9 +15,12 @@ def prepare_monthly_extent(
     date_col: str | None = None,
     max_invalid_pct: float = 20.0,
     allow_unknown_quality: bool = False,
+    quality_policy: QualityPolicy = "exclude",
 ) -> pd.DataFrame:
     if not 0.0 <= max_invalid_pct <= 100.0:
         raise ValueError("max_invalid_pct must be between 0 and 100.")
+    if quality_policy not in {"exclude", "flag"}:
+        raise ValueError("quality_policy must be 'exclude' or 'flag'.")
     if isinstance(extent, pd.Series):
         frame = extent.rename(value_col).to_frame()
     else:
@@ -65,7 +72,10 @@ def prepare_monthly_extent(
         ["missing", "unknown", "low"],
         default="usable",
     )
-    frame["candidate_usable"] = (frame["quality_state"] == "usable") | (
-        allow_unknown_quality & (frame["quality_state"] == "unknown")
-    )
+    if quality_policy == "flag":
+        frame["candidate_usable"] = frame[value_col].notna()
+    else:
+        frame["candidate_usable"] = (frame["quality_state"] == "usable") | (
+            allow_unknown_quality & (frame["quality_state"] == "unknown")
+        )
     return frame.rename(columns={value_col: "extent_pct"})

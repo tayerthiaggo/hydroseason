@@ -48,6 +48,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from hydroseason._boundary import robust_scale  # noqa: E402
 from hydroseason._state_input import prepare_monthly_extent  # noqa: E402
+from hydroseason.hydro_year import detect_hydrological_years  # noqa: E402
 from hydroseason.io import load_wofs_monthly_extent  # noqa: E402
 
 STAC_URL = "https://explorer.dea.ga.gov.au/stac"
@@ -296,6 +297,60 @@ def compare_prepared_extent_series(
     }
 
 
+def _detect_hy(prepared: pd.DataFrame) -> pd.DataFrame:
+    """Detect hydrological years, dropping low-quality months rather than
+    letting a single low-quality month reject the whole series (see
+    ``detect_hydrological_years``'s all-or-nothing ``max_invalid_pct`` gate).
+    """
+    usable = prepared[prepared.get("candidate_usable", True)]
+    try:
+        return detect_hydrological_years(
+            usable, missing_month_policy="ignore", max_invalid_pct=100.0
+        )
+    except ValueError:
+        return pd.DataFrame(columns=["hy_year", "peak_month", "end_dry_month"])
+
+
+def compare_hydrological_years(native: pd.DataFrame, coarse: pd.DataFrame) -> dict:
+    """Compare per-hydrological-year wet (peak) and dry (end) month agreement.
+
+    Unlike the single global wet/dry month in ``compare_prepared_extent_series``
+    (one peak/trough over the whole record), this detects each HY independently
+    per resolution via ``detect_hydrological_years`` and checks, year by year,
+    whether native and coarsened resolution agree on which month is the HY's
+    wet peak and dry end.
+    """
+    native_hy = _detect_hy(native).set_index("hy_year")
+    coarse_hy = _detect_hy(coarse).set_index("hy_year")
+    shared_years = sorted(set(native_hy.index) & set(coarse_hy.index))
+
+    years = []
+    for year in shared_years:
+        n_row, c_row = native_hy.loc[year], coarse_hy.loc[year]
+        n_peak, c_peak = pd.Timestamp(n_row["peak_month"]), pd.Timestamp(c_row["peak_month"])
+        n_end, c_end = pd.Timestamp(n_row["end_dry_month"]), pd.Timestamp(c_row["end_dry_month"])
+        years.append({
+            "hy_year": int(year),
+            "native_peak_month": n_peak.strftime("%Y-%m-%d"),
+            "coarse_peak_month": c_peak.strftime("%Y-%m-%d"),
+            "same_peak_month": n_peak == c_peak,
+            "native_end_dry_month": n_end.strftime("%Y-%m-%d"),
+            "coarse_end_dry_month": c_end.strftime("%Y-%m-%d"),
+            "same_end_dry_month": n_end == c_end,
+        })
+
+    n_matched_peak = sum(1 for y in years if y["same_peak_month"])
+    n_matched_dry = sum(1 for y in years if y["same_end_dry_month"])
+    return {
+        "n_native_hy": int(len(native_hy)),
+        "n_coarse_hy": int(len(coarse_hy)),
+        "n_shared_hy": len(years),
+        "n_matched_peak_month": n_matched_peak,
+        "n_matched_end_dry_month": n_matched_dry,
+        "years": years,
+    }
+
+
 def _series_records(native: pd.DataFrame, coarse: pd.DataFrame) -> list[dict]:
     aligned = native["extent_pct"].rename("native").to_frame().join(
         coarse["extent_pct"].rename("coarse").to_frame(), how="outer"
@@ -386,6 +441,7 @@ def run_one_catchment(
         "time_block": time_block,
         "boundary_sha256": hashlib.sha256(boundary_source.read_bytes()).hexdigest(),
         "streams_sha256": hashlib.sha256(streams_source.read_bytes()).hexdigest(),
+        "result_schema_version": 2,
     }
     if result_path.exists() and not force:
         try:
@@ -431,6 +487,7 @@ def run_one_catchment(
         native_res_m=native_res_m,
         coarse_res_m=coarse_res_m,
     )
+    hydro_years = compare_hydrological_years(native["prepared"], coarse["prepared"])
 
     result = {
         "catchment_key": spec.key,
@@ -443,6 +500,7 @@ def run_one_catchment(
         "square_bounds_projected": list(window.square_bounds_projected),
         "analysis_bounds_wgs84": list(window.analysis_bounds_wgs84),
         "comparison": comparison,
+        "hydrological_years": hydro_years,
         "series": _series_records(native["prepared"], coarse["prepared"]),
         "run_config": expected_config,
         "artifacts": {
@@ -530,6 +588,7 @@ def build_html_report(results: list[dict], output_path: Path) -> Path:
     sections = []
     for result in results:
         comp = result["comparison"]
+        hy = result["hydrological_years"]
         rows.append(
             f"""<tr>
               <td><a href="#{html.escape(result['catchment_key'])}">{html.escape(result['display_name'])}</a></td>
@@ -541,7 +600,18 @@ def build_html_report(results: list[dict], output_path: Path) -> Path:
               <td>{_json_num(comp['max_abs_diff_extent_pct'], 'N/A')}</td>
               <td>{_json_num(comp['amplitude_delta_pp'], 'N/A')}</td>
               <td>{'yes' if comp['same_wet_month'] else 'no'} / {'yes' if comp['same_dry_month'] else 'no'}</td>
+              <td>{hy['n_matched_peak_month']}/{hy['n_shared_hy']} / {hy['n_matched_end_dry_month']}/{hy['n_shared_hy']}</td>
             </tr>"""
+        )
+        hy_table_rows = "".join(
+            f"""<tr>
+                  <td>{y['hy_year']}</td>
+                  <td>{y['native_peak_month']} / {y['coarse_peak_month']}</td>
+                  <td>{'yes' if y['same_peak_month'] else 'no'}</td>
+                  <td>{y['native_end_dry_month']} / {y['coarse_end_dry_month']}</td>
+                  <td>{'yes' if y['same_end_dry_month'] else 'no'}</td>
+                </tr>"""
+            for y in hy["years"]
         )
         sections.append(
             f"""<section class="card" id="{html.escape(result['catchment_key'])}">
@@ -556,6 +626,11 @@ def build_html_report(results: list[dict], output_path: Path) -> Path:
                 <div><span>Correlation</span><strong>{_format_metric(comp['correlation'], '.3f')}</strong></div>
               </div>
               {_plot_div(result)}
+              <h3>Hydrological years (native vs coarsened)</h3>
+              <table>
+                <thead><tr><th>HY</th><th>Peak month (native/coarse)</th><th>Same</th><th>End-dry month (native/coarse)</th><th>Same</th></tr></thead>
+                <tbody>{hy_table_rows}</tbody>
+              </table>
             </section>"""
         )
 
@@ -580,6 +655,7 @@ def build_html_report(results: list[dict], output_path: Path) -> Path:
   td {{ border-top:1px solid #eef2f7; padding:9px 10px; font-size:14px; }}
   a {{ color:#0284c7; text-decoration:none; font-weight:600; }}
   h2 {{ color:#0f172a; margin:0 0 4px; }}
+  h3 {{ color:#0f172a; margin:20px 0 10px; font-size:15px; }}
   .meta {{ margin:0 0 14px; color:#64748b; font-size:13px; }}
   .kpis {{ display:flex; gap:12px; flex-wrap:wrap; margin:14px 0; }}
   .kpis div {{ background:#f8fafc; border:1px solid #eef2f7; border-radius:10px; padding:9px 14px; min-width:130px; }}
@@ -597,7 +673,7 @@ def build_html_report(results: list[dict], output_path: Path) -> Path:
   <section class="card">
     <h2>Summary</h2>
     <table>
-      <thead><tr><th>Catchment</th><th>Lower hydroid</th><th>Res m</th><th>Months</th><th>Corr</th><th>Mean |diff| pp</th><th>Max |diff| pp</th><th>Amplitude Δ pp</th><th>Same wet/dry</th></tr></thead>
+      <thead><tr><th>Catchment</th><th>Lower hydroid</th><th>Res m</th><th>Months</th><th>Corr</th><th>Mean |diff| pp</th><th>Max |diff| pp</th><th>Amplitude Δ pp</th><th>Same wet/dry (global)</th><th>HY peak/end-dry matched</th></tr></thead>
       <tbody>{''.join(rows)}</tbody>
     </table>
   </section>
@@ -612,16 +688,28 @@ def build_html_report(results: list[dict], output_path: Path) -> Path:
 def _write_summary_tables(results: list[dict], output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = []
+    hy_rows = []
     for r in results:
+        hy = r["hydrological_years"]
         row = {
             "catchment_key": r["catchment_key"],
             "display_name": r["display_name"],
             "lower_hydroid": r["lower_hydroid"],
             "side_km": r["side_km"],
             **r["comparison"],
+            "n_shared_hy": hy["n_shared_hy"],
+            "n_matched_peak_month": hy["n_matched_peak_month"],
+            "n_matched_end_dry_month": hy["n_matched_end_dry_month"],
         }
         summary.append(row)
+        for year_row in hy["years"]:
+            hy_rows.append({
+                "catchment_key": r["catchment_key"],
+                "display_name": r["display_name"],
+                **year_row,
+            })
     pd.DataFrame(summary).to_csv(output_dir / "summary.csv", index=False)
+    pd.DataFrame(hy_rows).to_csv(output_dir / "hy_summary.csv", index=False)
     (output_dir / "summary.json").write_text(json.dumps(results, indent=2, default=str), encoding="utf-8")
 
 

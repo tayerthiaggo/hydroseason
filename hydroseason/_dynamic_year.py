@@ -17,7 +17,7 @@ from ._boundary import (
 )
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._semi_markov import SemiMarkovConfig, fit_semi_markov_boundaries
-from ._state_input import prepare_monthly_extent
+from ._state_input import QualityPolicy, prepare_monthly_extent
 
 # Fallback values substituted for the deprecated recovery-window fields when a
 # caller has not supplied them. These match the historical defaults (2 and 4)
@@ -37,6 +37,7 @@ class DynamicHydroYearConfig:
     pulse_rejection_window_months: int | None = None
     max_invalid_pct: float = 20.0
     allow_unknown_quality: bool = False
+    quality_policy: QualityPolicy = "exclude"
     min_usable_months_per_cycle: int = 8
     min_usable_trough_candidates: int = 2
     min_baseline_cycles: int = 10
@@ -58,6 +59,8 @@ class DynamicHydroYearConfig:
             raise ValueError("recovery windows must be positive.")
         if not 0 <= self.max_invalid_pct <= 100:
             raise ValueError("max_invalid_pct must be between 0 and 100.")
+        if self.quality_policy not in {"exclude", "flag"}:
+            raise ValueError("quality_policy must be 'exclude' or 'flag'.")
         if not 0 <= self.low_percentile < self.high_percentile <= 100:
             raise ValueError("condition percentiles must satisfy 0 <= low < high <= 100.")
         if self.measurement_tolerance_pct < 0:
@@ -364,6 +367,7 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         extent, value_col=value_col, date_col=date_col,
         max_invalid_pct=config.max_invalid_pct,
         allow_unknown_quality=config.allow_unknown_quality,
+        quality_policy=config.quality_policy,
     )
     if config.detector == "robust_extrema":
         opportunities = _find_robust_trough_opportunities(frame, config)

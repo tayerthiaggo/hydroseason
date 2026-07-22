@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import pandas as pd
 
+os.environ.pop("PROJ_LIB", None)
+os.environ.pop("PROJ_DATA", None)
+
 from hydroseason import load_aoi
 from hydroseason.io import load_wofs_monthly_extent
+
+DEA_ALBERS_CRS = 3577
 
 
 def add_provenance(frame: pd.DataFrame, *, source: str, aoi: str) -> pd.DataFrame:
@@ -18,7 +24,15 @@ def add_provenance(frame: pd.DataFrame, *, source: str, aoi: str) -> pd.DataFram
     return result
 
 
-def build(aoi_path: Path, output: Path, start: str, end: str, cache_dir: Path) -> None:
+def build(
+    aoi_path: Path,
+    output: Path,
+    start: str,
+    end: str,
+    cache_dir: Path,
+    *,
+    resolution: float | None = None,
+) -> None:
     aoi = load_aoi(aoi_path)
     extent = load_wofs_monthly_extent(
         "https://explorer.dea.ga.gov.au/stac",
@@ -26,6 +40,8 @@ def build(aoi_path: Path, output: Path, start: str, end: str, cache_dir: Path) -
         aoi,
         start,
         end,
+        crs=DEA_ALBERS_CRS,
+        resolution=resolution,
         cache_dir=cache_dir,
         time_block=12,
     )
@@ -47,11 +63,19 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--start", default="2015-01-01")
     parser.add_argument("--end", default="2025-12-31")
+    parser.add_argument("--resolution", type=float, default=None)
     parser.add_argument(
         "--cache-dir", type=Path, default=Path("output/real_extent_cache")
     )
     args = parser.parse_args()
-    build(args.aoi, args.output, args.start, args.end, args.cache_dir)
+    build(
+        args.aoi,
+        args.output,
+        args.start,
+        args.end,
+        args.cache_dir,
+        resolution=args.resolution,
+    )
 
 
 if __name__ == "__main__":

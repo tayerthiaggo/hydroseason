@@ -10,6 +10,7 @@ those packages -- only calling a function that needs one does.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -171,7 +172,13 @@ def load_wofs_from_stac(
     try:
         aoi_4326 = aoi_gdf.to_crs("EPSG:4326")
         client = pystac_client.Client.open(stac_url)
-        items = list(client.search(collections=[collection], datetime=f"{start_date}/{end_date}", bbox=list(aoi_4326.total_bounds)).items())
+        start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
+        items = _collect_stac_items(
+            client,
+            collections=[collection],
+            datetime=f"{start:%Y-%m-%d}/{end:%Y-%m-%d}",
+            bbox=list(aoi_4326.total_bounds),
+        )
     except Exception as exc:
         raise AOIRasterizationError("STAC AOI query failed; refusing to load an unclipped raster.") from exc
     if not items:
@@ -226,6 +233,30 @@ def load_wofs_from_stac(
         duplicate_month_policy=duplicate_month_policy,
     )
     return completed.chunk({"time": min(time_chunk, completed.sizes["time"]), "x": chunk_x, "y": chunk_y})
+
+
+def _collect_stac_items(client, *, max_attempts: int = 4, **search_kwargs):
+    delay = 2.0
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return list(client.search(**search_kwargs).items())
+        except Exception as exc:
+            if attempt == max_attempts or not _is_transient_stac_error(exc):
+                raise
+            time.sleep(delay)
+            delay *= 2.0
+    raise RuntimeError("unreachable")
+
+
+def _is_transient_stac_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    if status_code is None and response is not None:
+        status_code = getattr(response, "status_code", None)
+    if status_code in {500, 502, 503, 504}:
+        return True
+    text = str(exc).lower()
+    return any(token in text for token in ("500", "502", "503", "504", "gateway", "timeout", "temporarily unavailable"))
 
 
 def _validate_classifier(encoding, classifier):

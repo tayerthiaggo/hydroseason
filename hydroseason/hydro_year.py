@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 DuplicateMonthPolicy = Literal["raise", "warn"]
 MissingMonthPolicy = Literal["raise", "ignore"]
+QualityPolicy = Literal["exclude", "flag"]
 
 
 @dataclass(frozen=True)
@@ -230,16 +231,19 @@ def detect_hydrological_years(
     duplicate_month_policy: DuplicateMonthPolicy = "raise",
     missing_month_policy: MissingMonthPolicy = "raise",
     max_invalid_pct: float = 20.0,
+    quality_policy: QualityPolicy = "exclude",
 ) -> pd.DataFrame:
     """Detect hydrological years from a complete, quality-screened monthly series.
 
     ``invalid_pct`` is honoured when supplied in a DataFrame. The conservative
-    default rejects months with more than 20% invalid coverage (see migration
-    plan §6.2); callers may explicitly raise ``max_invalid_pct`` after
-    assessing data quality.
+    default rejects months with more than 20% invalid coverage. Set
+    ``quality_policy="flag"`` to retain those observations and continue while
+    leaving quality interpretation to the caller.
     """
     if not 0 <= max_invalid_pct <= 100:
         raise ValueError("max_invalid_pct must be between 0 and 100.")
+    if quality_policy not in {"exclude", "flag"}:
+        raise ValueError("quality_policy must be 'exclude' or 'flag'.")
     cfg = config or HydroYearConfig()
     series, invalid_pct, full_index = _coerce_monthly_series(
         extent,
@@ -247,7 +251,7 @@ def detect_hydrological_years(
         date_col=date_col,
         duplicate_month_policy=duplicate_month_policy,
     )
-    if invalid_pct is not None:
+    if invalid_pct is not None and quality_policy == "exclude":
         invalid = invalid_pct.reindex(full_index)
         if invalid.isna().any() or (invalid > max_invalid_pct).any():
             raise ValueError(

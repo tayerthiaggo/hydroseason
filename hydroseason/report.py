@@ -674,7 +674,7 @@ def generate_html_report(
         <div class="report-text">
           <h2>Workflow</h2>
           <ol>
-            <li>Load and gap-fill remote sensing water extent observations over the target period.</li>
+            <li>Load and quality-flag remote sensing water extent observations over the target period.</li>
             <li>Detect hydrological years by identifying localized peaks (Wet season) and subsequent minima (End Dry season).</li>
             <li>Calculate the Mid-Dry target month for each year to represent the transition period.</li>
             <li>Label all intermediate months based on their position within the defined hydrological years.</li>

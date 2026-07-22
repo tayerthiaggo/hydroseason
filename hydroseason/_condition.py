@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ._state_input import prepare_monthly_extent
+from ._state_input import QualityPolicy, prepare_monthly_extent
 
 
 _JOINT_STATE_MAP: dict[tuple[str, str], str] = {
@@ -231,10 +231,12 @@ def compute_monthly_surface_water_condition(
     date_col: str | None = None,
     max_invalid_pct: float = 20.0,
     allow_unknown_quality: bool = False,
+    quality_policy: QualityPolicy = "exclude",
 ) -> pd.DataFrame:
     frame = prepare_monthly_extent(
         extent, value_col=value_col, date_col=date_col,
         max_invalid_pct=max_invalid_pct, allow_unknown_quality=allow_unknown_quality,
+        quality_policy=quality_policy,
     )
     reference_mask = frame["candidate_usable"].copy()
     if reference_start is not None or reference_end is not None:
