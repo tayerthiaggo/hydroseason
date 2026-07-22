@@ -401,6 +401,217 @@ def test_stac_loader_retries_transient_search_failure(monkeypatch):
     assert result.sizes["time"] == 1
 
 
+def test_stac_wrapper_queries_once_and_loads_the_returned_items(monkeypatch):
+    from unittest.mock import Mock
+
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("pystac_client")
+    pytest.importorskip("odc.stac")
+    pytest.importorskip("rioxarray")
+    import hydroseason._io_geo as geo
+
+    items = [object(), object()]
+    query = Mock(return_value=(items, _aoi()))
+    loaded = object()
+    load_items = Mock(return_value=loaded)
+    monkeypatch.setattr(geo, "_query_wofs_items", query)
+    monkeypatch.setattr(geo, "_load_wofs_items", load_items)
+
+    result = geo.load_wofs_from_stac(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2020-02-29", crs=3577, resolution=30,
+    )
+
+    query.assert_called_once()
+    assert load_items.call_args.args[0] is items
+    assert load_items.call_args.kwargs["geobox"] is None
+    assert result is loaded
+
+
+def test_tile_slices_cover_parent_once_without_overlap():
+    from hydroseason.io import _tile_slices
+
+    coverage = np.zeros((2050, 1030), dtype=np.uint8)
+    tiles = list(_tile_slices(coverage.shape, 1024))
+    for _tile_id, ys, xs in tiles:
+        coverage[ys, xs] += 1
+
+    assert len(tiles) == 6
+    assert coverage.min() == 1
+    assert coverage.max() == 1
+    assert tiles[-1] == ("r0002_c0001", slice(2048, 2050), slice(1024, 1030))
+
+
+@pytest.mark.parametrize("tile_pixels", [0, -1])
+def test_tile_slices_reject_non_positive_edge(tile_pixels):
+    from hydroseason.io import _tile_slices
+
+    with pytest.raises(ValueError, match="tile_pixels"):
+        list(_tile_slices((100, 100), tile_pixels))
+
+
+def test_tiled_reduction_matches_whole_cube_reduction_with_boundary_canonical_values():
+    """Prove sum-then-percentage tiled aggregation is bit-exact vs. a whole-cube reduction.
+
+    A 4x4 spatial grid with tile_pixels=2 forces exactly four non-overlapping
+    2x2 tiles, cut between rows 1/2 and columns 1/2 (see
+    test_tile_slices_cover_parent_once_without_overlap for the slicing
+    contract). All four canonical values (1=water, 0=dry, -1=invalid inside
+    the AOI, -2=outside the AOI) appear across the four months, and every
+    -1/-2 pixel sits at one of (1,1), (1,2), (2,1), (2,2) -- the four corners
+    of the center 2x2 block immediately flanking the tile boundary, one per
+    tile -- so the equivalence is exercised exactly where a tiling bug would
+    show up: values straddling the cut.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    from hydroseason.hydro_year import monthly_water_extent
+    from hydroseason.io import _tile_slices
+    from hydroseason._io_extent_cache import _aggregate_extent_parts
+
+    # Month 1: water/dry only (baseline, no boundary values).
+    month1 = np.array(
+        [
+            [1, 1, 0, 0],
+            [1, 1, 0, 0],
+            [0, 0, 1, 1],
+            [0, 0, 1, 1],
+        ],
+        dtype=np.int8,
+    )
+    # Month 2: invalid (-1) at boundary corners (1,1) and (2,2).
+    month2 = np.array(
+        [
+            [1, 0, 0, 1],
+            [0, -1, 1, 0],
+            [1, 0, -1, 0],
+            [0, 1, 0, 1],
+        ],
+        dtype=np.int8,
+    )
+    # Month 3: outside-AOI (-2) at boundary corners (1,2) and (2,1).
+    month3 = np.array(
+        [
+            [0, 1, 1, 0],
+            [1, 0, -2, 1],
+            [0, -2, 0, 1],
+            [1, 0, 1, 0],
+        ],
+        dtype=np.int8,
+    )
+    # Month 4: all four canonical values, with -1 and -2 both on the
+    # boundary but landing in different tiles than months 2/3 did.
+    month4 = np.array(
+        [
+            [1, 1, -2, 0],
+            [0, -1, 1, -2],
+            [-1, 0, -2, 1],
+            [1, -2, 0, -1],
+        ],
+        dtype=np.int8,
+    )
+
+    values = np.stack([month1, month2, month3, month4], axis=0)
+    assert set(np.unique(values).tolist()) == {-2, -1, 0, 1}
+    assert len(list(_tile_slices(values.shape[-2:], 2))) == 4
+
+    dates = pd.date_range("2020-01-01", periods=4, freq="MS")
+    cube = xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={"time": dates, "y": np.arange(4), "x": np.arange(4)},
+    ).chunk({"time": 1, "y": 2, "x": 2})
+
+    whole = monthly_water_extent(cube, time_block=2)
+    parts = [
+        monthly_water_extent(cube.isel(y=ys, x=xs), time_block=2)
+        for _tile_id, ys, xs in _tile_slices(cube.shape[-2:], 2)
+    ]
+    tiled = _aggregate_extent_parts(parts, whole.index)
+
+    pd.testing.assert_frame_equal(tiled, whole)
+
+
+def test_tiled_stac_iterator_queries_once_reuses_items_and_skips_cached_tiles(monkeypatch):
+    from unittest.mock import Mock
+
+    import hydroseason._io_geo as geo
+
+    class FakeGeoBox:
+        def __init__(self, shape, origin=(0, 0)):
+            self.shape = shape
+            self.origin = origin
+
+        def __getitem__(self, roi):
+            ys, xs = roi
+            return FakeGeoBox(
+                (ys.stop - ys.start, xs.stop - xs.start),
+                (ys.start, xs.start),
+            )
+
+    items = [object(), object()]
+    parent = FakeGeoBox(shape=(2048, 2048))
+    query = Mock(return_value=(items, _aoi()))
+    load_items = Mock(return_value="mask")
+    monkeypatch.setattr(geo, "_query_wofs_items", query)
+    monkeypatch.setattr(geo, "_output_geobox_for_aoi", Mock(return_value=parent))
+    monkeypatch.setattr(geo, "_tile_intersects_aoi", Mock(return_value=True))
+    monkeypatch.setattr(geo, "_load_wofs_items", load_items)
+
+    result = list(geo.iter_wofs_tiles_from_stac(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2020-12-31",
+        crs=3577, resolution=30, tile_pixels=1024,
+        skip_tile_ids={"r0000_c0001"},
+    ))
+
+    query.assert_called_once()
+    assert [tile_id for tile_id, _mask in result] == [
+        "r0000_c0000", "r0001_c0000", "r0001_c0001",
+    ]
+    assert load_items.call_count == 3
+    assert all(call.args[0] is items for call in load_items.call_args_list)
+    assert all(call.kwargs["geobox"] is not None for call in load_items.call_args_list)
+
+
+def test_tile_intersects_aoi_true_for_overlapping_tile():
+    pytest.importorskip("odc.geo")
+    from odc.geo.geobox import GeoBox
+
+    from hydroseason._io_geo import _tile_intersects_aoi
+
+    aoi = _aoi()  # box(0, 0, 2, 2) in EPSG:4326
+    tile_geobox = GeoBox.from_bbox((1, 1, 3, 3), crs="EPSG:4326", shape=(10, 10))
+
+    assert _tile_intersects_aoi(tile_geobox, aoi) is True
+
+
+def test_tile_intersects_aoi_false_for_disjoint_tile():
+    pytest.importorskip("odc.geo")
+    from odc.geo.geobox import GeoBox
+
+    from hydroseason._io_geo import _tile_intersects_aoi
+
+    aoi = _aoi()  # box(0, 0, 2, 2) in EPSG:4326
+    tile_geobox = GeoBox.from_bbox((100, 100, 110, 110), crs="EPSG:4326", shape=(10, 10))
+
+    assert _tile_intersects_aoi(tile_geobox, aoi) is False
+
+
+def test_output_geobox_for_aoi_raises_when_odc_returns_none(monkeypatch):
+    pytest.importorskip("odc.stac")
+    import odc.stac
+
+    from hydroseason._io_geo import AOIRasterizationError, _output_geobox_for_aoi
+
+    monkeypatch.setattr(odc.stac, "parse_items", lambda items: list(items))
+    monkeypatch.setattr(odc.stac, "output_geobox", lambda *args, **kwargs: None)
+
+    with pytest.raises(AOIRasterizationError, match="output GeoBox"):
+        _output_geobox_for_aoi([object()], _aoi(), crs=3577, resolution=30)
+
+
 def test_classify_canonical_rejects_out_of_domain_codes():
     xr = pytest.importorskip("xarray")
     from hydroseason.io import _classify
@@ -736,3 +947,44 @@ def test_probe_amplitude_guard_silent_on_stable_water_fraction(monkeypatch):
     assert calls["n"] == 2
     assert result["guard_caveat"] is None
     assert result["refuse_coarsen_past"] is None
+
+
+def test_canonical_masks_outside_aoi_pixels_excluded_from_counts():
+    """Raster-level regression: outside-AOI -2 pixels never enter any count.
+
+    This test proves that the canonical mask encoding (outside=-2, invalid=-1,
+    dry=0, water=1) is correctly interpreted by monthly_water_extent such that
+    only inside-AOI pixels contribute to the counts.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    from hydroseason.hydro_year import monthly_water_extent
+
+    # Create a canonical mask with:
+    # - 2 outside-AOI pixels (-2): should not enter any count
+    # - 1 invalid inside-AOI pixel (-1)
+    # - 1 dry pixel (0)
+    # - 2 water pixels (1)
+    # Expected counts:
+    # - n_water=2 (only the water pixels)
+    # - n_aoi=4 (only inside-AOI: -1, 0, 1, 1)
+    # - n_valid=3 (0 and two 1s)
+    # - n_invalid=1 (one -1)
+    # - extent_pct = 2/3 * 100 = 66.666...
+    # - invalid_pct = 1/4 * 100 = 25.0
+    values = np.array([[[-2, -2, -1], [0, 1, 1]]], dtype=np.int8)
+    masks = xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01"]), "y": [0, 1], "x": [0, 1, 2]},
+    ).chunk({"time": 1, "y": 1, "x": 1})
+
+    summary = monthly_water_extent(masks)
+    row = summary.iloc[0]
+
+    assert row["n_water"] == 2, f"expected n_water=2, got {row['n_water']}"
+    assert row["n_valid"] == 3, f"expected n_valid=3, got {row['n_valid']}"
+    assert row["n_invalid"] == 1, f"expected n_invalid=1, got {row['n_invalid']}"
+    assert row["n_aoi"] == 4, f"expected n_aoi=4, got {row['n_aoi']}"
+    assert row["extent_pct"] == pytest.approx(200.0 / 3.0), f"expected extent_pct≈66.67, got {row['extent_pct']}"
+    assert row["invalid_pct"] == pytest.approx(25.0), f"expected invalid_pct=25.0, got {row['invalid_pct']}"

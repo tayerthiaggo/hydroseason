@@ -96,3 +96,193 @@ def test_year_without_stac_items_becomes_unusable_months(monkeypatch):
     assert (extent.loc["2020", "n_valid"] == 0).all()
     assert extent.loc["2020", "extent_pct"].isna().all()
     assert (extent.loc["2021", "n_valid"] == 4).all()
+
+
+def test_tile_extent_aggregation_sums_counts_then_recomputes_percentages():
+    from hydroseason._io_extent_cache import _aggregate_extent_parts
+
+    index = pd.DatetimeIndex(["2020-01-01"])
+    left = pd.DataFrame({
+        "n_water": [3], "n_aoi": [8], "n_valid": [6], "n_invalid": [2],
+        "extent_pct": [50.0], "invalid_pct": [25.0],
+    }, index=index)
+    right = pd.DataFrame({
+        "n_water": [1], "n_aoi": [2], "n_valid": [2], "n_invalid": [0],
+        "extent_pct": [50.0], "invalid_pct": [0.0],
+    }, index=index)
+
+    result = _aggregate_extent_parts([left, right], index)
+
+    assert result.loc[index[0], "n_water"] == 4
+    assert result.loc[index[0], "n_valid"] == 8
+    assert result.loc[index[0], "n_invalid"] == 2
+    assert result.loc[index[0], "n_aoi"] == 10
+    assert result.loc[index[0], "extent_pct"] == 50.0
+    assert result.loc[index[0], "invalid_pct"] == 20.0
+    assert result.loc[index[0], "n_aoi"] == (
+        result.loc[index[0], "n_valid"] + result.loc[index[0], "n_invalid"]
+    )
+
+
+def test_tile_extent_aggregation_keeps_empty_month_percentages_nan():
+    from hydroseason._io_extent_cache import _aggregate_extent_parts
+
+    index = pd.DatetimeIndex(["2020-01-01"])
+    result = _aggregate_extent_parts([], index)
+
+    assert (result[["n_water", "n_aoi", "n_valid", "n_invalid"]] == 0).all().all()
+    assert result[["extent_pct", "invalid_pct"]].isna().all().all()
+
+
+def test_tiled_extent_resume_skips_completed_tiles(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    calls = []
+    fail_once = {"value": True}
+
+    def fake_tiles(*args, skip_tile_ids=(), **kwargs):
+        calls.append(set(skip_tile_ids))
+        for tile_id in ["r0000_c0000", "r0000_c0001", "r0001_c0000"]:
+            if tile_id in skip_tile_ids:
+                continue
+            if tile_id == "r0001_c0000" and fail_once["value"]:
+                fail_once["value"] = False
+                raise RuntimeError("interrupted")
+            yield tile_id, _fake_monthly_cube("2020-01-01", "2020-12-01")
+
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+    kwargs = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=object(),
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        cache_dir=tmp_path / "cache",
+        crs=3577,
+        resolution=30,
+        tile_pixels=1024,
+    )
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        hio.load_wofs_monthly_extent(**kwargs)
+    result = hio.load_wofs_monthly_extent(**kwargs)
+
+    assert calls[0] == set()
+    assert calls[1] == {"r0000_c0000", "r0000_c0001"}
+    assert (result["n_water"] == 12).all()
+
+
+def test_tiled_extent_no_data_year_continues_to_next_year(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    def fake_tiles(_url, _collection, _aoi, start, _end, **kwargs):
+        if start.startswith("2020"):
+            raise ValueError("No STAC items found for requested AOI and date range.")
+        yield "r0000_c0000", _fake_monthly_cube("2021-01-01", "2021-12-01")
+
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+
+    result = hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac",
+        "wofs",
+        object(),
+        "2020-01-01",
+        "2021-12-31",
+        cache_dir=tmp_path / "cache",
+        crs=3577,
+        resolution=30,
+        tile_pixels=1024,
+    )
+
+    assert len(result) == 24
+    assert (result.loc["2020", "n_valid"] == 0).all()
+    assert result.loc["2020", "extent_pct"].isna().all()
+    assert (result.loc["2021", "n_valid"] == 4).all()
+    assert (result.loc["2021", "n_water"] == 4).all()
+
+
+def test_tiled_extent_zero_tiles_yielded_raises_and_does_not_cache(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    def fake_tiles(*args, skip_tile_ids=(), **kwargs):
+        return
+        yield  # pragma: no cover - makes this a generator function that yields nothing
+
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+    cache_dir = tmp_path / "cache"
+    kwargs = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=object(),
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        cache_dir=cache_dir,
+        crs=3577,
+        resolution=30,
+        tile_pixels=1024,
+    )
+
+    with pytest.raises(ValueError, match="no tiles were produced"):
+        hio.load_wofs_monthly_extent(**kwargs)
+
+    assert not cache_dir.exists() or list(cache_dir.glob("*.csv")) == []
+
+
+def test_tiled_extent_per_tile_value_error_propagates_uncached(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    def fake_tiles(*args, skip_tile_ids=(), **kwargs):
+        # A tile whose reduced monthly index doesn't match the expected year
+        # window -- this triggers the "unexpected monthly index" ValueError
+        # inside the reduction loop, not from the generator/STAC query itself.
+        yield "r0000_c0000", _fake_monthly_cube("2020-06-01", "2020-08-01")
+
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+    cache_dir = tmp_path / "cache"
+    kwargs = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=object(),
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        cache_dir=cache_dir,
+        crs=3577,
+        resolution=30,
+        tile_pixels=1024,
+    )
+
+    with pytest.raises(ValueError, match="unexpected monthly index"):
+        hio.load_wofs_monthly_extent(**kwargs)
+
+    assert not cache_dir.exists() or list(cache_dir.glob("*.csv")) == []
+
+
+def test_tiled_extent_force_ignores_annual_and_tile_caches(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    calls = []
+
+    def fake_tiles(*args, skip_tile_ids=(), **kwargs):
+        calls.append(set(skip_tile_ids))
+        yield "r0000_c0000", _fake_monthly_cube("2020-01-01", "2020-12-01")
+
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+    kwargs = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=object(),
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        cache_dir=tmp_path / "cache",
+        crs=3577,
+        resolution=30,
+        tile_pixels=1024,
+    )
+
+    hio.load_wofs_monthly_extent(**kwargs)
+    hio.load_wofs_monthly_extent(**kwargs)
+    hio.load_wofs_monthly_extent(**kwargs, force=True)
+
+    assert len(calls) == 2
+    assert calls[0] == set()
+    assert calls[1] == set()

@@ -29,12 +29,18 @@ from hydroseason._io_geo import (  # noqa: F401
     _crs_value,
     _inside_aoi_mask_like,
     _is_identity_transform,
+    _load_wofs_items,
     _parse_date_from_name,
     _preserve_georef,
+    _output_geobox_for_aoi,
+    _query_wofs_items,
     _resolve_raster_crs,
     _resolve_raster_transform,
     _spatial_transform_from_xy,
+    _tile_intersects_aoi,
+    _tile_slices,
     _validate_classifier,
+    iter_wofs_tiles_from_stac,
 )
 from hydroseason._io_resolution import (  # noqa: F401
     _DEFAULT_CANDIDATE_RES_M,
