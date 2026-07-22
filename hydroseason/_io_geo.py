@@ -351,11 +351,27 @@ def _tile_intersects_aoi(tile_geobox, target):
     return bool(target.to_crs(tile_geobox.crs).geometry.intersects(tile_polygon).any())
 
 
+def tile_intersects_wet_aoi(tile_geobox, wet_aoi) -> bool:
+    """Module-local indirection to ``hydroseason._wet_aoi.tile_intersects_wet_aoi``.
+
+    ``_wet_aoi`` imports from this module at module scope (for
+    ``_preserve_georef``), so this module cannot import ``_wet_aoi`` at
+    module scope without a cycle; the import is deferred to call time here
+    instead. Kept as a real module-level name (rather than inlining the
+    import at the call site in :func:`iter_wofs_tiles_from_stac`) so it can
+    be monkeypatched the same way as :func:`_tile_intersects_aoi`.
+    """
+    from hydroseason._wet_aoi import tile_intersects_wet_aoi as _impl
+
+    return _impl(tile_geobox, wet_aoi)
+
+
 def iter_wofs_tiles_from_stac(
     stac_url: str, collection: str, aoi, start_date: str, end_date: str, *, crs: int | str | None = 3577,
     resolution: float, tile_pixels: int, skip_tile_ids: Collection[str] = (),
     chunk_x: int = 512, chunk_y: int = 512, time_chunk: int = 24, majority: bool = True,
     duplicate_month_policy: Literal["raise", "warn"] = "raise",
+    wet_aoi=None,
 ) -> Iterator[tuple[str, "object"]]:
     """Query STAC once, then load WOfS one native-resolution Albers tile at a time.
 
@@ -366,6 +382,15 @@ def iter_wofs_tiles_from_stac(
     tile count. Tiles outside the AOI bounding box, or whose id is present in
     ``skip_tile_ids`` (e.g. already cached from a previous run), are skipped
     without loading.
+
+    ``wet_aoi``, if given, is an already-computed wet-AOI GeoDataFrame (see
+    :func:`hydroseason._wet_aoi.compute_wet_aoi`) used as a SECOND, independent
+    tile-skip gate: a tile is loaded only if it passes both the user-AOI bbox
+    test and :func:`hydroseason._wet_aoi.tile_intersects_wet_aoi`. This only
+    decides which tiles get loaded at all -- it never changes what the
+    per-tile AOI clip inside :func:`_load_wofs_items` clips to (still the
+    user's original ``target`` AOI), so extent denominators (``n_aoi``) for
+    any tile that does load are unaffected by wet-AOI pruning.
     """
     if aoi is None:
         raise ValueError("AOI is required for WOfS/STAC loading.")
@@ -396,6 +421,11 @@ def iter_wofs_tiles_from_stac(
             continue
         tile_geobox = parent_geobox[ys, xs]
         if not _tile_intersects_aoi(tile_geobox, target):
+            continue
+        # Wet-AOI pruning: skip tiles the full-TS water union never touches.
+        # This decides which tiles load; the user-AOI clip below is unchanged,
+        # so extent denominators (n_aoi) stay measured against the user AOI.
+        if not tile_intersects_wet_aoi(tile_geobox, wet_aoi):
             continue
         mask = _load_wofs_items(
             items,

@@ -575,6 +575,102 @@ def test_tiled_stac_iterator_queries_once_reuses_items_and_skips_cached_tiles(mo
     assert all(call.kwargs["geobox"] is not None for call in load_items.call_args_list)
 
 
+def test_tiled_stac_iterator_prunes_tiles_outside_wet_aoi(monkeypatch):
+    """A tile that passes the user-AOI bbox test but fails the wet-AOI test
+    must be skipped entirely, and the wet AOI must not otherwise influence
+    which arguments reach ``_load_wofs_items`` (the user-AOI clip is untouched).
+    """
+    from unittest.mock import Mock
+
+    import hydroseason._io_geo as geo
+
+    class FakeGeoBox:
+        def __init__(self, shape, origin=(0, 0)):
+            self.shape = shape
+            self.origin = origin
+
+        def __getitem__(self, roi):
+            ys, xs = roi
+            return FakeGeoBox(
+                (ys.stop - ys.start, xs.stop - xs.start),
+                (ys.start, xs.start),
+            )
+
+    items = [object(), object()]
+    parent = FakeGeoBox(shape=(2048, 2048))
+    query = Mock(return_value=(items, _aoi()))
+    load_items = Mock(return_value="mask")
+    monkeypatch.setattr(geo, "_query_wofs_items", query)
+    monkeypatch.setattr(geo, "_output_geobox_for_aoi", Mock(return_value=parent))
+    monkeypatch.setattr(geo, "_tile_intersects_aoi", Mock(return_value=True))
+    monkeypatch.setattr(geo, "_load_wofs_items", load_items)
+
+    # Wet-AOI predicate: only the left-column tiles (c0000) are "wet"; the
+    # right-column tiles (c0001) should be pruned before ever reaching
+    # _load_wofs_items.
+    def fake_wet_predicate(tile_geobox, wet_aoi):
+        assert wet_aoi == "sentinel-wet-aoi"
+        return tile_geobox.origin[1] == 0
+
+    monkeypatch.setattr(geo, "tile_intersects_wet_aoi", fake_wet_predicate)
+
+    result = list(geo.iter_wofs_tiles_from_stac(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2020-12-31",
+        crs=3577, resolution=30, tile_pixels=1024,
+        wet_aoi="sentinel-wet-aoi",
+    ))
+
+    query.assert_called_once()
+    assert [tile_id for tile_id, _mask in result] == ["r0000_c0000", "r0001_c0000"]
+    assert load_items.call_count == 2
+    # The wet-AOI gate must not change what _load_wofs_items is called with:
+    # aoi_gdf (the user AOI) is passed through unchanged for every loaded tile.
+    for call in load_items.call_args_list:
+        assert call.args[0] is items
+        assert "wet_aoi" not in call.kwargs
+
+
+def test_tiled_stac_iterator_loads_all_tiles_when_wet_aoi_is_none(monkeypatch):
+    """Default ``wet_aoi=None`` must not prune anything (fail-open, unchanged
+    behavior from before this parameter existed)."""
+    from unittest.mock import Mock
+
+    import hydroseason._io_geo as geo
+
+    class FakeGeoBox:
+        def __init__(self, shape, origin=(0, 0)):
+            self.shape = shape
+            self.origin = origin
+
+        def __getitem__(self, roi):
+            ys, xs = roi
+            return FakeGeoBox(
+                (ys.stop - ys.start, xs.stop - xs.start),
+                (ys.start, xs.start),
+            )
+
+    items = [object(), object()]
+    parent = FakeGeoBox(shape=(2048, 2048))
+    query = Mock(return_value=(items, _aoi()))
+    load_items = Mock(return_value="mask")
+    monkeypatch.setattr(geo, "_query_wofs_items", query)
+    monkeypatch.setattr(geo, "_output_geobox_for_aoi", Mock(return_value=parent))
+    monkeypatch.setattr(geo, "_tile_intersects_aoi", Mock(return_value=True))
+    monkeypatch.setattr(geo, "_load_wofs_items", load_items)
+
+    result = list(geo.iter_wofs_tiles_from_stac(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2020-12-31",
+        crs=3577, resolution=30, tile_pixels=1024,
+    ))
+
+    assert [tile_id for tile_id, _mask in result] == [
+        "r0000_c0000", "r0000_c0001", "r0001_c0000", "r0001_c0001",
+    ]
+    assert load_items.call_count == 4
+
+
 def test_tile_intersects_aoi_true_for_overlapping_tile():
     pytest.importorskip("odc.geo")
     from odc.geo.geobox import GeoBox
