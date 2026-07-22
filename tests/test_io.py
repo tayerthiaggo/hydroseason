@@ -394,6 +394,88 @@ def test_tile_slices_reject_non_positive_edge(tile_pixels):
         list(_tile_slices((100, 100), tile_pixels))
 
 
+def test_tiled_reduction_matches_whole_cube_reduction_with_boundary_canonical_values():
+    """Prove sum-then-percentage tiled aggregation is bit-exact vs. a whole-cube reduction.
+
+    A 4x4 spatial grid with tile_pixels=2 forces exactly four non-overlapping
+    2x2 tiles, cut between rows 1/2 and columns 1/2 (see
+    test_tile_slices_cover_parent_once_without_overlap for the slicing
+    contract). All four canonical values (1=water, 0=dry, -1=invalid inside
+    the AOI, -2=outside the AOI) appear across the four months, and every
+    -1/-2 pixel sits at one of (1,1), (1,2), (2,1), (2,2) -- the four corners
+    of the center 2x2 block immediately flanking the tile boundary, one per
+    tile -- so the equivalence is exercised exactly where a tiling bug would
+    show up: values straddling the cut.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    from hydroseason.hydro_year import monthly_water_extent
+    from hydroseason.io import _tile_slices
+    from hydroseason._io_extent_cache import _aggregate_extent_parts
+
+    # Month 1: water/dry only (baseline, no boundary values).
+    month1 = np.array(
+        [
+            [1, 1, 0, 0],
+            [1, 1, 0, 0],
+            [0, 0, 1, 1],
+            [0, 0, 1, 1],
+        ],
+        dtype=np.int8,
+    )
+    # Month 2: invalid (-1) at boundary corners (1,1) and (2,2).
+    month2 = np.array(
+        [
+            [1, 0, 0, 1],
+            [0, -1, 1, 0],
+            [1, 0, -1, 0],
+            [0, 1, 0, 1],
+        ],
+        dtype=np.int8,
+    )
+    # Month 3: outside-AOI (-2) at boundary corners (1,2) and (2,1).
+    month3 = np.array(
+        [
+            [0, 1, 1, 0],
+            [1, 0, -2, 1],
+            [0, -2, 0, 1],
+            [1, 0, 1, 0],
+        ],
+        dtype=np.int8,
+    )
+    # Month 4: all four canonical values, with -1 and -2 both on the
+    # boundary but landing in different tiles than months 2/3 did.
+    month4 = np.array(
+        [
+            [1, 1, -2, 0],
+            [0, -1, 1, -2],
+            [-1, 0, -2, 1],
+            [1, -2, 0, -1],
+        ],
+        dtype=np.int8,
+    )
+
+    values = np.stack([month1, month2, month3, month4], axis=0)
+    assert set(np.unique(values).tolist()) == {-2, -1, 0, 1}
+    assert len(list(_tile_slices(values.shape[-2:], 2))) == 4
+
+    dates = pd.date_range("2020-01-01", periods=4, freq="MS")
+    cube = xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={"time": dates, "y": np.arange(4), "x": np.arange(4)},
+    ).chunk({"time": 1, "y": 2, "x": 2})
+
+    whole = monthly_water_extent(cube, time_block=2)
+    parts = [
+        monthly_water_extent(cube.isel(y=ys, x=xs), time_block=2)
+        for _tile_id, ys, xs in _tile_slices(cube.shape[-2:], 2)
+    ]
+    tiled = _aggregate_extent_parts(parts, whole.index)
+
+    pd.testing.assert_frame_equal(tiled, whole)
+
+
 def test_tiled_stac_iterator_queries_once_reuses_items_and_skips_cached_tiles(monkeypatch):
     from unittest.mock import Mock
 
