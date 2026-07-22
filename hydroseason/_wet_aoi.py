@@ -86,3 +86,26 @@ def wet_aoi_polygon(
     return gpd.GeoDataFrame(
         {"geometry": [merged]}, geometry="geometry", crs=crs
     )
+
+
+def compute_wet_aoi(mask, *, persistence_min: float = 0.0,
+                    close_m: float = 150.0, buffer_m: float = 300.0):
+    """End-to-end: mask cube -> ever-wet boolean -> closed+buffered wet-AOI polygon."""
+    ever_wet = compute_ever_wet(mask, persistence_min=persistence_min)
+    return wet_aoi_polygon(ever_wet, close_m=close_m, buffer_m=buffer_m)
+
+
+def tile_intersects_wet_aoi(tile_geobox, wet_aoi) -> bool:
+    """True if the tile bbox intersects the wet AOI; fail-open when wet AOI absent.
+
+    A missing or empty ``wet_aoi`` means "no pruning information" -- return True
+    so the caller never drops a tile it should have loaded. Mirrors the bbox
+    test in ``_io_geo._tile_intersects_aoi``.
+    """
+    if wet_aoi is None or len(wet_aoi) == 0 or bool(wet_aoi.geometry.is_empty.all()):
+        return True
+    from shapely.geometry import box
+
+    bounds = tile_geobox.extent.boundingbox
+    tile_polygon = box(bounds.left, bounds.bottom, bounds.right, bounds.top)
+    return bool(wet_aoi.to_crs(tile_geobox.crs).geometry.intersects(tile_polygon).any())

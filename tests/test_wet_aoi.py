@@ -98,3 +98,50 @@ def test_wet_aoi_polygon_empty_when_no_wet():
     grid = np.zeros((4, 4), bool)
     gdf = wet_aoi_polygon(_wet_grid(grid), buffer_m=300.0)
     assert gdf.empty or gdf.geometry.is_empty.all()
+
+
+class _FakeBox:
+    def __init__(self, left, bottom, right, top):
+        self.left, self.bottom, self.right, self.top = left, bottom, right, top
+
+
+class _FakeExtent:
+    def __init__(self, bbox):
+        self.boundingbox = bbox
+
+
+class _FakeGeoBox:
+    def __init__(self, bounds, crs="EPSG:3577"):
+        self.extent = _FakeExtent(_FakeBox(*bounds))
+        self.crs = crs
+
+
+def test_tile_intersects_wet_aoi_true_and_false():
+    from hydroseason._wet_aoi import tile_intersects_wet_aoi, wet_aoi_polygon
+    grid = np.zeros((5, 5), bool)
+    grid[2, 2] = True
+    wet = wet_aoi_polygon(_wet_grid(grid), close_m=0.0, buffer_m=30.0)
+    overlapping = _FakeGeoBox((0, -150, 150, 0))       # covers the wet pixel area
+    far_away = _FakeGeoBox((1_000_000, -1_000_000, 1_000_030, -999_970))
+    assert tile_intersects_wet_aoi(overlapping, wet) is True
+    assert tile_intersects_wet_aoi(far_away, wet) is False
+
+
+def test_tile_intersects_wet_aoi_fail_open_when_empty():
+    from hydroseason._wet_aoi import tile_intersects_wet_aoi
+    box = _FakeGeoBox((0, -30, 30, 0))
+    assert tile_intersects_wet_aoi(box, None) is True  # no wet AOI -> never prune
+
+
+def test_compute_wet_aoi_composes():
+    from hydroseason._wet_aoi import compute_wet_aoi
+    dry = np.zeros((2, 2), np.int8)
+    wet = dry.copy(); wet[0, 0] = 1
+    da = xr.DataArray(
+        np.stack([dry, wet]).astype(np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": [0, 1], "y": [0.0, -30.0], "x": [0.0, 30.0]},
+    ).rio.write_crs("EPSG:3577").rio.write_transform()
+    gdf = compute_wet_aoi(da, buffer_m=30.0)
+    assert len(gdf) == 1
+    assert not gdf.geometry.is_empty.all()
