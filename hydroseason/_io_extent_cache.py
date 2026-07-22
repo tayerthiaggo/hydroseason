@@ -233,7 +233,9 @@ def load_wofs_monthly_extent(
 
     ``wet_aoi``, if given, is an already-computed wet-AOI GeoDataFrame (see
     :func:`hydroseason.io.compute_wet_aoi`) threaded into every tiled per-year
-    load as a second, independent tile-skip gate. If ``precompute_wet_aoi`` is
+    load's ``n_wet_aoi``/``wet_fill_pct`` computation, and -- only when a
+    ``full_ts`` cube is also available to reconcile against (see below) -- as
+    a second, independent tile-skip gate too. If ``precompute_wet_aoi`` is
     True and ``wet_aoi`` is not supplied, one full-time-series
     ``load_wofs_from_stac`` pass over the whole requested window is used to
     derive it via :func:`hydroseason.io.compute_wet_aoi` (using
@@ -259,12 +261,25 @@ def load_wofs_monthly_extent(
     aggregate's for that year -- an exact, no-extra-STAC-cost source of
     truth, computed from data already resident rather than reconstructed.
     Only ``n_wet_aoi``/``wet_fill_pct`` are left to the tiled aggregate,
-    since those two are legitimately allowed to differ under pruning. This
-    reconciliation only applies when ``precompute_wet_aoi`` derived
-    ``wet_aoi`` here; a caller-supplied ``wet_aoi`` has no accompanying
-    full-time-series cube to reconcile against, so pruning under an
-    explicitly-passed ``wet_aoi`` remains the caller's own responsibility to
-    have derived correctly (matching this function's own precompute pass).
+    since those two are legitimately allowed to differ under pruning.
+
+    This reconciliation only applies when ``precompute_wet_aoi`` derived
+    ``wet_aoi`` here, because only then is a ``full_ts`` cube available to
+    reconcile against. A caller-supplied ``wet_aoi`` has no accompanying
+    full-time-series cube, so there is no ground truth to correct the tiled
+    aggregate's denominator against if pruning were allowed to run -- and
+    running it anyway would silently corrupt ``extent_pct``/``invalid_pct``.
+    To guarantee correctness, pruning is therefore automatically disabled
+    (falling back to loading every tile, unpruned) whenever there is no
+    ``full_ts`` to reconcile against -- i.e., only a ``precompute_wet_aoi``-
+    derived ``wet_aoi`` currently benefits from tile-skip pruning; an
+    externally-supplied ``wet_aoi`` does not, today. This is a real,
+    documented capability boundary, not a bug: an externally-supplied
+    ``wet_aoi`` still gets its ``n_wet_aoi``/``wet_fill_pct`` computed
+    correctly against the real wet-AOI geometry (that calculation only reads
+    pixels from tiles actually loaded, and every tile is loaded when pruning
+    is disabled, so it has no missing-tile denominator problem of its own)
+    -- it just does not skip loading any tiles.
     """
     if time_block < 1:
         raise ValueError("time_block must be at least 1.")
@@ -300,6 +315,19 @@ def load_wofs_monthly_extent(
         )
 
     wet_aoi_hash = _aoi_digest(wet_aoi) if (cache_root is not None and wet_aoi is not None) else ""
+
+    # Pruning (iter_wofs_tiles_from_stac's tile-skip gate) is only safe when
+    # full_ts is available to reconcile the tiled aggregate's denominator
+    # against afterwards (see _reconcile_pruned_tile_denominator) -- that
+    # covers both "no wet_aoi at all" and "an externally-supplied wet_aoi
+    # with no accompanying full_ts". Falling back to None here disables
+    # pruning entirely for the externally-supplied case, trading away the
+    # tile-skip speedup for correctness. n_wet_aoi/wet_fill_pct are a
+    # separate concern -- they are computed per loaded tile from whichever
+    # tiles genuinely get read, with no missing-tile denominator problem,
+    # so they must keep using the real, caller-supplied wet_aoi (not this
+    # pruning-gated fallback) to reflect the true wet-AOI geometry.
+    effective_wet_aoi = wet_aoi if full_ts is not None else None
 
     for year_start, year_end in _year_windows(start, end):
         expected_index = pd.date_range(
@@ -355,7 +383,7 @@ def load_wofs_monthly_extent(
                     time_chunk=time_block,
                     majority=majority,
                     skip_tile_ids=set(tile_parts),
-                    wet_aoi=wet_aoi,
+                    wet_aoi=effective_wet_aoi,
                 )
             )
             # The STAC query fires lazily, on the generator's first advancement.

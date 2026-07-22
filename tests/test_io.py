@@ -815,6 +815,130 @@ def test_wet_aoi_pruning_does_not_change_extent_pct(monkeypatch, tmp_path):
     )
 
 
+def test_externally_supplied_wet_aoi_does_not_prune_and_matches_unpruned_extent_pct(
+    monkeypatch, tmp_path
+):
+    """A caller-supplied ``wet_aoi=`` (no ``precompute_wet_aoi``) must not prune.
+
+    This is Task 8's fix: unlike the ``precompute_wet_aoi=True`` path (which
+    keeps ``full_ts`` around to reconcile the tiled aggregate's denominator
+    against), an externally-supplied ``wet_aoi`` has no such full-time-series
+    cube to reconcile against here. Pruning tiles under it would silently
+    shrink ``n_aoi``/``n_valid``/``n_invalid`` and corrupt ``extent_pct`` with
+    no way to detect or correct it. So pruning must be automatically disabled
+    (falls back to loading every tile, unpruned) whenever ``full_ts`` is
+    ``None`` -- which is always true on this externally-supplied-``wet_aoi``
+    path. This uses the identical tile-grid/fake-STAC scaffold as
+    ``test_wet_aoi_pruning_does_not_change_extent_pct`` above: only the
+    leftmost 1-pixel-wide column of tile ``r0000_c0000`` is ever wet; tiles
+    ``r0000_c0001``/``r0000_c0002`` are always dry.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("pystac_client")
+    pytest.importorskip("odc.stac")
+    pytest.importorskip("odc.geo")
+    pytest.importorskip("rioxarray")
+    geopandas = pytest.importorskip("geopandas")
+    from unittest.mock import Mock
+    from shapely.geometry import box
+    from odc.geo.geobox import GeoBox
+
+    import hydroseason._io_geo as geo
+    from hydroseason._io_extent_cache import load_wofs_monthly_extent
+
+    parent_geobox = GeoBox.from_bbox((0, 0, 6, 2), crs="EPSG:3577", shape=(2, 6))
+    aoi = geopandas.GeoDataFrame(geometry=[box(0, 0, 6, 2)], crs="EPSG:3577")
+
+    # Hand-built wet AOI: covers only the wet column (x in [0, 1)), well
+    # inside tile r0000_c0000's [0, 2) span and nowhere near a tile
+    # boundary -- same rationale as the pruning test above (boundary-touching
+    # polygons trivially "intersect" the neighboring tile too).
+    externally_supplied_wet_aoi = geopandas.GeoDataFrame(
+        geometry=[box(0, 0, 1, 2)], crs="EPSG:3577"
+    )
+
+    dates = pd.date_range("2020-01-01", periods=12, freq="MS") + pd.Timedelta(days=4)
+
+    class FakeItem:
+        def __init__(self, date):
+            self.properties = {"datetime": date.isoformat()}
+
+    items = [FakeItem(d) for d in dates]
+
+    def fake_search(*, datetime, **kwargs):
+        start, end = [pd.Timestamp(part) for part in datetime.split("/")]
+        matched = [
+            item for item in items
+            if start <= pd.Timestamp(item.properties["datetime"]).tz_localize(None) <= end
+        ]
+        result = Mock()
+        result.items.return_value = matched
+        return result
+
+    client = Mock()
+    client.search.side_effect = fake_search
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
+    monkeypatch.setattr(geo, "_output_geobox_for_aoi", Mock(return_value=parent_geobox))
+
+    tile_x_origins = []
+
+    def fake_stac_load(batch_items, *, geobox=None, geopolygon=None, **kwargs):
+        batch_dates = pd.to_datetime(
+            [item.properties["datetime"] for item in batch_items]
+        ).tz_localize(None)
+        gb = geobox if geobox is not None else parent_geobox
+        ny, nx = gb.shape.y, gb.shape.x
+        x0 = gb.affine.c
+        if geobox is not None:
+            tile_x_origins.append(x0)
+        x_coords = np.asarray(gb.coordinates["x"].values)
+        wet_column = (x_coords >= 0.0) & (x_coords < 1.0)
+        row = np.where(wet_column, np.uint16(128), np.uint16(0))
+        data = np.broadcast_to(row, (len(batch_dates), ny, nx)).copy()
+        ds = xr.Dataset(
+            {"water": (("time", "y", "x"), data)},
+            coords={
+                "time": batch_dates,
+                "y": np.asarray(gb.coordinates["y"].values),
+                "x": x_coords,
+            },
+        )
+        return ds.rio.write_crs(gb.crs)
+
+    stac_load_mock = Mock(side_effect=fake_stac_load)
+    monkeypatch.setattr("odc.stac.stac_load", stac_load_mock)
+
+    common = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=aoi,
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        resolution=1.0,
+        crs=3577,
+        tile_pixels=2,
+    )
+
+    unpruned = load_wofs_monthly_extent(**common, cache_dir=tmp_path / "a")
+    tile_x_origins.clear()
+
+    with_external_wet_aoi = load_wofs_monthly_extent(
+        **common, cache_dir=tmp_path / "b", wet_aoi=externally_supplied_wet_aoi,
+    )
+    tile_x_origins_external = list(tile_x_origins)
+
+    # The fix: an externally-supplied wet_aoi (no precompute_wet_aoi, hence
+    # no full_ts to reconcile against) must NOT prune -- every tile is still
+    # loaded, proving the fallback-to-unpruned behavior is what actually
+    # happened here, not an accidental no-op.
+    assert sorted(tile_x_origins_external) == [0.0, 2.0, 4.0]
+
+    pd.testing.assert_series_equal(
+        unpruned["extent_pct"], with_external_wet_aoi["extent_pct"], check_names=False
+    )
+
+
 def test_tile_intersects_aoi_true_for_overlapping_tile():
     pytest.importorskip("odc.geo")
     from odc.geo.geobox import GeoBox

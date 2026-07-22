@@ -393,11 +393,30 @@ def test_precompute_wet_aoi_runs_full_ts_pass_and_threads_into_tiles(monkeypatch
     assert "wet_fill_pct" in result.columns
 
 
-def test_wet_aoi_passed_explicitly_skips_precompute_pass_and_reaches_tiles(monkeypatch, tmp_path):
+def test_wet_aoi_passed_explicitly_skips_precompute_pass_but_does_not_prune_tiles(
+    monkeypatch, tmp_path
+):
+    """An externally-supplied ``wet_aoi`` (no ``precompute_wet_aoi``) still
+    skips the internal precompute pass (no redundant full-TS STAC call), but
+    -- per Task 8's fix -- must NOT be threaded into
+    ``iter_wofs_tiles_from_stac`` as a pruning gate, because there is no
+    ``full_ts`` cube here to reconcile the tiled aggregate's denominator
+    against if a tile were skipped. This replaces a prior version of this
+    test that asserted ``tile_calls == [explicit_wet_aoi]`` -- that assertion
+    was exercising exactly the denominator-shrinkage bug Task 8 fixes, not a
+    correct contract worth preserving.
+
+    ``n_wet_aoi``/``wet_fill_pct`` are a separate concern with no such
+    problem (they only ever read pixels from tiles actually loaded), so the
+    real ``wet_aoi`` must still reach ``monthly_water_extent`` for that
+    calculation -- verified via ``monthly_water_extent_calls`` below.
+    """
     import hydroseason.io as hio
+    import hydroseason._io_extent_cache as extent_cache
 
     full_ts_calls = []
     tile_calls = []
+    monthly_water_extent_calls = []
     explicit_wet_aoi = _fake_wet_aoi()
 
     def fake_load_full_ts(*args, **kwargs):
@@ -408,8 +427,15 @@ def test_wet_aoi_passed_explicitly_skips_precompute_pass_and_reaches_tiles(monke
         tile_calls.append(wet_aoi)
         yield "r0000_c0000", _fake_monthly_cube("2020-01-01", "2020-12-01")
 
+    real_monthly_water_extent = extent_cache.monthly_water_extent
+
+    def spying_monthly_water_extent(*args, **kwargs):
+        monthly_water_extent_calls.append(kwargs.get("wet_aoi"))
+        return real_monthly_water_extent(*args, **kwargs)
+
     monkeypatch.setattr(hio, "load_wofs_from_stac", fake_load_full_ts)
     monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", fake_tiles)
+    monkeypatch.setattr(extent_cache, "monthly_water_extent", spying_monthly_water_extent)
 
     hio.load_wofs_monthly_extent(
         "https://example.invalid/stac", "wofs", object(),
@@ -422,7 +448,11 @@ def test_wet_aoi_passed_explicitly_skips_precompute_pass_and_reaches_tiles(monke
     )
 
     assert full_ts_calls == []
-    assert tile_calls == [explicit_wet_aoi]
+    # Pruning gate: disabled (falls back to None) since there is no full_ts.
+    assert tile_calls == [None]
+    # n_wet_aoi/wet_fill_pct calculation: still uses the real, caller-supplied
+    # wet_aoi, since that computation has no missing-tile denominator problem.
+    assert monthly_water_extent_calls == [explicit_wet_aoi]
 
 
 def test_different_wet_aoi_produces_different_cache_file(monkeypatch, tmp_path):
