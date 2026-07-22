@@ -244,6 +244,20 @@ def load_wofs_monthly_extent(
     only exists on the tiled path, so precomputing a wet AOI without tiling
     would be a no-op the caller almost certainly didn't intend.
 
+    KNOWN LIMITATION: this full-time-series precompute pass runs
+    unconditionally, even when every year in the requested range is already
+    cached from a prior run -- it is not skipped on a fully-cached resume.
+    This is because the per-year cache key includes a hash of the derived
+    ``wet_aoi`` itself (see ``wet_aoi_hash`` below), which cannot be known
+    before ``wet_aoi`` is actually derived; there is no cheaper way to check
+    "is this already cached" without first paying the cost being checked
+    for. A fully correct fix would persist the derived wet-AOI geometry as
+    its own cache artifact (keyed on the non-wet-AOI-hash-dependent inputs)
+    so it can be reloaded cheaply on a later call instead of re-derived --
+    tracked as follow-up work, not implemented here. This is a performance
+    regression on repeat calls, not a correctness issue: results are still
+    correct, just not resumed cheaply.
+
     Pruning tiles that the wet AOI excludes guarantees those tiles contribute
     no water -- but ``iter_wofs_tiles_from_stac`` never loads them, so their
     ``n_aoi``/``n_valid``/``n_invalid`` pixel counts (which genuinely can
