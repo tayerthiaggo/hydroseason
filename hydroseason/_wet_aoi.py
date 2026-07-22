@@ -78,8 +78,7 @@ def wet_aoi_polygon(
     if buffer_m > 0.0:
         merged = merged.buffer(buffer_m)
 
-    from pyproj import CRS as ProjCRS
-    epsg = ProjCRS.from_wkt(str(crs)).to_epsg()
+    epsg = crs.to_epsg()
     if epsg is not None:
         crs = f"EPSG:{epsg}"
 
