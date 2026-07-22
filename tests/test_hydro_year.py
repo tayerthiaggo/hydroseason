@@ -418,3 +418,59 @@ def test_wofs_cloud_flags_do_not_create_false_end_dry_boundary():
     for _, row in result.iterrows():
         assert row["peak_month"].month == 2
         assert row["end_dry_month"].month == 8
+
+
+def test_monthly_extent_wet_fill_pct_drought_signal():
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("rasterio")
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    gpd = pytest.importorskip("geopandas")
+    import rioxarray  # noqa: F401  (registers the .rio accessor)
+    from shapely.geometry import box
+
+    from hydroseason.hydro_year import monthly_water_extent
+
+    # 4x4 grid, one wet pixel this month; wet AOI covers the whole grid.
+    cube = np.zeros((1, 4, 4), dtype=np.int8)
+    cube[0, 0, 0] = 1
+    masks = xr.DataArray(
+        cube,
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.to_datetime(["2020-01-01"]),
+            "y": np.arange(4) * -30.0,
+            "x": np.arange(4) * 30.0,
+        },
+    ).chunk({"time": 1, "y": 4, "x": 4})
+    masks = masks.rio.write_crs("EPSG:3577")
+
+    wet_aoi = gpd.GeoDataFrame(
+        {"geometry": [box(-15, -135, 135, 15)]}, geometry="geometry", crs="EPSG:3577"
+    )
+
+    summary = monthly_water_extent(masks, wet_aoi=wet_aoi)
+
+    assert "n_wet_aoi" in summary.columns
+    assert summary.loc[pd.Timestamp("2020-01-01"), "n_wet_aoi"] == 16
+    assert summary.loc[pd.Timestamp("2020-01-01"), "wet_fill_pct"] == pytest.approx(6.25)
+
+
+def test_monthly_extent_wet_fill_defaults_to_extent_when_no_wet_aoi():
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    import xarray as xr
+
+    from hydroseason.hydro_year import monthly_water_extent
+
+    masks = xr.DataArray(
+        np.array([[[1, 0], [0, 0]]], dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01"])},
+    ).chunk({"time": 1, "y": 1, "x": 1})
+
+    summary = monthly_water_extent(masks)
+
+    assert summary["n_wet_aoi"].iloc[0] == summary["n_aoi"].iloc[0]
+    assert summary["wet_fill_pct"].iloc[0] == summary["extent_pct"].iloc[0]

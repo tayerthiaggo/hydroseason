@@ -20,8 +20,10 @@ _EXTENT_COLUMNS = (
     "n_aoi",
     "n_valid",
     "n_invalid",
+    "n_wet_aoi",
     "extent_pct",
     "invalid_pct",
+    "wet_fill_pct",
 )
 
 
@@ -104,8 +106,10 @@ def _missing_year_extent(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame
             "n_aoi": 0,
             "n_valid": 0,
             "n_invalid": 0,
+            "n_wet_aoi": 0,
             "extent_pct": float("nan"),
             "invalid_pct": float("nan"),
+            "wet_fill_pct": float("nan"),
         },
         index=index,
     )
@@ -114,11 +118,12 @@ def _missing_year_extent(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame
 def _aggregate_extent_parts(parts, index):
     """Aggregate per-tile monthly extent counts into annual totals.
 
-    Sums raw integer pixel counts across tiles (n_water, n_aoi, n_valid, n_invalid),
-    then recomputes percentages from the summed counts. Enforces the invariant
-    n_aoi == n_valid + n_invalid, and produces NaN percentages when denominators are zero.
+    Sums raw integer pixel counts across tiles (n_water, n_aoi, n_valid,
+    n_invalid, n_wet_aoi), then recomputes percentages from the summed
+    counts. Enforces the invariant n_aoi == n_valid + n_invalid, and produces
+    NaN percentages when denominators are zero.
     """
-    count_columns = ["n_water", "n_aoi", "n_valid", "n_invalid"]
+    count_columns = ["n_water", "n_aoi", "n_valid", "n_invalid", "n_wet_aoi"]
     totals = pd.DataFrame(0, index=index, columns=count_columns, dtype="int64")
     for part in parts:
         aligned = part.reindex(index)
@@ -129,6 +134,7 @@ def _aggregate_extent_parts(parts, index):
 
     extent_pct = np.full(len(totals), np.nan, dtype=float)
     invalid_pct = np.full(len(totals), np.nan, dtype=float)
+    wet_fill_pct = np.full(len(totals), np.nan, dtype=float)
     np.divide(
         totals["n_water"].to_numpy(dtype=float) * 100.0,
         totals["n_valid"].to_numpy(dtype=float),
@@ -141,8 +147,15 @@ def _aggregate_extent_parts(parts, index):
         out=invalid_pct,
         where=totals["n_aoi"].to_numpy() > 0,
     )
+    np.divide(
+        totals["n_water"].to_numpy(dtype=float) * 100.0,
+        totals["n_wet_aoi"].to_numpy(dtype=float),
+        out=wet_fill_pct,
+        where=totals["n_wet_aoi"].to_numpy() > 0,
+    )
     totals["extent_pct"] = extent_pct
     totals["invalid_pct"] = invalid_pct
+    totals["wet_fill_pct"] = wet_fill_pct
     return totals.loc[:, _EXTENT_COLUMNS]
 
 
@@ -307,7 +320,7 @@ def load_wofs_monthly_extent(
 
             remaining_tiles = tiles if first_tile is None else itertools.chain([first_tile], tiles)
             for tile_id, water_mask in remaining_tiles:
-                tile_extent = monthly_water_extent(water_mask, time_block=time_block)
+                tile_extent = monthly_water_extent(water_mask, time_block=time_block, wet_aoi=wet_aoi)
                 if not tile_extent.index.equals(expected_index):
                     raise ValueError(f"tile {tile_id} has an unexpected monthly index")
                 if tile_cache_dir is not None:

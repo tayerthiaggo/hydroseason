@@ -158,6 +158,7 @@ def monthly_water_extent(
     invalid_value: int = -1,
     spatial_dims: tuple[str, str] = ("y", "x"),
     time_block: int = 1,
+    wet_aoi=None,
 ) -> pd.DataFrame:
     """Summarise monthly canonical masks without treating invalid pixels as dry.
 
@@ -173,6 +174,25 @@ def monthly_water_extent(
     overhead (more, smaller ``dask.compute`` calls) for locality (fewer calls,
     more spatial chunks held concurrently); lower it to bound memory more
     tightly, raise it to reduce per-call scheduling overhead.
+
+    ``wet_aoi``, if given, is a polygon or GeoDataFrame (in any CRS) describing
+    the historical wet-AOI extent. It is rasterised against ``water_mask``'s
+    spatial grid exactly once (the grid is time-invariant across the whole
+    cube), then used to compute ``n_wet_aoi`` -- the per-month count of pixels
+    inside the wet AOI that are also not ``outside_value`` -- and the derived
+    ``wet_fill_pct = 100 * n_water / n_wet_aoi`` drought-signal ratio (NaN when
+    ``n_wet_aoi`` is 0). When ``wet_aoi`` is ``None`` (the default), no
+    rasterisation happens at all and ``n_wet_aoi`` is set equal to ``n_aoi``,
+    so existing callers adding no wet AOI see no change to any pre-existing
+    column, and get a well-defined ``wet_fill_pct`` computed with the same
+    ``100 * n_water / n_wet_aoi`` formula used in the ``wet_aoi``-given case
+    (this keeps ``wet_fill_pct`` an exact sum-then-percentage tiled
+    aggregation of ``n_water``/``n_wet_aoi``, matching how ``extent_pct`` and
+    ``invalid_pct`` already aggregate). ``wet_fill_pct`` therefore equals
+    ``extent_pct`` exactly whenever the mask has no invalid pixels (``n_aoi
+    == n_valid``); when invalid pixels are present the two ratios use
+    different denominators (``n_aoi`` vs. ``n_valid``) and legitimately
+    differ, the same way ``invalid_pct`` already differs from ``extent_pct``.
     """
     try:
         import dask
@@ -181,10 +201,28 @@ def monthly_water_extent(
 
     dims = list(spatial_dims)
     n_time = water_mask.sizes["time"]
+
+    inside_wet = None
+    if wet_aoi is not None:
+        from hydroseason._io_geo import _inside_aoi_mask_like, _resolve_raster_crs
+        import geopandas as gpd
+        import rioxarray  # noqa: F401  (registers the .rio accessor used below)
+
+        mask_crs = _resolve_raster_crs(water_mask)
+        gdf = (
+            wet_aoi
+            if isinstance(wet_aoi, gpd.GeoDataFrame)
+            else gpd.GeoDataFrame({"geometry": [wet_aoi]}, geometry="geometry", crs=mask_crs)
+        )
+        if gdf.crs is not None and mask_crs is not None:
+            gdf = gdf.to_crs(mask_crs)
+        inside_wet = _inside_aoi_mask_like(water_mask.isel(time=0), gdf)
+
     n_aoi_parts: list[np.ndarray] = []
     n_valid_parts: list[np.ndarray] = []
     n_water_parts: list[np.ndarray] = []
     n_invalid_parts: list[np.ndarray] = []
+    n_wet_aoi_parts: list[np.ndarray] = []
     for start in range(0, n_time, time_block):
         block = water_mask.isel(time=slice(start, start + time_block))
         n_aoi_block = (block != outside_value).sum(dim=dims)
@@ -192,9 +230,22 @@ def monthly_water_extent(
         n_dry_block = (block == dry_value).sum(dim=dims)
         n_valid_block = n_water_block + n_dry_block
         n_invalid_block = n_aoi_block - n_valid_block
-        n_aoi_block, n_valid_block, n_water_block, n_invalid_block = dask.compute(
-            n_aoi_block, n_valid_block, n_water_block, n_invalid_block
-        )
+        if inside_wet is not None:
+            n_wet_aoi_block = ((block != outside_value) & inside_wet).sum(dim=dims)
+            (
+                n_aoi_block,
+                n_valid_block,
+                n_water_block,
+                n_invalid_block,
+                n_wet_aoi_block,
+            ) = dask.compute(
+                n_aoi_block, n_valid_block, n_water_block, n_invalid_block, n_wet_aoi_block
+            )
+            n_wet_aoi_parts.append(np.asarray(n_wet_aoi_block.values, dtype=float))
+        else:
+            n_aoi_block, n_valid_block, n_water_block, n_invalid_block = dask.compute(
+                n_aoi_block, n_valid_block, n_water_block, n_invalid_block
+            )
         n_aoi_parts.append(np.asarray(n_aoi_block.values, dtype=float))
         n_valid_parts.append(np.asarray(n_valid_block.values, dtype=float))
         n_water_parts.append(np.asarray(n_water_block.values, dtype=float))
@@ -209,14 +260,25 @@ def monthly_water_extent(
     invalid_pct = np.full_like(n_aoi_arr, np.nan)
     np.divide(n_invalid_arr * 100.0, n_aoi_arr, out=invalid_pct, where=n_aoi_arr > 0)
 
+    if inside_wet is not None:
+        n_wet_aoi_arr = np.concatenate(n_wet_aoi_parts)
+    else:
+        # No wet AOI given: n_wet_aoi falls back to n_aoi (see docstring).
+        n_wet_aoi_arr = n_aoi_arr
+    wet_fill_pct = np.full_like(n_wet_aoi_arr, np.nan)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        np.divide(n_water_arr * 100.0, n_wet_aoi_arr, out=wet_fill_pct, where=n_wet_aoi_arr > 0)
+
     return pd.DataFrame(
         {
             "n_water": n_water_arr.astype(int),
             "n_aoi": n_aoi_arr.astype(int),
             "n_valid": n_valid_arr.astype(int),
             "n_invalid": n_invalid_arr.astype(int),
+            "n_wet_aoi": n_wet_aoi_arr.astype(int),
             "extent_pct": extent_pct,
             "invalid_pct": invalid_pct,
+            "wet_fill_pct": wet_fill_pct,
         },
         index=pd.DatetimeIndex(np.asarray(water_mask.time.values)),
     )

@@ -18,6 +18,17 @@ def _fake_monthly_cube(start: str, end: str):
     )
 
 
+def _fake_wet_aoi():
+    # A minimal real GeoDataFrame (not a bare sentinel) so it can pass through
+    # monthly_water_extent's wet_aoi rasterisation unchanged, while identity
+    # ("is this the same object that came out of compute_wet_aoi/was passed
+    # in explicitly?") is still trackable via `is`/`==` through the pipeline.
+    gpd = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+
+    return gpd.GeoDataFrame({"geometry": [box(-10, -10, 10, 10)]}, geometry="geometry", crs=None)
+
+
 def test_cached_extent_reuses_completed_calendar_years(monkeypatch, tmp_path):
     pytest.importorskip("dask")
     import hydroseason.io as hio
@@ -104,11 +115,13 @@ def test_tile_extent_aggregation_sums_counts_then_recomputes_percentages():
     index = pd.DatetimeIndex(["2020-01-01"])
     left = pd.DataFrame({
         "n_water": [3], "n_aoi": [8], "n_valid": [6], "n_invalid": [2],
-        "extent_pct": [50.0], "invalid_pct": [25.0],
+        "n_wet_aoi": [8], "extent_pct": [50.0], "invalid_pct": [25.0],
+        "wet_fill_pct": [37.5],
     }, index=index)
     right = pd.DataFrame({
         "n_water": [1], "n_aoi": [2], "n_valid": [2], "n_invalid": [0],
-        "extent_pct": [50.0], "invalid_pct": [0.0],
+        "n_wet_aoi": [2], "extent_pct": [50.0], "invalid_pct": [0.0],
+        "wet_fill_pct": [50.0],
     }, index=index)
 
     result = _aggregate_extent_parts([left, right], index)
@@ -117,8 +130,10 @@ def test_tile_extent_aggregation_sums_counts_then_recomputes_percentages():
     assert result.loc[index[0], "n_valid"] == 8
     assert result.loc[index[0], "n_invalid"] == 2
     assert result.loc[index[0], "n_aoi"] == 10
+    assert result.loc[index[0], "n_wet_aoi"] == 10
     assert result.loc[index[0], "extent_pct"] == 50.0
     assert result.loc[index[0], "invalid_pct"] == 20.0
+    assert result.loc[index[0], "wet_fill_pct"] == 40.0
     assert result.loc[index[0], "n_aoi"] == (
         result.loc[index[0], "n_valid"] + result.loc[index[0], "n_invalid"]
     )
@@ -130,8 +145,8 @@ def test_tile_extent_aggregation_keeps_empty_month_percentages_nan():
     index = pd.DatetimeIndex(["2020-01-01"])
     result = _aggregate_extent_parts([], index)
 
-    assert (result[["n_water", "n_aoi", "n_valid", "n_invalid"]] == 0).all().all()
-    assert result[["extent_pct", "invalid_pct"]].isna().all().all()
+    assert (result[["n_water", "n_aoi", "n_valid", "n_invalid", "n_wet_aoi"]] == 0).all().all()
+    assert result[["extent_pct", "invalid_pct", "wet_fill_pct"]].isna().all().all()
 
 
 def test_tiled_extent_resume_skips_completed_tiles(monkeypatch, tmp_path):
@@ -335,7 +350,7 @@ def test_precompute_wet_aoi_runs_full_ts_pass_and_threads_into_tiles(monkeypatch
     compute_wet_aoi_calls = []
     tile_calls = []
 
-    sentinel_wet_aoi = object()
+    sentinel_wet_aoi = _fake_wet_aoi()
 
     def fake_load_full_ts(_url, _collection, _aoi, start, end, **kwargs):
         full_ts_calls.append((start, end))
@@ -375,6 +390,7 @@ def test_precompute_wet_aoi_runs_full_ts_pass_and_threads_into_tiles(monkeypatch
     # The computed wet AOI is threaded into the tiled per-year load.
     assert tile_calls == [sentinel_wet_aoi]
     assert (result["n_water"] == 4).all()
+    assert "wet_fill_pct" in result.columns
 
 
 def test_wet_aoi_passed_explicitly_skips_precompute_pass_and_reaches_tiles(monkeypatch, tmp_path):
@@ -382,7 +398,7 @@ def test_wet_aoi_passed_explicitly_skips_precompute_pass_and_reaches_tiles(monke
 
     full_ts_calls = []
     tile_calls = []
-    explicit_wet_aoi = object()
+    explicit_wet_aoi = _fake_wet_aoi()
 
     def fake_load_full_ts(*args, **kwargs):
         full_ts_calls.append(args)
@@ -432,7 +448,7 @@ def test_different_wet_aoi_produces_different_cache_file(monkeypatch, tmp_path):
     hio.load_wofs_monthly_extent(**kwargs, wet_aoi=None)
     files_without_wet_aoi = set(cache_dir.glob("extent_*.csv"))
 
-    hio.load_wofs_monthly_extent(**kwargs, wet_aoi=object())
+    hio.load_wofs_monthly_extent(**kwargs, wet_aoi=_fake_wet_aoi())
     files_with_wet_aoi = set(cache_dir.glob("extent_*.csv")) - files_without_wet_aoi
 
     assert files_with_wet_aoi  # a new, distinct annual cache file was written
