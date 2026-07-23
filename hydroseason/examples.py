@@ -152,8 +152,15 @@ def load_example_stac_extent(
     resolution: float | None = None,
     time_block: int = 12,
     force: bool = False,
+    tile_pixels: int | None = None,
+    precompute_wet_aoi: bool = False,
 ) -> pd.DataFrame:
-    """Load WOfS monthly extent from STAC using the bounded cached path."""
+    """Load WOfS monthly extent from STAC using the bounded cached path.
+
+    ``tile_pixels``/``precompute_wet_aoi`` opt into the tiled, wet-AOI-pruned
+    fast path (see :func:`hydroseason.io.load_wofs_monthly_extent`); left at
+    their defaults this is the plain whole-AOI load.
+    """
     return load_wofs_monthly_extent(
         stac_url,
         collection,
@@ -165,6 +172,8 @@ def load_example_stac_extent(
         resolution=resolution,
         time_block=time_block,
         force=force,
+        tile_pixels=tile_pixels,
+        precompute_wet_aoi=precompute_wet_aoi,
     )
 
 
@@ -183,8 +192,18 @@ def load_workflow_extent(
     crs: int | str | None = 3577,
     cache_dir: str | Path | None = None,
     time_block: int = 12,
+    resolution: float | None = None,
+    tile_pixels: int | None = None,
+    precompute_wet_aoi: bool = False,
 ) -> tuple[pd.DataFrame, str]:
-    """Load monthly extent for examples, preferring STAC with CSV fallback."""
+    """Load monthly extent for examples, preferring STAC with CSV fallback.
+
+    ``resolution``/``tile_pixels``/``precompute_wet_aoi`` are forwarded to
+    :func:`load_example_stac_extent` and only take effect on the real STAC
+    path (``input_source="stac"`` and ``run_remote_stac=True``); the CSV and
+    CSV-fallback paths ignore them, since there is no STAC load to tile or
+    prune there.
+    """
     if input_source == "stac" and run_remote_stac:
         extent = load_example_stac_extent(
             stac_url=stac_url,
@@ -195,6 +214,9 @@ def load_workflow_extent(
             crs=crs,
             cache_dir=cache_dir,
             time_block=time_block,
+            resolution=resolution,
+            tile_pixels=tile_pixels,
+            precompute_wet_aoi=precompute_wet_aoi,
         )
         return extent, "stac"
     if input_source == "stac" and csv_fallback_when_stac_disabled:
