@@ -196,16 +196,18 @@ def monthly_water_extent(
     ``100 * n_water / n_valid`` formula in that case (they can legitimately
     differ only when a real ``wet_aoi`` is supplied).
 
-    ``read_workers``, if given (and > 0), widens dask's threaded-scheduler
-    worker count for the ``dask.compute`` reductions below. The counts here
-    are the point at which the lazy STAC/COG graph is actually materialised,
-    so this is where remote reads fire; for the latency-bound WOfS workload
-    (dozens to hundreds of small S3 range-requests per year) far more workers
-    than the ``cpu_count`` default lets those reads run concurrently. The
-    override is scoped to this reduction via ``dask.config.set`` and restored
-    on exit. ``None`` (the default) leaves dask's configuration untouched, so
-    callers that do not pass it -- e.g. raster-mask reductions -- see no
-    behavioural change.
+    ``read_workers``, if given (and > 0), overrides dask's threaded-scheduler
+    worker count for the ``dask.compute`` reductions below, where the lazy
+    STAC/COG graph is actually materialised. Profiling on real WOfS data found
+    this workload is decode/warp-CPU-bound rather than I/O-latency-bound as
+    might be assumed for remote reads: dask's own default worker count
+    outperformed every explicit override tried (4 through 64), and forcing a
+    higher count made it monotonically worse. Leave this at ``None`` (the
+    default, which leaves dask's configuration untouched) unless you have
+    profiled your own workload and confirmed a specific value helps -- see
+    ``hydroseason._io_extent_cache.load_wofs_monthly_extent``'s ``read_workers``
+    docstring for the measurements. The override, if used, is scoped via
+    ``dask.config.set`` and restored on exit.
     """
     try:
         import dask

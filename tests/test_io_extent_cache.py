@@ -670,8 +670,10 @@ def test_read_workers_threads_into_reduction_and_leaves_result_unchanged(monkeyp
     default_run = load_wofs_monthly_extent(**kwargs)
     tuned_run = load_wofs_monthly_extent(**kwargs, read_workers=8)
 
-    # The knob reached the reduction (default 32, then the explicit 8).
-    assert 32 in seen_workers
+    # Default is None (profiling found forcing a worker count hurts this
+    # workload -- see load_wofs_monthly_extent's read_workers docstring);
+    # an explicit override still threads through when the caller opts in.
+    assert None in seen_workers
     assert 8 in seen_workers
     # Concurrency is a scheduler detail only: identical numbers out.
     pd.testing.assert_frame_equal(default_run, tuned_run, check_freq=False)

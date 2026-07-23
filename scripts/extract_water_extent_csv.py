@@ -78,9 +78,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--end-date", default=END_DATE)
     parser.add_argument("--time-block", type=int, default=TIME_BLOCK)
     parser.add_argument(
-        "--read-workers", type=int, default=32,
-        help="dask worker count for concurrent S3 COG reads (higher = more parallel "
-             "reads for this latency-bound load; 0 leaves dask's default untouched)",
+        "--read-workers", type=int, default=0,
+        help="override dask's threaded-scheduler worker count (0 = leave dask's own "
+             "default alone, which profiling found consistently beats any explicit "
+             "override -- see load_wofs_monthly_extent's read_workers docstring; "
+             "only set this if you have profiled your own machine and confirmed a "
+             "value helps there)",
     )
     parser.add_argument(
         "--profile", action="store_true",

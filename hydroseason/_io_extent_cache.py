@@ -318,7 +318,7 @@ def load_wofs_monthly_extent(
     buffer_m: float = 300.0,
     progress: bool = False,
     auto_tiling: bool = True,
-    read_workers: int | None = 32,
+    read_workers: int | None = None,
 ) -> pd.DataFrame:
     """Compute monthly WOfS extent in resumable calendar-year pieces.
 
@@ -332,15 +332,25 @@ def load_wofs_monthly_extent(
     processed (cache hits included), so long tiled STAC pulls give visible
     feedback instead of blocking silently.
 
-    ``read_workers`` (default 32) widens dask's threaded-scheduler worker
-    count while the lazy STAC/COG graph is materialised -- both the precompute
-    whole-cube pass and every per-year reduction. WOfS extraction is
-    latency-bound (dozens to hundreds of small S3 range-requests per AOI-year),
-    so more workers than the ``cpu_count`` default let those remote reads run
-    concurrently, which is the dominant wall-clock lever for this workload. It
-    pairs with the HTTP/2 + VSI-cache tuning in
-    ``_io_geo._configure_cog_read_env``. Set ``read_workers=None`` (or <= 0) to
-    leave dask's scheduler configuration untouched.
+    ``read_workers``, if given (and > 0), overrides dask's threaded-scheduler
+    worker count while the lazy STAC/COG graph is materialised -- both the
+    precompute whole-cube pass and every per-year reduction.
+
+    PROFILING RESULT (see git history for the investigation): forcing a
+    worker count here does NOT help and usually HURTS. Measured on a 133-scene
+    AOI-year, dask's own default (unset) decoded in ~18-23s; explicit worker
+    counts of 4, 8, 16, 32, and 64 were all slower than unset, and got
+    monotonically worse above ~8 workers (64 workers: ~30s, nearly 2x unset).
+    The workload is decode/warp-CPU-bound, not I/O-latency-bound as originally
+    assumed -- a raw concurrent-HTTP probe fetching the same 133 scenes'
+    headers took ~6s, so the wall is GDAL's per-scene GeoTIFF decode and
+    reprojection, which dask's own worker-count heuristic already sizes
+    close to this machine's real parallel-decode capacity. Forcing a
+    higher number adds thread-scheduling/lock contention on top of an
+    already-saturated decode step. The default is therefore ``None`` (leave
+    dask's scheduler untouched); only pass an explicit value if you have
+    profiled your own machine and confirmed it helps there -- it very
+    likely will not.
 
     ``auto_tiling=True`` (the default) degrades a requested tiled load to the
     plain untiled path when the AOI's bounding box provably fits inside one

@@ -1,0 +1,26 @@
+name: hydroseason
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - gdal>=3.11
+  - libgdal>=3.11
+  - rasterio>=1.4
+  - rioxarray>=0.15
+  - geopandas>=0.14
+  - shapely>=2.0
+  - affine>=2.4
+  - dask
+  - xarray>=2023.8
+  - zarr>=2.16,<3
+  - pandas>=2.0
+  - numpy>=1.24
+  - pystac-client>=0.8
+  - odc-stac>=0.5
+  - tqdm>=4.65
+  - pytest>=8.0
+  - pytest-cov>=5.0
+  - jupyter
+  - pip
+  - pip:
+      - -e .
