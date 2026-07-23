@@ -172,6 +172,53 @@ def test_clip_to_aoi_excludes_outside_pixels_from_water_denominator():
     assert row["extent_pct"] == pytest.approx(100.0)
 
 
+def test_clip_once_on_cube_matches_per_slice_clip():
+    """Clipping a whole (time, y, x) cube once is byte-identical to clipping
+    each time slice separately -- the invariant the once-per-cube optimisation
+    in _load_wofs_items relies on."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
+    geopandas = pytest.importorskip("geopandas")
+    import rioxarray  # noqa: F401
+    from shapely.geometry import box
+
+    from hydroseason.io import _clip_to_aoi
+
+    ny = nx = 12
+    # Three canonical slices with different water/dry/invalid/outside patterns
+    # so the clip + invalid-marking path is exercised, not just all-ones.
+    rng = np.random.default_rng(0)
+    values = rng.choice(
+        np.array([-1, 0, 1], dtype=np.int8), size=(3, ny, nx)
+    ).astype(np.int8)
+    cube = xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.to_datetime(["2020-01-01", "2020-02-01", "2020-03-01"]),
+            "y": np.arange(ny, 0, -1) - 0.5,
+            "x": np.arange(nx) + 0.5,
+        },
+    ).rio.set_spatial_dims(x_dim="x", y_dim="y").rio.write_crs("EPSG:3577")
+
+    # AOI covers the left half only, so right-half pixels become outside (-2).
+    aoi = geopandas.GeoDataFrame(geometry=[box(0, 0, nx / 2, ny)], crs="EPSG:3577")
+
+    once = _clip_to_aoi(cube, aoi)
+    per_slice = xr.concat(
+        [
+            _clip_to_aoi(cube.isel(time=t), aoi).expand_dims(time=[cube.time.values[t]])
+            for t in range(cube.sizes["time"])
+        ],
+        dim="time",
+    )
+
+    np.testing.assert_array_equal(
+        np.asarray(once.values), np.asarray(per_slice.values)
+    )
+
+
 def test_raster_loader_fails_closed_when_aoi_cannot_reproject(tmp_path):
     geopandas = pytest.importorskip("geopandas")
     from shapely.geometry import box

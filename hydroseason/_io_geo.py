@@ -40,6 +40,15 @@ def _configure_cog_read_env() -> None:
       same annual batch) don't re-fetch.
     * ``GDAL_HTTP_MAX_RETRY`` / ``GDAL_HTTP_RETRY_DELAY`` -- ride out transient
       S3 5xx/throttle blips instead of failing the whole load.
+    * ``GDAL_HTTP_MAX_TOTAL_CONNECTIONS`` -- raise GDAL's ceiling on
+      *simultaneously open* HTTP connections so that widening dask's read-worker
+      pool actually yields that many concurrent S3 range requests, rather than
+      being throttled back to GDAL's small internal default. This is the lever
+      that lets ``read_workers`` translate into real read parallelism for this
+      latency-bound workload. NOTE: this option only exists on GDAL >= 3.11; on
+      older GDAL it is silently ignored (a no-op, never an error), so the
+      connection cap there stays at GDAL's compiled-in default and read
+      concurrency stays bounded by it -- upgrading GDAL is what unlocks this.
 
     Uses ``setdefault`` throughout so a caller who has deliberately set any of
     these in their own environment is never overridden.
@@ -54,6 +63,10 @@ def _configure_cog_read_env() -> None:
         "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff",
         "GDAL_HTTP_MAX_RETRY": "5",
         "GDAL_HTTP_RETRY_DELAY": "1",
+        # GDAL >= 3.11 only; silently ignored on older GDAL (e.g. 3.10). Sized
+        # to comfortably exceed the default read_workers pool so worker count,
+        # not GDAL, governs concurrency once GDAL is new enough.
+        "GDAL_HTTP_MAX_TOTAL_CONNECTIONS": "64",
     }
     for key, value in defaults.items():
         os.environ.setdefault(key, value)
@@ -293,6 +306,13 @@ def _load_wofs_items(
         except Exception as exc:
             raise AOIRasterizationError(f"STAC load failed for batch year {year}.") from exc
 
+        # Compose each month's observations into a single canonical composite,
+        # but do NOT clip per month: the AOI clip is spatial-only and the grid
+        # is time-invariant across the whole cube, so clipping every month
+        # rasterises the identical AOI geometry 12x/year (and again inside
+        # mark_in_aoi_nodata_as_invalid -> 24x). Instead collect the unclipped
+        # monthly composites and clip the whole stacked cube exactly once below,
+        # after the year loop -- one rasterisation for the entire request.
         for month, _month_items in year_groups:
             try:
                 indices = np.flatnonzero(loaded_months == month.to_period("M"))
@@ -300,12 +320,11 @@ def _load_wofs_items(
                     raise ValueError(f"loaded STAC batch has no observations for {month:%Y-%m}")
                 observations = classified.isel(time=indices)
                 mask = _combine_observations(observations, majority)
-                mask = _io._clip_to_aoi(mask, target)
             except AOIRasterizationError:
                 raise
             except Exception as exc:
                 raise AOIRasterizationError(
-                    f"AOI clip failed; refusing to process STAC month {month:%Y-%m}."
+                    f"AOI composite failed; refusing to process STAC month {month:%Y-%m}."
                 ) from exc
             if reference is not None:
                 _assert_compatible_georef(reference, mask, context=f"month {month:%Y-%m}")
@@ -313,8 +332,18 @@ def _load_wofs_items(
             masks.append(mask)
             dates.append(month)
 
+    try:
+        stacked = xr.concat(masks, dim="time").assign_coords(time=("time", dates))
+        clipped_cube = _io._clip_to_aoi(stacked, target)
+    except AOIRasterizationError:
+        raise
+    except Exception as exc:
+        raise AOIRasterizationError(
+            "AOI clip failed; refusing to process an unclipped raster."
+        ) from exc
+
     completed = complete_monthly_axis(
-        xr.concat(masks, dim="time").assign_coords(time=("time", dates)),
+        clipped_cube,
         start_date,
         end_date,
         duplicate_month_policy=duplicate_month_policy,
