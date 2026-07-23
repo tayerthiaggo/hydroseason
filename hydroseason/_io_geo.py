@@ -19,6 +19,45 @@ import pandas as pd
 
 from hydroseason._io_extent import complete_monthly_axis
 
+
+def _configure_cog_read_env() -> None:
+    """Set GDAL/rasterio env for fast, concurrent, unsigned S3 COG reads.
+
+    WOfS extraction is latency-bound: a single AOI-year is dozens to hundreds
+    of small COG GETs against DEA's public S3, and the wall-clock cost is
+    dominated by per-request round-trips, not pixel volume. These settings cut
+    that overhead without changing any result:
+
+    * ``AWS_NO_SIGN_REQUEST=YES`` -- DEA's ``dea-public-data`` bucket rejects
+      signed reads; without this every lazy dask read fails with
+      ``CPLE_AWSInvalidCredentialsError``.
+    * ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`` -- stop GDAL from listing the
+      whole S3 "directory" (a wasteful LIST) every time it opens one COG.
+    * ``GDAL_HTTP_MULTIPLEX=YES`` + ``GDAL_HTTP_VERSION=2`` -- reuse one HTTP/2
+      connection for many concurrent range requests instead of one per read.
+    * ``VSI_CACHE=TRUE`` / ``VSI_CACHE_SIZE`` -- cache COG headers/blocks in
+      memory so repeated reads of the same file (e.g. per-month slices of the
+      same annual batch) don't re-fetch.
+    * ``GDAL_HTTP_MAX_RETRY`` / ``GDAL_HTTP_RETRY_DELAY`` -- ride out transient
+      S3 5xx/throttle blips instead of failing the whole load.
+
+    Uses ``setdefault`` throughout so a caller who has deliberately set any of
+    these in their own environment is never overridden.
+    """
+    defaults = {
+        "AWS_NO_SIGN_REQUEST": "YES",
+        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+        "GDAL_HTTP_MULTIPLEX": "YES",
+        "GDAL_HTTP_VERSION": "2",
+        "VSI_CACHE": "TRUE",
+        "VSI_CACHE_SIZE": "67108864",  # 64 MB
+        "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff",
+        "GDAL_HTTP_MAX_RETRY": "5",
+        "GDAL_HTTP_RETRY_DELAY": "1",
+    }
+    for key, value in defaults.items():
+        os.environ.setdefault(key, value)
+
 MaskEncoding = Literal["canonical", "binary", "wofs"]
 
 
@@ -185,8 +224,9 @@ def _load_wofs_items(
     Items are processed in annual batches with monthly composition,
     returning a lazy xarray.DataArray.
     """
-    import xarray as xr
     import odc.stac
+    import xarray as xr
+
     import hydroseason.io as _io
 
     groups: dict[pd.Timestamp, list] = {}
@@ -275,16 +315,16 @@ def load_wofs_from_stac(
     if aoi is None:
         raise ValueError("AOI is required for WOfS/STAC loading.")
     try:
-        import xarray as xr
-        import pystac_client
         import odc.stac
+        import pystac_client
         import rioxarray  # noqa: F401  (registers the .rio accessor used by _clip_to_aoi)
+        import xarray as xr
     except ImportError as exc:  # pragma: no cover
         raise ImportError("load_wofs_from_stac requires the stac extra.") from exc
-    # DEA's public S3 bucket (dea-public-data) rejects unsigned GDAL/rasterio
-    # reads unless explicitly told not to sign requests; without this, every
-    # lazy dask read of the returned cube fails with CPLE_AWSInvalidCredentialsError.
-    os.environ.setdefault("AWS_NO_SIGN_REQUEST", "YES")
+    # Tune GDAL/rasterio for fast concurrent unsigned S3 COG reads (this also
+    # sets AWS_NO_SIGN_REQUEST, without which every lazy dask read of the
+    # returned cube fails with CPLE_AWSInvalidCredentialsError on dea-public-data).
+    _configure_cog_read_env()
 
     try:
         items, aoi_gdf = _query_wofs_items(stac_url, collection, aoi, start_date, end_date)
@@ -397,16 +437,16 @@ def iter_wofs_tiles_from_stac(
     if resolution is None:
         raise ValueError("resolution is required for tiled WOfS/STAC loading.")
     try:
-        import xarray as xr  # noqa: F401
-        import pystac_client  # noqa: F401
         import odc.stac  # noqa: F401
+        import pystac_client  # noqa: F401
         import rioxarray  # noqa: F401  (registers the .rio accessor used by _clip_to_aoi)
+        import xarray as xr  # noqa: F401
     except ImportError as exc:  # pragma: no cover
         raise ImportError("iter_wofs_tiles_from_stac requires the stac extra.") from exc
-    # DEA's public S3 bucket (dea-public-data) rejects unsigned GDAL/rasterio
-    # reads unless explicitly told not to sign requests; without this, every
-    # lazy dask read of the returned cube fails with CPLE_AWSInvalidCredentialsError.
-    os.environ.setdefault("AWS_NO_SIGN_REQUEST", "YES")
+    # Tune GDAL/rasterio for fast concurrent unsigned S3 COG reads (this also
+    # sets AWS_NO_SIGN_REQUEST, without which every lazy dask read of the
+    # returned cube fails with CPLE_AWSInvalidCredentialsError on dea-public-data).
+    _configure_cog_read_env()
 
     try:
         items, aoi_gdf = _query_wofs_items(stac_url, collection, aoi, start_date, end_date)
@@ -416,32 +456,50 @@ def iter_wofs_tiles_from_stac(
     target = aoi_gdf.to_crs(_crs_value(crs)) if crs is not None else aoi_gdf
     parent_geobox = _output_geobox_for_aoi(items, target, crs=crs, resolution=resolution)
 
-    for tile_id, ys, xs in _tile_slices(parent_geobox.shape, tile_pixels):
-        if tile_id in skip_tile_ids:
-            continue
-        tile_geobox = parent_geobox[ys, xs]
-        if not _tile_intersects_aoi(tile_geobox, target):
-            continue
-        # Wet-AOI pruning: skip tiles the full-TS water union never touches.
-        # This decides which tiles load; the user-AOI clip below is unchanged,
-        # so extent denominators (n_aoi) stay measured against the user AOI.
-        if not tile_intersects_wet_aoi(tile_geobox, wet_aoi):
-            continue
-        mask = _load_wofs_items(
-            items,
-            aoi_gdf,
-            start_date,
-            end_date,
-            crs=crs,
-            resolution=resolution,
-            geobox=tile_geobox,
-            chunk_x=chunk_x,
-            chunk_y=chunk_y,
-            time_chunk=time_chunk,
-            majority=majority,
-            duplicate_month_policy=duplicate_month_policy,
-        )
-        yield tile_id, mask
+    _profile = os.environ.get("HYDROSEASON_PROFILE", "").strip() not in ("", "0", "false", "False")
+    n_total = n_cached = n_outside = n_pruned = n_loaded = 0
+
+    try:
+        for tile_id, ys, xs in _tile_slices(parent_geobox.shape, tile_pixels):
+            n_total += 1
+            if tile_id in skip_tile_ids:
+                n_cached += 1
+                continue
+            tile_geobox = parent_geobox[ys, xs]
+            if not _tile_intersects_aoi(tile_geobox, target):
+                n_outside += 1
+                continue
+            # Wet-AOI pruning: skip tiles the full-TS water union never touches.
+            # This decides which tiles load; the user-AOI clip below is unchanged,
+            # so extent denominators (n_aoi) stay measured against the user AOI.
+            if not tile_intersects_wet_aoi(tile_geobox, wet_aoi):
+                n_pruned += 1
+                continue
+            n_loaded += 1
+            mask = _load_wofs_items(
+                items,
+                aoi_gdf,
+                start_date,
+                end_date,
+                crs=crs,
+                resolution=resolution,
+                geobox=tile_geobox,
+                chunk_x=chunk_x,
+                chunk_y=chunk_y,
+                time_chunk=time_chunk,
+                majority=majority,
+                duplicate_month_policy=duplicate_month_policy,
+            )
+            yield tile_id, mask
+    finally:
+        if _profile:
+            import sys
+
+            print(
+                f"  [profile] tile grid: {n_total} total = {n_loaded} loaded + "
+                f"{n_pruned} pruned (wet-AOI) + {n_outside} outside-AOI + {n_cached} cached",
+                file=sys.stderr, flush=True,
+            )
 
 
 def _collect_stac_items(client, *, max_attempts: int = 4, **search_kwargs):
@@ -555,8 +613,8 @@ def mark_in_aoi_nodata_as_invalid(mask, aoi, *, outside_value: int = -2, invalid
 
 def _inside_aoi_mask_like(template, aoi_gdf):
     try:
-        from rasterio.features import geometry_mask
         import xarray as xr
+        from rasterio.features import geometry_mask
 
         transform = _resolve_raster_transform(template)
         inside = geometry_mask(list(aoi_gdf.geometry), out_shape=(template.sizes["y"], template.sizes["x"]), transform=transform, invert=True, all_touched=True)

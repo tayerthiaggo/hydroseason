@@ -545,3 +545,94 @@ def test_different_wet_aoi_produces_different_cache_file(monkeypatch, tmp_path):
     files_with_wet_aoi = set(cache_dir.glob("extent_*.csv")) - files_without_wet_aoi
 
     assert files_with_wet_aoi  # a new, distinct annual cache file was written
+
+
+def _write_box_aoi(tmp_path, name, *, crs, span_m):
+    """Write a square AOI GeoJSON `span_m` metres per side in the given CRS."""
+    gpd = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+
+    gdf = gpd.GeoDataFrame(
+        {"geometry": [box(0, 0, span_m, span_m)]}, geometry="geometry", crs=crs
+    )
+    path = tmp_path / name
+    gdf.to_file(path, driver="GeoJSON")
+    return path
+
+
+def test_auto_tiling_degrades_single_tile_aoi_to_untiled_path(monkeypatch, tmp_path):
+    """An AOI smaller than one tile skips precompute and the tiled iterator,
+    taking the plain untiled read instead (bit-identical, no double-read)."""
+    pytest.importorskip("dask")
+    import hydroseason.io as hio
+
+    # 5 km AOI at 30 m with tile_pixels=2048 => one tile spans ~61 km >> 5 km.
+    aoi = _write_box_aoi(tmp_path, "small.geojson", crs="EPSG:3577", span_m=5_000)
+
+    untiled = Mock(side_effect=lambda _u, _c, _a, start, end, **k: _fake_monthly_cube(start, end))
+    tiles = Mock(side_effect=lambda *a, **k: iter(()))
+    monkeypatch.setattr(hio, "load_wofs_from_stac", untiled)
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", tiles)
+
+    hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac", "wofs", aoi,
+        "2020-01-01", "2020-12-31",
+        crs=3577, resolution=30, tile_pixels=2048, precompute_wet_aoi=True,
+    )
+
+    assert untiled.called  # took the untiled whole-AOI read
+    assert not tiles.called  # never touched the tiled iterator
+
+
+def test_auto_tiling_keeps_tiled_path_for_multi_tile_aoi(monkeypatch, tmp_path):
+    """An AOI larger than one tile keeps the tiled+precompute path."""
+    pytest.importorskip("dask")
+    import hydroseason.io as hio
+
+    # 200 km AOI at 30 m with tile_pixels=2048 => spans many ~61 km tiles.
+    aoi = _write_box_aoi(tmp_path, "big.geojson", crs="EPSG:3577", span_m=200_000)
+
+    monkeypatch.setattr(
+        hio, "load_wofs_from_stac",
+        lambda _u, _c, _a, start, end, **k: _fake_monthly_cube(start, end),
+    )
+    monkeypatch.setattr(hio, "compute_wet_aoi", lambda mask, **k: _fake_wet_aoi())
+    tiles = Mock(side_effect=lambda *a, **k: iter(
+        [("r0000_c0000", _fake_monthly_cube("2020-01-01", "2020-12-01"))]
+    ))
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", tiles)
+
+    hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac", "wofs", aoi,
+        "2020-01-01", "2020-12-31",
+        crs=3577, resolution=30, tile_pixels=2048, precompute_wet_aoi=True,
+    )
+
+    assert tiles.called  # kept the tiled path for a genuinely multi-tile AOI
+
+
+def test_auto_tiling_false_forces_tiled_path_even_for_small_aoi(monkeypatch, tmp_path):
+    """auto_tiling=False keeps the requested tiled path regardless of AOI size."""
+    pytest.importorskip("dask")
+    import hydroseason.io as hio
+
+    aoi = _write_box_aoi(tmp_path, "small2.geojson", crs="EPSG:3577", span_m=5_000)
+
+    monkeypatch.setattr(
+        hio, "load_wofs_from_stac",
+        lambda _u, _c, _a, start, end, **k: _fake_monthly_cube(start, end),
+    )
+    monkeypatch.setattr(hio, "compute_wet_aoi", lambda mask, **k: _fake_wet_aoi())
+    tiles = Mock(side_effect=lambda *a, **k: iter(
+        [("r0000_c0000", _fake_monthly_cube("2020-01-01", "2020-12-01"))]
+    ))
+    monkeypatch.setattr(hio, "iter_wofs_tiles_from_stac", tiles)
+
+    hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac", "wofs", aoi,
+        "2020-01-01", "2020-12-31",
+        crs=3577, resolution=30, tile_pixels=2048, precompute_wet_aoi=True,
+        auto_tiling=False,
+    )
+
+    assert tiles.called  # opt-out respected: tiled path forced

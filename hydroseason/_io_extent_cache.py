@@ -7,12 +7,43 @@ import itertools
 import json
 import os
 import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from hydroseason.hydro_year import monthly_water_extent
+
+
+def _profile_enabled() -> bool:
+    """Read the profiling flag at call time, not import time.
+
+    Callers (e.g. the extract script's ``--profile``) may set the env var
+    after this module is imported, so it must be re-read per use rather than
+    frozen at module load.
+    """
+    return os.environ.get("HYDROSEASON_PROFILE", "").strip() not in ("", "0", "false", "False")
+
+
+@contextmanager
+def _phase(label: str):
+    """Print wall-clock time for a named phase when HYDROSEASON_PROFILE is set.
+
+    Zero overhead (a bare yield) when profiling is off, so normal runs are
+    unaffected. Timings go to stderr so they never pollute CSV/stdout capture.
+    """
+    if not _profile_enabled():
+        yield
+        return
+    import sys
+
+    t0 = time.monotonic()
+    try:
+        yield
+    finally:
+        print(f"  [profile] {label}: {time.monotonic() - t0:.1f}s", file=sys.stderr, flush=True)
 
 _CACHE_SCHEMA_VERSION = 2
 _EXTENT_COLUMNS = (
@@ -35,6 +66,45 @@ def _aoi_digest(aoi) -> str:
         payload = f"{getattr(aoi, 'crs', None)}\n{aoi.to_json()}".encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
     return hashlib.sha256(repr(aoi).encode("utf-8")).hexdigest()
+
+
+def _aoi_spans_multiple_tiles(aoi, *, crs, resolution, tile_pixels) -> bool | None:
+    """Would this AOI's bounding box cover more than one load tile?
+
+    A tile is ``tile_pixels`` pixels square at ``resolution`` metres, so it
+    spans ``tile_pixels * resolution`` metres per side. When the AOI's bounding
+    box (measured in the target ``crs``) fits inside a single tile on both
+    axes, tiling can only ever produce one tile -- making the tiled+precompute
+    path a strict no-op that still pays for a whole-cube precompute read (see
+    the performance note in :func:`load_wofs_monthly_extent`). Returns True if
+    the bbox spans >1 tile on either axis, False if it fits in one, and None
+    when the span cannot be determined without a STAC query (e.g. geopandas
+    unavailable, or the AOI type is not introspectable) -- in which case the
+    caller must not assume single-tile and should keep the requested path.
+
+    This is a bounding-box test, deliberately conservative: it can only ever
+    *confirm* a single tile (bbox strictly inside one tile), never wrongly
+    claim multi-tile, so degrading to the untiled path on a False result is
+    always output-identical to a 1-tile tiled run.
+    """
+    if resolution is None or resolution <= 0 or tile_pixels is None or tile_pixels < 1:
+        return None
+    try:
+        import hydroseason.io as _io
+
+        aoi_gdf = _io.load_aoi(aoi)
+        target = aoi_gdf.to_crs(_crs_value_local(crs)) if crs is not None else aoi_gdf
+        minx, miny, maxx, maxy = (float(v) for v in target.total_bounds)
+    except Exception:
+        return None
+    tile_span_m = float(tile_pixels) * float(resolution)
+    return (maxx - minx) > tile_span_m or (maxy - miny) > tile_span_m
+
+
+def _crs_value_local(crs):
+    """Local mirror of ``_io_geo._crs_value`` to avoid importing the STAC module
+    just to normalise a CRS int/str for the bbox pre-check."""
+    return f"EPSG:{crs}" if isinstance(crs, int) else crs
 
 
 def _year_windows(start: pd.Timestamp, end: pd.Timestamp):
@@ -213,6 +283,8 @@ def load_wofs_monthly_extent(
     persistence_min: float = 0.0,
     close_m: float = 150.0,
     buffer_m: float = 300.0,
+    progress: bool = False,
+    auto_tiling: bool = True,
 ) -> pd.DataFrame:
     """Compute monthly WOfS extent in resumable calendar-year pieces.
 
@@ -221,6 +293,20 @@ def load_wofs_monthly_extent(
     ``cache_dir`` is supplied, CSV cache identity includes all data-affecting
     inputs, the AOI content hash, and (when a wet AOI is in play) its content
     hash too -- a different wet AOI never silently reads a stale cache.
+
+    ``progress=True`` shows a tqdm bar ticking once per calendar year
+    processed (cache hits included), so long tiled STAC pulls give visible
+    feedback instead of blocking silently.
+
+    ``auto_tiling=True`` (the default) degrades a requested tiled load to the
+    plain untiled path when the AOI's bounding box provably fits inside one
+    load tile (``tile_pixels * resolution`` metres per side). In that case
+    tiling can only ever yield a single tile, so its output is bit-identical
+    to the untiled reduction, but ``precompute_wet_aoi`` would still pay for a
+    full extra whole-cube read to prune a one-cell grid. Degrading skips that
+    dead cost. It is suppressed when a ``wet_aoi`` is caller-supplied (that
+    genuinely changes ``n_wet_aoi``/``wet_fill_pct``), and can be turned off
+    with ``auto_tiling=False`` to force the tiled path regardless of AOI size.
 
     When ``tile_pixels`` is set, each annual window is loaded tile-by-tile via
     :func:`hydroseason.io.iter_wofs_tiles_from_stac` instead of as one whole-AOI
@@ -308,6 +394,31 @@ def load_wofs_monthly_extent(
     if end < start:
         raise ValueError("end_date must be on or after start_date.")
 
+    # Auto-degrade to the untiled path when the AOI's bounding box provably
+    # fits inside a single load tile. Tiling then produces exactly one tile,
+    # so the tiled aggregate is bit-identical to a plain whole-AOI reduction
+    # -- but the tiled+precompute path would still pay for a full whole-cube
+    # precompute read to prune a one-cell grid (see the perf note below). We
+    # only degrade when no caller-supplied wet_aoi is in play: a supplied
+    # wet_aoi changes n_wet_aoi/wet_fill_pct output, so dropping the tiled
+    # path (which is where a supplied wet_aoi is consumed) would silently
+    # alter results. precompute_wet_aoi-derived wet AOIs are safe to drop
+    # because a single-tile run reconciles to the same whole-cube ground truth.
+    if auto_tiling and tile_pixels is not None and wet_aoi is None:
+        spans = _aoi_spans_multiple_tiles(
+            aoi, crs=crs, resolution=resolution, tile_pixels=tile_pixels,
+        )
+        if spans is False:
+            if _profile_enabled():
+                import sys
+                print(
+                    "  [profile] auto-tiling: AOI fits in one tile -> "
+                    "using untiled path (skipping precompute double-read)",
+                    file=sys.stderr, flush=True,
+                )
+            tile_pixels = None
+            precompute_wet_aoi = False
+
     cache_root = Path(cache_dir) if cache_dir is not None else None
     aoi_hash = _aoi_digest(aoi) if cache_root is not None else ""
     parts: list[pd.DataFrame] = []
@@ -318,15 +429,16 @@ def load_wofs_monthly_extent(
 
     full_ts = None
     if precompute_wet_aoi and wet_aoi is None:
-        full_ts = _io.load_wofs_from_stac(
-            stac_url, collection, aoi,
-            start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"),
-            crs=crs, resolution=resolution,
-            chunk_x=chunk_x, chunk_y=chunk_y, time_chunk=time_block, majority=majority,
-        )
-        wet_aoi = _io.compute_wet_aoi(
-            full_ts, persistence_min=persistence_min, close_m=close_m, buffer_m=buffer_m,
-        )
+        with _phase("precompute wet-AOI (whole-cube read)"):
+            full_ts = _io.load_wofs_from_stac(
+                stac_url, collection, aoi,
+                start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"),
+                crs=crs, resolution=resolution,
+                chunk_x=chunk_x, chunk_y=chunk_y, time_chunk=time_block, majority=majority,
+            )
+            wet_aoi = _io.compute_wet_aoi(
+                full_ts, persistence_min=persistence_min, close_m=close_m, buffer_m=buffer_m,
+            )
 
     wet_aoi_hash = _aoi_digest(wet_aoi) if (cache_root is not None and wet_aoi is not None) else ""
 
@@ -343,7 +455,15 @@ def load_wofs_monthly_extent(
     # pruning-gated fallback) to reflect the true wet-AOI geometry.
     effective_wet_aoi = wet_aoi if full_ts is not None else None
 
-    for year_start, year_end in _year_windows(start, end):
+    year_iter = _year_windows(start, end)
+    if progress:
+        from tqdm.auto import tqdm
+
+        year_iter = tqdm(
+            year_iter, total=end.year - start.year + 1, desc="years", unit="yr",
+        )
+
+    for year_start, year_end in year_iter:
         expected_index = pd.date_range(
             year_start.to_period("M").to_timestamp(),
             year_end.to_period("M").to_timestamp(),
@@ -419,13 +539,23 @@ def load_wofs_monthly_extent(
                 continue
 
             remaining_tiles = tiles if first_tile is None else itertools.chain([first_tile], tiles)
-            for tile_id, water_mask in remaining_tiles:
-                tile_extent = monthly_water_extent(water_mask, time_block=time_block, wet_aoi=wet_aoi)
-                if not tile_extent.index.equals(expected_index):
-                    raise ValueError(f"tile {tile_id} has an unexpected monthly index")
-                if tile_cache_dir is not None:
-                    _write_extent_atomic(tile_extent, tile_cache_dir / f"{tile_id}.csv")
-                tile_parts[tile_id] = tile_extent
+            n_loaded = 0
+            with _phase(f"tiled load {year_start:%Y} (loading tiles)"):
+                for tile_id, water_mask in remaining_tiles:
+                    tile_extent = monthly_water_extent(water_mask, time_block=time_block, wet_aoi=wet_aoi)
+                    if not tile_extent.index.equals(expected_index):
+                        raise ValueError(f"tile {tile_id} has an unexpected monthly index")
+                    if tile_cache_dir is not None:
+                        _write_extent_atomic(tile_extent, tile_cache_dir / f"{tile_id}.csv")
+                    tile_parts[tile_id] = tile_extent
+                    n_loaded += 1
+            if _profile_enabled():
+                import sys
+                print(
+                    f"  [profile] {year_start:%Y}: {n_loaded} tiles loaded, "
+                    f"{len(tile_parts) - n_loaded} from cache",
+                    file=sys.stderr, flush=True,
+                )
 
             if not tile_parts:
                 raise ValueError(
