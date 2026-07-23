@@ -159,6 +159,7 @@ def monthly_water_extent(
     spatial_dims: tuple[str, str] = ("y", "x"),
     time_block: int = 1,
     wet_aoi=None,
+    read_workers: int | None = None,
 ) -> pd.DataFrame:
     """Summarise monthly canonical masks without treating invalid pixels as dry.
 
@@ -194,20 +195,40 @@ def monthly_water_extent(
     invalid pixels are present, because both ratios reduce to the same
     ``100 * n_water / n_valid`` formula in that case (they can legitimately
     differ only when a real ``wet_aoi`` is supplied).
+
+    ``read_workers``, if given (and > 0), widens dask's threaded-scheduler
+    worker count for the ``dask.compute`` reductions below. The counts here
+    are the point at which the lazy STAC/COG graph is actually materialised,
+    so this is where remote reads fire; for the latency-bound WOfS workload
+    (dozens to hundreds of small S3 range-requests per year) far more workers
+    than the ``cpu_count`` default lets those reads run concurrently. The
+    override is scoped to this reduction via ``dask.config.set`` and restored
+    on exit. ``None`` (the default) leaves dask's configuration untouched, so
+    callers that do not pass it -- e.g. raster-mask reductions -- see no
+    behavioural change.
     """
     try:
         import dask
     except ImportError as exc:  # pragma: no cover - depends on optional extra
         raise ImportError("monthly_water_extent requires the raster extra (dask and xarray).") from exc
 
+    from contextlib import nullcontext
+
+    concurrency = (
+        dask.config.set(scheduler="threads", num_workers=read_workers)
+        if read_workers is not None and read_workers > 0
+        else nullcontext()
+    )
+
     dims = list(spatial_dims)
     n_time = water_mask.sizes["time"]
 
     inside_wet = None
     if wet_aoi is not None:
-        from hydroseason._io_geo import _inside_aoi_mask_like, _resolve_raster_crs
         import geopandas as gpd
         import rioxarray  # noqa: F401  (registers the .rio accessor used below)
+
+        from hydroseason._io_geo import _inside_aoi_mask_like, _resolve_raster_crs
 
         mask_crs = _resolve_raster_crs(water_mask)
         gdf = (
@@ -224,33 +245,34 @@ def monthly_water_extent(
     n_water_parts: list[np.ndarray] = []
     n_invalid_parts: list[np.ndarray] = []
     n_wet_aoi_parts: list[np.ndarray] = []
-    for start in range(0, n_time, time_block):
-        block = water_mask.isel(time=slice(start, start + time_block))
-        n_aoi_block = (block != outside_value).sum(dim=dims)
-        n_water_block = (block == water_value).sum(dim=dims)
-        n_dry_block = (block == dry_value).sum(dim=dims)
-        n_valid_block = n_water_block + n_dry_block
-        n_invalid_block = n_aoi_block - n_valid_block
-        if inside_wet is not None:
-            n_wet_aoi_block = ((block != outside_value) & inside_wet).sum(dim=dims)
-            (
-                n_aoi_block,
-                n_valid_block,
-                n_water_block,
-                n_invalid_block,
-                n_wet_aoi_block,
-            ) = dask.compute(
-                n_aoi_block, n_valid_block, n_water_block, n_invalid_block, n_wet_aoi_block
-            )
-            n_wet_aoi_parts.append(np.asarray(n_wet_aoi_block.values, dtype=float))
-        else:
-            n_aoi_block, n_valid_block, n_water_block, n_invalid_block = dask.compute(
-                n_aoi_block, n_valid_block, n_water_block, n_invalid_block
-            )
-        n_aoi_parts.append(np.asarray(n_aoi_block.values, dtype=float))
-        n_valid_parts.append(np.asarray(n_valid_block.values, dtype=float))
-        n_water_parts.append(np.asarray(n_water_block.values, dtype=float))
-        n_invalid_parts.append(np.asarray(n_invalid_block.values, dtype=float))
+    with concurrency:
+        for start in range(0, n_time, time_block):
+            block = water_mask.isel(time=slice(start, start + time_block))
+            n_aoi_block = (block != outside_value).sum(dim=dims)
+            n_water_block = (block == water_value).sum(dim=dims)
+            n_dry_block = (block == dry_value).sum(dim=dims)
+            n_valid_block = n_water_block + n_dry_block
+            n_invalid_block = n_aoi_block - n_valid_block
+            if inside_wet is not None:
+                n_wet_aoi_block = ((block != outside_value) & inside_wet).sum(dim=dims)
+                (
+                    n_aoi_block,
+                    n_valid_block,
+                    n_water_block,
+                    n_invalid_block,
+                    n_wet_aoi_block,
+                ) = dask.compute(
+                    n_aoi_block, n_valid_block, n_water_block, n_invalid_block, n_wet_aoi_block
+                )
+                n_wet_aoi_parts.append(np.asarray(n_wet_aoi_block.values, dtype=float))
+            else:
+                n_aoi_block, n_valid_block, n_water_block, n_invalid_block = dask.compute(
+                    n_aoi_block, n_valid_block, n_water_block, n_invalid_block
+                )
+            n_aoi_parts.append(np.asarray(n_aoi_block.values, dtype=float))
+            n_valid_parts.append(np.asarray(n_valid_block.values, dtype=float))
+            n_water_parts.append(np.asarray(n_water_block.values, dtype=float))
+            n_invalid_parts.append(np.asarray(n_invalid_block.values, dtype=float))
 
     n_aoi_arr = np.concatenate(n_aoi_parts)
     n_valid_arr = np.concatenate(n_valid_parts)

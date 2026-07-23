@@ -45,6 +45,32 @@ def _phase(label: str):
     finally:
         print(f"  [profile] {label}: {time.monotonic() - t0:.1f}s", file=sys.stderr, flush=True)
 
+
+@contextmanager
+def _read_concurrency(read_workers: int | None):
+    """Widen dask's threaded-scheduler worker count for the enclosed reads.
+
+    Used around the precompute whole-cube pass, where the lazy STAC/COG graph
+    is materialised by ``compute_wet_aoi``'s ``.any("time")`` reduction. The
+    per-year reductions get the same treatment inside
+    :func:`hydroseason.hydro_year.monthly_water_extent` via its own
+    ``read_workers`` argument; this context covers the one read site that does
+    not route through that function. See ``monthly_water_extent`` for why more
+    workers than ``cpu_count`` help this latency-bound S3 workload. A ``None``
+    or non-positive ``read_workers`` is a no-op; the override is scoped to the
+    ``with`` block and restored on exit.
+    """
+    if read_workers is None or read_workers <= 0:
+        yield
+        return
+    try:
+        import dask
+    except ImportError:  # pragma: no cover - dask is a raster-extra dependency
+        yield
+        return
+    with dask.config.set(scheduler="threads", num_workers=read_workers):
+        yield
+
 _CACHE_SCHEMA_VERSION = 2
 _EXTENT_COLUMNS = (
     "n_water",
@@ -229,7 +255,7 @@ def _aggregate_extent_parts(parts, index):
     return totals.loc[:, _EXTENT_COLUMNS]
 
 
-def _reconcile_pruned_tile_denominator(tiled_extent, full_ts, year_start, year_end, expected_index, time_block):
+def _reconcile_pruned_tile_denominator(tiled_extent, full_ts, year_start, year_end, expected_index, time_block, read_workers=None):
     """Replace a tiled/pruned year's denominator columns with the full-TS ground truth.
 
     Wet-AOI pruning skips loading tiles the ever-wet union never touches, so
@@ -250,7 +276,9 @@ def _reconcile_pruned_tile_denominator(tiled_extent, full_ts, year_start, year_e
     to change those two.
     """
     year_slice = full_ts.sel(time=slice(year_start, year_end))
-    ground_truth = monthly_water_extent(year_slice, time_block=time_block)
+    ground_truth = monthly_water_extent(
+        year_slice, time_block=time_block, read_workers=read_workers
+    )
     if not ground_truth.index.equals(expected_index):
         raise ValueError(
             f"full-TS cube has an unexpected monthly index for "
@@ -285,6 +313,7 @@ def load_wofs_monthly_extent(
     buffer_m: float = 300.0,
     progress: bool = False,
     auto_tiling: bool = True,
+    read_workers: int | None = 32,
 ) -> pd.DataFrame:
     """Compute monthly WOfS extent in resumable calendar-year pieces.
 
@@ -297,6 +326,16 @@ def load_wofs_monthly_extent(
     ``progress=True`` shows a tqdm bar ticking once per calendar year
     processed (cache hits included), so long tiled STAC pulls give visible
     feedback instead of blocking silently.
+
+    ``read_workers`` (default 32) widens dask's threaded-scheduler worker
+    count while the lazy STAC/COG graph is materialised -- both the precompute
+    whole-cube pass and every per-year reduction. WOfS extraction is
+    latency-bound (dozens to hundreds of small S3 range-requests per AOI-year),
+    so more workers than the ``cpu_count`` default let those remote reads run
+    concurrently, which is the dominant wall-clock lever for this workload. It
+    pairs with the HTTP/2 + VSI-cache tuning in
+    ``_io_geo._configure_cog_read_env``. Set ``read_workers=None`` (or <= 0) to
+    leave dask's scheduler configuration untouched.
 
     ``auto_tiling=True`` (the default) degrades a requested tiled load to the
     plain untiled path when the AOI's bounding box provably fits inside one
@@ -429,7 +468,7 @@ def load_wofs_monthly_extent(
 
     full_ts = None
     if precompute_wet_aoi and wet_aoi is None:
-        with _phase("precompute wet-AOI (whole-cube read)"):
+        with _phase("precompute wet-AOI (whole-cube read)"), _read_concurrency(read_workers):
             full_ts = _io.load_wofs_from_stac(
                 stac_url, collection, aoi,
                 start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"),
@@ -542,7 +581,10 @@ def load_wofs_monthly_extent(
             n_loaded = 0
             with _phase(f"tiled load {year_start:%Y} (loading tiles)"):
                 for tile_id, water_mask in remaining_tiles:
-                    tile_extent = monthly_water_extent(water_mask, time_block=time_block, wet_aoi=wet_aoi)
+                    tile_extent = monthly_water_extent(
+                        water_mask, time_block=time_block, wet_aoi=wet_aoi,
+                        read_workers=read_workers,
+                    )
                     if not tile_extent.index.equals(expected_index):
                         raise ValueError(f"tile {tile_id} has an unexpected monthly index")
                     if tile_cache_dir is not None:
@@ -566,6 +608,7 @@ def load_wofs_monthly_extent(
             if full_ts is not None:
                 extent = _reconcile_pruned_tile_denominator(
                     extent, full_ts, year_start, year_end, expected_index, time_block,
+                    read_workers=read_workers,
                 )
             if cache_path is not None:
                 _write_extent_atomic(extent, cache_path)
@@ -591,7 +634,10 @@ def load_wofs_monthly_extent(
                 raise
             extent = _missing_year_extent(year_start, year_end)
         else:
-            extent = monthly_water_extent(water_mask, time_block=time_block, wet_aoi=wet_aoi)
+            extent = monthly_water_extent(
+                water_mask, time_block=time_block, wet_aoi=wet_aoi,
+                read_workers=read_workers,
+            )
         if cache_path is not None:
             _write_extent_atomic(extent, cache_path)
         parts.append(extent)

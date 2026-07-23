@@ -78,6 +78,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--end-date", default=END_DATE)
     parser.add_argument("--time-block", type=int, default=TIME_BLOCK)
     parser.add_argument(
+        "--read-workers", type=int, default=32,
+        help="dask worker count for concurrent S3 COG reads (higher = more parallel "
+             "reads for this latency-bound load; 0 leaves dask's default untouched)",
+    )
+    parser.add_argument(
         "--profile", action="store_true",
         help="print per-phase timing (precompute vs tiled, per-year, tile-skip counts) to stderr",
     )
@@ -135,6 +140,7 @@ def main() -> None:
             force=args.force,
             cache_dir=OUTPUT_DIR / "_extent_cache" / name,
             progress=True,
+            read_workers=args.read_workers,
             **tile_kwargs,
         )
         elapsed = time.monotonic() - t0

@@ -411,8 +411,8 @@ def test_wet_aoi_passed_explicitly_skips_precompute_pass_but_does_not_prune_tile
     real ``wet_aoi`` must still reach ``monthly_water_extent`` for that
     calculation -- verified via ``monthly_water_extent_calls`` below.
     """
-    import hydroseason.io as hio
     import hydroseason._io_extent_cache as extent_cache
+    import hydroseason.io as hio
 
     full_ts_calls = []
     tile_calls = []
@@ -636,3 +636,42 @@ def test_auto_tiling_false_forces_tiled_path_even_for_small_aoi(monkeypatch, tmp
     )
 
     assert tiles.called  # opt-out respected: tiled path forced
+
+
+def test_read_workers_threads_into_reduction_and_leaves_result_unchanged(monkeypatch, tmp_path):
+    """read_workers reaches monthly_water_extent and does not alter output."""
+    pytest.importorskip("dask")
+    import hydroseason.hydro_year as hy
+    import hydroseason.io as hio
+    from hydroseason.io import load_wofs_monthly_extent
+
+    aoi = tmp_path / "aoi.geojson"
+    aoi.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+
+    monkeypatch.setattr(
+        hio, "load_wofs_from_stac",
+        lambda _u, _c, _a, start, end, **k: _fake_monthly_cube(start, end),
+    )
+
+    seen_workers = []
+    real_reduce = hy.monthly_water_extent
+
+    def spy_reduce(*args, read_workers=None, **kwargs):
+        seen_workers.append(read_workers)
+        return real_reduce(*args, read_workers=read_workers, **kwargs)
+
+    # The cache module imported the name directly, so patch it there.
+    monkeypatch.setattr("hydroseason._io_extent_cache.monthly_water_extent", spy_reduce)
+
+    kwargs = dict(
+        stac_url="https://example.invalid/stac", collection="wofs", aoi=aoi,
+        start_date="2020-11-01", end_date="2021-02-28", resolution=100,
+    )
+    default_run = load_wofs_monthly_extent(**kwargs)
+    tuned_run = load_wofs_monthly_extent(**kwargs, read_workers=8)
+
+    # The knob reached the reduction (default 32, then the explicit 8).
+    assert 32 in seen_workers
+    assert 8 in seen_workers
+    # Concurrency is a scheduler detail only: identical numbers out.
+    pd.testing.assert_frame_equal(default_run, tuned_run, check_freq=False)
