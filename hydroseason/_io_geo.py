@@ -218,11 +218,36 @@ def _load_wofs_items(
     time_chunk=24,
     majority=True,
     duplicate_month_policy="raise",
+    groupby="solar_day",
 ):
     """Load WOfS items, classify, compose monthly, and clip to AOI.
 
     Items are processed in annual batches with monthly composition,
     returning a lazy xarray.DataArray.
+
+    ``groupby`` controls how ``odc.stac.stac_load`` places items onto pixel
+    planes before this function classifies and monthly-composites them:
+
+    * ``"solar_day"`` (default) merges items captured on the same solar day
+      into one plane, nodata-aware (a real observation wins over nodata),
+      *before* classification. For WOfS this both cuts wall-clock time (fewer,
+      already-mosaicked time-slices to read and reduce -- the tile-edge
+      duplicate scenes that inflate a year's slice count collapse) and is
+      arguably more faithful to the data: same-day overlapping scenes are one
+      acquisition split across tile boundaries, so a pixel observed clear in
+      one tile-edge scene and nodata in its same-day neighbour is correctly
+      read as observed, not as two competing votes.
+    * ``"time"`` keeps every item with a distinct timestamp as its own plane
+      (the historical behaviour). Same-day tile-edge scenes then each cast a
+      separate water/dry/invalid vote in ``_combine_observations``.
+
+    The per-month selection and majority vote below are agnostic to how many
+    slices land in a month, so the only thing ``groupby`` changes is the slice
+    granularity feeding the vote (and thus, at same-day overlap boundaries,
+    the vote's outcome). Solar-time adjustment can nudge a near-midnight scene
+    across a UTC date boundary; such a scene still selects into whichever month
+    its solar-day timestamp falls in, and any month loaded that is outside the
+    requested year_groups is simply not selected.
     """
     import odc.stac
     import xarray as xr
@@ -257,6 +282,7 @@ def _load_wofs_items(
                 year_items,
                 bands=["water"],
                 chunks={"x": chunk_x, "y": chunk_y},
+                groupby=groupby,
                 **({"resampling": "mode"} if resolution is not None else {}),
                 **spatial,
             )
@@ -304,13 +330,15 @@ def load_wofs_from_stac(
     stac_url: str, collection: str, aoi, start_date: str, end_date: str, *, crs: int | str | None = 3577,
     chunk_x: int = 512, chunk_y: int = 512, time_chunk: int = 24, majority: bool = True,
     duplicate_month_policy: Literal["raise", "warn"] = "raise", resolution: float | None = None,
+    groupby: str = "solar_day",
 ):
     """Load WOfS observations in annual batches, compose monthly, and clip to the AOI.
 
     A calendar year is sent to ``odc.stac.stac_load`` at once.  The returned
     lazy cube is then split into monthly composites, avoiding the substantial
     graph/setup overhead of one loader call per month while retaining the same
-    monthly result.
+    monthly result. ``groupby`` (default ``"solar_day"``) controls same-day
+    scene mosaicking before compositing -- see :func:`_load_wofs_items`.
     """
     if aoi is None:
         raise ValueError("AOI is required for WOfS/STAC loading.")
@@ -344,6 +372,7 @@ def load_wofs_from_stac(
         time_chunk=time_chunk,
         majority=majority,
         duplicate_month_policy=duplicate_month_policy,
+        groupby=groupby,
     )
 
 
@@ -412,6 +441,7 @@ def iter_wofs_tiles_from_stac(
     chunk_x: int = 512, chunk_y: int = 512, time_chunk: int = 24, majority: bool = True,
     duplicate_month_policy: Literal["raise", "warn"] = "raise",
     wet_aoi=None,
+    groupby: str = "solar_day",
 ) -> Iterator[tuple[str, "object"]]:
     """Query STAC once, then load WOfS one native-resolution Albers tile at a time.
 
@@ -489,6 +519,7 @@ def iter_wofs_tiles_from_stac(
                 time_chunk=time_chunk,
                 majority=majority,
                 duplicate_month_policy=duplicate_month_policy,
+                groupby=groupby,
             )
             yield tile_id, mask
     finally:

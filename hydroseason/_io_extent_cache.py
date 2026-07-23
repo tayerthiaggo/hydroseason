@@ -71,7 +71,12 @@ def _read_concurrency(read_workers: int | None):
     with dask.config.set(scheduler="threads", num_workers=read_workers):
         yield
 
-_CACHE_SCHEMA_VERSION = 2
+# Bumped 2 -> 3 when the STAC loader default changed to groupby="solar_day"
+# (same-day scenes are now nodata-mosaicked before compositing), which shifts
+# extent values at same-day overlap boundaries versus the old groupby="time"
+# path. Old cache CSVs hold pre-change values, so the version bump invalidates
+# them rather than silently mixing the two compositing semantics.
+_CACHE_SCHEMA_VERSION = 3
 _EXTENT_COLUMNS = (
     "n_water",
     "n_aoi",

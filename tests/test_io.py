@@ -71,6 +71,7 @@ def test_load_aoi_rejects_empty_geometry_frame():
 def test_load_aoi_rejects_self_intersecting_geometry():
     geopandas = pytest.importorskip("geopandas")
     from shapely.geometry import Polygon
+
     from hydroseason.io import load_aoi
 
     bowtie = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
@@ -143,8 +144,9 @@ def test_clip_to_aoi_excludes_outside_pixels_from_water_denominator():
     geopandas = pytest.importorskip("geopandas")
     import rioxarray  # noqa: F401
     from shapely.geometry import box
-    from hydroseason.io import _clip_to_aoi
+
     from hydroseason.hydro_year import monthly_water_extent
+    from hydroseason.io import _clip_to_aoi
 
     ny = nx = 16
     arr = xr.DataArray(
@@ -173,6 +175,7 @@ def test_clip_to_aoi_excludes_outside_pixels_from_water_denominator():
 def test_raster_loader_fails_closed_when_aoi_cannot_reproject(tmp_path):
     geopandas = pytest.importorskip("geopandas")
     from shapely.geometry import box
+
     from hydroseason.io import AOIRasterizationError, load_monthly_masks
 
     _write_binary_tif(tmp_path / "water_scene_2020_01_01.tif")
@@ -203,6 +206,7 @@ def test_stac_loader_passes_resolution_to_stac_load(monkeypatch):
     pytest.importorskip("odc.stac")
     pytest.importorskip("rioxarray")
     from unittest.mock import Mock
+
     from hydroseason.io import load_wofs_from_stac
 
     # Mock the STAC client and items
@@ -250,6 +254,45 @@ def test_stac_loader_passes_resolution_to_stac_load(monkeypatch):
     assert call_kwargs.get("resampling") == "mode"
 
 
+def test_stac_loader_defaults_to_solar_day_grouping(monkeypatch):
+    """WOfS loads default to groupby='solar_day' so same-day tile-edge scenes
+    are nodata-mosaicked into one plane before compositing."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("pystac_client")
+    pytest.importorskip("odc.stac")
+    pytest.importorskip("rioxarray")
+    from unittest.mock import Mock
+
+    from hydroseason.io import load_wofs_from_stac
+
+    mock_item = Mock()
+    mock_item.properties = {"datetime": "2020-01-01T00:00:00Z"}
+    mock_ds = xr.Dataset(
+        {"water": (("time", "y", "x"), np.ones((1, 2, 2), dtype=np.int8))},
+        coords={"time": pd.to_datetime(["2020-01-01"]), "y": [0, 1], "x": [0, 1]},
+    )
+    mock_stac_load = Mock(return_value=mock_ds)
+    monkeypatch.setattr("odc.stac.stac_load", mock_stac_load)
+
+    mock_client_instance = Mock()
+    mock_search_result = Mock()
+    mock_search_result.items.return_value = [mock_item]
+    mock_client_instance.search.return_value = mock_search_result
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=mock_client_instance))
+    monkeypatch.setattr(
+        "hydroseason.io._clip_to_aoi", Mock(return_value=mock_ds["water"])
+    )
+
+    load_wofs_from_stac(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2020-01-01",
+    )
+
+    assert mock_stac_load.called
+    assert mock_stac_load.call_args[1].get("groupby") == "solar_day"
+
+
 def test_stac_loader_omits_resolution_when_none(monkeypatch):
     """Test that resolution and resampling are NOT passed when resolution=None."""
     xr = pytest.importorskip("xarray")
@@ -258,6 +301,7 @@ def test_stac_loader_omits_resolution_when_none(monkeypatch):
     pytest.importorskip("odc.stac")
     pytest.importorskip("rioxarray")
     from unittest.mock import Mock
+
     from hydroseason.io import load_wofs_from_stac
 
     # Mock the STAC client and items
@@ -466,9 +510,9 @@ def test_tiled_reduction_matches_whole_cube_reduction_with_boundary_canonical_va
     """
     xr = pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    from hydroseason._io_extent_cache import _aggregate_extent_parts
     from hydroseason.hydro_year import monthly_water_extent
     from hydroseason.io import _tile_slices
-    from hydroseason._io_extent_cache import _aggregate_extent_parts
 
     # Month 1: water/dry only (baseline, no boundary values).
     month1 = np.array(
@@ -709,8 +753,9 @@ def test_wet_aoi_pruning_does_not_change_extent_pct(monkeypatch, tmp_path):
     pytest.importorskip("rioxarray")
     geopandas = pytest.importorskip("geopandas")
     from unittest.mock import Mock
-    from shapely.geometry import box
+
     from odc.geo.geobox import GeoBox
+    from shapely.geometry import box
 
     import hydroseason._io_geo as geo
     from hydroseason._io_extent_cache import load_wofs_monthly_extent
@@ -841,8 +886,9 @@ def test_externally_supplied_wet_aoi_does_not_prune_and_matches_unpruned_extent_
     pytest.importorskip("rioxarray")
     geopandas = pytest.importorskip("geopandas")
     from unittest.mock import Mock
-    from shapely.geometry import box
+
     from odc.geo.geobox import GeoBox
+    from shapely.geometry import box
 
     import hydroseason._io_geo as geo
     from hydroseason._io_extent_cache import load_wofs_monthly_extent
