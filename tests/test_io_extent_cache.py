@@ -77,6 +77,16 @@ def test_offline_cache_miss_is_explicit(tmp_path):
         )
 
 
+def test_offline_without_mask_cache_dir_is_explicit():
+    import hydroseason.io as hio
+
+    with pytest.raises(FileNotFoundError, match="offline WOfS cache miss"):
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+            "2020-01-01", "2020-12-31", resolution=30, offline=True,
+        )
+
+
 def test_canonical_cache_extent_is_exactly_equal_to_legacy(monkeypatch, tmp_path):
     pytest.importorskip("dask")
     import hydroseason.io as hio
