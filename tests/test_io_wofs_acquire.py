@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -8,9 +9,12 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+from affine import Affine
 from shapely.geometry import box
 
-from hydroseason._io_wofs_acquire import acquire_wofs_cache
+from hydroseason._io_wofs_acquire import acquire_wofs_cache, load_or_build_cached_wet_aoi
+
+pytest.importorskip("rioxarray")
 
 
 def _item(date: str, item_id: str):
@@ -81,6 +85,83 @@ def test_shared_graph_consumers_execute_delayed_source_once():
     left, right = dask.compute(parent[:, :2], parent[:, 2:])
     assert calls["source"] == 1
     assert left.shape == right.shape == (4, 2)
+
+
+def _canonical_year_cube(*, shape: tuple[int, int, int], fill: int, year: int) -> xr.DataArray:
+    time, height, width = shape
+    transform = Affine(30, 0, 1000, 0, -30, 2000)
+    values = np.full(shape, fill, dtype=np.int8)
+    return xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.date_range(f"{year}-01-01", periods=time, freq="MS"),
+            "y": transform.f + (np.arange(height) + 0.5) * transform.e,
+            "x": transform.c + (np.arange(width) + 0.5) * transform.a,
+        },
+        name="water_mask",
+    ).rio.write_crs(3577).rio.write_transform(transform)
+
+
+def _completed_cache_handle(tmp_path: Path):
+    from hydroseason._io_wofs_zarr import (
+        WOfSCacheIdentity,
+        WOfSCacheRequest,
+        create_cache_handle,
+        write_annual_group,
+    )
+    from hydroseason._spatial_plan import GridWindow
+
+    request = WOfSCacheRequest(
+        stac_url="https://example.invalid/stac",
+        collection="ga_ls_wo_3",
+        aoi_sha256="a" * 64,
+        start_date="2015-01-01",
+        end_date="2016-12-31",
+        crs="EPSG:3577",
+        resolution=30.0,
+        classifier_version=1,
+        groupby="solar_day",
+        majority=True,
+        planner_version=1,
+        schema_version=1,
+    )
+    cube_2015 = _canonical_year_cube(shape=(12, 4, 4), fill=1, year=2015)
+    identity = WOfSCacheIdentity.from_request(
+        request,
+        shape=(cube_2015.sizes["y"], cube_2015.sizes["x"]),
+        transform=tuple(cube_2015.rio.transform())[:6],
+    )
+    handle = create_cache_handle(tmp_path, identity)
+    window = (GridWindow("parent", 0, 4, 0, 4),)
+    write_annual_group(
+        handle, 2015, cube_2015.chunk({"time": 1, "y": 4, "x": 4}),
+        windows=window, item_ids=("a",),
+    )
+    cube_2016 = _canonical_year_cube(shape=(12, 4, 4), fill=0, year=2016)
+    write_annual_group(
+        handle, 2016, cube_2016.chunk({"time": 1, "y": 4, "x": 4}),
+        windows=window, item_ids=("b",),
+    )
+    return handle
+
+
+def test_load_or_build_cached_wet_aoi_never_touches_stac(monkeypatch, tmp_path):
+    handle = _completed_cache_handle(tmp_path)
+
+    def _raise(*args, **kwargs):
+        raise AssertionError("STAC function must not be called")
+
+    monkeypatch.setattr("hydroseason._io_wofs_acquire._query_wofs_items", _raise)
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", _raise)
+
+    wet_aoi = load_or_build_cached_wet_aoi(
+        handle, persistence_min=0.0, close_m=0.0, buffer_m=0.0
+    )
+
+    assert isinstance(wet_aoi, gpd.GeoDataFrame)
+    assert len(wet_aoi) > 0
+    assert not wet_aoi.geometry.is_empty.all()
 
 
 def test_storage_preflight_fails_before_stac_query(monkeypatch, tmp_path):

@@ -5,7 +5,7 @@ import pytest
 xr = pytest.importorskip("xarray")
 pytest.importorskip("rioxarray")
 
-from hydroseason._wet_aoi import compute_ever_wet
+from hydroseason._wet_aoi import compute_ever_wet, compute_ever_wet_from_counts
 
 
 def _cube(values):
@@ -131,6 +131,24 @@ def test_tile_intersects_wet_aoi_fail_open_when_empty():
     from hydroseason._wet_aoi import tile_intersects_wet_aoi
     box = _FakeGeoBox((0, -30, 30, 0))
     assert tile_intersects_wet_aoi(box, None) is True  # no wet AOI -> never prune
+
+
+def test_count_based_ever_wet_matches_cube_reduction():
+    cube = _cube([
+        np.array([[1, 0], [-1, -2]], dtype=np.int8),
+        np.array([[0, 0], [1, -2]], dtype=np.int8),
+    ])
+    wet = (cube == 1).sum("time")
+    clear = ((cube == 0) | (cube == 1)).sum("time")
+    expected = compute_ever_wet(cube, persistence_min=0.5)
+    actual = compute_ever_wet_from_counts(wet, clear, persistence_min=0.5)
+    xr.testing.assert_identical(actual, expected)
+
+
+def test_count_based_ever_wet_rejects_invalid_threshold():
+    counts = xr.DataArray(np.ones((2, 2)), dims=("y", "x"))
+    with pytest.raises(ValueError, match="0.0 through 1.0"):
+        compute_ever_wet_from_counts(counts, counts, persistence_min=1.1)
 
 
 def test_compute_wet_aoi_composes():

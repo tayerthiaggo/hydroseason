@@ -28,16 +28,46 @@ def compute_ever_wet(mask, *, persistence_min: float = 0.0):
     design -- rare-but-real floods below the threshold are cut from the AOI and
     will read as zero water there forever. Leave at 0.0 unless you explicitly
     want denoising.
-    """
-    ever_wet = (mask == 1).any("time")
-    if persistence_min <= 0.0:
-        return _preserve_georef(ever_wet, mask)
 
+    Delegates to :func:`compute_ever_wet_from_counts` after reducing ``mask``
+    to per-pixel ``wet_count``/``clear_count`` -- the single shared
+    implementation, so this cube-reduction path and the cached-count path
+    (:func:`compute_ever_wet_from_counts`, used when only pre-aggregated
+    annual counts are available on disk) can never drift apart.
+    """
     wet_count = (mask == 1).sum("time")
     clear_count = ((mask == 0) | (mask == 1)).sum("time")
-    persistence = wet_count / clear_count.where(clear_count > 0)
-    kept = (persistence >= persistence_min).fillna(False)
-    return _preserve_georef(kept, mask)
+    return compute_ever_wet_from_counts(
+        wet_count, clear_count, persistence_min=max(persistence_min, 0.0)
+    )
+
+
+def compute_ever_wet_from_counts(wet_count, clear_count, *, persistence_min: float = 0.0):
+    """Collapse pre-aggregated per-pixel ``wet_count``/``clear_count`` to a wet-AOI boolean.
+
+    The shared reducer behind :func:`compute_ever_wet`: given ``wet_count``
+    (number of water observations) and ``clear_count`` (number of
+    water-or-dry, i.e. not-invalid, observations) per pixel -- the same
+    counts :func:`compute_ever_wet` derives from a mask cube via
+    ``(mask == 1).sum("time")`` / ``((mask == 0) | (mask == 1)).sum("time")``
+    -- this lets a caller reconstruct the identical wet-AOI boolean from
+    counts alone, without ever holding the full mask cube in memory (e.g.
+    counts already persisted per-year on disk and summed across years).
+
+    At ``persistence_min == 0.0`` a pixel is kept if it was ever wet
+    (``wet_count > 0``), matching ``(mask == 1).any("time")``. A positive
+    ``persistence_min`` keeps a pixel only when
+    ``wet_count / clear_count >= persistence_min``; pixels never observed
+    clear are excluded. Raises ``ValueError`` if ``persistence_min`` is
+    outside ``[0.0, 1.0]``.
+    """
+    if not 0.0 <= persistence_min <= 1.0:
+        raise ValueError("persistence_min must be 0.0 through 1.0.")
+    if persistence_min == 0.0:
+        kept = wet_count > 0
+    else:
+        kept = ((wet_count / clear_count.where(clear_count > 0)) >= persistence_min).fillna(False)
+    return _preserve_georef(kept, wet_count)
 
 
 def wet_aoi_polygon(

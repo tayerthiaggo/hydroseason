@@ -43,6 +43,10 @@ from hydroseason._io_wofs_zarr import (
     WOfSCacheHandle,
     WOfSCacheIdentity,
     WOfSCacheRequest,
+    _long_path,
+    _sha256_digest,
+    _write_json_atomic,
+    _zarr_store,
     cache_writer_lock,
     completed_years,
     create_cache_handle,
@@ -336,6 +340,175 @@ def acquire_wofs_cache(
     return handle
 
 
+def _wet_aoi_sidecar_key(handle: WOfSCacheHandle, *, persistence_min: float, close_m: float, buffer_m: float) -> str:
+    """A stable filename stem covering the cache identity AND the wet-AOI params.
+
+    Hashing ``handle.identity`` together with ``persistence_min``/``close_m``/
+    ``buffer_m`` means two calls that agree on all four reuse the same
+    sidecar (a cache hit), while a call that changes any one of them -- even
+    against the same completed cache -- gets a distinct filename rather than
+    overwriting or silently reusing a sidecar built under different params.
+    """
+    payload = {
+        "identity": handle.identity,
+        "persistence_min": float(persistence_min),
+        "close_m": float(close_m),
+        "buffer_m": float(buffer_m),
+    }
+    return _sha256_digest(payload)
+
+
+def _wet_aoi_paths(handle: WOfSCacheHandle, *, persistence_min: float, close_m: float, buffer_m: float) -> tuple[Path, Path]:
+    key = _wet_aoi_sidecar_key(
+        handle, persistence_min=persistence_min, close_m=close_m, buffer_m=buffer_m
+    )
+    wet_aoi_dir = Path(handle.path) / "wet_aoi"
+    return wet_aoi_dir / f"{key}.geojson", wet_aoi_dir / f"{key}.identity.json"
+
+
+def load_or_build_cached_wet_aoi(
+    handle: WOfSCacheHandle,
+    *,
+    persistence_min: float = 0.0,
+    close_m: float = 150.0,
+    buffer_m: float = 300.0,
+):
+    """Derive (or reuse) a wet-AOI polygon purely from already-cached local WOfS counts.
+
+    Opens every completed annual group's ``wet_count``/``clear_count``
+    arrays (:func:`hydroseason._io_wofs_zarr.completed_years`) lazily via
+    ``xr.open_zarr`` -- the same per-year opening pattern
+    :func:`hydroseason._io_wofs_zarr.open_completed_mask_cache` uses -- sums
+    them across years with Dask (never eagerly materialising a whole year in
+    memory before summing), reduces the summed counts to a wet-AOI boolean
+    with :func:`hydroseason._wet_aoi.compute_ever_wet_from_counts`, and
+    vectorises/buffers it with :func:`hydroseason._wet_aoi.wet_aoi_polygon`.
+
+    Nothing in this function's call graph queries STAC or rebuilds a Dask
+    year graph (no ``_query_wofs_items``/``build_wofs_year_graph``): it
+    operates purely on Zarr arrays already written to ``handle.path`` by a
+    prior :func:`acquire_wofs_cache` run.
+
+    The result is cached as a GeoJSON sidecar plus a JSON identity file
+    under ``handle.path / "wet_aoi"``, both written atomically
+    (:func:`hydroseason._io_wofs_zarr._write_json_atomic`). The sidecar
+    filename is derived from a hash of the cache identity together with
+    ``persistence_min``/``close_m``/``buffer_m`` (see
+    :func:`_wet_aoi_sidecar_key`), so a later call with the same identity and
+    the same three params reuses the existing sidecar instead of
+    recomputing, while a call with different params for the same cache
+    writes to a different filename rather than overwriting or ambiguating
+    the previous one.
+
+    Raises ``FileNotFoundError`` if ``handle`` has no completed years at all.
+    """
+    import geopandas as gpd
+
+    from hydroseason._wet_aoi import compute_ever_wet_from_counts, wet_aoi_polygon
+
+    geojson_path, identity_path = _wet_aoi_paths(
+        handle, persistence_min=persistence_min, close_m=close_m, buffer_m=buffer_m
+    )
+    if Path(_long_path(geojson_path)).exists() and Path(_long_path(identity_path)).exists():
+        return gpd.read_file(_long_path(geojson_path))
+
+    years = sorted(completed_years(handle))
+    if not years:
+        raise FileNotFoundError(
+            f"no completed WOfS annual group found at {Path(handle.path)!s}; "
+            "load_or_build_cached_wet_aoi requires at least one completed year."
+        )
+
+    import xarray as xr
+
+    from hydroseason._io_wofs_zarr import _read_georef
+
+    store_path = Path(handle.path)
+    wet_arrays = []
+    clear_arrays = []
+    crs = None
+    transform = None
+    for year in years:
+        year_path = store_path / "years" / str(int(year))
+        opened = xr.open_zarr(
+            _zarr_store(year_path), consolidated=False, mask_and_scale=False
+        )
+        # wet_count/clear_count are raw Zarr arrays written outside xarray's
+        # to_zarr (see write_annual_group) and so carry no grid_mapping link
+        # to the group's spatial_ref sibling variable -- only water_mask does
+        # -- so the CRS/transform is read off water_mask via _read_georef
+        # (the same helper open_completed_mask_cache uses) once per year and
+        # reattached to wet_count/clear_count explicitly below.
+        _mask_da, year_crs, year_transform = _read_georef(opened)
+        if crs is None:
+            crs = year_crs
+            transform = year_transform
+        wet_arrays.append(opened["wet_count"])
+        clear_arrays.append(opened["clear_count"])
+
+    summed_wet = sum(wet_arrays[1:], start=wet_arrays[0]) if len(wet_arrays) > 1 else wet_arrays[0]
+    summed_clear = sum(clear_arrays[1:], start=clear_arrays[0]) if len(clear_arrays) > 1 else clear_arrays[0]
+    if crs is not None:
+        summed_wet = summed_wet.rio.write_crs(crs)
+        summed_clear = summed_clear.rio.write_crs(crs)
+    if transform is not None:
+        from affine import Affine
+
+        affine_transform = Affine(*transform)
+        summed_wet = summed_wet.rio.write_transform(affine_transform)
+        summed_clear = summed_clear.rio.write_transform(affine_transform)
+
+    ever_wet = compute_ever_wet_from_counts(
+        summed_wet, summed_clear, persistence_min=persistence_min
+    )
+    wet_aoi = wet_aoi_polygon(ever_wet, close_m=close_m, buffer_m=buffer_m)
+
+    Path(_long_path(geojson_path.parent)).mkdir(parents=True, exist_ok=True)
+    _write_geojson_atomic(geojson_path, wet_aoi)
+    _write_json_atomic(
+        identity_path,
+        {
+            "cache_identity": handle.identity,
+            "request_digest": handle.request_digest,
+            "persistence_min": float(persistence_min),
+            "close_m": float(close_m),
+            "buffer_m": float(buffer_m),
+            "years": years,
+        },
+    )
+
+    return wet_aoi
+
+
+def _write_geojson_atomic(path: Path, gdf) -> None:
+    """Write ``gdf`` as GeoJSON to ``path`` without ever leaving a partial file.
+
+    Mirrors :func:`hydroseason._io_wofs_zarr._write_json_atomic`'s
+    write-to-temp-then-``os.replace`` pattern (same directory, so the final
+    rename is atomic on the same filesystem, and routed through
+    :func:`hydroseason._io_wofs_zarr._long_path` so this also works past
+    Windows' legacy ``MAX_PATH`` limit) rather than reimplementing a second
+    atomic-write helper for JSON payloads -- this one only differs because
+    ``gpd.GeoDataFrame.to_file`` writes to a path itself instead of
+    returning bytes to write.
+    """
+    import os
+    import tempfile
+
+    parent = Path(_long_path(path.parent))
+    parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        dir=str(parent), prefix=f".{path.name}-", suffix=".tmp"
+    )
+    os.close(descriptor)
+    temp_path = Path(temp_name)
+    try:
+        gdf.to_file(temp_path, driver="GeoJSON")
+        os.replace(str(temp_path), _long_path(path))
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
 def _aoi_digest(aoi_gdf) -> str:
     import hashlib
 
@@ -413,4 +586,5 @@ __all__ = [
     "partition_items_by_year",
     "build_wofs_year_graph",
     "acquire_wofs_cache",
+    "load_or_build_cached_wet_aoi",
 ]
