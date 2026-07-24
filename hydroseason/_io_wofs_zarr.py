@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import Iterator
 
 import numpy as np
+import pandas as pd
 
 # Bumped whenever the on-disk index/manifest layout changes in a way that
 # makes an old cache unreadable by new code (or vice versa).
@@ -839,9 +840,13 @@ def write_annual_group(
                 derived_arrays["clear_count"][cy:cy_stop, cx:cx_stop] = clear_values
 
         digest = _item_digest(tuple(item_ids))
+        time_values = pd.DatetimeIndex(np.asarray(year_mask.time.values))
         complete_payload = {
             "schema_version": WOFS_CACHE_SCHEMA_VERSION,
             "year": int(year),
+            "start_date": time_values[0].strftime("%Y-%m-%d"),
+            "end_date": time_values[-1].strftime("%Y-%m-%d"),
+            "month_count": int(len(time_values)),
             "item_ids": list(item_ids),
             "item_digest": digest,
             "content_digest": content_hasher.hexdigest(),
@@ -1089,7 +1094,11 @@ def validate_annual_group(
 
 
 def _completed_group_metadata(
-    path: Path, *, expected_year: int, expected_grid_shape: tuple[int, int]
+    path: Path,
+    *,
+    expected_year: int,
+    expected_grid_shape: tuple[int, int],
+    expected_time_axis: "object",
 ) -> dict:
     """Validate completion and array metadata without reading raster chunks."""
     import pandas as pd
@@ -1141,6 +1150,7 @@ def _completed_group_metadata(
         np.asarray(time_array[:]), units, time_array.attrs.get("calendar", "standard")
     )
     time_values = pd.DatetimeIndex(np.asarray(decoded))
+    expected_time_axis = pd.DatetimeIndex(expected_time_axis)
     if not time_values.is_unique:
         raise ValueError(f"{path} time axis contains duplicate timestamps")
     if not time_values.is_monotonic_increasing:
@@ -1150,6 +1160,14 @@ def _completed_group_metadata(
     expected_axis = pd.date_range(time_values[0], periods=len(time_values), freq="MS")
     if not time_values.equals(expected_axis):
         raise ValueError(f"{path} time axis is not a contiguous run of calendar months")
+    if not time_values.equals(expected_time_axis):
+        raise ValueError(f"{path} time axis does not match the cache request for {expected_year}")
+    if complete.get("start_date") != expected_time_axis[0].strftime("%Y-%m-%d"):
+        raise ValueError(f"{path} completion start_date does not match the cache request")
+    if complete.get("end_date") != expected_time_axis[-1].strftime("%Y-%m-%d"):
+        raise ValueError(f"{path} completion end_date does not match the cache request")
+    if int(complete.get("month_count", -1)) != len(expected_time_axis):
+        raise ValueError(f"{path} completion month_count does not match the cache request")
 
     expected_chunks = int(complete.get("chunks_written", -1))
     if expected_chunks < 0 or _stored_chunk_count(path / "water_mask") != expected_chunks:
@@ -1166,6 +1184,19 @@ def _store_grid_shape(handle: WOfSCacheHandle) -> tuple[int, int]:
     if len(shape) != 2:
         raise ValueError(f"cache manifest is missing a two-dimensional grid shape at {handle.path}")
     return int(shape[0]), int(shape[1])
+
+
+def _store_year_time_axis(handle: WOfSCacheHandle, year: int):
+    manifest = _read_json(Path(handle.path) / _MANIFEST_FILENAME) or {}
+    identity = manifest.get("identity") or {}
+    request = identity.get("request") or {}
+    start = pd.Timestamp(request.get("start_date")).to_period("M").to_timestamp()
+    end = pd.Timestamp(request.get("end_date")).to_period("M").to_timestamp()
+    year_start = max(pd.Timestamp(f"{int(year)}-01-01"), start)
+    year_end = min(pd.Timestamp(f"{int(year)}-12-01"), end)
+    if year_end < year_start:
+        raise ValueError(f"year {year} is outside cache request range at {handle.path}")
+    return pd.date_range(year_start, year_end, freq="MS")
 
 
 def completed_years(handle: WOfSCacheHandle) -> set[int]:
@@ -1198,7 +1229,10 @@ def completed_years(handle: WOfSCacheHandle) -> set[int]:
             continue
         try:
             _completed_group_metadata(
-                entry, expected_year=year, expected_grid_shape=expected_grid_shape
+                entry,
+                expected_year=year,
+                expected_grid_shape=expected_grid_shape,
+                expected_time_axis=_store_year_time_axis(handle, year),
             )
         except Exception:
             continue
@@ -1255,6 +1289,7 @@ def open_completed_mask_cache(
                         year_path,
                         expected_year=year,
                         expected_grid_shape=expected_grid_shape,
+                        expected_time_axis=_store_year_time_axis(handle, year),
                     )
         raise FileNotFoundError(
             f"no completed WOfS annual group for year(s) {missing} at {store_path} "

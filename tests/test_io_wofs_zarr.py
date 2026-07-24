@@ -150,8 +150,14 @@ def _canonical_cube(*, shape: tuple[int, int, int], fill: int) -> xr.DataArray:
 
 
 def _handle_for_cube(tmp_path: Path, cube: xr.DataArray) -> WOfSCacheHandle:
-    identity = WOfSCacheIdentity.from_request(
+    time_index = pd.DatetimeIndex(np.asarray(cube.time.values))
+    request = dataclasses.replace(
         _request(),
+        start_date=time_index[0].strftime("%Y-%m-%d"),
+        end_date=time_index[-1].strftime("%Y-%m-%d"),
+    )
+    identity = WOfSCacheIdentity.from_request(
+        request,
         shape=(cube.sizes["y"], cube.sizes["x"]),
         transform=tuple(cube.rio.transform())[:6],
     )
@@ -194,6 +200,27 @@ def test_completed_years_rejects_marker_only_group(tmp_path):
     )
 
     assert completed_years(handle) == set()
+
+
+def test_completed_years_rejects_truncated_year_for_full_year_request(tmp_path):
+    mask = _canonical_cube(shape=(6, 2, 2), fill=0)
+    identity = WOfSCacheIdentity.from_request(
+        _request(),
+        shape=(mask.sizes["y"], mask.sizes["x"]),
+        transform=tuple(mask.rio.transform())[:6],
+    )
+    handle = create_cache_handle(tmp_path, identity)
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 2}),
+        windows=(GridWindow("parent", 0, 2, 0, 2),),
+        item_ids=("a",),
+    )
+
+    assert completed_years(handle) == set()
+    with pytest.raises(ValueError, match="cache request"):
+        open_completed_mask_cache(handle, "2015-01-01", "2015-12-31")
 
 
 def test_completed_years_uses_metadata_checks_without_full_validation(monkeypatch, tmp_path):
