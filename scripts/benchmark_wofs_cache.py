@@ -111,6 +111,15 @@ def _child_run(args: argparse.Namespace) -> int:
         "auto_tiling": False,
     }
     if args.mode == "legacy":
+        import hydroseason._io_geo as geo
+
+        real_query = geo._query_wofs_items
+
+        def counted_query(*query_args, **query_kwargs):
+            diagnostics.append({"query_count": 1})
+            return real_query(*query_args, **query_kwargs)
+
+        geo._query_wofs_items = counted_query
         frame = load_wofs_monthly_extent(
             STAC_URL, COLLECTION, CASES[args.case], YEAR_START, YEAR_END, **common
         )
@@ -145,6 +154,7 @@ def _child_run(args: argparse.Namespace) -> int:
         lineterminator="\n",
         float_format="%.17g",
     )
+    frame.to_pickle(args.frame_pickle)
     _write_json_atomic(Path(args.result), payload)
     return 0
 
@@ -162,6 +172,7 @@ def _run_child(
     run_dir.mkdir(parents=True, exist_ok=False)
     result_path = run_dir / "result.json"
     frame_path = run_dir / "extent.csv"
+    frame_pickle_path = run_dir / "extent.pkl"
     command = [
         sys.executable,
         str(Path(__file__).resolve()),
@@ -174,6 +185,8 @@ def _run_child(
         str(run_dir / "extent_cache"),
         "--frame",
         str(frame_path),
+        "--frame-pickle",
+        str(frame_pickle_path),
         "--result",
         str(result_path),
     ]
@@ -193,9 +206,7 @@ def _run_child(
 
 
 def _frame_from_run(run: dict[str, Any]) -> pd.DataFrame:
-    frame = pd.read_csv(run["frame_path"], index_col="date", parse_dates=["date"])
-    frame.index.name = None
-    return frame
+    return pd.read_pickle(Path(run["frame_path"]).with_suffix(".pkl"))
 
 
 def _assert_exact(reference: dict[str, Any], candidate: dict[str, Any]) -> bool:
@@ -289,32 +300,8 @@ def _run_benchmark(args: argparse.Namespace) -> int:
                 per_case[case] = summary
             gdal_results[setting_name] = per_case
 
-        inherited = gdal_results["inherited"]
-        warm_cache = work_dir / "gilbert-warm-cache"
-        _run_child(
-            args, case="gilbert", mode="cold", label="gilbert-warm-seed",
-            setting=GDAL_SETTINGS["inherited"], mask_cache=warm_cache,
-        )
-        warm = [
-            _run_child(
-                args,
-                case="gilbert",
-                mode="warm",
-                label=f"gilbert-warm-{run_index}",
-                setting=GDAL_SETTINGS["inherited"],
-                mask_cache=warm_cache,
-            )
-            for run_index in range(args.runs)
-        ]
-        inherited["gilbert"] = _summarise_case(
-            inherited["gilbert"]["legacy_runs"], inherited["gilbert"]["cache_cold_runs"], warm
-        ) | {"exact_output_equality": inherited["gilbert"]["exact_output_equality"]}
-        all_exact = all_exact and all(
-            _assert_exact(reference, candidate)
-            for reference, candidate in zip(inherited["gilbert"]["legacy_runs"], warm, strict=True)
-        )
-
         promoted = "inherited"
+        inherited = gdal_results["inherited"]
         for setting_name in ("vsi_cache_false", "vsi_cache_true_8mb"):
             candidate = gdal_results[setting_name]
             faster_both = all(
@@ -343,9 +330,34 @@ def _run_benchmark(args: argparse.Namespace) -> int:
                 promoted = setting_name
                 break
 
+        selected = gdal_results[promoted]
+        warm_cache = work_dir / f"gilbert-warm-cache-{promoted}"
+        _run_child(
+            args, case="gilbert", mode="cold", label=f"gilbert-warm-seed-{promoted}",
+            setting=GDAL_SETTINGS[promoted], mask_cache=warm_cache,
+        )
+        warm = [
+            _run_child(
+                args,
+                case="gilbert",
+                mode="warm",
+                label=f"gilbert-warm-{promoted}-{run_index}",
+                setting=GDAL_SETTINGS[promoted],
+                mask_cache=warm_cache,
+            )
+            for run_index in range(args.runs)
+        ]
+        selected["gilbert"] = _summarise_case(
+            selected["gilbert"]["legacy_runs"], selected["gilbert"]["cache_cold_runs"], warm
+        ) | {"exact_output_equality": selected["gilbert"]["exact_output_equality"]}
+        all_exact = all_exact and all(
+            _assert_exact(reference, candidate)
+            for reference, candidate in zip(selected["gilbert"]["legacy_runs"], warm, strict=True)
+        )
+
         result = {
-            "gilbert": inherited["gilbert"],
-            "fitzroy": inherited["fitzroy"],
+            "gilbert": selected["gilbert"],
+            "fitzroy": selected["fitzroy"],
             "gdal_ab": gdal_results,
             "gdal_promoted_setting": promoted,
             "exact_output_equality": all_exact,
@@ -378,6 +390,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--mask-cache", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--extent-cache", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--frame", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--frame-pickle", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--result", type=Path, help=argparse.SUPPRESS)
     return parser
 
@@ -387,7 +400,7 @@ def main() -> int:
     if args.runs < 1:
         raise SystemExit("--runs must be at least 1")
     if args.child:
-        required = (args.case, args.mode, args.extent_cache, args.frame, args.result)
+        required = (args.case, args.mode, args.extent_cache, args.frame, args.frame_pickle, args.result)
         if any(value is None for value in required):
             raise SystemExit("child mode requires case, mode, extent cache, frame, and result paths")
         return _child_run(args)

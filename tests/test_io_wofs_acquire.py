@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import dask
+import dask.array as da
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -101,31 +102,70 @@ def test_completed_year_is_not_rebuilt(monkeypatch, tmp_path):
     graph.assert_not_called()
 
 
-def test_cache_write_and_local_count_share_one_delayed_source_execution():
+def test_annual_writer_mask_and_local_counts_share_one_delayed_source(tmp_path):
+    import zarr
+
+    from hydroseason._io_wofs_zarr import (
+        WOfSCacheIdentity,
+        WOfSCacheRequest,
+        create_cache_handle,
+        write_annual_group,
+    )
+    from hydroseason._spatial_plan import GridWindow
+
     calls = {"source": 0}
-    cache = {}
 
     @dask.delayed
     def source():
         calls["source"] += 1
-        return np.arange(16, dtype=np.int8).reshape(4, 4)
+        return np.array([[[1, 0], [-1, -2]]], dtype=np.int8)
 
-    @dask.delayed
-    def write_cache(values):
-        cache["water_mask"] = values
+    transform = Affine(30, 0, 1000, 0, -30, 2000)
+    arr = da.from_delayed(source(), shape=(1, 2, 2), dtype=np.int8)
+    mask = xr.DataArray(
+        arr,
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.DatetimeIndex(["2015-01-01"]),
+            "y": transform.f + (np.arange(2) + 0.5) * transform.e,
+            "x": transform.c + (np.arange(2) + 0.5) * transform.a,
+        },
+        name="water_mask",
+    ).rio.write_crs(3577).rio.write_transform(transform)
+    request = WOfSCacheRequest(
+        stac_url="https://example.invalid/stac",
+        collection="ga_ls_wo_3",
+        aoi_sha256="a" * 64,
+        start_date="2015-01-01",
+        end_date="2015-01-31",
+        crs="EPSG:3577",
+        resolution=30.0,
+        classifier_version=1,
+        groupby="solar_day",
+        majority=True,
+        planner_version=1,
+        schema_version=1,
+    )
+    identity = WOfSCacheIdentity.from_request(
+        request,
+        shape=(mask.sizes["y"], mask.sizes["x"]),
+        transform=tuple(mask.rio.transform())[:6],
+    )
+    handle = create_cache_handle(tmp_path, identity)
 
-    @dask.delayed
-    def count_clear(values):
-        return int((values == 0).sum())
+    write_annual_group(
+        handle,
+        2015,
+        mask,
+        windows=(GridWindow("parent", 0, 2, 0, 2),),
+        item_ids=("a",),
+    )
 
-    parent = source()
-    cache_write = write_cache(parent)
-    local_count = count_clear(parent)
-    _, count = dask.compute(cache_write, local_count)
-
+    group = zarr.open_group(handle.path / "years" / "2015", mode="r")
     assert calls["source"] == 1
-    assert count == 1
-    np.testing.assert_array_equal(cache["water_mask"], np.arange(16, dtype=np.int8).reshape(4, 4))
+    np.testing.assert_array_equal(group["water_mask"][:], np.array([[[1, 0], [-1, -2]]], dtype=np.int8))
+    np.testing.assert_array_equal(group["wet_count"][:], np.array([[1, 0], [0, 0]], dtype=np.uint16))
+    np.testing.assert_array_equal(group["clear_count"][:], np.array([[1, 1], [0, 0]], dtype=np.uint16))
 
 
 def _canonical_year_cube(*, shape: tuple[int, int, int], fill: int, year: int) -> xr.DataArray:
