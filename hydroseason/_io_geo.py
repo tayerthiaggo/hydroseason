@@ -698,10 +698,17 @@ def _is_transient_stac_error(exc: Exception) -> bool:
     response = getattr(exc, "response", None)
     if status_code is None and response is not None:
         status_code = getattr(response, "status_code", None)
-    if status_code in {500, 502, 503, 504}:
+    if status_code in {500, 502, 503, 504, 429}:
         return True
     text = str(exc).lower()
-    return any(token in text for token in ("500", "502", "503", "504", "gateway", "timeout", "temporarily unavailable"))
+    transient_tokens = (
+        "500", "502", "503", "504", "429",
+        "gateway", "timeout", "temporarily unavailable",
+        "incompleteread", "connection broken", "chunkedencodingerror",
+        "protocolerror", "connection reset", "remote end closed",
+        "connection refused", "reset by peer",
+    )
+    return any(token in text for token in transient_tokens)
 
 
 def _validate_classifier(encoding, classifier):

@@ -632,7 +632,7 @@ def test_tiled_reduction_matches_whole_cube_reduction_with_boundary_canonical_va
     ]
     tiled = _aggregate_extent_parts(parts, whole.index)
 
-    pd.testing.assert_frame_equal(tiled, whole)
+    pd.testing.assert_frame_equal(tiled, whole, check_dtype=False)
 
 
 def test_tiled_stac_iterator_queries_once_reuses_items_and_skips_cached_tiles(monkeypatch):

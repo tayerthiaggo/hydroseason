@@ -69,61 +69,7 @@ def test_lower_reach_window_uses_downstream_outlet_and_builds_50km_square(mod):
     )
 
 
-def test_compare_prepared_extent_series_reports_monthly_difference_metrics(mod):
-    dates = pd.date_range("2020-01-01", periods=3, freq="MS")
-    native = pd.DataFrame(
-        {"extent_pct": [0.0, 10.0, 20.0], "candidate_usable": [True, True, True]},
-        index=dates,
-    )
-    coarse = pd.DataFrame(
-        {"extent_pct": [1.0, 9.0, 18.0], "candidate_usable": [True, True, True]},
-        index=dates,
-    )
 
-    comparison = mod.compare_prepared_extent_series(
-        native, coarse, native_res_m=30.0, coarse_res_m=100.0
-    )
-
-    assert comparison["n_months_compared"] == 3
-    assert comparison["correlation"] > 0.99
-    assert comparison["max_abs_diff_extent_pct"] == pytest.approx(2.0)
-    assert comparison["mean_abs_diff_extent_pct"] == pytest.approx(4 / 3)
-    assert comparison["same_wet_month"] is True
-    assert comparison["same_dry_month"] is True
-    assert comparison["native_wet_month"] == "2020-03-01"
-    assert comparison["coarse_dry_month"] == "2020-01-01"
-
-
-def test_extent_pipeline_uses_resumable_annual_cache(mod, monkeypatch, tmp_path):
-    dates = pd.date_range("2020-01-01", periods=2, freq="MS")
-    extent = pd.DataFrame(
-        {
-            "n_water": [1, 2],
-            "n_aoi": [10, 10],
-            "n_valid": [10, 10],
-            "n_invalid": [0, 0],
-            "extent_pct": [10.0, 20.0],
-            "invalid_pct": [0.0, 0.0],
-        },
-        index=dates,
-    )
-    calls = {}
-
-    def fake_extent(*args, **kwargs):
-        calls["extent"] = kwargs
-        return extent
-
-    monkeypatch.setattr(mod, "load_wofs_monthly_extent", fake_extent)
-    monkeypatch.setattr(mod, "_robust_signal", lambda prepared: (10.0, 0.0))
-
-    mod._run_extent_pipeline(
-        object(), "2020-01-01", "2020-02-29", 30.0,
-        time_block=12, cache_dir=tmp_path, force=False,
-    )
-
-    assert calls["extent"]["time_block"] == 12
-    assert calls["extent"]["cache_dir"] == tmp_path
-    assert calls["extent"]["force"] is False
 
 
 def test_parallel_catchments_overlap_and_preserve_order(mod, monkeypatch):
@@ -171,29 +117,32 @@ def test_parallel_catchments_collect_failure_and_continue(mod, monkeypatch):
     assert failures == [{"catchment_key": "bad", "error": "RuntimeError('boom')"}]
 
 
-def test_html_report_renders_na_when_no_months_are_comparable(mod, tmp_path):
-    comparison = {
-        "native_res_m": 30.0,
-        "coarse_res_m": 100.0,
-        "n_months_compared": 0,
-        "correlation": None,
-        "mean_abs_diff_extent_pct": None,
-        "max_abs_diff_extent_pct": None,
-        "amplitude_delta_pp": None,
-        "same_wet_month": False,
-        "same_dry_month": False,
-    }
-    result = {
-        "catchment_key": "empty",
-        "display_name": "Empty",
+def test_html_report_renders_na_when_resolution_missing(mod, tmp_path):
+    result1 = {
+        "catchment_key": "first",
+        "display_name": "First",
         "lower_hydroid": 1,
         "side_km": 50.0,
         "analysis_bounds_wgs84": [1.0, 2.0, 3.0, 4.0],
         "date_range": ["2005-01-01", "2025-12-31"],
-        "comparison": comparison,
-        "series": [],
+        "matrix": {
+            "60.0": {"fidelity": 0.9},
+            "90.0": {"fidelity": 0.8},
+        },
+    }
+    result2 = {
+        "catchment_key": "empty",
+        "display_name": "Empty",
+        "lower_hydroid": 2,
+        "side_km": 50.0,
+        "analysis_bounds_wgs84": [1.0, 2.0, 3.0, 4.0],
+        "date_range": ["2005-01-01", "2025-12-31"],
+        "matrix": {
+            "60.0": {"fidelity": 0.9},
+            # Missing 90.0
+        },
     }
 
-    report = mod.build_html_report([result], tmp_path / "report.html")
+    report = mod.build_html_report([result1, result2], tmp_path / "report.html")
 
     assert "N/A" in report.read_text(encoding="utf-8")

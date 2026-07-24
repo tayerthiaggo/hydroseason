@@ -108,6 +108,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--profile", action="store_true",
         help="print per-phase timing (precompute vs tiled, per-year, tile-skip counts) to stderr",
     )
+    parser.add_argument(
+        "--workers", type=int, default=1,
+        help="number of parallel catchment jobs (default: 1)",
+    )
     return parser
 
 
@@ -135,6 +139,67 @@ def _resolve_jobs(args) -> list[tuple[str, Path]]:
     return [(key, CATCHMENTS_DIR / f"{key}_boundary.geojson") for key in keys]
 
 
+def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int = 0) -> dict:
+    name, boundary_path = job
+    out_csv = OUTPUT_DIR / f"{name}_water_extent.csv"
+    res_val = args.resolution if args.resolution is not None else 30.0
+
+    t0 = time.monotonic()
+    extent = load_wofs_monthly_extent(
+        STAC_URL, COLLECTION, boundary_path, args.start_date, args.end_date,
+        crs=OUTPUT_CRS,
+        resolution=args.resolution,
+        time_block=args.time_block,
+        force=args.force,
+        cache_dir=OUTPUT_DIR / "_extent_cache" / name,
+        mask_cache_dir=None if args.legacy_remote_path else args.mask_cache_dir,
+        offline=args.offline,
+        progress=True,
+        progress_desc=f"[{name}]",
+        progress_position=position,
+        read_workers=args.read_workers,
+        **tile_kwargs,
+    )
+    elapsed = time.monotonic() - t0
+    extent.to_csv(out_csv)
+    print(f"[{name}] {len(extent)} months written in {elapsed:.1f}s -> {out_csv}", flush=True)
+
+    if args.profile and not args.legacy_remote_path:
+        handle = acquire_wofs_cache(
+            STAC_URL,
+            COLLECTION,
+            boundary_path,
+            args.start_date,
+            args.end_date,
+            cache_root=args.mask_cache_dir,
+            crs=OUTPUT_CRS,
+            resolution=args.resolution,
+            offline=True,
+        )
+        manifest_path = Path(handle.path) / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        diagnostics = manifest.get("acquisition", {}).get("plan_diagnostics", [])
+        print(
+            f"[{name}] canonical cache: identity={handle.identity} store={handle.path}",
+            file=sys.stderr,
+            flush=True,
+        )
+        print(
+            f"[{name}] planner diagnostics: {json.dumps(diagnostics, sort_keys=True)}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    return {
+        "catchment": name,
+        "resolution_m": res_val,
+        "n_months": len(extent),
+        "elapsed_seconds": round(elapsed, 2),
+        "start_date": args.start_date,
+        "end_date": args.end_date,
+    }
+
+
 def main() -> None:
     args = _build_arg_parser().parse_args()
 
@@ -145,58 +210,52 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     tile_kwargs = {}
-    if not args.no_tiling:
-        tile_kwargs = {"tile_pixels": args.tile_pixels, "precompute_wet_aoi": True}
+    if not args.no_tiling and args.tile_pixels:
+        tile_kwargs = {"tile_pixels": args.tile_pixels, "precompute_wet_aoi": False}
 
     overall_start = time.monotonic()
-    for name, boundary_path in jobs:
-        out_csv = OUTPUT_DIR / f"{name}_water_extent.csv"
+    timing_records = []
 
-        print(f"[{name}] extracting {args.start_date}..{args.end_date} -> {out_csv}", flush=True)
-        t0 = time.monotonic()
-        extent = load_wofs_monthly_extent(
-            STAC_URL, COLLECTION, boundary_path, args.start_date, args.end_date,
-            crs=OUTPUT_CRS,
-            resolution=args.resolution,
-            time_block=args.time_block,
-            force=args.force,
-            cache_dir=OUTPUT_DIR / "_extent_cache" / name,
-            mask_cache_dir=None if args.legacy_remote_path else args.mask_cache_dir,
-            offline=args.offline,
-            progress=True,
-            read_workers=args.read_workers,
-            **tile_kwargs,
-        )
-        elapsed = time.monotonic() - t0
-        extent.to_csv(out_csv)
-        print(f"[{name}] {len(extent)} months written in {elapsed:.1f}s", flush=True)
-        if args.profile and not args.legacy_remote_path:
-            handle = acquire_wofs_cache(
-                STAC_URL,
-                COLLECTION,
-                boundary_path,
-                args.start_date,
-                args.end_date,
-                cache_root=args.mask_cache_dir,
-                crs=OUTPUT_CRS,
-                resolution=args.resolution,
-                offline=True,
-            )
-            manifest_path = Path(handle.path) / "manifest.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            diagnostics = manifest.get("acquisition", {}).get("plan_diagnostics", [])
-            print(
-                f"[{name}] canonical cache: identity={handle.identity} store={handle.path}",
-                file=sys.stderr,
-                flush=True,
-            )
-            print(
-                f"[{name}] planner diagnostics: {json.dumps(diagnostics, sort_keys=True)}",
-                file=sys.stderr,
-                flush=True,
-            )
+    res_display = args.resolution or 30.0
+    print(f"Starting extraction across {len(jobs)} catchment(s) using {args.workers} worker(s) (res={res_display:.0f}m)...\n", flush=True)
 
-    print(f"\nTotal: {time.monotonic() - overall_start:.1f}s for {len(jobs)} AOI(s)")
+    if args.workers <= 1:
+        for idx, job in enumerate(jobs):
+            record = _process_job(job, args, tile_kwargs, position=0)
+            timing_records.append(record)
+    else:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        with ThreadPoolExecutor(max_workers=args.workers, thread_name_prefix="wofs_extract") as executor:
+            future_map = {
+                executor.submit(_process_job, job, args, tile_kwargs, position=idx): job
+                for idx, job in enumerate(jobs)
+            }
+            for future in as_completed(future_map):
+                job_name, _ = future_map[future]
+                try:
+                    record = future.result()
+                    timing_records.append(record)
+                except Exception as exc:
+                    print(f"\n[{job_name}] FAILED: {exc!r}", flush=True)
+
+    total_time = time.monotonic() - overall_start
+    print(f"\nTotal: {total_time:.1f}s for {len(jobs)} AOI(s) across {args.workers} worker(s)")
+
+    if timing_records:
+        timing_df = pd.DataFrame(timing_records)
+        timing_csv_path = OUTPUT_DIR / "execution_timing.csv"
+
+        if timing_csv_path.exists():
+            existing_df = pd.read_csv(timing_csv_path)
+            combined_df = pd.concat([existing_df, timing_df], ignore_index=True)
+        else:
+            combined_df = timing_df
+
+        combined_df.to_csv(timing_csv_path, index=False)
+        print(f"\nExecution timing updated in: {timing_csv_path}")
+        print("\n=== RUNTIME COMPARISON TABLE ===")
+        print(combined_df.to_markdown(index=False) if hasattr(combined_df, "to_markdown") else combined_df.to_string(index=False))
 
 
 if __name__ == "__main__":

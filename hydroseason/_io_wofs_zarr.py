@@ -316,8 +316,18 @@ def cache_writer_lock(cache_root: Path, request_digest: str) -> Iterator[None]:
         lock_path.unlink(missing_ok=True)
 
 
-def create_cache_handle(cache_root: Path, identity: WOfSCacheIdentity) -> WOfSCacheHandle:
-    """Create the root Zarr group for ``identity`` and register it in the index.
+def _manifest_identity(identity: Any) -> dict:
+    if hasattr(identity, "to_dict"):
+        return identity.to_dict()
+    if hasattr(identity, "as_dict"):
+        return identity.as_dict()
+    import dataclasses
+    if dataclasses.is_dataclass(identity):
+        return dataclasses.asdict(identity)
+    raise TypeError(f"Cannot serialize identity: {identity!r}")
+
+
+def create_cache_handle(cache_root: Path, identity: Any) -> WOfSCacheHandle:
 
     Creates (or opens, idempotently) the store's root Zarr group at
     ``cache_root / "stores" / <request_digest>``, writes that store's root
@@ -339,20 +349,24 @@ def create_cache_handle(cache_root: Path, identity: WOfSCacheIdentity) -> WOfSCa
 
     zarr.open_group(_zarr_store(store_dir), mode="a")
 
+    identity_dict = _manifest_identity(identity)
     manifest = {
         "schema_version": WOFS_CACHE_SCHEMA_VERSION,
         "request_digest": request_digest,
-        "identity": identity.to_dict(),
+        "identity": identity_dict,
     }
     _write_json_atomic(store_dir / _MANIFEST_FILENAME, manifest)
+
+    start_date = identity.request.start_date if hasattr(identity, "request") else identity.start_date
+    end_date = identity.request.end_date if hasattr(identity, "request") else identity.end_date
 
     index_entry = {
         "schema_version": WOFS_CACHE_SCHEMA_VERSION,
         "request_digest": request_digest,
-        "identity": identity.to_dict(),
+        "identity": identity_dict,
         "store": str(store_dir.relative_to(cache_root)).replace(os.sep, "/"),
-        "start_date": identity.request.start_date,
-        "end_date": identity.request.end_date,
+        "start_date": start_date,
+        "end_date": end_date,
     }
     _write_json_atomic(_index_path(cache_root, request_digest), index_entry)
 

@@ -401,6 +401,8 @@ def load_wofs_monthly_extent(
     close_m: float = 150.0,
     buffer_m: float = 300.0,
     progress: bool = False,
+    progress_desc: str | None = None,
+    progress_position: int | None = None,
     auto_tiling: bool = True,
     read_workers: int | None = None,
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
@@ -669,9 +671,16 @@ def load_wofs_monthly_extent(
     if progress:
         from tqdm.auto import tqdm
 
-        year_iter = tqdm(
-            year_iter, total=end.year - start.year + 1, desc="years", unit="yr",
-        )
+        tqdm_kwargs = {
+            "total": end.year - start.year + 1,
+            "desc": progress_desc if progress_desc else "years",
+            "unit": "yr",
+        }
+        if progress_position is not None:
+            tqdm_kwargs["position"] = progress_position
+            tqdm_kwargs["leave"] = True
+
+        year_iter = tqdm(year_iter, **tqdm_kwargs)
 
     for year_start, year_end in year_iter:
         expected_index = pd.date_range(

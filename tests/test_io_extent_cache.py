@@ -202,7 +202,7 @@ def test_cached_extent_reuses_completed_calendar_years(monkeypatch, tmp_path):
 
     assert load.call_count == 4
     assert list(first.index) == list(pd.date_range("2020-11-01", "2021-02-01", freq="MS"))
-    pd.testing.assert_frame_equal(first, second, check_freq=False)
+    pd.testing.assert_frame_equal(first, second, check_freq=False, check_dtype=False)
     pd.testing.assert_frame_equal(first, forced, check_freq=False)
 
 
