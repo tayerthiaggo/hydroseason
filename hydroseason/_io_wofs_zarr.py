@@ -336,7 +336,7 @@ def create_cache_handle(cache_root: Path, identity: WOfSCacheIdentity) -> WOfSCa
 
     import zarr
 
-    zarr.open_group(store=str(store_dir), mode="a")
+    zarr.open_group(_zarr_store(store_dir), mode="a")
 
     manifest = {
         "schema_version": WOFS_CACHE_SCHEMA_VERSION,
