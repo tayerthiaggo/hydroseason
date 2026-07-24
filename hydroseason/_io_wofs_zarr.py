@@ -961,6 +961,7 @@ def validate_annual_group(
         raise ValueError(f"{path} is missing the 'time' coordinate")
     import pandas as pd
 
+    opened = None
     try:
         import xarray as xr
 
@@ -971,6 +972,9 @@ def validate_annual_group(
         time_values = pd.DatetimeIndex(np.asarray(mask_da.time.values))
     except Exception as exc:
         raise ValueError(f"{path} georeferencing could not be read: {exc}") from exc
+    finally:
+        if opened is not None:
+            opened.close()
 
     if len(time_values) == 0:
         raise ValueError(f"{path} has an empty time axis")

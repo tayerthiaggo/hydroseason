@@ -8,6 +8,8 @@ geometry space via shapely buffer, never scipy (not a dependency).
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 
 from hydroseason._io_geo import _preserve_georef
@@ -108,13 +110,30 @@ def wet_aoi_polygon(
     if buffer_m > 0.0:
         merged = merged.buffer(buffer_m)
 
-    epsg = crs.to_epsg()
+    epsg = _crs_epsg(crs)
     if epsg is not None:
         crs = f"EPSG:{epsg}"
 
     return gpd.GeoDataFrame(
         {"geometry": [merged]}, geometry="geometry", crs=crs
     )
+
+
+def _crs_epsg(crs) -> int | None:
+    try:
+        epsg = crs.to_epsg()
+    except Exception:
+        epsg = None
+    if epsg is not None:
+        return int(epsg)
+    try:
+        wkt = crs.to_wkt()
+    except Exception:
+        return None
+    authority = re.findall(r'AUTHORITY\["EPSG","(\d+)"\]', wkt)
+    identifier = re.findall(r'ID\["EPSG",(\d+)\]', wkt)
+    matches = authority or identifier
+    return int(matches[-1]) if matches else None
 
 
 def compute_wet_aoi(mask, *, persistence_min: float = 0.0,
