@@ -220,6 +220,9 @@ def acquire_wofs_cache(
     cache hit as a miss."
     """
     cache_root = Path(cache_root)
+    aoi_name = "aoi"
+    if isinstance(aoi, (str, Path)):
+        aoi_name = Path(aoi).stem
     start = pd.Timestamp(start_date)
     end = pd.Timestamp(end_date)
     if end < start:
@@ -298,9 +301,14 @@ def acquire_wofs_cache(
         plan_diagnostics: list[dict[str, Any]] = []
         write_stats: list[Any] = []
 
-        for year in missing_years:
+        n_missing = len(missing_years)
+        if n_missing > 0:
+            print(f"[{aoi_name}] Caching {n_missing} missing year(s)...", flush=True)
+
+        for idx, year in enumerate(missing_years):
             year_start, year_end = _year_date_bounds(year, request.start_date, request.end_date)
             year_items = by_year.get(year, ())
+            print(f"[{aoi_name}] Processing year {year} ({idx + 1}/{n_missing})...", flush=True)
 
             if year_items:
                 graph_count += 1
