@@ -754,11 +754,18 @@ def _preserve_georef(result, source):
 
 
 def _combine_observations(series, majority):
-    water, dry, invalid = (series == 1).sum("time"), (series == 0).sum("time"), (series == -1).sum("time")
+    water = (series == 1).sum("time")
+    dry = (series == 0).sum("time")
+    invalid = (series == -1).sum("time")
     water_wins = (water > 0) & ((water > dry) if majority else True)
+
     import xarray as xr
 
-    combined = xr.where(water_wins, np.int8(1), xr.where(dry > 0, np.int8(0), xr.where(invalid > 0, np.int8(-1), np.int8(-2)))).astype(np.int8)
+    combined = xr.where(
+        water_wins,
+        np.int8(1),
+        xr.where(dry > 0, np.int8(0), xr.where(invalid > 0, np.int8(-1), np.int8(-2))),
+    ).astype(np.int8)
     return _preserve_georef(combined, series)
 
 

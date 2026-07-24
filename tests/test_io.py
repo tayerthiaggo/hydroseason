@@ -15,6 +15,25 @@ def _aoi():
     return geopandas.GeoDataFrame(geometry=[box(0, 0, 2, 2)], crs="EPSG:4326")
 
 
+def test_combine_observations_flat_selection():
+    pytest.importorskip("xarray")
+    import xarray as xr
+    from hydroseason._io_geo import _combine_observations
+
+    obs = xr.DataArray(
+        np.array([
+            [[1, 0], [-1, -2]],
+            [[1, 0], [0, -2]],
+            [[0, -1], [0, -2]],
+        ], dtype=np.int8),
+        dims=["time", "y", "x"],
+    )
+
+    combined = _combine_observations(obs, majority=True)
+    expected = np.array([[1, 0], [0, -2]], dtype=np.int8)
+    np.testing.assert_array_equal(combined.values, expected)
+
+
 def _write_binary_tif(path):
     rasterio = pytest.importorskip("rasterio")
     from rasterio.transform import from_origin
