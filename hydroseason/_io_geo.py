@@ -232,6 +232,7 @@ def _load_wofs_items(
     majority=True,
     duplicate_month_policy="raise",
     groupby="solar_day",
+    resampling=None,
 ):
     """Load WOfS items, classify, compose monthly, and clip to AOI.
 
@@ -253,6 +254,15 @@ def _load_wofs_items(
     * ``"time"`` keeps every item with a distinct timestamp as its own plane
       (the historical behaviour). Same-day tile-edge scenes then each cast a
       separate water/dry/invalid vote in ``_combine_observations``.
+
+    ``resampling`` is passed through to ``odc.stac.stac_load`` verbatim when
+    not ``None`` (omitted entirely otherwise, matching ``odc.stac``'s own
+    default). Callers with an explicit ``resolution`` (the legacy AOI+CRS
+    path) traditionally want ``resampling="mode"`` for a categorical mask;
+    callers with a pre-derived ``geobox`` (the cache/tiling path) fix
+    CRS/resolution via the geobox and must still pass ``resampling="mode"``
+    explicitly through this parameter to get the same categorical-safe
+    behaviour -- unlike ``resolution``, ``geobox`` alone does not imply it.
 
     The per-month selection and majority vote below are agnostic to how many
     slices land in a month, so the only thing ``groupby`` changes is the slice
@@ -291,14 +301,14 @@ def _load_wofs_items(
                 **({"crs": _crs_value(crs)} if crs is not None else {}),
                 **({"resolution": resolution} if resolution is not None else {}),
             }
-            ds = odc.stac.stac_load(
-                year_items,
-                bands=["water"],
-                chunks={"x": chunk_x, "y": chunk_y},
-                groupby=groupby,
-                **({"resampling": "mode"} if resolution is not None else {}),
+            load_kwargs = {
+                "bands": ["water"],
+                "chunks": {"x": chunk_x, "y": chunk_y},
+                "groupby": groupby,
+                **({"resampling": resampling} if resampling is not None else {}),
                 **spatial,
-            )
+            }
+            ds = odc.stac.stac_load(year_items, **load_kwargs)
             classified = _classify(ds["water"], "wofs", None)
             loaded_months = pd.DatetimeIndex(classified["time"].values).to_period("M")
         except AOIRasterizationError:
@@ -402,6 +412,94 @@ def load_wofs_from_stac(
         majority=majority,
         duplicate_month_policy=duplicate_month_policy,
         groupby=groupby,
+        resampling=("mode" if resolution is not None else None),
+    )
+
+
+def _item_year(item) -> int:
+    """The calendar year of one STAC item, parsed the same way as :func:`_load_wofs_items`."""
+    date = pd.Timestamp(
+        item.properties.get("datetime") or item.properties.get("start_datetime")
+    )
+    if date.tzinfo is not None:
+        date = date.tz_convert(None)
+    return int(date.year)
+
+
+def build_wofs_year_graph(
+    items,
+    aoi_gdf,
+    start_date: str,
+    end_date: str,
+    *,
+    geobox,
+    chunk_x: int = 512,
+    chunk_y: int = 512,
+    time_chunk: int = 12,
+    majority: bool = True,
+    groupby: str = "solar_day",
+):
+    """Build one shared lazy WOfS cube for a single calendar year onto a fixed grid.
+
+    A thin validating wrapper around :func:`_load_wofs_items`, used only by
+    the geobox-driven cache acquisition path (never the legacy AOI+resolution
+    path, which calls :func:`_load_wofs_items` directly via
+    :func:`load_wofs_from_stac`). Two things distinguish this path:
+
+    * A parent ``geobox`` is required (raises ``ValueError`` if missing) --
+      it already fixes the output CRS/resolution/alignment, so this function
+      delegates to :func:`_load_wofs_items` with ``resolution=None``
+      (passing both would be redundant/conflicting).
+    * Because ``resolution=None`` here, :func:`_load_wofs_items` would not on
+      its own apply ``resampling="mode"`` (that historical behaviour is keyed
+      off its ``resolution`` argument, which this path deliberately leaves
+      unset). This function passes ``resampling="mode"`` explicitly through
+      :func:`_load_wofs_items`'s ``resampling`` keyword so geobox-based loads
+      keep the same categorical-safe mode resampling as the legacy path.
+
+    Every supplied item's timestamp must fall within the requested calendar
+    year (validated against ``start_date``/``end_date`` -- for this
+    function's only caller, :func:`hydroseason._io_wofs_acquire.acquire_wofs_cache`,
+    that range is always one calendar year, per
+    :func:`hydroseason._io_wofs_acquire.partition_items_by_year`); a
+    mismatched item raises ``ValueError`` naming it, so a caller's partition
+    bug is caught immediately rather than silently loading the wrong year's
+    pixels onto this year's grid.
+    """
+    if geobox is None:
+        raise ValueError("build_wofs_year_graph requires a parent geobox.")
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+    if start.year != end.year:
+        raise ValueError(
+            f"build_wofs_year_graph requires a single-calendar-year range, "
+            f"got {start_date} to {end_date}."
+        )
+    year = start.year
+    for item in items:
+        item_year = _item_year(item)
+        if item_year != year:
+            raise ValueError(
+                f"item {getattr(item, 'id', item)!r} has timestamp year "
+                f"{item_year}, expected {year} (requested range {start_date} "
+                f"to {end_date})."
+            )
+
+    return _load_wofs_items(
+        items,
+        aoi_gdf,
+        start_date,
+        end_date,
+        crs=None,
+        resolution=None,
+        geobox=geobox,
+        chunk_x=chunk_x,
+        chunk_y=chunk_y,
+        time_chunk=time_chunk,
+        majority=majority,
+        duplicate_month_policy="raise",
+        groupby=groupby,
+        resampling="mode",
     )
 
 
@@ -549,6 +647,7 @@ def iter_wofs_tiles_from_stac(
                 majority=majority,
                 duplicate_month_policy=duplicate_month_policy,
                 groupby=groupby,
+                resampling=("mode" if resolution is not None else None),
             )
             yield tile_id, mask
     finally:
