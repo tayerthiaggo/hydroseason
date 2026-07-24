@@ -40,10 +40,13 @@ from hydroseason._io_wofs_zarr import (
     WOFS_CACHE_SCHEMA_VERSION,
     WOFS_CLASSIFIER_VERSION,
     WOFS_PLANNER_VERSION,
+    MASK_CHUNKS,
     WOfSCacheHandle,
     WOfSCacheIdentity,
     WOfSCacheRequest,
+    _COMPLETE_FILENAME,
     _long_path,
+    _read_json,
     _sha256_digest,
     _write_json_atomic,
     _zarr_store,
@@ -135,7 +138,7 @@ def _diagnostics_payload(query_count: int, graph_count: int, write_stats=()) -> 
     }
 
 
-def _empty_year_mask(geobox, start_date: str, end_date: str):
+def _empty_year_mask(geobox, start_date: str, end_date: str, aoi_gdf):
     """A lazy all-``-1``-inside/``-2``-outside-AOI cube for a year with zero STAC items.
 
     Matches the existing missing-month policy (see
@@ -157,7 +160,16 @@ def _empty_year_mask(geobox, start_date: str, end_date: str):
         freq="MS",
     )
     height, width = geobox.shape
-    data = da.full((len(months), height, width), -1, dtype=np.int8, chunks=(1, height, width))
+    data = da.full(
+        (len(months), height, width),
+        -1,
+        dtype=np.int8,
+        chunks=(
+            1,
+            min(MASK_CHUNKS[1], int(height)),
+            min(MASK_CHUNKS[2], int(width)),
+        ),
+    )
     y, x = geobox.coordinates.values()
     template = xr.DataArray(
         data,
@@ -166,7 +178,9 @@ def _empty_year_mask(geobox, start_date: str, end_date: str):
     )
     template = template.rio.write_crs(geobox.crs)
     template = template.rio.write_transform(geobox.affine)
-    return template
+    from hydroseason._io_geo import _clip_to_aoi
+
+    return _clip_to_aoi(template, aoi_gdf)
 
 
 def acquire_wofs_cache(
@@ -303,7 +317,7 @@ def acquire_wofs_cache(
                     groupby="solar_day",
                 )
             else:
-                mask = _empty_year_mask(parent_geobox, year_start, year_end)
+                mask = _empty_year_mask(parent_geobox, year_start, year_end, target)
 
             plan = plan_spatial_slices(
                 target.geometry.union_all() if hasattr(target.geometry, "union_all")
@@ -333,13 +347,14 @@ def acquire_wofs_cache(
             preflight_cache_space(handle.path, shape=planned_shape, months=year_months)
 
             item_ids = tuple(item.id for item in year_items)
+            final_year_path = Path(handle.path) / "years" / str(int(year))
             stats = write_annual_group(
                 handle,
                 year,
                 mask,
                 windows=plan.windows,
                 item_ids=item_ids,
-                overwrite=force,
+                overwrite=force or Path(_long_path(final_year_path)).exists(),
             )
             write_stats.append(stats)
 
@@ -359,7 +374,31 @@ def acquire_wofs_cache(
     return handle
 
 
-def _wet_aoi_sidecar_key(handle: WOfSCacheHandle, *, persistence_min: float, close_m: float, buffer_m: float) -> str:
+def _annual_fingerprints(handle: WOfSCacheHandle, years: list[int]) -> list[dict[str, Any]]:
+    fingerprints = []
+    for year in years:
+        payload = _read_json(Path(handle.path) / "years" / str(int(year)) / _COMPLETE_FILENAME) or {}
+        fingerprints.append(
+            {
+                "year": int(year),
+                "item_digest": payload.get("item_digest"),
+                "content_digest": payload.get("content_digest"),
+                "chunks_considered": payload.get("chunks_considered"),
+                "chunks_written": payload.get("chunks_written"),
+                "loaded_pixels": payload.get("loaded_pixels"),
+            }
+        )
+    return fingerprints
+
+
+def _wet_aoi_sidecar_key(
+    handle: WOfSCacheHandle,
+    *,
+    persistence_min: float,
+    close_m: float,
+    buffer_m: float,
+    annual_fingerprints: list[dict[str, Any]],
+) -> str:
     """A stable filename stem covering the cache identity AND the wet-AOI params.
 
     Hashing ``handle.identity`` together with ``persistence_min``/``close_m``/
@@ -373,13 +412,25 @@ def _wet_aoi_sidecar_key(handle: WOfSCacheHandle, *, persistence_min: float, clo
         "persistence_min": float(persistence_min),
         "close_m": float(close_m),
         "buffer_m": float(buffer_m),
+        "annual_fingerprints": annual_fingerprints,
     }
     return _sha256_digest(payload)
 
 
-def _wet_aoi_paths(handle: WOfSCacheHandle, *, persistence_min: float, close_m: float, buffer_m: float) -> tuple[Path, Path]:
+def _wet_aoi_paths(
+    handle: WOfSCacheHandle,
+    *,
+    persistence_min: float,
+    close_m: float,
+    buffer_m: float,
+    annual_fingerprints: list[dict[str, Any]],
+) -> tuple[Path, Path]:
     key = _wet_aoi_sidecar_key(
-        handle, persistence_min=persistence_min, close_m=close_m, buffer_m=buffer_m
+        handle,
+        persistence_min=persistence_min,
+        close_m=close_m,
+        buffer_m=buffer_m,
+        annual_fingerprints=annual_fingerprints,
     )
     wet_aoi_dir = Path(handle.path) / "wet_aoi"
     return wet_aoi_dir / f"{key}.geojson", wet_aoi_dir / f"{key}.identity.json"
@@ -425,18 +476,24 @@ def load_or_build_cached_wet_aoi(
 
     from hydroseason._wet_aoi import compute_ever_wet_from_counts, wet_aoi_polygon
 
-    geojson_path, identity_path = _wet_aoi_paths(
-        handle, persistence_min=persistence_min, close_m=close_m, buffer_m=buffer_m
-    )
-    if Path(_long_path(geojson_path)).exists() and Path(_long_path(identity_path)).exists():
-        return gpd.read_file(_long_path(geojson_path))
-
     years = sorted(completed_years(handle))
     if not years:
         raise FileNotFoundError(
             f"no completed WOfS annual group found at {Path(handle.path)!s}; "
             "load_or_build_cached_wet_aoi requires at least one completed year."
         )
+    annual_fingerprints = _annual_fingerprints(handle, years)
+    geojson_path, identity_path = _wet_aoi_paths(
+        handle,
+        persistence_min=persistence_min,
+        close_m=close_m,
+        buffer_m=buffer_m,
+        annual_fingerprints=annual_fingerprints,
+    )
+    if Path(_long_path(geojson_path)).exists() and Path(_long_path(identity_path)).exists():
+        wet_aoi = gpd.read_file(_long_path(geojson_path))
+        wet_aoi.attrs["hydroseason_wet_aoi_identity"] = geojson_path.stem
+        return wet_aoi
 
     import xarray as xr
 
@@ -493,8 +550,10 @@ def load_or_build_cached_wet_aoi(
             "close_m": float(close_m),
             "buffer_m": float(buffer_m),
             "years": years,
+            "annual_fingerprints": annual_fingerprints,
         },
     )
+    wet_aoi.attrs["hydroseason_wet_aoi_identity"] = geojson_path.stem
 
     return wet_aoi
 

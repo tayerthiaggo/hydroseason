@@ -138,6 +138,41 @@ def test_canonical_cache_extent_is_exactly_equal_to_legacy(monkeypatch, tmp_path
     pd.testing.assert_frame_equal(actual, expected)
 
 
+def test_derived_wet_aoi_identity_reaches_extent_csv_cache(monkeypatch, tmp_path):
+    pytest.importorskip("dask")
+    import hydroseason._io_extent_cache as extent_cache
+    import hydroseason.io as hio
+
+    cube = _mixed_canonical_cube()
+    handle = SimpleNamespace(path=tmp_path / "store.zarr", identity="grid-id", request_digest="request")
+    wet_aoi = _fake_wet_aoi()
+    wet_aoi.attrs["hydroseason_wet_aoi_identity"] = "derived-content-and-params"
+    writes = []
+    monkeypatch.setattr(hio, "acquire_wofs_cache", Mock(return_value=handle))
+    monkeypatch.setattr(hio, "open_completed_mask_cache", Mock(return_value=cube))
+    monkeypatch.setattr(hio, "load_or_build_cached_wet_aoi", Mock(return_value=wet_aoi))
+    monkeypatch.setattr(
+        extent_cache,
+        "_write_requested_annual_extent_parts",
+        lambda frame, **kwargs: writes.append(kwargs),
+    )
+
+    hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac",
+        "ga_ls_wo_3",
+        _aoi(),
+        "2020-01-01",
+        "2020-12-31",
+        resolution=30,
+        cache_dir=tmp_path / "extent",
+        mask_cache_dir=tmp_path / "masks",
+        tile_pixels=512,
+        precompute_wet_aoi=True,
+    )
+
+    assert writes[0]["wet_aoi_hash"] == "derived-content-and-params"
+
+
 def test_cached_extent_reuses_completed_calendar_years(monkeypatch, tmp_path):
     pytest.importorskip("dask")
     import hydroseason.io as hio

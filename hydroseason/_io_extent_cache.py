@@ -614,6 +614,10 @@ def load_wofs_monthly_extent(
             effective_wet_aoi = _io.load_or_build_cached_wet_aoi(
                 handle, persistence_min=persistence_min, close_m=close_m, buffer_m=buffer_m,
             )
+        if effective_wet_aoi is not None:
+            wet_aoi_hash = effective_wet_aoi.attrs.get(
+                "hydroseason_wet_aoi_identity", _aoi_digest(effective_wet_aoi)
+            )
         extent = monthly_water_extent(
             masks, time_block=time_block, wet_aoi=effective_wet_aoi, read_workers=read_workers,
         )

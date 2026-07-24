@@ -102,6 +102,33 @@ def test_completed_year_is_not_rebuilt(monkeypatch, tmp_path):
     graph.assert_not_called()
 
 
+def test_corrupt_final_year_directory_is_rebuilt_with_overwrite(monkeypatch, tmp_path):
+    handle = SimpleNamespace(path=tmp_path / "store.zarr", identity="id", request_digest="request")
+    (handle.path / "years" / "2015").mkdir(parents=True)
+    writer = Mock(return_value=_stats())
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.resolve_cached_request", Mock(return_value=handle))
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.create_cache_handle", Mock(return_value=handle))
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.completed_years", Mock(return_value=set()))
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=([_item("2015-01-15", "a")], _aoi())),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", Mock(return_value=_cube(2015)))
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", writer)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac",
+        "ga_ls_wo_3",
+        _aoi(),
+        "2015-01-01",
+        "2015-12-31",
+        cache_root=tmp_path,
+        resolution=30,
+    )
+
+    assert writer.call_args.kwargs["overwrite"] is True
+
+
 def test_annual_writer_mask_and_local_counts_share_one_delayed_source(tmp_path):
     import zarr
 
@@ -118,15 +145,15 @@ def test_annual_writer_mask_and_local_counts_share_one_delayed_source(tmp_path):
     @dask.delayed
     def source():
         calls["source"] += 1
-        return np.array([[[1, 0], [-1, -2]]], dtype=np.int8)
+        return np.repeat(np.array([[[1, 0], [-1, -2]]], dtype=np.int8), 12, axis=0)
 
     transform = Affine(30, 0, 1000, 0, -30, 2000)
-    arr = da.from_delayed(source(), shape=(1, 2, 2), dtype=np.int8)
+    arr = da.from_delayed(source(), shape=(12, 2, 2), dtype=np.int8)
     mask = xr.DataArray(
         arr,
         dims=("time", "y", "x"),
         coords={
-            "time": pd.DatetimeIndex(["2015-01-01"]),
+            "time": pd.date_range("2015-01-01", periods=12, freq="MS"),
             "y": transform.f + (np.arange(2) + 0.5) * transform.e,
             "x": transform.c + (np.arange(2) + 0.5) * transform.a,
         },
@@ -163,9 +190,67 @@ def test_annual_writer_mask_and_local_counts_share_one_delayed_source(tmp_path):
 
     group = zarr.open_group(handle.path / "years" / "2015", mode="r")
     assert calls["source"] == 1
-    np.testing.assert_array_equal(group["water_mask"][:], np.array([[[1, 0], [-1, -2]]], dtype=np.int8))
-    np.testing.assert_array_equal(group["wet_count"][:], np.array([[1, 0], [0, 0]], dtype=np.uint16))
-    np.testing.assert_array_equal(group["clear_count"][:], np.array([[1, 1], [0, 0]], dtype=np.uint16))
+    expected_mask = np.repeat(np.array([[[1, 0], [-1, -2]]], dtype=np.int8), 12, axis=0)
+    np.testing.assert_array_equal(group["water_mask"][:], expected_mask)
+    np.testing.assert_array_equal(group["wet_count"][:], np.array([[12, 0], [0, 0]], dtype=np.uint16))
+    np.testing.assert_array_equal(group["clear_count"][:], np.array([[12, 12], [0, 0]], dtype=np.uint16))
+
+
+def test_empty_year_mask_is_invalid_inside_and_outside_aoi_elsewhere():
+    from hydroseason._io_wofs_acquire import _empty_year_mask
+
+    transform = Affine(30, 0, 0, 0, -30, 120)
+
+    class _Coord:
+        def __init__(self, values):
+            self.values = values
+
+    class _Coords:
+        def values(self):
+            return (
+                _Coord(transform.f + (np.arange(4) + 0.5) * transform.e),
+                _Coord(transform.c + (np.arange(4) + 0.5) * transform.a),
+            )
+
+    geobox = SimpleNamespace(
+        shape=(4, 4),
+        coordinates=_Coords(),
+        crs="EPSG:3577",
+        affine=transform,
+    )
+    aoi = gpd.GeoDataFrame(geometry=[box(30, 30, 90, 90)], crs="EPSG:3577")
+
+    values = _empty_year_mask(geobox, "2015-01-01", "2015-01-31", aoi).compute().values
+
+    assert values[0, 0, 0] == -2
+    assert values[0, 1, 1] == -1
+    assert set(np.unique(values)) == {-2, -1}
+
+
+def test_empty_year_mask_uses_bounded_spatial_chunks(monkeypatch):
+    from hydroseason._io_wofs_acquire import _empty_year_mask
+
+    transform = Affine(30, 0, 0, 0, -30, 18000)
+
+    class _Coord:
+        def __init__(self, values):
+            self.values = values
+
+    class _Coords:
+        def values(self):
+            return (
+                _Coord(transform.f + (np.arange(600) + 0.5) * transform.e),
+                _Coord(transform.c + (np.arange(600) + 0.5) * transform.a),
+            )
+
+    geobox = SimpleNamespace(
+        shape=(600, 600), coordinates=_Coords(), crs="EPSG:3577", affine=transform
+    )
+    monkeypatch.setattr("hydroseason._io_geo._clip_to_aoi", lambda mask, _aoi: mask)
+
+    mask = _empty_year_mask(geobox, "2015-01-01", "2015-01-31", _aoi())
+
+    assert max(mask.data.chunksize[1:]) <= 512
 
 
 def _canonical_year_cube(*, shape: tuple[int, int, int], fill: int, year: int) -> xr.DataArray:
@@ -243,6 +328,33 @@ def test_load_or_build_cached_wet_aoi_never_touches_stac(monkeypatch, tmp_path):
     assert isinstance(wet_aoi, gpd.GeoDataFrame)
     assert len(wet_aoi) > 0
     assert not wet_aoi.geometry.is_empty.all()
+
+
+def test_force_rewrite_with_changed_pixels_does_not_reuse_wet_aoi_sidecar(tmp_path):
+    from hydroseason._io_wofs_zarr import write_annual_group
+    from hydroseason._spatial_plan import GridWindow
+
+    handle = _completed_cache_handle(tmp_path)
+    first = load_or_build_cached_wet_aoi(
+        handle, persistence_min=0.0, close_m=0.0, buffer_m=0.0
+    )
+    rewritten = _canonical_year_cube(shape=(12, 4, 4), fill=0, year=2015)
+    rewritten.values[:, 0, 0] = 1
+    write_annual_group(
+        handle,
+        2015,
+        rewritten.chunk({"time": 1, "y": 4, "x": 4}),
+        windows=(GridWindow("parent", 0, 4, 0, 4),),
+        item_ids=("a",),
+        overwrite=True,
+    )
+
+    second = load_or_build_cached_wet_aoi(
+        handle, persistence_min=0.0, close_m=0.0, buffer_m=0.0
+    )
+
+    assert len(list((handle.path / "wet_aoi").glob("*.geojson"))) == 2
+    assert not first.geometry.equals(second.geometry)
 
 
 def test_storage_preflight_fails_before_stac_query(monkeypatch, tmp_path):

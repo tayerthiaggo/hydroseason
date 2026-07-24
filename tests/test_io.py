@@ -1335,12 +1335,16 @@ def test_probe_amplitude_propagates_annual_cache_settings(monkeypatch, tmp_path)
     probe_amplitude(
         "https://example.invalid/stac", "wofs", _aoi(),
         "2020-01-01", "2020-12-31",
-        cache_dir=tmp_path, force=True, time_block=6,
+        cache_dir=tmp_path,
+        mask_cache_dir=tmp_path / "masks",
+        force=True,
+        time_block=6,
     )
 
     assert cached_load.call_count == 2
     for call in cached_load.call_args_list:
         assert call.kwargs["cache_dir"] == tmp_path
+        assert call.kwargs["mask_cache_dir"] == tmp_path / "masks"
         assert call.kwargs["force"] is True
         assert call.kwargs["time_block"] == 6
 

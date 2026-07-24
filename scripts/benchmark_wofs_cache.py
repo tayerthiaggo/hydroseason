@@ -31,6 +31,7 @@ YEAR_START = "2015-01-01"
 YEAR_END = "2015-12-31"
 RESOLUTION = 30.0
 TILE_PIXELS = 1024
+LEGACY_QUERIES_PER_RUN = 2
 CASES = {
     "gilbert": REPO_ROOT / "data" / "Gilbert_river_buffer.geojson",
     "fitzroy": REPO_ROOT / "data" / "fitzroy_kimberley_aoi.geojson",
@@ -275,8 +276,8 @@ def _summarise_case(
 def _source_counts_ok(result: dict[str, Any], *, runs: int) -> bool:
     """Hard source-count gate for the real one-year benchmark cases."""
     return (
-        result["gilbert"]["legacy_stac_calls"] == runs
-        and result["fitzroy"]["legacy_stac_calls"] == runs
+        result["gilbert"]["legacy_stac_calls"] == LEGACY_QUERIES_PER_RUN * runs
+        and result["fitzroy"]["legacy_stac_calls"] == LEGACY_QUERIES_PER_RUN * runs
         and result["gilbert"]["cold_stac_calls"] == runs
         and result["fitzroy"]["cold_stac_calls"] == runs
         and result["gilbert"]["cold_graph_builds"] == runs

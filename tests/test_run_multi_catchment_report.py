@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
@@ -132,10 +133,15 @@ def test_forced_final_load_reuses_cache_refreshed_by_probe(mod, monkeypatch, tmp
         },
     )
 
-    mod.run_one_catchment(_fake_spec(mod), force=True, resolution_override=300.0)
+    result = mod.run_one_catchment(_fake_spec(mod), force=True, resolution_override=300.0)
 
     assert probe_mock.call_args.kwargs["force"] is True
+    assert probe_mock.call_args.kwargs["mask_cache_dir"] == tmp_path / "out" / "wofs_cache"
     assert load_mock.call_args.kwargs["force"] is False
+    assert load_mock.call_args.kwargs["mask_cache_dir"] == tmp_path / "out" / "wofs_cache"
+    assert result["run_config"]["mask_cache_identity"]["cache_dir"] == str(
+        tmp_path / "out" / "wofs_cache"
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -521,18 +527,18 @@ class TestRealWiredEndToEnd:
         monkeypatch.setattr(mod, "analyze_hydrological_state", Mock(return_value=_fake_state()))
 
         # Keep this integration slice to one year: probe_amplitude makes two
-        # loads (probe + guard), plus one annual cached full-resolution load.
+        # cached reductions (probe + guard), plus one final cached reduction.
         monkeypatch.setattr(mod, "START_DATE", "2015-01-01")
         monkeypatch.setattr(mod, "END_DATE", "2015-12-31")
         (tmp_path / "test_catchment_boundary.geojson").write_text(
             '{"type":"FeatureCollection","features":[]}', encoding="utf-8"
         )
         cube = _synthetic_water_mask_cube(n_time=12)
-        load_mock = Mock(return_value=cube)
-        # probe_amplitude calls load_wofs_from_stac resolved in hydroseason.io's
-        # own namespace -- patch it there, not just on the runner module.
         import hydroseason.io as hio
-        monkeypatch.setattr(hio, "load_wofs_from_stac", load_mock)
+        acquire_mock = Mock(return_value=SimpleNamespace(path=tmp_path / "cache.zarr", identity="id", request_digest="request"))
+        open_mock = Mock(return_value=cube)
+        monkeypatch.setattr(hio, "acquire_wofs_cache", acquire_mock)
+        monkeypatch.setattr(hio, "open_completed_mask_cache", open_mock)
 
         spec = _fake_spec(mod)
         result = mod.run_one_catchment(
@@ -540,7 +546,8 @@ class TestRealWiredEndToEnd:
             memory_budget_gb=12.0,
         )
 
-        assert load_mock.call_count == 3
+        assert acquire_mock.call_count == 3
+        assert open_mock.call_count == 3
 
         # plan_resolution's real signal veto is a function of the AOI's tiny
         # (test-fixture) bounds and the real amplitude probe_amplitude computed

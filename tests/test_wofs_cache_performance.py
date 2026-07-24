@@ -43,14 +43,14 @@ def test_benchmark_source_count_gate_rejects_extra_cold_queries():
     try:
         result = {
             "gilbert": {
-                "legacy_stac_calls": 3,
+                "legacy_stac_calls": 6,
                 "cold_stac_calls": 4,
                 "cold_graph_builds": 3,
                 "cached_stac_calls": 0,
                 "cached_graph_builds": 0,
             },
             "fitzroy": {
-                "legacy_stac_calls": 3,
+                "legacy_stac_calls": 6,
                 "cold_stac_calls": 3,
                 "cold_graph_builds": 3,
             },

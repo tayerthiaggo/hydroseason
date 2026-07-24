@@ -247,6 +247,7 @@ def run_one_catchment(
     start_date = start_date or START_DATE
     end_date = end_date or END_DATE
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    mask_cache_dir = OUTPUT_DIR / "wofs_cache"
     boundary_path = CATCHMENTS_DIR / f"{spec.key}_boundary.geojson"
     boundary_sha256 = (
         hashlib.sha256(boundary_path.read_bytes()).hexdigest() if boundary_path.exists() else None
@@ -261,7 +262,7 @@ def run_one_catchment(
         "boundary_sha256": boundary_sha256,
         "baseline": baseline,
         "mask_cache_identity": {
-            "cache_dir": str(OUTPUT_DIR / "extent_cache" / spec.key),
+            "cache_dir": str(mask_cache_dir),
             "collection": COLLECTION,
             "crs": OUTPUT_CRS,
             "stac_url": STAC_URL,
@@ -286,6 +287,7 @@ def run_one_catchment(
     guard = probe_amplitude(
         STAC_URL, COLLECTION, boundary_path, start_date, end_date, crs=OUTPUT_CRS,
         cache_dir=OUTPUT_DIR / "extent_cache" / spec.key,
+        mask_cache_dir=mask_cache_dir,
         force=force, time_block=time_block,
     )
     amplitude_pp = guard["amplitude_pp"]
@@ -328,6 +330,7 @@ def run_one_catchment(
         STAC_URL, COLLECTION, boundary_path, start_date, end_date, crs=OUTPUT_CRS,
         resolution=resolution_m, time_block=time_block, force=False,
         cache_dir=OUTPUT_DIR / "extent_cache" / spec.key,
+        mask_cache_dir=mask_cache_dir,
     )
     print(f"[{spec.key}] extent series: {len(extent)} months", flush=True)
     n_valid = int(extent["n_valid"].median())

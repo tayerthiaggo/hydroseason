@@ -243,8 +243,8 @@ def _lock_path(cache_root: Path, request_digest: str) -> Path:
     return Path(cache_root) / _LOCKS_DIRNAME / f"{request_digest}.lock"
 
 
-def _store_dir(cache_root: Path, request_digest: str) -> Path:
-    return Path(cache_root) / "stores" / request_digest
+def _store_dir(cache_root: Path, identity_digest: str) -> Path:
+    return Path(cache_root) / f"{identity_digest}.zarr"
 
 
 def _write_json_atomic(path: Path, payload: dict) -> None:
@@ -331,7 +331,7 @@ def create_cache_handle(cache_root: Path, identity: WOfSCacheIdentity) -> WOfSCa
     """
     cache_root = Path(cache_root)
     request_digest = identity.request_digest
-    store_dir = _store_dir(cache_root, request_digest)
+    store_dir = _store_dir(cache_root, identity.digest)
     store_dir.mkdir(parents=True, exist_ok=True)
 
     import zarr
@@ -385,11 +385,19 @@ def _validate_hit(cache_root: Path, index_entry: dict, request: WOfSCacheRequest
     manifest_identity = manifest.get("identity") or {}
     if index_identity.get("digest") != manifest_identity.get("digest"):
         return None
-    if not manifest_identity.get("digest"):
+    try:
+        resolved_identity = WOfSCacheIdentity.from_dict(manifest_identity)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if resolved_identity.digest != manifest_identity.get("digest"):
+        return None
+    if resolved_identity.request_digest != request.request_digest():
+        return None
+    if store_dir.resolve() != _store_dir(cache_root, resolved_identity.digest).resolve():
         return None
     return WOfSCacheHandle(
         path=store_dir,
-        identity=manifest_identity["digest"],
+        identity=resolved_identity.digest,
         request_digest=request.request_digest(),
     )
 
@@ -745,10 +753,22 @@ def write_annual_group(
         group = zarr.open_group(_zarr_store(temp_path), mode="r+")
         mask_array = group["water_mask"]
 
-        wet_count = np.zeros((height, width), dtype=np.uint16)
-        clear_count = np.zeros((height, width), dtype=np.uint16)
+        # wet_count/clear_count are local derived arrays (not public source
+        # data). Keep them chunked in Zarr, not full-grid in memory.
+        derived_arrays = {}
+        for derived_name in ("wet_count", "clear_count"):
+            derived_array = group.create_dataset(
+                derived_name,
+                shape=(height, width),
+                dtype=np.uint16,
+                chunks=(_STORAGE_CHUNK, _STORAGE_CHUNK),
+                fill_value=0,
+                overwrite=True,
+            )
+            derived_array.attrs["_ARRAY_DIMENSIONS"] = ["y", "x"]
+            derived_arrays[derived_name] = derived_array
 
-        keys: set[tuple[int, int, int]] = set()
+        spatial_keys: set[tuple[int, int]] = set()
         for window in windows:
             y_start = max(0, window.y_start)
             y_stop = min(height, window.y_stop)
@@ -758,26 +778,41 @@ def write_annual_group(
                 continue
             y_starts = _storage_chunk_starts(y_start, y_stop)
             x_starts = _storage_chunk_starts(x_start, x_stop)
-            for t in range(time_len):
-                for cy in y_starts:
-                    for cx in x_starts:
-                        keys.add((t, cy, cx))
+            for cy in y_starts:
+                for cx in x_starts:
+                    spatial_keys.add((cy, cx))
 
         task_count = 0
-        chunks_considered = len(keys)
+        chunks_considered = len(spatial_keys) * time_len
         chunks_written = 0
         loaded_pixels = 0
+        content_hasher = hashlib.sha256()
+        content_hasher.update(
+            _canonical_json_bytes(
+                {
+                    "dtype": "int8",
+                    "shape": [time_len, height, width],
+                    "spatial_chunks": [list(key) for key in sorted(spatial_keys)],
+                }
+            )
+        )
 
-        for t, cy, cx in sorted(keys):
+        for cy, cx in sorted(spatial_keys):
             cy_stop = min(cy + _STORAGE_CHUNK, height)
             cx_stop = min(cx + _STORAGE_CHUNK, width)
             block = year_mask.isel(
-                time=slice(t, t + 1), y=slice(cy, cy_stop), x=slice(cx, cx_stop)
+                time=slice(0, time_len), y=slice(cy, cy_stop), x=slice(cx, cx_stop)
             ).data
             if hasattr(block, "__dask_graph__"):
                 task_count += len(block.__dask_graph__())
             values = np.asarray(block.compute() if hasattr(block, "compute") else block)
             loaded_pixels += int(values.size)
+            content_hasher.update(
+                _canonical_json_bytes(
+                    {"y_start": cy, "x_start": cx, "shape": list(values.shape)}
+                )
+            )
+            content_hasher.update(np.ascontiguousarray(values).tobytes())
 
             invalid_domain = ~np.isin(values, CANONICAL_VALUES)
             if invalid_domain.any():
@@ -789,30 +824,19 @@ def write_annual_group(
             if bool((values == -2).all()):
                 continue
 
-            plane = values[0]
-            mask_array[t, cy:cy_stop, cx:cx_stop] = plane
-            chunks_written += 1
+            for t in range(time_len):
+                plane = values[t]
+                if bool((plane == -2).all()):
+                    continue
+                mask_array[t, cy:cy_stop, cx:cx_stop] = plane
+                chunks_written += 1
 
-            wet_slice = wet_count[cy:cy_stop, cx:cx_stop]
-            clear_slice = clear_count[cy:cy_stop, cx:cx_stop]
-            wet_slice += (plane == 1).astype(np.uint16)
-            clear_slice += ((plane == 0) | (plane == 1)).astype(np.uint16)
-
-        # wet_count/clear_count are local derived arrays (not a public data
-        # variable), written via the raw Zarr API rather than xr.Dataset.to_zarr.
-        # They still need "_ARRAY_DIMENSIONS" so that opening the *group* with
-        # xarray (e.g. validate_annual_group's georeferencing check, or any
-        # future direct reader) does not choke on an array xarray can't map to
-        # dims -- these are the same y/x dims as water_mask, just missing time.
-        for derived_name, derived_values in (("wet_count", wet_count), ("clear_count", clear_count)):
-            derived_array = group.create_dataset(
-                derived_name,
-                data=derived_values,
-                chunks=(_STORAGE_CHUNK, _STORAGE_CHUNK),
-                fill_value=0,
-                overwrite=True,
-            )
-            derived_array.attrs["_ARRAY_DIMENSIONS"] = ["y", "x"]
+            wet_values = (values == 1).sum(axis=0).astype(np.uint16)
+            clear_values = ((values == 0) | (values == 1)).sum(axis=0).astype(np.uint16)
+            if bool(wet_values.any()):
+                derived_arrays["wet_count"][cy:cy_stop, cx:cx_stop] = wet_values
+            if bool(clear_values.any()):
+                derived_arrays["clear_count"][cy:cy_stop, cx:cx_stop] = clear_values
 
         digest = _item_digest(tuple(item_ids))
         complete_payload = {
@@ -820,6 +844,7 @@ def write_annual_group(
             "year": int(year),
             "item_ids": list(item_ids),
             "item_digest": digest,
+            "content_digest": content_hasher.hexdigest(),
             "chunks_considered": chunks_considered,
             "chunks_written": chunks_written,
             "loaded_pixels": loaded_pixels,
@@ -835,9 +860,13 @@ def write_annual_group(
             expected_transform=expected_transform,
         )
 
+        del mask_array, group, derived_arrays
+        import gc
+
+        gc.collect()
         if Path(_long_path(final_year_path)).exists():
             _shutil.rmtree(_long_path(final_year_path))
-        os.replace(_long_path(temp_path), _long_path(final_year_path))
+        os.rename(_long_path(temp_path), _long_path(final_year_path))
     except BaseException:
         _shutil.rmtree(_long_path(temp_path), ignore_errors=True)
         raise
@@ -898,6 +927,26 @@ def _read_georef(dataset) -> tuple["object", object, tuple[float, ...]]:
     return mask_da, crs, transform
 
 
+def _stored_chunk_count(array_path: Path) -> int:
+    """Count physical Zarr v2 chunk files below an array directory."""
+    root = Path(_long_path(array_path))
+    if not root.exists():
+        return 0
+    count = 0
+    for entry in root.rglob("*"):
+        if not entry.is_file():
+            continue
+        name = entry.name
+        if name.startswith("."):
+            continue
+        try:
+            tuple(int(part) for part in name.split("."))
+        except ValueError:
+            continue
+        count += 1
+    return count
+
+
 def validate_annual_group(
     path: Path,
     *,
@@ -951,11 +1000,40 @@ def validate_annual_group(
             f"expected {tuple(MASK_CHUNKS)} at {path}"
         )
 
-    values = mask_array[:]
-    invalid_domain = ~np.isin(values, CANONICAL_VALUES)
-    if invalid_domain.any():
-        bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
-        raise ValueError(f"water_mask contains values outside {CANONICAL_VALUES}: {bad} at {path}")
+    complete_path = path / _COMPLETE_FILENAME
+    complete_payload = _read_json(complete_path)
+    if complete_payload is None:
+        raise ValueError(f"{path} is missing a valid {_COMPLETE_FILENAME}")
+    if not complete_payload.get("item_digest"):
+        raise ValueError(f"{path} {_COMPLETE_FILENAME} is missing an item_digest")
+    if int(complete_payload.get("year", -1)) != int(expected_year):
+        raise ValueError(
+            f"{path} {_COMPLETE_FILENAME} year {complete_payload.get('year')} "
+            f"does not match expected {expected_year}"
+        )
+    expected_chunks_written = complete_payload.get("chunks_written")
+    if expected_chunks_written is not None:
+        actual_chunks_written = _stored_chunk_count(path / "water_mask")
+        if actual_chunks_written != int(expected_chunks_written):
+            raise ValueError(
+                f"water_mask has {actual_chunks_written} stored chunks, expected "
+                f"{expected_chunks_written} at {path}"
+            )
+
+    for t0 in range(0, expected_time, mask_array.chunks[0]):
+        for y0 in range(0, expected_height, mask_array.chunks[1]):
+            for x0 in range(0, expected_width, mask_array.chunks[2]):
+                values = mask_array[
+                    t0:min(t0 + mask_array.chunks[0], expected_time),
+                    y0:min(y0 + mask_array.chunks[1], expected_height),
+                    x0:min(x0 + mask_array.chunks[2], expected_width),
+                ]
+                invalid_domain = ~np.isin(values, CANONICAL_VALUES)
+                if invalid_domain.any():
+                    bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
+                    raise ValueError(
+                        f"water_mask contains values outside {CANONICAL_VALUES}: {bad} at {path}"
+                    )
 
     if "time" not in group:
         raise ValueError(f"{path} is missing the 'time' coordinate")
@@ -1007,19 +1085,87 @@ def validate_annual_group(
             f"{path} transform {actual_transform} does not match expected {expected_transform}"
         )
 
-    complete_path = path / _COMPLETE_FILENAME
-    complete_payload = _read_json(complete_path)
-    if complete_payload is None:
-        raise ValueError(f"{path} is missing a valid {_COMPLETE_FILENAME}")
-    if not complete_payload.get("item_digest"):
-        raise ValueError(f"{path} {_COMPLETE_FILENAME} is missing an item_digest")
-    if int(complete_payload.get("year", -1)) != int(expected_year):
-        raise ValueError(
-            f"{path} {_COMPLETE_FILENAME} year {complete_payload.get('year')} "
-            f"does not match expected {expected_year}"
-        )
-
     return complete_payload
+
+
+def _completed_group_metadata(
+    path: Path, *, expected_year: int, expected_grid_shape: tuple[int, int]
+) -> dict:
+    """Validate completion and array metadata without reading raster chunks."""
+    import pandas as pd
+    import zarr
+    from xarray.coding.times import decode_cf_datetime
+
+    path = Path(path)
+    if not Path(_long_path(path / ".zgroup")).exists():
+        raise FileNotFoundError(f"{path} is not a Zarr group (missing .zgroup)")
+    complete = _read_json(path / _COMPLETE_FILENAME)
+    if complete is None:
+        raise ValueError(f"{path} is missing a valid {_COMPLETE_FILENAME}")
+    if int(complete.get("schema_version", -1)) != WOFS_CACHE_SCHEMA_VERSION:
+        raise ValueError(f"{path} has an incompatible annual schema version")
+    if int(complete.get("year", -1)) != int(expected_year):
+        raise ValueError(f"{path} completion year does not match {expected_year}")
+    if not complete.get("item_digest") or not complete.get("content_digest"):
+        raise ValueError(f"{path} completion metadata is missing provenance digests")
+
+    group = zarr.open_group(_zarr_store(path), mode="r")
+    required = {"water_mask", "wet_count", "clear_count", "time", "y", "x", "spatial_ref"}
+    missing = sorted(required - set(group.array_keys()))
+    if missing:
+        raise ValueError(f"{path} is missing required arrays: {missing}")
+
+    height, width = (int(expected_grid_shape[0]), int(expected_grid_shape[1]))
+    mask_array = group["water_mask"]
+    if mask_array.dtype != np.dtype("int8"):
+        raise ValueError(f"{path} water_mask dtype is not int8")
+    if tuple(mask_array.shape[1:]) != (height, width) or not 1 <= int(mask_array.shape[0]) <= 12:
+        raise ValueError(f"{path} water_mask shape is incompatible with the store grid")
+    if tuple(mask_array.chunks) != tuple(MASK_CHUNKS):
+        raise ValueError(f"{path} water_mask chunks do not match {MASK_CHUNKS}")
+
+    for name in ("wet_count", "clear_count"):
+        array = group[name]
+        if array.dtype != np.dtype("uint16") or tuple(array.shape) != (height, width):
+            raise ValueError(f"{path} {name} metadata is incompatible with the store grid")
+        if tuple(array.chunks) != (_STORAGE_CHUNK, _STORAGE_CHUNK):
+            raise ValueError(f"{path} {name} chunks are invalid")
+
+    if tuple(group["y"].shape) != (height,) or tuple(group["x"].shape) != (width,):
+        raise ValueError(f"{path} coordinate shapes are incompatible with the store grid")
+    time_array = group["time"]
+    units = time_array.attrs.get("units")
+    if not units:
+        raise ValueError(f"{path} time coordinate is missing CF units")
+    decoded = decode_cf_datetime(
+        np.asarray(time_array[:]), units, time_array.attrs.get("calendar", "standard")
+    )
+    time_values = pd.DatetimeIndex(np.asarray(decoded))
+    if not time_values.is_unique:
+        raise ValueError(f"{path} time axis contains duplicate timestamps")
+    if not time_values.is_monotonic_increasing:
+        raise ValueError(f"{path} time axis is not in strict monthly order")
+    if any(ts.year != int(expected_year) or ts.day != 1 for ts in time_values):
+        raise ValueError(f"{path} time axis is outside year {expected_year} or not month-start")
+    expected_axis = pd.date_range(time_values[0], periods=len(time_values), freq="MS")
+    if not time_values.equals(expected_axis):
+        raise ValueError(f"{path} time axis is not a contiguous run of calendar months")
+
+    expected_chunks = int(complete.get("chunks_written", -1))
+    if expected_chunks < 0 or _stored_chunk_count(path / "water_mask") != expected_chunks:
+        raise ValueError(f"{path} stored chunk count does not match completion metadata")
+    return complete
+
+
+def _store_grid_shape(handle: WOfSCacheHandle) -> tuple[int, int]:
+    manifest = _read_json(Path(handle.path) / _MANIFEST_FILENAME) or {}
+    identity = manifest.get("identity") or {}
+    if identity.get("digest") != handle.identity:
+        raise ValueError(f"cache manifest identity does not match handle at {handle.path}")
+    shape = tuple(identity.get("shape") or ())
+    if len(shape) != 2:
+        raise ValueError(f"cache manifest is missing a two-dimensional grid shape at {handle.path}")
+    return int(shape[0]), int(shape[1])
 
 
 def completed_years(handle: WOfSCacheHandle) -> set[int]:
@@ -1034,8 +1180,13 @@ def completed_years(handle: WOfSCacheHandle) -> set[int]:
     starting with ``.`` (the temp-write naming convention) are always
     ignored without even checking their contents.
     """
-    years_dir = _years_dir(Path(handle.path))
+    store_path = Path(handle.path)
+    years_dir = _years_dir(store_path)
     if not Path(_long_path(years_dir)).is_dir():
+        return set()
+    try:
+        expected_grid_shape = _store_grid_shape(handle)
+    except ValueError:
         return set()
     result: set[int] = set()
     for entry in Path(_long_path(years_dir)).iterdir():
@@ -1045,10 +1196,11 @@ def completed_years(handle: WOfSCacheHandle) -> set[int]:
             year = int(entry.name)
         except ValueError:
             continue
-        complete_payload = _read_json(entry / _COMPLETE_FILENAME)
-        if complete_payload is None:
-            continue
-        if not Path(_long_path(entry / ".zgroup")).exists():
+        try:
+            _completed_group_metadata(
+                entry, expected_year=year, expected_grid_shape=expected_grid_shape
+            )
+        except Exception:
             continue
         result.add(year)
     return result
@@ -1091,6 +1243,19 @@ def open_completed_mask_cache(
     available = completed_years(handle)
     missing = sorted(requested_years - available)
     if missing:
+        try:
+            expected_grid_shape = _store_grid_shape(handle)
+        except ValueError:
+            expected_grid_shape = None
+        if expected_grid_shape is not None:
+            for year in missing:
+                year_path = _year_dir(store_path, year)
+                if Path(_long_path(year_path)).is_dir():
+                    _completed_group_metadata(
+                        year_path,
+                        expected_year=year,
+                        expected_grid_shape=expected_grid_shape,
+                    )
         raise FileNotFoundError(
             f"no completed WOfS annual group for year(s) {missing} at {store_path} "
             f"(requested range {start_date} to {end_date})"
