@@ -51,6 +51,17 @@ def test_csv_loader_imports_without_raster_dependencies(monkeypatch, tmp_path):
     assert result.loc[pd.Timestamp("2020-01-01"), "extent_pct"] == 25.0
 
 
+def test_csv_import_does_not_import_raster_stack(monkeypatch, tmp_path):
+    csv_path = tmp_path / "extent.csv"
+    csv_path.write_text("date,extent_pct\n2020-01-01,10\n", encoding="utf-8")
+    for name in ("xarray", "dask", "zarr", "pystac_client", "odc.stac"):
+        monkeypatch.setitem(sys.modules, name, None)
+
+    from hydroseason.io import load_extent_csv
+
+    assert load_extent_csv(csv_path).iloc[0]["extent_pct"] == 10
+
+
 def test_load_aoi_validates_geometry_and_reprojects():
     from hydroseason.io import load_aoi
 

@@ -22,6 +22,8 @@ from .hydrological_state import (
     suggest_dynamic_hydro_year_config,
 )
 from .io import (
+    WOfSCacheHandle,
+    acquire_wofs_cache,
     complete_monthly_axis,
     load_aoi,
     load_extent_csv,
@@ -42,6 +44,7 @@ __all__ = [
     "label_hydrological_months", "monthly_water_extent", "suggest_hydro_year_config",
     "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
     "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
+    "acquire_wofs_cache", "WOfSCacheHandle",
     "generate_html_report", "DynamicHydroYearConfig", "HydrologicalStateResult",
     "SeasonalPatternResult", "aggregate_basin_monthly_extent",
     "analyze_hydrological_state", "classify_annual_surface_water_condition",

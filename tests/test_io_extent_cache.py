@@ -1,10 +1,28 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
 import pandas as pd
 import pytest
+
+
+def _aoi():
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+
+    return geopandas.GeoDataFrame(geometry=[box(0, 0, 2, 2)], crs="EPSG:4326")
+
+
+def _mixed_canonical_cube():
+    xr = pytest.importorskip("xarray")
+    values = np.resize(np.array([-2, -1, 0, 1], dtype=np.int8), (12, 4, 4))
+    return xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={"time": pd.date_range("2020-01-01", periods=12, freq="MS")},
+    ).chunk({"time": 1, "y": 2, "x": 2})
 
 
 def _fake_monthly_cube(start: str, end: str):
@@ -27,6 +45,56 @@ def _fake_wet_aoi():
     from shapely.geometry import box
 
     return gpd.GeoDataFrame({"geometry": [box(-10, -10, 10, 10)]}, geometry="geometry", crs=None)
+
+
+def test_offline_cache_hit_performs_zero_stac_calls(monkeypatch, tmp_path):
+    pytest.importorskip("dask")
+    import hydroseason.io as hio
+
+    handle = SimpleNamespace(path=tmp_path / "store.zarr", identity="id", request_digest="request")
+    cube = _mixed_canonical_cube()
+    monkeypatch.setattr(hio, "acquire_wofs_cache", Mock(return_value=handle))
+    monkeypatch.setattr(hio, "open_completed_mask_cache", Mock(return_value=cube))
+    monkeypatch.setattr(hio, "_query_wofs_items", Mock(side_effect=AssertionError("network")), raising=False)
+
+    result = hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2020-01-01", "2020-12-31", resolution=30,
+        mask_cache_dir=tmp_path, offline=True,
+    )
+
+    assert len(result) == 12
+
+
+def test_offline_cache_miss_is_explicit(tmp_path):
+    import hydroseason.io as hio
+
+    with pytest.raises(FileNotFoundError, match="offline WOfS cache miss"):
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+            "2020-01-01", "2020-12-31", resolution=30,
+            mask_cache_dir=tmp_path, offline=True,
+        )
+
+
+def test_canonical_cache_extent_is_exactly_equal_to_legacy(monkeypatch, tmp_path):
+    pytest.importorskip("dask")
+    import hydroseason.io as hio
+    from hydroseason.hydro_year import monthly_water_extent
+
+    cube = _mixed_canonical_cube()
+    expected = monthly_water_extent(cube, time_block=3)
+    handle = SimpleNamespace(path=tmp_path / "store.zarr", identity="id", request_digest="request")
+    monkeypatch.setattr(hio, "acquire_wofs_cache", Mock(return_value=handle))
+    monkeypatch.setattr(hio, "open_completed_mask_cache", Mock(return_value=cube))
+
+    actual = hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2020-01-01", "2020-12-31", resolution=30,
+        mask_cache_dir=tmp_path,
+    )
+
+    pd.testing.assert_frame_equal(actual, expected)
 
 
 def test_cached_extent_reuses_completed_calendar_years(monkeypatch, tmp_path):

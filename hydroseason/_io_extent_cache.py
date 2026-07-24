@@ -197,6 +197,87 @@ def _write_extent_atomic(frame: pd.DataFrame, path: Path) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
+def _write_requested_annual_extent_parts(
+    extent: pd.DataFrame,
+    *,
+    cache_root: Path | None,
+    stac_url: str,
+    collection: str,
+    aoi_hash: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    crs: int | str | None,
+    resolution: float | None,
+    majority: bool,
+    wet_aoi_hash: str,
+    force: bool,
+) -> None:
+    """Persist only missing (or forced) annual CSV extent cache parts."""
+    if cache_root is None:
+        return
+    for year_start, year_end in _year_windows(start, end):
+        expected_index = pd.date_range(
+            year_start.to_period("M").to_timestamp(),
+            year_end.to_period("M").to_timestamp(),
+            freq="MS",
+        )
+        cache_path = _cache_path(
+            cache_root,
+            stac_url=stac_url,
+            collection=collection,
+            aoi_hash=aoi_hash,
+            start=year_start,
+            end=year_end,
+            crs=crs,
+            resolution=resolution,
+            majority=majority,
+            wet_aoi_hash=wet_aoi_hash,
+        )
+        cached = None if force or not cache_path.exists() else _read_cached_extent(cache_path)
+        if cached is None or not cached.index.equals(expected_index):
+            _write_extent_atomic(extent.loc[expected_index, _EXTENT_COLUMNS], cache_path)
+
+
+def _read_requested_annual_extent_parts(
+    *,
+    cache_root: Path,
+    stac_url: str,
+    collection: str,
+    aoi_hash: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    crs: int | str | None,
+    resolution: float | None,
+    majority: bool,
+    wet_aoi_hash: str,
+) -> pd.DataFrame | None:
+    """Return the complete requested legacy CSV cache, if every part is valid."""
+    parts = []
+    for year_start, year_end in _year_windows(start, end):
+        expected_index = pd.date_range(
+            year_start.to_period("M").to_timestamp(),
+            year_end.to_period("M").to_timestamp(),
+            freq="MS",
+        )
+        cache_path = _cache_path(
+            cache_root,
+            stac_url=stac_url,
+            collection=collection,
+            aoi_hash=aoi_hash,
+            start=year_start,
+            end=year_end,
+            crs=crs,
+            resolution=resolution,
+            majority=majority,
+            wet_aoi_hash=wet_aoi_hash,
+        )
+        cached = _read_cached_extent(cache_path) if cache_path.exists() else None
+        if cached is None or not cached.index.equals(expected_index):
+            return None
+        parts.append(cached)
+    return pd.concat(parts).sort_index()
+
+
 def _missing_year_extent(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
     index = pd.date_range(
         start.to_period("M").to_timestamp(), end.to_period("M").to_timestamp(), freq="MS"
@@ -303,6 +384,8 @@ def load_wofs_monthly_extent(
     end_date: str,
     *,
     cache_dir: str | os.PathLike[str] | None = None,
+    mask_cache_dir: str | os.PathLike[str] | None = None,
+    offline: bool = False,
     crs: int | str | None = 3577,
     resolution: float | None = None,
     chunk_x: int = 512,
@@ -480,6 +563,68 @@ def load_wofs_monthly_extent(
     # Resolve through the facade at call time to preserve the existing loader
     # monkeypatch seam and keep this module independent of optional STAC deps.
     import hydroseason.io as _io
+
+    if mask_cache_dir is not None or offline:
+        wet_aoi_hash = _aoi_digest(wet_aoi) if (cache_root is not None and wet_aoi is not None) else ""
+        if cache_root is not None and not force and (wet_aoi is not None or not precompute_wet_aoi):
+            cached_extent = _read_requested_annual_extent_parts(
+                cache_root=cache_root,
+                stac_url=stac_url,
+                collection=collection,
+                aoi_hash=aoi_hash,
+                start=start,
+                end=end,
+                crs=crs,
+                resolution=resolution,
+                majority=majority,
+                wet_aoi_hash=wet_aoi_hash,
+            )
+            if cached_extent is not None:
+                return cached_extent
+        try:
+            handle = _io.acquire_wofs_cache(
+                stac_url, collection, aoi, start_date, end_date,
+                cache_root=mask_cache_dir,
+                crs=crs,
+                resolution=resolution,
+                chunk_x=chunk_x,
+                chunk_y=chunk_y,
+                time_chunk=time_block,
+                majority=majority,
+                offline=offline,
+                force=force,
+            )
+        except FileNotFoundError as exc:
+            if offline:
+                raise FileNotFoundError(f"offline WOfS cache miss: {exc}") from exc
+            raise
+        masks = _io.open_completed_mask_cache(
+            handle, start_date, end_date,
+            chunk_x=chunk_x, chunk_y=chunk_y, time_chunk=time_block,
+        )
+        effective_wet_aoi = wet_aoi
+        if precompute_wet_aoi and effective_wet_aoi is None:
+            effective_wet_aoi = _io.load_or_build_cached_wet_aoi(
+                handle, persistence_min=persistence_min, close_m=close_m, buffer_m=buffer_m,
+            )
+        extent = monthly_water_extent(
+            masks, time_block=time_block, wet_aoi=effective_wet_aoi, read_workers=read_workers,
+        )
+        _write_requested_annual_extent_parts(
+            extent,
+            cache_root=cache_root,
+            stac_url=stac_url,
+            collection=collection,
+            aoi_hash=aoi_hash,
+            start=start,
+            end=end,
+            crs=crs,
+            resolution=resolution,
+            majority=majority,
+            wet_aoi_hash=wet_aoi_hash,
+            force=force,
+        )
+        return extent
 
     full_ts = None
     if precompute_wet_aoi and wet_aoi is None:
