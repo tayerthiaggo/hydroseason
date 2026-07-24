@@ -16,7 +16,7 @@ from hydroseason._io_wofs_zarr import (
     WOfSCacheHandle,
     WOfSCacheIdentity,
     WOfSCacheRequest,
-    _canonical_digest,
+    _sha256_digest,
     create_cache_handle,
 )
 
@@ -29,28 +29,24 @@ class DerivedCacheIdentity:
 
     @property
     def start_date(self) -> str:
-        return self.source_identity.start_date
+        return self.source_identity.request.start_date
 
     @property
     def end_date(self) -> str:
-        return self.source_identity.end_date
+        return self.source_identity.request.end_date
 
     @property
     def request_digest(self) -> str:
         import dataclasses
-        d = dataclasses.asdict(self.source_identity)
-        req_kwargs = {
-            f.name: d[f.name]
-            for f in dataclasses.fields(WOfSCacheRequest)
-            if f.name in d
-        }
-        req_kwargs["resolution"] = self.source_identity.resolution * self.factor
-        req = WOfSCacheRequest(**req_kwargs)
-        return req.request_digest()
+        req = self.source_identity.request
+        req_kwargs = dataclasses.asdict(req)
+        req_kwargs["resolution"] = req.resolution * self.factor
+        new_req = WOfSCacheRequest(**req_kwargs)
+        return new_req.request_digest()
 
     @property
     def digest(self) -> str:
-        return _canonical_digest(self.as_dict())
+        return _sha256_digest(self.as_dict())
 
     def as_dict(self) -> dict[str, Any]:
         import dataclasses
@@ -154,9 +150,7 @@ def derive_resolution_cache(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     
     # Reconstruct source identity
-    # Exclude shape/transform/grid_anchor from request if they were not in the class
-    # but WOfSCacheIdentity accepts them
-    source_identity = WOfSCacheIdentity(**manifest["request"])
+    source_identity = WOfSCacheIdentity.from_dict(manifest["identity"])
 
     derived_identity = DerivedCacheIdentity(source_identity, factor)
     target_handle = create_cache_handle(target_root, derived_identity)

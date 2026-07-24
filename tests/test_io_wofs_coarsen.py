@@ -128,10 +128,10 @@ def test_coarsen_updates_transform_and_coords():
 
 
 def test_derived_cache_identity():
-    from hydroseason._io_wofs_zarr import WOfSCacheIdentity
+    from hydroseason._io_wofs_zarr import WOfSCacheIdentity, WOfSCacheRequest, WOFS_CACHE_SCHEMA_VERSION
     from hydroseason._io_wofs_coarsen import DerivedCacheIdentity
 
-    source = WOfSCacheIdentity(
+    req = WOfSCacheRequest(
         stac_url="test",
         collection="test",
         aoi_sha256="123",
@@ -143,7 +143,10 @@ def test_derived_cache_identity():
         groupby="solar_day",
         majority=True,
         planner_version=1,
-        schema_version=1,
+        schema_version=WOFS_CACHE_SCHEMA_VERSION,
+    )
+    source = WOfSCacheIdentity.from_request(
+        req,
         shape=(10, 10),
         transform=(0.0, 30.0, 0.0, 0.0, 0.0, -30.0),
     )
@@ -153,7 +156,6 @@ def test_derived_cache_identity():
     assert derived.end_date == "2020-12-31"
 
     # The request_digest should match a request made with resolution 90.0
-    from hydroseason._io_wofs_zarr import WOfSCacheRequest
     expected_req = WOfSCacheRequest(
         stac_url="test",
         collection="test",
@@ -166,7 +168,7 @@ def test_derived_cache_identity():
         groupby="solar_day",
         majority=True,
         planner_version=1,
-        schema_version=1,
+        schema_version=WOFS_CACHE_SCHEMA_VERSION,
     )
     assert derived.request_digest == expected_req.request_digest()
 
@@ -177,13 +179,13 @@ def test_derived_cache_identity():
 def test_derive_resolution_cache_lifecycle(tmp_path):
     import zarr
     import json
-    from hydroseason._io_wofs_zarr import WOfSCacheIdentity, create_cache_handle
+    from hydroseason._io_wofs_zarr import WOfSCacheRequest, WOfSCacheIdentity, create_cache_handle, WOFS_CACHE_SCHEMA_VERSION
     from hydroseason._io_wofs_coarsen import derive_resolution_cache
 
     source_root = tmp_path / "source"
     target_root = tmp_path / "target"
 
-    source_identity = WOfSCacheIdentity(
+    source_req = WOfSCacheRequest(
         stac_url="test",
         collection="test",
         aoi_sha256="123",
@@ -195,7 +197,10 @@ def test_derive_resolution_cache_lifecycle(tmp_path):
         groupby="solar_day",
         majority=True,
         planner_version=1,
-        schema_version=1,
+        schema_version=WOFS_CACHE_SCHEMA_VERSION,
+    )
+    source_identity = WOfSCacheIdentity.from_request(
+        source_req,
         shape=(2, 2),
         transform=(0.0, 30.0, 0.0, 0.0, 0.0, -30.0),
     )

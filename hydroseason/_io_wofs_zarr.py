@@ -328,6 +328,7 @@ def _manifest_identity(identity: Any) -> dict:
 
 
 def create_cache_handle(cache_root: Path, identity: Any) -> WOfSCacheHandle:
+    """Create the root Zarr group for ``identity`` and register it in the index.
 
     Creates (or opens, idempotently) the store's root Zarr group at
     ``cache_root / "stores" / <request_digest>``, writes that store's root

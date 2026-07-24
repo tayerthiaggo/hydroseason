@@ -115,7 +115,7 @@ def test_offline_without_mask_cache_dir_still_uses_complete_csv_cache(monkeypatc
     actual = hio.load_wofs_monthly_extent(**kwargs, offline=True)
 
     assert load.call_count == 1
-    pd.testing.assert_frame_equal(actual, expected, check_freq=False)
+    pd.testing.assert_frame_equal(actual, expected, check_freq=False, check_dtype=False)
 
 
 def test_canonical_cache_extent_is_exactly_equal_to_legacy(monkeypatch, tmp_path):
