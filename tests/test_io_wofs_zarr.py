@@ -12,6 +12,7 @@ from affine import Affine
 
 from hydroseason._spatial_plan import GridWindow
 from hydroseason._io_wofs_zarr import (
+    WOFS_CACHE_SCHEMA_VERSION,
     WOfSCacheHandle,
     WOfSCacheIdentity,
     WOfSCacheRequest,
@@ -42,7 +43,7 @@ def _request() -> WOfSCacheRequest:
         groupby="solar_day",
         majority=True,
         planner_version=1,
-        schema_version=1,
+        schema_version=WOFS_CACHE_SCHEMA_VERSION,
     )
 
 
@@ -60,7 +61,7 @@ def test_every_data_semantic_changes_request_digest():
         "groupby": "time",
         "majority": False,
         "planner_version": 2,
-        "schema_version": 2,
+        "schema_version": WOFS_CACHE_SCHEMA_VERSION + 1,
     }.items():
         assert dataclasses.replace(base, **{field: changed}).request_digest() != base.request_digest()
 

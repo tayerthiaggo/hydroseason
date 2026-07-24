@@ -60,7 +60,7 @@ import pandas as pd
 
 # Bumped whenever the on-disk index/manifest layout changes in a way that
 # makes an old cache unreadable by new code (or vice versa).
-WOFS_CACHE_SCHEMA_VERSION = 1
+WOFS_CACHE_SCHEMA_VERSION = 2
 
 # Bumped whenever the water classifier's pixel-value semantics change (e.g.
 # a different canonical-value mapping), so old cached pixels are never read

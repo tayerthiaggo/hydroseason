@@ -133,6 +133,7 @@ def test_annual_writer_mask_and_local_counts_share_one_delayed_source(tmp_path):
     import zarr
 
     from hydroseason._io_wofs_zarr import (
+        WOFS_CACHE_SCHEMA_VERSION,
         WOfSCacheIdentity,
         WOfSCacheRequest,
         create_cache_handle,
@@ -171,7 +172,7 @@ def test_annual_writer_mask_and_local_counts_share_one_delayed_source(tmp_path):
         groupby="solar_day",
         majority=True,
         planner_version=1,
-        schema_version=1,
+        schema_version=WOFS_CACHE_SCHEMA_VERSION,
     )
     identity = WOfSCacheIdentity.from_request(
         request,
@@ -271,6 +272,7 @@ def _canonical_year_cube(*, shape: tuple[int, int, int], fill: int, year: int) -
 
 def _completed_cache_handle(tmp_path: Path):
     from hydroseason._io_wofs_zarr import (
+        WOFS_CACHE_SCHEMA_VERSION,
         WOfSCacheIdentity,
         WOfSCacheRequest,
         create_cache_handle,
@@ -290,7 +292,7 @@ def _completed_cache_handle(tmp_path: Path):
         groupby="solar_day",
         majority=True,
         planner_version=1,
-        schema_version=1,
+        schema_version=WOFS_CACHE_SCHEMA_VERSION,
     )
     cube_2015 = _canonical_year_cube(shape=(12, 4, 4), fill=1, year=2015)
     identity = WOfSCacheIdentity.from_request(
