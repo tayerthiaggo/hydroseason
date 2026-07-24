@@ -87,6 +87,37 @@ def test_offline_without_mask_cache_dir_is_explicit():
         )
 
 
+def test_offline_without_mask_cache_dir_still_uses_complete_csv_cache(monkeypatch, tmp_path):
+    pytest.importorskip("dask")
+    import hydroseason.io as hio
+
+    aoi = tmp_path / "aoi.geojson"
+    aoi.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+
+    load = Mock(return_value=_fake_monthly_cube("2020-01-01", "2020-12-01"))
+    monkeypatch.setattr(hio, "load_wofs_from_stac", load)
+    kwargs = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=aoi,
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        resolution=30,
+        cache_dir=tmp_path / "extent_cache",
+    )
+    expected = hio.load_wofs_monthly_extent(**kwargs)
+
+    monkeypatch.setattr(
+        hio,
+        "acquire_wofs_cache",
+        Mock(side_effect=AssertionError("canonical acquisition must not run")),
+    )
+    actual = hio.load_wofs_monthly_extent(**kwargs, offline=True)
+
+    assert load.call_count == 1
+    pd.testing.assert_frame_equal(actual, expected, check_freq=False)
+
+
 def test_canonical_cache_extent_is_exactly_equal_to_legacy(monkeypatch, tmp_path):
     pytest.importorskip("dask")
     import hydroseason.io as hio

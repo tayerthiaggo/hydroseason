@@ -565,10 +565,6 @@ def load_wofs_monthly_extent(
     import hydroseason.io as _io
 
     if mask_cache_dir is not None or offline:
-        if offline and mask_cache_dir is None:
-            raise FileNotFoundError(
-                "offline WOfS cache miss: mask_cache_dir is required for offline mode"
-            )
         wet_aoi_hash = _aoi_digest(wet_aoi) if (cache_root is not None and wet_aoi is not None) else ""
         if cache_root is not None and not force and (wet_aoi is not None or not precompute_wet_aoi):
             cached_extent = _read_requested_annual_extent_parts(
@@ -585,6 +581,10 @@ def load_wofs_monthly_extent(
             )
             if cached_extent is not None:
                 return cached_extent
+        if offline and mask_cache_dir is None:
+            raise FileNotFoundError(
+                "offline WOfS cache miss: mask_cache_dir is required for offline mode"
+            )
         try:
             handle = _io.acquire_wofs_cache(
                 stac_url, collection, aoi, start_date, end_date,
