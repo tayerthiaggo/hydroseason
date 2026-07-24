@@ -80,6 +80,26 @@ extent = monthly_water_extent(masks)
 hydro_years = detect_hydrological_years(extent)
 ```
 
+### Canonical local WOfS cache
+
+The extraction CLI uses the internal canonical mask cache at
+`output/wofs_cache` by default. It is not a public Zarr-input mode; use the
+loader APIs above for supported inputs. A request's cache identity covers its
+AOI content, date range, CRS, resolution, source, and cache schema settings,
+so incompatible requests never share a store.
+
+```powershell
+python scripts\extract_water_extent_csv.py --aoi data\Gilbert_river_buffer.geojson --resolution 30
+python scripts\extract_water_extent_csv.py --aoi data\Gilbert_river_buffer.geojson --resolution 30 --offline
+python scripts\extract_water_extent_csv.py --aoi data\Gilbert_river_buffer.geojson --resolution 30 --legacy-remote-path
+```
+
+Acquisition records completion one calendar year at a time. An interrupted
+run resumes completed annual groups, while a concurrent writer for the same
+store is rejected. `--offline` makes no STAC request: a missing matching cache
+is reported explicitly. `--legacy-remote-path` opts out of the canonical cache
+for direct STAC loading.
+
 For a pre-built canonical Zarr cube (already AOI-clipped):
 
 ```python

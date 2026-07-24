@@ -260,6 +260,12 @@ def run_one_catchment(
         "time_block": time_block,
         "boundary_sha256": boundary_sha256,
         "baseline": baseline,
+        "mask_cache_identity": {
+            "cache_dir": str(OUTPUT_DIR / "extent_cache" / spec.key),
+            "collection": COLLECTION,
+            "crs": OUTPUT_CRS,
+            "stac_url": STAC_URL,
+        },
     }
     checkpoint = OUTPUT_DIR / f"{spec.key}_state.pkl"
     if checkpoint.exists() and not force:
@@ -320,7 +326,7 @@ def run_one_catchment(
     print(f"[{spec.key}] loading cached annual extent ({COLLECTION}, {start_date}..{end_date})", flush=True)
     extent = load_wofs_monthly_extent(
         STAC_URL, COLLECTION, boundary_path, start_date, end_date, crs=OUTPUT_CRS,
-        resolution=resolution_m, time_block=time_block, force=force,
+        resolution=resolution_m, time_block=time_block, force=False,
         cache_dir=OUTPUT_DIR / "extent_cache" / spec.key,
     )
     print(f"[{spec.key}] extent series: {len(extent)} months", flush=True)

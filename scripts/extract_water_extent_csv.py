@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -32,7 +33,7 @@ os.environ.pop("PROJ_DATA", None)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from hydroseason.io import load_wofs_monthly_extent  # noqa: E402
+from hydroseason.io import acquire_wofs_cache, load_wofs_monthly_extent  # noqa: E402
 
 STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 COLLECTION = "ga_ls_wo_3"
@@ -44,6 +45,7 @@ TILE_PIXELS = 2048
 
 CATCHMENTS_DIR = REPO_ROOT / "data" / "catchments"
 OUTPUT_DIR = REPO_ROOT / "output" / "water_extent_csv"
+DEFAULT_MASK_CACHE_DIR = REPO_ROOT / "output" / "wofs_cache"
 
 CATCHMENT_KEYS = [
     "gilbert_river_qld",
@@ -73,7 +75,24 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="use the legacy whole-AOI load instead of tiled+wet-AOI-pruned (for A/B timing)",
     )
     parser.add_argument("--tile-pixels", type=int, default=TILE_PIXELS)
-    parser.add_argument("--resolution", type=float, default=None, help="override load resolution (metres)")
+    parser.add_argument("--resolution", type=float, default=30.0, help="load resolution (metres; default: 30)")
+    parser.add_argument(
+        "--mask-cache-dir",
+        type=Path,
+        default=DEFAULT_MASK_CACHE_DIR,
+        help="internal canonical WOfS mask cache directory (default: output/wofs_cache)",
+    )
+    cache_mode = parser.add_mutually_exclusive_group()
+    cache_mode.add_argument(
+        "--offline",
+        action="store_true",
+        help="read only from the canonical local WOfS mask cache; fail explicitly on a cache miss",
+    )
+    cache_mode.add_argument(
+        "--legacy-remote-path",
+        action="store_true",
+        help="bypass the canonical mask cache and use the legacy direct STAC path",
+    )
     parser.add_argument("--start-date", default=START_DATE)
     parser.add_argument("--end-date", default=END_DATE)
     parser.add_argument("--time-block", type=int, default=TIME_BLOCK)
@@ -142,6 +161,8 @@ def main() -> None:
             time_block=args.time_block,
             force=args.force,
             cache_dir=OUTPUT_DIR / "_extent_cache" / name,
+            mask_cache_dir=None if args.legacy_remote_path else args.mask_cache_dir,
+            offline=args.offline,
             progress=True,
             read_workers=args.read_workers,
             **tile_kwargs,
@@ -149,6 +170,31 @@ def main() -> None:
         elapsed = time.monotonic() - t0
         extent.to_csv(out_csv)
         print(f"[{name}] {len(extent)} months written in {elapsed:.1f}s", flush=True)
+        if args.profile and not args.legacy_remote_path:
+            handle = acquire_wofs_cache(
+                STAC_URL,
+                COLLECTION,
+                boundary_path,
+                args.start_date,
+                args.end_date,
+                cache_root=args.mask_cache_dir,
+                crs=OUTPUT_CRS,
+                resolution=args.resolution,
+                offline=True,
+            )
+            manifest_path = Path(handle.path) / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            diagnostics = manifest.get("acquisition", {}).get("plan_diagnostics", [])
+            print(
+                f"[{name}] canonical cache: identity={handle.identity} store={handle.path}",
+                file=sys.stderr,
+                flush=True,
+            )
+            print(
+                f"[{name}] planner diagnostics: {json.dumps(diagnostics, sort_keys=True)}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     print(f"\nTotal: {time.monotonic() - overall_start:.1f}s for {len(jobs)} AOI(s)")
 

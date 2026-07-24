@@ -117,6 +117,27 @@ def _fake_geo():
     }
 
 
+def test_forced_final_load_reuses_cache_refreshed_by_probe(mod, monkeypatch, tmp_path):
+    monkeypatch.setattr(mod, "CATCHMENTS_DIR", tmp_path)
+    monkeypatch.setattr(mod, "OUTPUT_DIR", tmp_path / "out")
+    monkeypatch.setattr(mod, "_catchment_geo_summary", lambda key: _fake_geo())
+    probe_mock, _, load_mock, _, _ = _patch_common(
+        mod,
+        monkeypatch,
+        plan_resolution_return=(300.0, 1.0, 0.01, "ok"),
+        guard_return={
+            "amplitude_pp": 5.0,
+            "guard_caveat": None,
+            "refuse_coarsen_past": None,
+        },
+    )
+
+    mod.run_one_catchment(_fake_spec(mod), force=True, resolution_override=300.0)
+
+    assert probe_mock.call_args.kwargs["force"] is True
+    assert load_mock.call_args.kwargs["force"] is False
+
+
 @pytest.fixture(autouse=True)
 def _no_geo_summary(monkeypatch):
     # _catchment_geo_summary reads real geoparquet fixtures from disk; none of
