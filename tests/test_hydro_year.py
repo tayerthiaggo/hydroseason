@@ -507,3 +507,32 @@ def test_monthly_extent_wet_fill_exactly_matches_extent_with_invalid_pixels_and_
     assert summary["n_invalid"].iloc[0] == 1
     assert summary["n_wet_aoi"].iloc[0] == summary["n_valid"].iloc[0]
     assert summary["wet_fill_pct"].equals(summary["extent_pct"])
+
+
+def test_monthly_water_extent_static_aoi_equivalence():
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    import xarray as xr
+    from hydroseason.hydro_year import monthly_water_extent
+
+    # Create 3D test DataArray: (time=3, y=2, x=2)
+    # y0, x0 is outside AOI (-2); others are water(1), dry(0), invalid(-1)
+    data = np.array([
+        [[-2, 1], [0, -1]],
+        [[-2, 0], [1, -1]],
+        [[-2, 1], [1, 0]],
+    ], dtype=np.int8)
+
+    da = xr.DataArray(
+        data,
+        dims=["time", "y", "x"],
+        coords={"time": pd.date_range("2020-01-01", periods=3, freq="MS")},
+    )
+
+    res = monthly_water_extent(da)
+    assert len(res) == 3
+    assert (res["n_aoi"] == 3).all()
+    assert res["n_water"].iloc[0] == 1
+    assert res["n_valid"].iloc[0] == 2
+    assert res["n_invalid"].iloc[0] == 1
+

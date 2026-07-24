@@ -225,6 +225,8 @@ def monthly_water_extent(
     dims = list(spatial_dims)
     n_time = water_mask.sizes["time"]
 
+    first_slice = water_mask.isel(time=0)
+
     inside_wet = None
     if wet_aoi is not None:
         import geopandas as gpd
@@ -240,7 +242,7 @@ def monthly_water_extent(
         )
         if gdf.crs is not None and mask_crs is not None:
             gdf = gdf.to_crs(mask_crs)
-        inside_wet = _inside_aoi_mask_like(water_mask.isel(time=0), gdf)
+        inside_wet = _inside_aoi_mask_like(first_slice, gdf)
 
     n_aoi_parts: list[np.ndarray] = []
     n_valid_parts: list[np.ndarray] = []
@@ -250,10 +252,10 @@ def monthly_water_extent(
     with concurrency:
         for start in range(0, n_time, time_block):
             block = water_mask.isel(time=slice(start, start + time_block))
-            n_aoi_block = (block != outside_value).sum(dim=dims)
             n_water_block = (block == water_value).sum(dim=dims)
             n_dry_block = (block == dry_value).sum(dim=dims)
             n_valid_block = n_water_block + n_dry_block
+            n_aoi_block = (block != outside_value).sum(dim=dims)
             n_invalid_block = n_aoi_block - n_valid_block
             if inside_wet is not None:
                 n_wet_aoi_block = ((block != outside_value) & inside_wet).sum(dim=dims)
