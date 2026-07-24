@@ -199,6 +199,9 @@ def acquire_wofs_cache(
     majority: bool = True,
     offline: bool = False,
     force: bool = False,
+    progress: bool = False,
+    progress_desc: str | None = None,
+    progress_position: int | None = None,
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
 ) -> WOfSCacheHandle:
     """Fill (or reuse) a WOfS Zarr cache store for ``aoi``/``[start_date, end_date]``.
@@ -301,14 +304,23 @@ def acquire_wofs_cache(
         plan_diagnostics: list[dict[str, Any]] = []
         write_stats: list[Any] = []
 
-        n_missing = len(missing_years)
-        if n_missing > 0:
-            print(f"[{aoi_name}] Caching {n_missing} missing year(s)...", flush=True)
+        year_iter = missing_years
+        if progress and missing_years:
+            from tqdm.auto import tqdm
 
-        for idx, year in enumerate(missing_years):
+            tqdm_kwargs = {
+                "total": len(missing_years),
+                "desc": progress_desc if progress_desc else f"[{aoi_name}]",
+                "unit": "yr",
+            }
+            if progress_position is not None:
+                tqdm_kwargs["position"] = progress_position
+                tqdm_kwargs["leave"] = True
+            year_iter = tqdm(missing_years, **tqdm_kwargs)
+
+        for year in year_iter:
             year_start, year_end = _year_date_bounds(year, request.start_date, request.end_date)
             year_items = by_year.get(year, ())
-            print(f"[{aoi_name}] Processing year {year} ({idx + 1}/{n_missing})...", flush=True)
 
             if year_items:
                 graph_count += 1
