@@ -272,6 +272,20 @@ def _summarise_case(
     return result
 
 
+def _source_counts_ok(result: dict[str, Any], *, runs: int) -> bool:
+    """Hard source-count gate for the real one-year benchmark cases."""
+    return (
+        result["gilbert"]["legacy_stac_calls"] == runs
+        and result["fitzroy"]["legacy_stac_calls"] == runs
+        and result["gilbert"]["cold_stac_calls"] == runs
+        and result["fitzroy"]["cold_stac_calls"] == runs
+        and result["gilbert"]["cold_graph_builds"] == runs
+        and result["fitzroy"]["cold_graph_builds"] == runs
+        and result["gilbert"]["cached_stac_calls"] == 0
+        and result["gilbert"]["cached_graph_builds"] == 0
+    )
+
+
 def _run_benchmark(args: argparse.Namespace) -> int:
     work_dir = Path(args.work_dir)
     work_dir.mkdir(parents=True, exist_ok=False)
@@ -365,7 +379,7 @@ def _run_benchmark(args: argparse.Namespace) -> int:
         }
         _write_json_atomic(Path(args.output), result)
 
-        source_failure = not all_exact or result["gilbert"]["cached_stac_calls"] != 0
+        source_failure = not all_exact or not _source_counts_ok(result, runs=args.runs)
         hard_failure = (
             result["gilbert"]["cold_median_improvement"] < 0.20
             or result["fitzroy"]["cold_median_regression"] > 0.10
