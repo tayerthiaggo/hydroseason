@@ -25,6 +25,9 @@ import pandas as pd
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 COLLECTION = "ga_ls_wo_3"
 YEAR_START = "2015-01-01"

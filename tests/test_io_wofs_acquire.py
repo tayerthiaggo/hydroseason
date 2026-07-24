@@ -13,6 +13,7 @@ from affine import Affine
 from shapely.geometry import box
 
 from hydroseason._io_wofs_acquire import acquire_wofs_cache, load_or_build_cached_wet_aoi
+import hydroseason._io_geo as geo
 
 pytest.importorskip("rioxarray")
 
@@ -38,6 +39,25 @@ def _stats():
         year=2015, task_count=1, chunks_considered=12,
         chunks_written=12, loaded_pixels=192, item_digest="abc",
     )
+
+
+def test_stac_query_results_are_stably_ordered(monkeypatch):
+    import pystac_client
+
+    items = [
+        _item("2015-01-15T00:00:00Z", "same-day-b"),
+        _item("2015-01-15T00:00:00Z", "same-day-a"),
+        _item("2015-01-01T00:00:00Z", "earlier"),
+    ]
+    monkeypatch.setattr(pystac_client.Client, "open", lambda _url: object())
+    monkeypatch.setattr(geo, "_collect_stac_items", lambda *_args, **_kwargs: items)
+
+    result, _aoi_gdf = geo._query_wofs_items(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31",
+    )
+
+    assert [item.id for item in result] == ["earlier", "same-day-a", "same-day-b"]
 
 
 def test_multi_year_acquisition_queries_once_and_builds_one_graph_per_year(monkeypatch, tmp_path):

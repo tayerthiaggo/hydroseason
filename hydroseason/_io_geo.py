@@ -214,7 +214,20 @@ def _query_wofs_items(stac_url, collection, aoi, start_date, end_date):
         raise AOIRasterizationError("STAC AOI query failed; refusing to load an unclipped raster.") from exc
     if not items:
         raise ValueError("No STAC items found for requested AOI and date range.")
+    # STAC APIs do not promise a stable order. Same-day overlapping scenes can
+    # otherwise reach odc-stac in different orders across repeated queries,
+    # making categorical mosaic tie-breaks change by a pixel or two.
+    items = sorted(items, key=_stac_item_sort_key)
     return items, aoi_gdf
+
+
+def _stac_item_sort_key(item):
+    timestamp = pd.Timestamp(
+        item.properties.get("datetime") or item.properties.get("start_datetime")
+    )
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.tz_convert("UTC").tz_localize(None)
+    return timestamp.value, str(getattr(item, "id", ""))
 
 
 def _load_wofs_items(
@@ -273,9 +286,15 @@ def _load_wofs_items(
     requested year_groups is simply not selected.
     """
     import odc.stac
+    import rioxarray  # noqa: F401  (registers the .rio accessor used by _clip_to_aoi)
     import xarray as xr
 
     import hydroseason.io as _io
+
+    # Both the legacy direct-load path and the canonical annual-cache path
+    # flow through this function. Configure DEA public-S3 reads here so the
+    # cache path inherits the same unsigned/GDAL tuning as load_wofs_from_stac.
+    _configure_cog_read_env()
 
     groups: dict[pd.Timestamp, list] = {}
     for item in items:
