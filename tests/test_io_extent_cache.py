@@ -821,3 +821,20 @@ def test_read_workers_threads_into_reduction_and_leaves_result_unchanged(monkeyp
     assert 8 in seen_workers
     # Concurrency is a scheduler detail only: identical numbers out.
     pd.testing.assert_frame_equal(default_run, tuned_run, check_freq=False)
+
+
+def test_wet_aoi_disk_cache_sidecar_persistence(tmp_path):
+    import geopandas as gpd
+    from shapely.geometry import box
+    from hydroseason._io_extent_cache import _aoi_digest
+
+    wet_gdf = gpd.GeoDataFrame({"geometry": [box(0, 0, 10, 10)]}, crs="EPSG:3577")
+    digest = _aoi_digest(wet_gdf)
+
+    sidecar_path = tmp_path / f"wet_aoi_{digest}.geojson"
+    wet_gdf.to_file(sidecar_path, driver="GeoJSON")
+
+    loaded_gdf = gpd.read_file(sidecar_path)
+    assert len(loaded_gdf) == 1
+    assert loaded_gdf.crs.to_epsg() == 3577
+
