@@ -10,6 +10,7 @@ import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -402,6 +403,7 @@ def load_wofs_monthly_extent(
     progress: bool = False,
     auto_tiling: bool = True,
     read_workers: int | None = None,
+    diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
 ) -> pd.DataFrame:
     """Compute monthly WOfS extent in resumable calendar-year pieces.
 
@@ -597,6 +599,7 @@ def load_wofs_monthly_extent(
                 majority=majority,
                 offline=offline,
                 force=force,
+                diagnostics_callback=diagnostics_callback,
             )
         except FileNotFoundError as exc:
             if offline:

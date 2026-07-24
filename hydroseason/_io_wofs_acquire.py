@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 
@@ -124,6 +124,17 @@ def _planned_pixel_shape(plan) -> tuple[int, int]:
     return (1, int(total_pixels))
 
 
+def _diagnostics_payload(query_count: int, graph_count: int, write_stats=()) -> dict[str, int]:
+    return {
+        "query_count": int(query_count),
+        "graph_count": int(graph_count),
+        "task_count": sum(int(stats.task_count) for stats in write_stats),
+        "chunks_considered": sum(int(stats.chunks_considered) for stats in write_stats),
+        "chunks_written": sum(int(stats.chunks_written) for stats in write_stats),
+        "loaded_pixels": sum(int(stats.loaded_pixels) for stats in write_stats),
+    }
+
+
 def _empty_year_mask(geobox, start_date: str, end_date: str):
     """A lazy all-``-1``-inside/``-2``-outside-AOI cube for a year with zero STAC items.
 
@@ -174,6 +185,7 @@ def acquire_wofs_cache(
     majority: bool = True,
     offline: bool = False,
     force: bool = False,
+    diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
 ) -> WOfSCacheHandle:
     """Fill (or reuse) a WOfS Zarr cache store for ``aoi``/``[start_date, end_date]``.
 
@@ -223,7 +235,10 @@ def acquire_wofs_cache(
     )
 
     if offline:
-        return require_cached_request(cache_root, request, offline=True)
+        handle = require_cached_request(cache_root, request, offline=True)
+        if diagnostics_callback is not None:
+            diagnostics_callback(_diagnostics_payload(0, 0))
+        return handle
 
     requested_years = set(range(start.year, end.year + 1))
 
@@ -231,6 +246,8 @@ def acquire_wofs_cache(
     if existing_handle is not None and not force:
         already_done = completed_years(existing_handle)
         if requested_years <= already_done:
+            if diagnostics_callback is not None:
+                diagnostics_callback(_diagnostics_payload(0, 0))
             return existing_handle
 
     months = _months_in_range(request.start_date, request.end_date)
@@ -336,6 +353,8 @@ def acquire_wofs_cache(
             write_stats=write_stats,
             elapsed_phases={"query_seconds": query_elapsed, "total_seconds": elapsed},
         )
+        if diagnostics_callback is not None:
+            diagnostics_callback(_diagnostics_payload(1, graph_count, write_stats))
 
     return handle
 

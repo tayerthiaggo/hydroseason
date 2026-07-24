@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import dask
-import dask.array as da
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -60,6 +59,35 @@ def test_multi_year_acquisition_queries_once_and_builds_one_graph_per_year(monke
     assert [tuple(item.id for item in call.args[0]) for call in graph.call_args_list] == [("a", "b"), ("c",)]
 
 
+def test_acquisition_reports_query_and_graph_counts_to_diagnostics_callback(monkeypatch, tmp_path):
+    items = [_item("2015-01-15", "a"), _item("2016-02-15", "b")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(side_effect=[_cube(2015), _cube(2016)]),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+    diagnostics = []
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2016-12-31", cache_root=tmp_path, resolution=30,
+        diagnostics_callback=diagnostics.append,
+    )
+
+    assert diagnostics == [{
+        "query_count": 1,
+        "graph_count": 2,
+        "task_count": 2,
+        "chunks_considered": 24,
+        "chunks_written": 24,
+        "loaded_pixels": 384,
+    }]
+
+
 def test_completed_year_is_not_rebuilt(monkeypatch, tmp_path):
     handle = SimpleNamespace(path=tmp_path / "store.zarr", identity="id", request_digest="request")
     monkeypatch.setattr("hydroseason._io_wofs_acquire.resolve_cached_request", Mock(return_value=handle))
@@ -73,18 +101,31 @@ def test_completed_year_is_not_rebuilt(monkeypatch, tmp_path):
     graph.assert_not_called()
 
 
-def test_shared_graph_consumers_execute_delayed_source_once():
+def test_cache_write_and_local_count_share_one_delayed_source_execution():
     calls = {"source": 0}
+    cache = {}
 
     @dask.delayed
     def source():
         calls["source"] += 1
         return np.arange(16, dtype=np.int8).reshape(4, 4)
 
-    parent = da.from_delayed(source(), shape=(4, 4), dtype=np.int8)
-    left, right = dask.compute(parent[:, :2], parent[:, 2:])
+    @dask.delayed
+    def write_cache(values):
+        cache["water_mask"] = values
+
+    @dask.delayed
+    def count_clear(values):
+        return int((values == 0).sum())
+
+    parent = source()
+    cache_write = write_cache(parent)
+    local_count = count_clear(parent)
+    _, count = dask.compute(cache_write, local_count)
+
     assert calls["source"] == 1
-    assert left.shape == right.shape == (4, 2)
+    assert count == 1
+    np.testing.assert_array_equal(cache["water_mask"], np.arange(16, dtype=np.int8).reshape(4, 4))
 
 
 def _canonical_year_cube(*, shape: tuple[int, int, int], fill: int, year: int) -> xr.DataArray:

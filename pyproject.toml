@@ -89,6 +89,8 @@ testpaths = ["tests"]
 markers = [
   "slow: integration or data-backed checks",
   "experimental: promotion-gate comparison, may fail without blocking release",
+  "network: requires external DEA/STAC access",
+  "performance: opt-in wall-clock performance gate",
 ]
 
 [tool.ruff]

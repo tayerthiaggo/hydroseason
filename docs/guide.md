@@ -100,6 +100,27 @@ store is rejected. `--offline` makes no STAC request: a missing matching cache
 is reported explicitly. `--legacy-remote-path` opts out of the canonical cache
 for direct STAC loading.
 
+### Opt-in WOfS cache benchmark
+
+The real DEA/STAC cache benchmark is intentionally excluded from normal test
+runs because it is network and wall-clock dependent. It compares the current
+tiled remote path against a cold canonical cache for the Gilbert and Fitzroy
+2015 AOIs, then verifies Gilbert offline cache reads. It writes raw runs,
+medians, output digests, cache/read diagnostics, memory when available, and
+GDAL `VSI_CACHE` A/B results to JSON.
+
+```powershell
+$env:HYDROSEASON_RUN_WOFS_PERF = "1"
+python -m pytest tests\test_wofs_cache_performance.py -m "network and performance" -v
+```
+
+For an investigation without pytest, run
+`python scripts\benchmark_wofs_cache.py --output output\wofs_cache_benchmark.json --runs 3`.
+The 20% Gilbert cold-cache, 10% Fitzroy cold-cache-regression, 80% Gilbert
+offline-cache, exact-output, and zero-offline-STAC-call checks are hard gates;
+the 35% target and 40% stretch results are recorded but do not fail a passing
+hard gate.
+
 For a pre-built canonical Zarr cube (already AOI-clipped):
 
 ```python
