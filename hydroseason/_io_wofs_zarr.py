@@ -23,8 +23,21 @@ so two processes never write the same store concurrently.
 conservative disk-space checks callers run *before* any expensive
 network/read work, so an undersized disk fails fast rather than mid-write.
 
-This module implements identity/lock/lookup/preflight only. The annual Zarr
-group writer/reader that actually persists WOfS pixels is a later task.
+This module also implements the annual Zarr group writer/reader that
+persists WOfS pixels underneath a :class:`WOfSCacheHandle`'s store
+(``handle.path``). :func:`write_annual_group` materialises one calendar
+year's canonical water-mask cube into ``handle.path / "years" / "<year>"``
+as a resumable, atomically-published Zarr v2 group: it writes to a sibling
+temporary directory first, validates the result (:func:`validate_annual_group`),
+and only then publishes it in place with a single ``os.replace`` -- so a
+crash or interruption mid-write leaves either the previous completed state
+or nothing, never a half-written year directory that :func:`completed_years`
+would mistake for done. :func:`open_completed_mask_cache` is the read side:
+it lazily opens every completed year in a requested date range, concatenates
+them in year order, and fills any still-missing months using the same
+:func:`hydroseason._io_extent.complete_monthly_axis` convention the rest of
+the codebase already uses for gappy monthly cubes (missing months become
+``-1`` invalid, matching :data:`CANONICAL_VALUES` semantics).
 """
 
 from __future__ import annotations
@@ -37,6 +50,7 @@ import os
 import shutil
 import tempfile
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -71,6 +85,17 @@ MASK_CHUNKS = (1, 512, 512)
 _INDEX_DIRNAME = "index"
 _LOCKS_DIRNAME = ".locks"
 _MANIFEST_FILENAME = "manifest.json"
+
+# Spatial chunk edge (pixels) for the annual Zarr storage grid; matches
+# MASK_CHUNKS' y/x extent. Also used to derive the wet_count/clear_count
+# local derived-array chunking.
+_STORAGE_CHUNK = 512
+
+_YEARS_DIRNAME = "years"
+# Written last, inside the temporary annual group, only after validation
+# passes -- its presence (post-rename) is what distinguishes a genuinely
+# completed annual group from a directory that merely exists.
+_COMPLETE_FILENAME = "complete.json"
 
 
 def _canonical_json_bytes(payload: dict) -> bytes:
@@ -229,24 +254,27 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
     final ``os.replace`` is an atomic rename on the same filesystem), then
     replaces the target in one step. A crash or concurrent read at any point
     before the final ``os.replace`` observes either the old file or nothing
-    new -- never a truncated/partial one.
+    new -- never a truncated/partial one. Routes through :func:`_long_path`
+    so this also works when ``path`` is nested deep enough to exceed
+    Windows' legacy ``MAX_PATH`` (e.g. an annual group's ``complete.json``).
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    parent = Path(_long_path(path.parent))
+    parent.mkdir(parents=True, exist_ok=True)
     descriptor, temp_name = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.name}-", suffix=".tmp"
+        dir=str(parent), prefix=f".{path.name}-", suffix=".tmp"
     )
     temp_path = Path(temp_name)
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(_canonical_json_bytes(payload))
-        os.replace(temp_path, path)
+        os.replace(str(temp_path), _long_path(path))
     finally:
         temp_path.unlink(missing_ok=True)
 
 
 def _read_json(path: Path) -> dict | None:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(Path(_long_path(path)).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
@@ -471,6 +499,625 @@ def preflight_request_space(
     return preflight_cache_space(path, shape=(height, width), months=months, headroom=headroom)
 
 
+@dataclasses.dataclass(frozen=True)
+class AnnualWriteStats:
+    """What :func:`write_annual_group` actually did for one calendar year.
+
+    ``chunks_considered`` is every de-duplicated ``(time, y_start, x_start)``
+    storage-grid cell the planner windows touch for this year;
+    ``chunks_written`` is the subset that was not wholly ``-2`` (outside AOI)
+    and so was actually assigned into the Zarr array -- Zarr's
+    ``write_empty_chunks: False`` encoding then means an unwritten chunk has
+    no on-disk chunk file at all. ``loaded_pixels`` sums the pixel count of
+    every computed block (considered, not just written), so it reflects real
+    Dask compute volume rather than an AOI polygon-area estimate.
+    ``item_digest`` is a stable hash over the STAC ``item_ids`` this year's
+    write claims to be built from, recorded for later provenance/validation
+    (see :func:`validate_annual_group`).
+    """
+
+    year: int
+    task_count: int
+    chunks_considered: int
+    chunks_written: int
+    loaded_pixels: int
+    item_digest: str
+
+
+def _item_digest(item_ids: tuple[str, ...]) -> str:
+    return _sha256_digest({"item_ids": list(item_ids)})
+
+
+def _years_dir(store_path: Path) -> Path:
+    return Path(store_path) / _YEARS_DIRNAME
+
+
+def _year_dir(store_path: Path, year: int) -> Path:
+    return _years_dir(store_path) / str(int(year))
+
+
+_WINDOWS_EXTENDED_PATH_PREFIX = "\\\\?\\"
+
+
+def _long_path(path: Path) -> str:
+    """A Windows path string safe from the legacy 260-character ``MAX_PATH`` limit.
+
+    ``cache_root / "stores" / <64-char sha256 digest> / "years" / ...`` can
+    exceed ``MAX_PATH`` on Windows once a caller's own ``cache_root`` is
+    itself nested a few directories deep (this is common in tests, whose
+    ``tmp_path`` fixtures add their own long, nested prefix) -- and most
+    Windows installs do not have the opt-in ``LongPathsEnabled`` registry
+    value set, so plain long paths simply fail with ``FileNotFoundError``.
+    Prefixing an *absolute* path with ``\\\\?\\`` asks Win32 to bypass
+    ``MAX_PATH`` for that call, without requiring any system-level opt-in.
+    A no-op on non-Windows platforms and on already-prefixed paths.
+    """
+    absolute = os.path.abspath(str(path))
+    if os.name != "nt" or absolute.startswith(_WINDOWS_EXTENDED_PATH_PREFIX):
+        return absolute
+    return _WINDOWS_EXTENDED_PATH_PREFIX + absolute
+
+
+class _LongPathDirectoryStore:
+    """A Zarr v2 ``DirectoryStore`` usable past Windows' ``MAX_PATH`` limit.
+
+    Delegates to ``zarr.storage.DirectoryStore`` rooted at a
+    :func:`_long_path`-prefixed path, and normalises every storage key
+    (Zarr uses ``/``-separated keys like ``"water_mask/.zarray"`` for
+    nested arrays) to the native separator before delegating. This second
+    part matters specifically because of the first: an ordinary (non
+    ``\\\\?\\``-prefixed) Windows path lets the OS silently accept a mixed
+    ``\\``/``/`` path, but the ``\\\\?\\`` extended-length form is passed to
+    Win32 verbatim and rejects any forward slash with ``WinError 123``.
+    """
+
+    def __init__(self, path):
+        import zarr
+
+        self._store = zarr.storage.DirectoryStore(_long_path(Path(path)))
+
+    @staticmethod
+    def _native_key(key):
+        return key.replace("/", os.sep) if key else key
+
+    def __getattr__(self, name):
+        return getattr(self._store, name)
+
+    def __getitem__(self, key):
+        return self._store[self._native_key(key)]
+
+    def __setitem__(self, key, value):
+        self._store[self._native_key(key)] = value
+
+    def __delitem__(self, key):
+        del self._store[self._native_key(key)]
+
+    def __contains__(self, key):
+        return self._native_key(key) in self._store
+
+    def __iter__(self):
+        return iter(self._store)
+
+    def __len__(self):
+        return len(self._store)
+
+    def listdir(self, path=None):
+        return self._store.listdir(self._native_key(path) if path else path)
+
+    def rmdir(self, path=None):
+        return self._store.rmdir(self._native_key(path) if path else path)
+
+
+def _zarr_store(path: Path):
+    """A Zarr store for ``path`` that works past Windows' ``MAX_PATH`` limit.
+
+    Every call site in this module that opens or writes a Zarr *directory*
+    (as opposed to JSON sidecar files, which go through
+    :func:`_write_json_atomic`/plain ``Path`` I/O) should route through this
+    rather than passing a bare path/string to ``zarr``/``xarray`` directly,
+    so long cache-root paths keep working uniformly. A no-op wrapper on
+    non-Windows platforms (:class:`_LongPathDirectoryStore` degrades to a
+    plain, unprefixed ``DirectoryStore`` there).
+    """
+    return _LongPathDirectoryStore(path)
+
+
+def _storage_chunk_starts(start: int, stop: int, chunk: int = _STORAGE_CHUNK) -> list[int]:
+    """Storage-grid chunk starts (multiples of ``chunk``) covering ``[start, stop)``."""
+    first = (start // chunk) * chunk
+    return list(range(first, stop, chunk))
+
+
+def _mask_template(mask, year: int) -> "object":
+    """An eager-coords, lazy-data ``xr.Dataset`` describing one year's annual group.
+
+    ``mask`` already carries the full (possibly multi-year) time axis; this
+    template narrows to ``year`` only, keeps ``time``/``y``/``x`` coordinates
+    eager (so ``to_zarr(..., compute=False)`` can write real metadata without
+    computing any pixels), and replaces the data variable with a Dask
+    ``empty`` array of the same shape/dtype/chunking so the call only
+    initialises the store layout.
+    """
+    import dask.array as da
+    import xarray as xr
+
+    year_mask = mask.sel(time=slice(f"{year}-01-01", f"{year}-12-31"))
+    height = year_mask.sizes["y"]
+    width = year_mask.sizes["x"]
+    time_len = year_mask.sizes["time"]
+    empty = da.empty((time_len, height, width), dtype=np.int8, chunks=MASK_CHUNKS)
+    template = xr.DataArray(
+        empty,
+        dims=("time", "y", "x"),
+        coords={
+            "time": year_mask.time.values,
+            "y": year_mask.y.values,
+            "x": year_mask.x.values,
+        },
+        name="water_mask",
+    )
+    crs = year_mask.rio.crs
+    if crs is not None:
+        template = template.rio.write_crs(crs)
+    template = template.rio.write_transform(year_mask.rio.transform())
+    return xr.Dataset({"water_mask": template}), year_mask
+
+
+def write_annual_group(
+    handle: WOfSCacheHandle,
+    year: int,
+    mask,
+    *,
+    windows: tuple,
+    item_ids: tuple[str, ...],
+    overwrite: bool = False,
+) -> AnnualWriteStats:
+    """Materialise one calendar year of ``mask`` into a completed annual Zarr group.
+
+    ``mask`` is a lazy (Dask-backed) canonical water-mask cube covering (at
+    least) ``year``; ``windows`` are the logical :class:`~hydroseason._spatial_plan.GridWindow`
+    regions a caller actually wants populated (e.g. tiled AOI reads), and
+    ``item_ids`` are the STAC item IDs this year's data was built from
+    (recorded, hashed, for later provenance).
+
+    Writes to a sibling temporary directory
+    (``years/.<year>.incomplete-<uuid4 hex>``) first: initialises the Zarr
+    v2 group's metadata eagerly via ``xr.Dataset(...).to_zarr(...,
+    compute=False)``, then computes and assigns only the storage-grid chunks
+    that ``windows`` actually touch -- each ``(time, y_start, x_start)``
+    triple is computed at most once even if multiple windows overlap the
+    same 512-pixel cell. A chunk whose computed block is wholly ``-2``
+    (outside AOI) is left unassigned (so, combined with
+    ``write_empty_chunks: False``, it never becomes an on-disk chunk file
+    and reads back as the Zarr fill value ``-2``). Locally accumulates
+    ``wet_count``/``clear_count`` derived arrays alongside the mask.
+
+    Validates the temporary group (:func:`validate_annual_group`) and only
+    then publishes it via a single ``os.replace`` to
+    ``years/<year>``, so a reader can never observe a partially written
+    year: it is either the previous state or the new, fully validated one.
+    If validation raises, the temporary directory is removed and the
+    previous ``years/<year>`` (if any) is left untouched -- callers see the
+    validation error, not a corrupted store.
+
+    Raises ``FileExistsError`` if ``years/<year>`` already exists and
+    ``overwrite`` is ``False``.
+    """
+    import shutil as _shutil
+
+    import zarr
+    from numcodecs import Blosc
+
+    store_path = Path(handle.path)
+    years_dir = _years_dir(store_path)
+    Path(_long_path(years_dir)).mkdir(parents=True, exist_ok=True)
+    final_year_path = _year_dir(store_path, year)
+    if Path(_long_path(final_year_path)).exists() and not overwrite:
+        raise FileExistsError(
+            f"annual group for year {year} already exists at {final_year_path} "
+            "(pass overwrite=True to replace it)"
+        )
+
+    temp_path = years_dir / f".{int(year)}.incomplete-{uuid.uuid4().hex}"
+    Path(_long_path(temp_path)).mkdir(parents=True, exist_ok=True)
+
+    try:
+        dataset, year_mask = _mask_template(mask, year)
+
+        compressor = Blosc(cname="zstd", clevel=5, shuffle=Blosc.BITSHUFFLE)
+        encoding = {
+            "water_mask": {
+                "dtype": "int8",
+                "chunks": MASK_CHUNKS,
+                "compressor": compressor,
+                "_FillValue": -2,
+                "write_empty_chunks": False,
+            }
+        }
+        dataset.to_zarr(
+            _zarr_store(temp_path), mode="w", compute=False, consolidated=False, encoding=encoding
+        )
+
+        height = year_mask.sizes["y"]
+        width = year_mask.sizes["x"]
+        time_len = year_mask.sizes["time"]
+
+        group = zarr.open_group(_zarr_store(temp_path), mode="r+")
+        mask_array = group["water_mask"]
+
+        wet_count = np.zeros((height, width), dtype=np.uint16)
+        clear_count = np.zeros((height, width), dtype=np.uint16)
+
+        keys: set[tuple[int, int, int]] = set()
+        for window in windows:
+            y_start = max(0, window.y_start)
+            y_stop = min(height, window.y_stop)
+            x_start = max(0, window.x_start)
+            x_stop = min(width, window.x_stop)
+            if y_start >= y_stop or x_start >= x_stop:
+                continue
+            y_starts = _storage_chunk_starts(y_start, y_stop)
+            x_starts = _storage_chunk_starts(x_start, x_stop)
+            for t in range(time_len):
+                for cy in y_starts:
+                    for cx in x_starts:
+                        keys.add((t, cy, cx))
+
+        task_count = 0
+        chunks_considered = len(keys)
+        chunks_written = 0
+        loaded_pixels = 0
+
+        for t, cy, cx in sorted(keys):
+            cy_stop = min(cy + _STORAGE_CHUNK, height)
+            cx_stop = min(cx + _STORAGE_CHUNK, width)
+            block = year_mask.isel(
+                time=slice(t, t + 1), y=slice(cy, cy_stop), x=slice(cx, cx_stop)
+            ).data
+            if hasattr(block, "__dask_graph__"):
+                task_count += len(block.__dask_graph__())
+            values = np.asarray(block.compute() if hasattr(block, "compute") else block)
+            loaded_pixels += int(values.size)
+
+            invalid_domain = ~np.isin(values, CANONICAL_VALUES)
+            if invalid_domain.any():
+                bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
+                raise ValueError(
+                    f"mask contains values outside the canonical domain {CANONICAL_VALUES}: {bad}"
+                )
+
+            if bool((values == -2).all()):
+                continue
+
+            plane = values[0]
+            mask_array[t, cy:cy_stop, cx:cx_stop] = plane
+            chunks_written += 1
+
+            wet_slice = wet_count[cy:cy_stop, cx:cx_stop]
+            clear_slice = clear_count[cy:cy_stop, cx:cx_stop]
+            wet_slice += (plane == 1).astype(np.uint16)
+            clear_slice += ((plane == 0) | (plane == 1)).astype(np.uint16)
+
+        # wet_count/clear_count are local derived arrays (not a public data
+        # variable), written via the raw Zarr API rather than xr.Dataset.to_zarr.
+        # They still need "_ARRAY_DIMENSIONS" so that opening the *group* with
+        # xarray (e.g. validate_annual_group's georeferencing check, or any
+        # future direct reader) does not choke on an array xarray can't map to
+        # dims -- these are the same y/x dims as water_mask, just missing time.
+        for derived_name, derived_values in (("wet_count", wet_count), ("clear_count", clear_count)):
+            derived_array = group.create_dataset(
+                derived_name,
+                data=derived_values,
+                chunks=(_STORAGE_CHUNK, _STORAGE_CHUNK),
+                fill_value=0,
+                overwrite=True,
+            )
+            derived_array.attrs["_ARRAY_DIMENSIONS"] = ["y", "x"]
+
+        digest = _item_digest(tuple(item_ids))
+        complete_payload = {
+            "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+            "year": int(year),
+            "item_ids": list(item_ids),
+            "item_digest": digest,
+            "chunks_considered": chunks_considered,
+            "chunks_written": chunks_written,
+            "loaded_pixels": loaded_pixels,
+        }
+        _write_json_atomic(temp_path / _COMPLETE_FILENAME, complete_payload)
+
+        expected_shape = (time_len, height, width)
+        expected_transform = tuple(year_mask.rio.transform())[:6]
+        validate_annual_group(
+            temp_path,
+            expected_year=year,
+            expected_shape=expected_shape,
+            expected_transform=expected_transform,
+        )
+
+        if Path(_long_path(final_year_path)).exists():
+            _shutil.rmtree(_long_path(final_year_path))
+        os.replace(_long_path(temp_path), _long_path(final_year_path))
+    except BaseException:
+        _shutil.rmtree(_long_path(temp_path), ignore_errors=True)
+        raise
+
+    _record_completed_year(store_path, year)
+
+    return AnnualWriteStats(
+        year=int(year),
+        task_count=task_count,
+        chunks_considered=chunks_considered,
+        chunks_written=chunks_written,
+        loaded_pixels=loaded_pixels,
+        item_digest=digest,
+    )
+
+
+def _record_completed_year(store_path: Path, year: int) -> None:
+    """Add ``year`` to the store's root manifest, preserving every other key.
+
+    Read-modify-write via :func:`_write_json_atomic`: the manifest written
+    by :func:`create_cache_handle` already exists (identity/request_digest),
+    so this only appends to (or creates) its ``completed_years`` list --
+    never touches the fields :func:`_validate_hit` depends on.
+    """
+    manifest_path = store_path / _MANIFEST_FILENAME
+    manifest = _read_json(manifest_path) or {}
+    completed = sorted(set(manifest.get("completed_years", [])) | {int(year)})
+    manifest["completed_years"] = completed
+    _write_json_atomic(manifest_path, manifest)
+
+
+def _read_georef(dataset) -> tuple["object", object, tuple[float, ...]]:
+    """Recover ``water_mask``'s CRS/transform from a freshly-``xr.open_zarr``'d dataset.
+
+    ``rio.write_crs`` records the CRS/transform link (``grid_mapping`` ->
+    the ``spatial_ref`` scalar variable, plus that variable's
+    ``GeoTransform`` attribute) on the in-memory ``.encoding``, which is not
+    guaranteed to round-trip back onto the ``water_mask`` array's on-disk
+    *attrs* through a bare ``to_zarr``/``open_zarr`` cycle (unlike
+    ``rioxarray.open_rasterio``, plain ``xr.open_zarr`` does not run
+    rioxarray's own CRS-detection machinery). The ``spatial_ref`` sibling
+    variable's ``crs_wkt`` attribute is written by
+    :func:`_mask_template`/``rio.write_crs`` regardless and is always
+    present on a group this module wrote, so re-attaching it explicitly
+    here is what makes CRS validation possible at all after a real
+    Zarr round-trip.
+    """
+    import rioxarray  # noqa: F401
+
+    mask_da = dataset["water_mask"]
+    crs = mask_da.rio.crs
+    if crs is None and "spatial_ref" in dataset:
+        crs_wkt = dataset["spatial_ref"].attrs.get("crs_wkt")
+        if crs_wkt:
+            mask_da = mask_da.rio.write_crs(crs_wkt)
+            crs = mask_da.rio.crs
+    transform = tuple(mask_da.rio.transform())[:6]
+    return mask_da, crs, transform
+
+
+def validate_annual_group(
+    path: Path,
+    *,
+    expected_year: int,
+    expected_shape: tuple[int, int, int],
+    expected_transform: tuple[float, float, float, float, float, float],
+) -> dict:
+    """Validate a (possibly still-temporary) annual Zarr group before publishing it.
+
+    Checks, in order: the path is a real Zarr group (``.zgroup`` present);
+    the ``water_mask`` variable exists with ``int8`` dtype; every stored
+    chunk's values lie in the canonical domain ``{-2, -1, 0, 1}``; the time
+    axis has exactly 12 (or the year's requested partial-year count of)
+    calendar-month timestamps, all within ``expected_year``, strictly
+    increasing and unique; ``water_mask.shape == expected_shape`` and its
+    chunk shape matches :data:`MASK_CHUNKS`; the group's CRS and affine
+    transform match ``expected_transform``; and a ``complete.json`` item
+    digest is present. Raises ``ValueError`` (or ``FileNotFoundError`` for a
+    genuinely missing/corrupt group) describing the first failure found;
+    returns the parsed ``complete.json`` payload on success.
+    """
+    import zarr
+
+    path = Path(path)
+    if not Path(_long_path(path / ".zgroup")).exists():
+        raise FileNotFoundError(f"{path} is not a Zarr group (missing .zgroup)")
+
+    try:
+        group = zarr.open_group(_zarr_store(path), mode="r")
+    except Exception as exc:
+        raise ValueError(f"{path} could not be opened as a Zarr group: {exc}") from exc
+
+    if "water_mask" not in group:
+        raise ValueError(f"{path} is missing the 'water_mask' variable")
+    mask_array = group["water_mask"]
+
+    if mask_array.dtype != np.dtype("int8"):
+        raise ValueError(
+            f"water_mask dtype must be int8, got {mask_array.dtype} at {path}"
+        )
+
+    expected_time, expected_height, expected_width = expected_shape
+    if tuple(mask_array.shape) != (expected_time, expected_height, expected_width):
+        raise ValueError(
+            f"water_mask shape {tuple(mask_array.shape)} does not match "
+            f"expected {(expected_time, expected_height, expected_width)} at {path}"
+        )
+    if tuple(mask_array.chunks) != tuple(MASK_CHUNKS):
+        raise ValueError(
+            f"water_mask chunks {tuple(mask_array.chunks)} do not match "
+            f"expected {tuple(MASK_CHUNKS)} at {path}"
+        )
+
+    values = mask_array[:]
+    invalid_domain = ~np.isin(values, CANONICAL_VALUES)
+    if invalid_domain.any():
+        bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
+        raise ValueError(f"water_mask contains values outside {CANONICAL_VALUES}: {bad} at {path}")
+
+    if "time" not in group:
+        raise ValueError(f"{path} is missing the 'time' coordinate")
+    import pandas as pd
+
+    try:
+        import xarray as xr
+
+        # Zarr stores time CF-encoded (e.g. "days since ..."); only xarray's
+        # decoder (not a raw zarr array read) recovers real timestamps.
+        opened = xr.open_zarr(_zarr_store(path), consolidated=False, mask_and_scale=False)
+        mask_da, actual_crs, actual_transform = _read_georef(opened)
+        time_values = pd.DatetimeIndex(np.asarray(mask_da.time.values))
+    except Exception as exc:
+        raise ValueError(f"{path} georeferencing could not be read: {exc}") from exc
+
+    if len(time_values) == 0:
+        raise ValueError(f"{path} has an empty time axis")
+    if not time_values.is_unique:
+        raise ValueError(f"{path} time axis contains duplicate timestamps")
+    if not time_values.is_monotonic_increasing:
+        raise ValueError(f"{path} time axis is not in strict monthly order")
+    if any(ts.year != int(expected_year) for ts in time_values):
+        raise ValueError(
+            f"{path} time axis contains timestamps outside year {expected_year}"
+        )
+    if any((ts.day != 1) for ts in time_values):
+        raise ValueError(f"{path} time axis contains non-month-start timestamps")
+    max_months = 12
+    if len(time_values) > max_months:
+        raise ValueError(
+            f"{path} time axis has {len(time_values)} entries, more than {max_months} months"
+        )
+    expected_axis = pd.date_range(time_values[0], periods=len(time_values), freq="MS")
+    if not time_values.equals(expected_axis):
+        raise ValueError(f"{path} time axis is not a contiguous run of calendar months")
+
+    if actual_crs is None:
+        raise ValueError(f"{path} water_mask is missing a CRS")
+    if any(
+        not math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9)
+        for a, b in zip(actual_transform, expected_transform)
+    ):
+        raise ValueError(
+            f"{path} transform {actual_transform} does not match expected {expected_transform}"
+        )
+
+    complete_path = path / _COMPLETE_FILENAME
+    complete_payload = _read_json(complete_path)
+    if complete_payload is None:
+        raise ValueError(f"{path} is missing a valid {_COMPLETE_FILENAME}")
+    if not complete_payload.get("item_digest"):
+        raise ValueError(f"{path} {_COMPLETE_FILENAME} is missing an item_digest")
+    if int(complete_payload.get("year", -1)) != int(expected_year):
+        raise ValueError(
+            f"{path} {_COMPLETE_FILENAME} year {complete_payload.get('year')} "
+            f"does not match expected {expected_year}"
+        )
+
+    return complete_payload
+
+
+def completed_years(handle: WOfSCacheHandle) -> set[int]:
+    """Every calendar year with a genuinely completed annual group.
+
+    A year counts as completed only if ``years/<year>`` exists, is a real
+    Zarr group, and contains a readable ``complete.json`` -- a directory
+    that merely exists (e.g. a stale/interrupted
+    ``years/.<year>.incomplete-<uuid>`` temp directory, or a corrupt
+    ``years/<year>``) is silently excluded rather than raising, so callers
+    can use this to decide what still needs (re)building. Directory names
+    starting with ``.`` (the temp-write naming convention) are always
+    ignored without even checking their contents.
+    """
+    years_dir = _years_dir(Path(handle.path))
+    if not Path(_long_path(years_dir)).is_dir():
+        return set()
+    result: set[int] = set()
+    for entry in Path(_long_path(years_dir)).iterdir():
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        try:
+            year = int(entry.name)
+        except ValueError:
+            continue
+        complete_payload = _read_json(entry / _COMPLETE_FILENAME)
+        if complete_payload is None:
+            continue
+        if not Path(_long_path(entry / ".zgroup")).exists():
+            continue
+        result.add(year)
+    return result
+
+
+def open_completed_mask_cache(
+    handle: WOfSCacheHandle,
+    start_date: str,
+    end_date: str,
+    *,
+    chunk_x: int = 512,
+    chunk_y: int = 512,
+    time_chunk: int = 12,
+):
+    """Lazily open the canonical water-mask cube for ``[start_date, end_date]``.
+
+    Opens every completed annual group (:func:`completed_years`) that
+    overlaps the requested range with ``xr.open_zarr(...,
+    mask_and_scale=False)``, concatenates them in year order, slices to the
+    exact requested dates, and fills any still-missing months via
+    :func:`hydroseason._io_extent.complete_monthly_axis` (the same
+    missing-month policy ``_io_geo.load_monthly_masks_zarr`` already uses:
+    gaps become ``-1`` invalid, not ``-2`` outside).
+
+    Raises ``ValueError`` if a completed year's stored time axis is not
+    strictly increasing and duplicate-free (a corrupted store -- see
+    :func:`validate_annual_group`, which every *newly written* group
+    already passed, but an on-disk group can still be hand-edited or
+    corrupted after the fact), or if any requested calendar month falls in
+    a year that has no completed annual group.
+    """
+    import pandas as pd
+    import xarray as xr
+
+    store_path = Path(handle.path)
+    start = pd.Timestamp(start_date).to_period("M").to_timestamp()
+    end = pd.Timestamp(end_date).to_period("M").to_timestamp()
+    requested_years = set(range(start.year, end.year + 1))
+
+    available = completed_years(handle)
+    missing = sorted(requested_years - available)
+    if missing:
+        raise FileNotFoundError(
+            f"no completed WOfS annual group for year(s) {missing} at {store_path} "
+            f"(requested range {start_date} to {end_date})"
+        )
+
+    arrays = []
+    for year in sorted(requested_years):
+        year_path = _year_dir(store_path, year)
+        opened_ds = xr.open_zarr(
+            _zarr_store(year_path),
+            consolidated=False,
+            mask_and_scale=False,
+            chunks={"time": time_chunk, "y": chunk_y, "x": chunk_x},
+        )
+        mask_da, _crs, _transform = _read_georef(opened_ds)
+        time_index = pd.DatetimeIndex(np.asarray(mask_da.time.values))
+        if not time_index.is_unique or not time_index.is_monotonic_increasing:
+            raise ValueError(
+                f"annual group for year {year} at {year_path} does not have a "
+                "strict monthly order time axis"
+            )
+        arrays.append(mask_da)
+
+    combined = xr.concat(arrays, dim="time") if len(arrays) > 1 else arrays[0]
+    combined = combined.sel(time=slice(start, end))
+
+    from hydroseason._io_extent import complete_monthly_axis
+
+    return complete_monthly_axis(combined, start_date, end_date)
+
+
 __all__ = [
     "WOFS_CACHE_SCHEMA_VERSION",
     "WOFS_CLASSIFIER_VERSION",
@@ -486,4 +1133,9 @@ __all__ = [
     "require_cached_request",
     "preflight_cache_space",
     "preflight_request_space",
+    "AnnualWriteStats",
+    "write_annual_group",
+    "validate_annual_group",
+    "completed_years",
+    "open_completed_mask_cache",
 ]
