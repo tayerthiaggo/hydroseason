@@ -27,6 +27,8 @@ import sys
 import time
 from pathlib import Path
 
+import pandas as pd
+
 os.environ.pop("PROJ_LIB", None)
 os.environ.pop("PROJ_DATA", None)
 
@@ -74,7 +76,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--no-tiling", action="store_true",
         help="use the legacy whole-AOI load instead of tiled+wet-AOI-pruned (for A/B timing)",
     )
-    parser.add_argument("--tile-pixels", type=int, default=TILE_PIXELS)
+    parser.add_argument(
+        "--tile-pixels",
+        type=int,
+        default=TILE_PIXELS,
+        help="tile size in pixels for legacy direct path (default: 1024; canonical cache uses 512-aligned execution grid)",
+    )
     parser.add_argument("--resolution", type=float, default=30.0, help="load resolution (metres; default: 30)")
     parser.add_argument(
         "--mask-cache-dir",
@@ -97,20 +104,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--end-date", default=END_DATE)
     parser.add_argument("--time-block", type=int, default=TIME_BLOCK)
     parser.add_argument(
+        "--compute-batch-size",
+        type=int,
+        default=16,
+        help="spatial 512px blocks per bounded Dask compute call (default: 16)",
+    )
+    parser.add_argument(
         "--read-workers", type=int, default=0,
-        help="override dask's threaded-scheduler worker count (0 = leave dask's own "
-             "default alone, which profiling found consistently beats any explicit "
-             "override -- see load_wofs_monthly_extent's read_workers docstring; "
-             "only set this if you have profiled your own machine and confirmed a "
-             "value helps there)",
+        help="override dask's threaded-scheduler worker count for both canonical acquisition and local reduction "
+             "(0 = leave dask's own default alone; only set if confirmed to help)",
     )
     parser.add_argument(
         "--profile", action="store_true",
         help="print per-phase timing (precompute vs tiled, per-year, tile-skip counts) to stderr",
-    )
-    parser.add_argument(
-        "--workers", type=int, default=1,
-        help="number of parallel catchment jobs (default: 1)",
     )
     return parser
 
@@ -157,7 +163,7 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
         progress=True,
         progress_desc=f"[{name}]",
         progress_position=position,
-        read_workers=args.read_workers,
+        read_workers=args.read_workers if args.read_workers > 0 else None,
         **tile_kwargs,
     )
     elapsed = time.monotonic() - t0
@@ -217,30 +223,14 @@ def main() -> None:
     timing_records = []
 
     res_display = args.resolution or 30.0
-    print(f"Starting extraction across {len(jobs)} catchment(s) using {args.workers} worker(s) (res={res_display:.0f}m)...\n", flush=True)
+    print(f"Starting extraction across {len(jobs)} catchment(s) (res={res_display:.0f}m)...\n", flush=True)
 
-    if args.workers <= 1:
-        for idx, job in enumerate(jobs):
-            record = _process_job(job, args, tile_kwargs, position=0)
-            timing_records.append(record)
-    else:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        with ThreadPoolExecutor(max_workers=args.workers, thread_name_prefix="wofs_extract") as executor:
-            future_map = {
-                executor.submit(_process_job, job, args, tile_kwargs, position=idx): job
-                for idx, job in enumerate(jobs)
-            }
-            for future in as_completed(future_map):
-                job_name, _ = future_map[future]
-                try:
-                    record = future.result()
-                    timing_records.append(record)
-                except Exception as exc:
-                    print(f"\n[{job_name}] FAILED: {exc!r}", flush=True)
+    for idx, job in enumerate(jobs):
+        record = _process_job(job, args, tile_kwargs, position=0)
+        timing_records.append(record)
 
     total_time = time.monotonic() - overall_start
-    print(f"\nTotal: {total_time:.1f}s for {len(jobs)} AOI(s) across {args.workers} worker(s)")
+    print(f"\nTotal: {total_time:.1f}s for {len(jobs)} AOI(s)")
 
     if timing_records:
         timing_df = pd.DataFrame(timing_records)
@@ -254,8 +244,10 @@ def main() -> None:
 
         combined_df.to_csv(timing_csv_path, index=False)
         print(f"\nExecution timing updated in: {timing_csv_path}")
-        print("\n=== RUNTIME COMPARISON TABLE ===")
-        print(combined_df.to_markdown(index=False) if hasattr(combined_df, "to_markdown") else combined_df.to_string(index=False))
+        try:
+            print(combined_df.to_markdown(index=False))
+        except Exception:
+            print(combined_df.to_string(index=False))
 
 
 if __name__ == "__main__":

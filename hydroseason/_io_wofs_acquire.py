@@ -204,6 +204,8 @@ def acquire_wofs_cache(
     progress_position: int | None = None,
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
     wet_aoi: Any = None,
+    compute_batch_size: int = 16,
+    read_workers: int | None = None,
 ) -> WOfSCacheHandle:
     """Fill (or reuse) a WOfS Zarr cache store for ``aoi``/``[start_date, end_date]``.
 
@@ -405,6 +407,8 @@ def acquire_wofs_cache(
                 windows=plan.windows,
                 item_ids=item_ids,
                 overwrite=force or Path(_long_path(final_year_path)).exists(),
+                compute_batch_size=compute_batch_size,
+                read_workers=read_workers,
             )
             write_stats.append(stats)
             year_diag = {

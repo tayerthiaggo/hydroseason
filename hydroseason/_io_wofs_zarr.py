@@ -712,38 +712,15 @@ def write_annual_group(
     windows: tuple,
     item_ids: tuple[str, ...],
     overwrite: bool = False,
+    compute_batch_size: int = 16,
+    read_workers: int | None = None,
 ) -> AnnualWriteStats:
-    """Materialise one calendar year of ``mask`` into a completed annual Zarr group.
+    """Materialise one calendar year of ``mask`` into a completed annual Zarr group."""
+    if compute_batch_size < 1:
+        raise ValueError("compute_batch_size must be at least 1")
+    if read_workers is not None and read_workers < 1:
+        raise ValueError("read_workers must be positive or None")
 
-    ``mask`` is a lazy (Dask-backed) canonical water-mask cube covering (at
-    least) ``year``; ``windows`` are the logical :class:`~hydroseason._spatial_plan.GridWindow`
-    regions a caller actually wants populated (e.g. tiled AOI reads), and
-    ``item_ids`` are the STAC item IDs this year's data was built from
-    (recorded, hashed, for later provenance).
-
-    Writes to a sibling temporary directory
-    (``years/.<year>.incomplete-<uuid4 hex>``) first: initialises the Zarr
-    v2 group's metadata eagerly via ``xr.Dataset(...).to_zarr(...,
-    compute=False)``, then computes and assigns only the storage-grid chunks
-    that ``windows`` actually touch -- each ``(time, y_start, x_start)``
-    triple is computed at most once even if multiple windows overlap the
-    same 512-pixel cell. A chunk whose computed block is wholly ``-2``
-    (outside AOI) is left unassigned (so, combined with
-    ``write_empty_chunks: False``, it never becomes an on-disk chunk file
-    and reads back as the Zarr fill value ``-2``). Locally accumulates
-    ``wet_count``/``clear_count`` derived arrays alongside the mask.
-
-    Validates the temporary group (:func:`validate_annual_group`) and only
-    then publishes it via a single ``os.replace`` to
-    ``years/<year>``, so a reader can never observe a partially written
-    year: it is either the previous state or the new, fully validated one.
-    If validation raises, the temporary directory is removed and the
-    previous ``years/<year>`` (if any) is left untouched -- callers see the
-    validation error, not a corrupted store.
-
-    Raises ``FileExistsError`` if ``years/<year>`` already exists and
-    ``overwrite`` is ``False``.
-    """
     import shutil as _shutil
 
     import zarr
@@ -836,9 +813,12 @@ def write_annual_group(
         import dask
 
         keys_list = sorted(spatial_keys)
-        batch_size = 4
-        for i in range(0, len(keys_list), batch_size):
-            batch_keys = keys_list[i : i + batch_size]
+        compute_kwargs = {}
+        if read_workers is not None:
+            compute_kwargs = {"scheduler": "threads", "num_workers": read_workers}
+
+        for i in range(0, len(keys_list), compute_batch_size):
+            batch_keys = keys_list[i : i + compute_batch_size]
             blocks_to_compute = []
             block_metadata = []
             for cy, cx in batch_keys:
@@ -853,7 +833,7 @@ def write_annual_group(
                 block_metadata.append((cy, cx, cy_stop, cx_stop))
 
             compute_started = time.perf_counter()
-            computed_blocks = dask.compute(*blocks_to_compute, num_workers=8, scheduler="threads")
+            computed_blocks = dask.compute(*blocks_to_compute, **compute_kwargs)
             compute_seconds += time.perf_counter() - compute_started
 
             write_started = time.perf_counter()

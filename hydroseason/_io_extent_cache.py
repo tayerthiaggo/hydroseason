@@ -605,6 +605,9 @@ def load_wofs_monthly_extent(
                 progress_desc=progress_desc,
                 progress_position=progress_position,
                 diagnostics_callback=diagnostics_callback,
+                wet_aoi=wet_aoi,
+                compute_batch_size=16,
+                read_workers=read_workers,
             )
         except FileNotFoundError as exc:
             if offline:

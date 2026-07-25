@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
+import dask
 import numpy as np
 import pandas as pd
 import pytest
@@ -364,4 +365,79 @@ def test_annual_writer_reports_non_negative_phase_timings(tmp_path):
     assert stats.compute_seconds >= 0.0
     assert stats.encode_write_seconds >= 0.0
     assert stats.validation_seconds >= 0.0
+
+
+def test_annual_writer_leaves_dask_worker_count_unset_by_default(monkeypatch, tmp_path):
+    seen = []
+    real_compute = dask.compute
+
+    def capture(*args, **kwargs):
+        seen.append(kwargs.copy())
+        return real_compute(*args, **kwargs)
+
+    monkeypatch.setattr(dask, "compute", capture)
+    mask = _canonical_cube(shape=(12, 512, 512), fill=1).chunk(
+        {"time": 1, "y": 512, "x": 512}
+    )
+    write_annual_group(
+        _handle_for_cube(tmp_path, mask),
+        2015,
+        mask,
+        windows=(GridWindow("r0c0", 0, 512, 0, 512),),
+        item_ids=("a",),
+    )
+
+    assert seen
+    assert all("num_workers" not in kwargs for kwargs in seen)
+
+
+def test_annual_writer_honours_explicit_worker_override(monkeypatch, tmp_path):
+    seen = []
+    real_compute = dask.compute
+
+    def capture(*args, **kwargs):
+        seen.append(kwargs.copy())
+        return real_compute(*args, **kwargs)
+
+    monkeypatch.setattr(dask, "compute", capture)
+    mask = _canonical_cube(shape=(12, 512, 512), fill=1).chunk(
+        {"time": 1, "y": 512, "x": 512}
+    )
+    write_annual_group(
+        _handle_for_cube(tmp_path, mask),
+        2015,
+        mask,
+        windows=(GridWindow("r0c0", 0, 512, 0, 512),),
+        item_ids=("a",),
+        read_workers=3,
+    )
+
+    assert any(kwargs.get("num_workers") == 3 for kwargs in seen)
+
+
+def test_annual_writer_respects_compute_batch_size(monkeypatch, tmp_path):
+    seen = []
+    real_compute = dask.compute
+
+    def capture(*args, **kwargs):
+        seen.append(args)
+        return real_compute(*args, **kwargs)
+
+    monkeypatch.setattr(dask, "compute", capture)
+    mask = _canonical_cube(shape=(1, 512, 17 * 512), fill=1).chunk(
+        {"time": 1, "y": 512, "x": 512}
+    )
+    windows = tuple(GridWindow(f"r0c{i}", 0, 512, i * 512, (i + 1) * 512) for i in range(17))
+    write_annual_group(
+        _handle_for_cube(tmp_path, mask),
+        2015,
+        mask,
+        windows=windows,
+        item_ids=("a",),
+        compute_batch_size=8,
+    )
+
+    assert [len(args) for args in seen] == [8, 8, 1]
+
+
 

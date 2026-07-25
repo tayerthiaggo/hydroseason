@@ -113,6 +113,7 @@ def _child_run(args: argparse.Namespace) -> int:
         "tile_pixels": TILE_PIXELS,
         "precompute_wet_aoi": True,
         "auto_tiling": False,
+        "read_workers": args.read_workers if getattr(args, "read_workers", 0) > 0 else None,
     }
     if args.mode == "legacy":
         import hydroseason._io_geo as geo
@@ -144,6 +145,8 @@ def _child_run(args: argparse.Namespace) -> int:
         "case": args.case,
         "mode": args.mode,
         "seconds": seconds,
+        "compute_batch_size": getattr(args, "compute_batch_size", 16),
+        "read_workers": getattr(args, "read_workers", 0),
         "output_digest": hashlib.sha256(_frame_bytes(frame)).hexdigest(),
         "peak_rss_bytes": _peak_rss_bytes(),
         "cache_bytes": _directory_bytes(Path(args.mask_cache)) if args.mask_cache else 0,
@@ -193,6 +196,10 @@ def _run_child(
         str(frame_pickle_path),
         "--result",
         str(result_path),
+        "--compute-batch-size",
+        str(getattr(args, "compute_batch_size", 16)),
+        "--read-workers",
+        str(getattr(args, "read_workers", 0)),
     ]
     if mask_cache is not None:
         command.extend(["--mask-cache", str(mask_cache)])
@@ -401,6 +408,8 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "output" / "wofs_cache_benchmark.json")
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--compute-batch-size", type=int, default=16)
+    parser.add_argument("--read-workers", type=int, default=0)
     parser.add_argument("--work-dir", type=Path, default=None)
     parser.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--case", choices=sorted(CASES), help=argparse.SUPPRESS)
