@@ -20,6 +20,7 @@ from hydroseason._io_wofs_zarr import (
     cache_writer_lock,
     completed_years,
     create_cache_handle,
+    open_completed_extent_counts,
     open_completed_mask_cache,
     preflight_cache_space,
     require_cached_request,
@@ -438,6 +439,94 @@ def test_annual_writer_respects_compute_batch_size(monkeypatch, tmp_path):
     )
 
     assert [len(args) for args in seen] == [8, 8, 1]
+
+
+def test_annual_writer_persists_exact_monthly_extent_counts(tmp_path):
+    mask = _canonical_cube(shape=(2, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, 0]]
+    mask.values[1] = [[0, 0, -1], [-2, 1, 1]]
+    handle = _handle_for_cube(tmp_path, mask)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+    extent = open_completed_extent_counts(handle, "2015-01-01", "2015-02-01")
+
+    assert extent is not None
+    assert extent["n_aoi"].tolist() == [5, 5]
+    assert extent["n_valid"].tolist() == [4, 4]
+    assert extent["n_water"].tolist() == [2, 2]
+    assert extent["n_invalid"].tolist() == [1, 1]
+    assert extent["extent_pct"].tolist() == [50.0, 50.0]
+    assert extent["invalid_pct"].tolist() == [20.0, 20.0]
+
+
+def test_extent_counts_backward_compatibility(tmp_path):
+    mask = _canonical_cube(shape=(12, 2, 2), fill=0)
+    handle = _handle_for_cube(tmp_path, mask)
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 2}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 2),),
+        item_ids=("a",),
+    )
+
+    sidecar = handle.path / "years" / "2015" / "extent_counts.json"
+    if sidecar.exists():
+        sidecar.unlink()
+
+    assert open_completed_extent_counts(handle, "2015-01-01", "2015-12-31") is None
+    assert completed_years(handle) == {2015}
+
+
+def test_extent_counts_equal_raster_reduction(tmp_path):
+    from hydroseason.hydro_year import monthly_water_extent
+
+    mask = _canonical_cube(shape=(12, 512, 512), fill=-2)
+    mask.values[:6, 100:200, 100:200] = 1
+    mask.values[6:, 200:300, 200:300] = 0
+    handle = _handle_for_cube(tmp_path, mask)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 512, "x": 512}),
+        windows=(GridWindow("r0c0", 0, 512, 0, 512),),
+        item_ids=("a",),
+    )
+
+    counts_extent = open_completed_extent_counts(handle, "2015-01-01", "2015-12-31")
+    mask_extent = monthly_water_extent(open_completed_mask_cache(handle, "2015-01-01", "2015-12-31"), time_block=12)
+
+    pd.testing.assert_frame_equal(counts_extent, mask_extent, check_exact=True)
+
+
+def test_validation_uses_written_chunk_keys_when_present(tmp_path):
+    mask = _canonical_cube(shape=(2, 512, 1024), fill=-2)
+    mask.loc[{"x": mask.x[:512]}] = 1
+    handle = _handle_for_cube(tmp_path, mask)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 512, "x": 512}),
+        windows=(GridWindow("r0c0", 0, 512, 0, 512), GridWindow("r0c1", 0, 512, 512, 1024)),
+        item_ids=("a",),
+    )
+
+    path = handle.path / "years" / "2015"
+    payload = json.loads((path / "complete.json").read_text(encoding="utf-8"))
+
+    assert len(payload.get("written_chunk_keys", [])) == 2
+    assert all(k[2] == 0 for k in payload["written_chunk_keys"])
+
+
+
 
 
 

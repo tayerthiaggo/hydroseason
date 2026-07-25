@@ -75,4 +75,12 @@ def load_or_build_cached_wet_aoi(*args, **kwargs):
     return _load_or_build_cached_wet_aoi(*args, **kwargs)
 
 
-__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "WOfSCacheHandle"]
+def open_completed_extent_counts(*args, **kwargs):
+    """Internal facade for the extent counts reader."""
+    from hydroseason._io_wofs_zarr import open_completed_extent_counts as _open_completed_extent_counts
+
+    return _open_completed_extent_counts(*args, **kwargs)
+
+
+__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_extent_counts", "WOfSCacheHandle"]
+

@@ -799,6 +799,12 @@ def write_annual_group(
         compute_seconds = 0.0
         encode_write_seconds = 0.0
         validation_seconds = 0.0
+        n_aoi_cnt = np.zeros(time_len, dtype=np.int64)
+        n_valid_cnt = np.zeros(time_len, dtype=np.int64)
+        n_water_cnt = np.zeros(time_len, dtype=np.int64)
+        n_invalid_cnt = np.zeros(time_len, dtype=np.int64)
+        written_chunk_keys_set: set[tuple[int, int, int]] = set()
+
         content_hasher = hashlib.sha256()
         content_hasher.update(
             _canonical_json_bytes(
@@ -854,6 +860,14 @@ def write_annual_group(
                         f"mask contains values outside the canonical domain {CANONICAL_VALUES}: {bad}"
                     )
 
+                block_water = (values == 1).sum(axis=(1, 2), dtype=np.int64)
+                block_dry = (values == 0).sum(axis=(1, 2), dtype=np.int64)
+                block_aoi = (values != -2).sum(axis=(1, 2), dtype=np.int64)
+                n_water_cnt += block_water
+                n_valid_cnt += block_water + block_dry
+                n_aoi_cnt += block_aoi
+                n_invalid_cnt += block_aoi - block_water - block_dry
+
                 if bool((values == -2).all()):
                     continue
 
@@ -863,6 +877,7 @@ def write_annual_group(
                         continue
                     mask_array[t, cy:cy_stop, cx:cx_stop] = plane
                     chunks_written += 1
+                    written_chunk_keys_set.add((t, cy // _STORAGE_CHUNK, cx // _STORAGE_CHUNK))
 
                 wet_values = (values == 1).sum(axis=0).astype(np.uint16)
                 clear_values = ((values == 0) | (values == 1)).sum(axis=0).astype(np.uint16)
@@ -874,6 +889,20 @@ def write_annual_group(
 
         digest = _item_digest(tuple(item_ids))
         time_values = pd.DatetimeIndex(np.asarray(year_mask.time.values))
+        written_chunk_keys = [list(k) for k in sorted(written_chunk_keys_set)]
+
+        extent_counts_payload = {
+            "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+            "year": int(year),
+            "dates": [d.strftime("%Y-%m-%d") for d in time_values],
+            "n_aoi": n_aoi_cnt.tolist(),
+            "n_valid": n_valid_cnt.tolist(),
+            "n_water": n_water_cnt.tolist(),
+            "n_invalid": n_invalid_cnt.tolist(),
+        }
+        extent_counts_payload["content_digest"] = _sha256_digest(extent_counts_payload)
+        _write_json_atomic(temp_path / "extent_counts.json", extent_counts_payload)
+
         complete_payload = {
             "schema_version": WOFS_CACHE_SCHEMA_VERSION,
             "year": int(year),
@@ -886,6 +915,7 @@ def write_annual_group(
             "chunks_considered": chunks_considered,
             "chunks_written": chunks_written,
             "loaded_pixels": loaded_pixels,
+            "written_chunk_keys": written_chunk_keys,
         }
         _write_json_atomic(temp_path / _COMPLETE_FILENAME, complete_payload)
 
@@ -1063,20 +1093,39 @@ def validate_annual_group(
                 f"{expected_chunks_written} at {path}"
             )
 
-    for t0 in range(0, expected_time, mask_array.chunks[0]):
-        for y0 in range(0, expected_height, mask_array.chunks[1]):
-            for x0 in range(0, expected_width, mask_array.chunks[2]):
-                values = mask_array[
-                    t0:min(t0 + mask_array.chunks[0], expected_time),
-                    y0:min(y0 + mask_array.chunks[1], expected_height),
-                    x0:min(x0 + mask_array.chunks[2], expected_width),
-                ]
-                invalid_domain = ~np.isin(values, CANONICAL_VALUES)
-                if invalid_domain.any():
-                    bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
-                    raise ValueError(
-                        f"water_mask contains values outside {CANONICAL_VALUES}: {bad} at {path}"
-                    )
+    written_chunk_keys = complete_payload.get("written_chunk_keys")
+    if written_chunk_keys is not None:
+        for key in written_chunk_keys:
+            t, cy_idx, cx_idx = key
+            t0 = t * mask_array.chunks[0]
+            y0 = cy_idx * mask_array.chunks[1]
+            x0 = cx_idx * mask_array.chunks[2]
+            values = mask_array[
+                t0 : min(t0 + mask_array.chunks[0], expected_time),
+                y0 : min(y0 + mask_array.chunks[1], expected_height),
+                x0 : min(x0 + mask_array.chunks[2], expected_width),
+            ]
+            invalid_domain = ~np.isin(values, CANONICAL_VALUES)
+            if invalid_domain.any():
+                bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
+                raise ValueError(
+                    f"water_mask contains values outside {CANONICAL_VALUES}: {bad} at {path}"
+                )
+    else:
+        for t0 in range(0, expected_time, mask_array.chunks[0]):
+            for y0 in range(0, expected_height, mask_array.chunks[1]):
+                for x0 in range(0, expected_width, mask_array.chunks[2]):
+                    values = mask_array[
+                        t0 : min(t0 + mask_array.chunks[0], expected_time),
+                        y0 : min(y0 + mask_array.chunks[1], expected_height),
+                        x0 : min(x0 + mask_array.chunks[2], expected_width),
+                    ]
+                    invalid_domain = ~np.isin(values, CANONICAL_VALUES)
+                    if invalid_domain.any():
+                        bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
+                        raise ValueError(
+                            f"water_mask contains values outside {CANONICAL_VALUES}: {bad} at {path}"
+                        )
 
     if "time" not in group:
         raise ValueError(f"{path} is missing the 'time' coordinate")
@@ -1360,6 +1409,89 @@ def open_completed_mask_cache(
     return complete_monthly_axis(combined, start_date, end_date)
 
 
+def open_completed_extent_counts(
+    handle: WOfSCacheHandle,
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame | None:
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+    requested_years = list(range(start.year, end.year + 1))
+    done = completed_years(handle)
+    if not set(requested_years).issubset(done):
+        return None
+
+    all_dates = []
+    all_n_aoi = []
+    all_n_valid = []
+    all_n_water = []
+    all_n_invalid = []
+
+    for year in requested_years:
+        path = Path(handle.path) / "years" / str(int(year)) / "extent_counts.json"
+        payload = _read_json(path)
+        if payload is None:
+            return None
+        content_digest = payload.get("content_digest")
+        check_payload = {k: v for k, v in payload.items() if k != "content_digest"}
+        if _sha256_digest(check_payload) != content_digest:
+            return None
+
+        dates = payload.get("dates", [])
+        n_aoi = payload.get("n_aoi", [])
+        n_valid = payload.get("n_valid", [])
+        n_water = payload.get("n_water", [])
+        n_invalid = payload.get("n_invalid", [])
+        if not (len(dates) == len(n_aoi) == len(n_valid) == len(n_water) == len(n_invalid)):
+            return None
+
+        for aoi, val, wat, inv in zip(n_aoi, n_valid, n_water, n_invalid):
+            if aoi < 0 or val < 0 or wat < 0 or inv < 0:
+                return None
+            if not (wat <= val <= aoi):
+                return None
+            if inv != aoi - val:
+                return None
+
+        all_dates.extend(dates)
+        all_n_aoi.extend(n_aoi)
+        all_n_valid.extend(n_valid)
+        all_n_water.extend(n_water)
+        all_n_invalid.extend(n_invalid)
+
+    df = pd.DataFrame(
+        {
+            "n_water": np.array(all_n_water, dtype=np.int64),
+            "n_aoi": np.array(all_n_aoi, dtype=np.int64),
+            "n_valid": np.array(all_n_valid, dtype=np.int64),
+            "n_invalid": np.array(all_n_invalid, dtype=np.int64),
+        },
+        index=pd.DatetimeIndex(all_dates),
+    )
+    mask_in_range = (df.index >= start) & (df.index <= end)
+    df = df.loc[mask_in_range].copy()
+    if df.empty:
+        return None
+
+    n_valid = df["n_valid"].to_numpy(dtype=np.float64)
+    n_water = df["n_water"].to_numpy(dtype=np.float64)
+    n_aoi = df["n_aoi"].to_numpy(dtype=np.float64)
+    n_invalid = df["n_invalid"].to_numpy(dtype=np.float64)
+
+    extent_pct = np.full_like(n_valid, np.nan)
+    np.divide(n_water * 100.0, n_valid, out=extent_pct, where=n_valid > 0)
+
+    invalid_pct = np.full_like(n_aoi, np.nan)
+    np.divide(n_invalid * 100.0, n_aoi, out=invalid_pct, where=n_aoi > 0)
+
+    df["extent_pct"] = extent_pct
+    df["invalid_pct"] = invalid_pct
+    df["n_wet_aoi"] = df["n_valid"]
+    df["wet_fill_pct"] = extent_pct
+
+    return df[["n_water", "n_aoi", "n_valid", "n_invalid", "n_wet_aoi", "extent_pct", "invalid_pct", "wet_fill_pct"]]
+
+
 __all__ = [
     "WOFS_CACHE_SCHEMA_VERSION",
     "WOFS_CLASSIFIER_VERSION",
@@ -1380,4 +1512,6 @@ __all__ = [
     "validate_annual_group",
     "completed_years",
     "open_completed_mask_cache",
+    "open_completed_extent_counts",
 ]
+
