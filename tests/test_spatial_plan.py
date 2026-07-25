@@ -1,7 +1,7 @@
 from affine import Affine
 from shapely.geometry import box
 
-from hydroseason._spatial_plan import plan_spatial_slices
+from hydroseason._spatial_plan import plan_spatial_slices, plan_storage_aligned_slices
 
 
 def test_thin_aoi_selects_1024_windows():
@@ -62,3 +62,35 @@ def test_planner_rejects_invalid_cost_inputs():
             assert message in str(exc)
         else:
             raise AssertionError("expected ValueError")
+
+
+def test_storage_aligned_plan_returns_only_intersecting_execution_chunks():
+    geometry = box(0, 0, 20, 100)
+    plan = plan_storage_aligned_slices(
+        geometry,
+        shape=(100, 100),
+        transform=Affine(1, 0, 0, 0, -1, 100),
+        storage_chunk=25,
+    )
+
+    assert plan.selected_tile_pixels == 25
+    assert [window.tile_id for window in plan.windows] == [
+        "r0c0", "r1c0", "r2c0", "r3c0"
+    ]
+    assert all(window.x_start == 0 and window.x_stop == 25 for window in plan.windows)
+
+
+def test_storage_aligned_plan_never_expands_back_to_coarser_windows():
+    geometry = box(0, 0, 20, 100)
+    plan = plan_storage_aligned_slices(
+        geometry,
+        shape=(100, 100),
+        transform=Affine(1, 0, 0, 0, -1, 100),
+        storage_chunk=25,
+    )
+
+    assert sum(
+        (w.y_stop - w.y_start) * (w.x_stop - w.x_start)
+        for w in plan.windows
+    ) == 4 * 25 * 25
+

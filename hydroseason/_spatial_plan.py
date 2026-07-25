@@ -265,4 +265,44 @@ def plan_spatial_slices(
     )
 
 
-__all__ = ["GridWindow", "CandidateScore", "SpatialPlan", "plan_spatial_slices"]
+def plan_storage_aligned_slices(
+    geometry,
+    *,
+    shape: tuple[int, int],
+    transform: Affine,
+    storage_chunk: int = 512,
+) -> SpatialPlan:
+    if storage_chunk < 1:
+        raise ValueError("storage_chunk must be at least 1")
+    height, width = shape
+    if height < 1 or width < 1:
+        raise ValueError(f"shape must have positive dimensions, got {shape!r}")
+
+    windows = tuple(
+        window
+        for window in _grid_windows(storage_chunk, height, width)
+        if _window_polygon(window, transform).intersects(geometry)
+    )
+    selected_pixels = sum(
+        (window.y_stop - window.y_start) * (window.x_stop - window.x_start)
+        for window in windows
+    )
+    score = CandidateScore(
+        tile_pixels=storage_chunk,
+        n_tiles=len(windows),
+        intersecting_pixels=selected_pixels,
+        predicted_cost=float(selected_pixels),
+        relative_improvement=0.0,
+        windows=windows,
+    )
+    return SpatialPlan(
+        selected_tile_pixels=storage_chunk,
+        windows=windows,
+        candidates=(score,),
+        reason="storage-aligned shared-graph execution",
+        planner_version=_PLANNER_VERSION,
+    )
+
+
+__all__ = ["GridWindow", "CandidateScore", "SpatialPlan", "plan_spatial_slices", "plan_storage_aligned_slices"]
+

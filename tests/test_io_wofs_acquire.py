@@ -436,3 +436,31 @@ def test_manifest_contains_year_diagnostics(monkeypatch, tmp_path):
     assert year_diags[1]["year"] == 2016
     assert year_diags[1]["validation_seconds"] == 0.2
 
+
+def test_acquisition_passes_512_aligned_windows_to_writer(monkeypatch, tmp_path):
+    items = [_item("2015-01-15", "a")]
+    writer = Mock(return_value=_stats())
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", writer)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+    )
+
+    writer.assert_called_once()
+    windows = writer.call_args.kwargs["windows"]
+    for w in windows:
+        assert w.y_start % 512 == 0
+        assert w.x_start % 512 == 0
+        assert (w.y_stop - w.y_start) <= 512
+        assert (w.x_stop - w.x_start) <= 512
+
+

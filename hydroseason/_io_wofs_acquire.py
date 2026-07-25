@@ -58,7 +58,7 @@ from hydroseason._io_wofs_zarr import (
     resolve_cached_request,
     write_annual_group,
 )
-from hydroseason._spatial_plan import plan_spatial_slices
+from hydroseason._spatial_plan import plan_spatial_slices, plan_storage_aligned_slices
 
 
 def partition_items_by_year(items) -> dict[int, tuple]:
@@ -329,10 +329,11 @@ def acquire_wofs_cache(
                   else (target.geometry.union_all() if hasattr(target.geometry, "union_all")
                         else target.geometry.unary_union))
         )
-        plan = plan_spatial_slices(
+        plan = plan_storage_aligned_slices(
             pruning_geom,
             shape=tuple(int(v) for v in parent_geobox.shape),
             transform=parent_geobox.affine,
+            storage_chunk=512,
         )
         planned_shape = _planned_pixel_shape(plan)
 
