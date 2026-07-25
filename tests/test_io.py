@@ -114,6 +114,42 @@ def test_query_wofs_items_uses_polygon_intersects(monkeypatch):
 
 
 
+@pytest.mark.parametrize(
+    "source_epsg, source_resolution, x_shift, y_shift, expected",
+    [
+        (3577, 30, 0, 0, True),
+        (3577, 30, 30, -60, True),
+        (3577, 30, 15, 0, False),
+        (3577, 60, 0, 0, False),
+        (4326, 30, 0, 0, False),
+    ],
+)
+def test_native_grid_alignment(
+    source_epsg, source_resolution, x_shift, y_shift, expected
+):
+    from affine import Affine
+    from odc.geo.geobox import GeoBox
+    from odc.geo.crs import CRS
+    from hydroseason._io_geo import _geobox_native_aligned
+
+    destination = GeoBox(
+        (10, 10), Affine(30, 0, 0, 0, -30, 300), CRS(3577)
+    )
+    source = GeoBox(
+        (10, 10),
+        Affine(
+            source_resolution,
+            0,
+            x_shift,
+            0,
+            -source_resolution,
+            300 + y_shift,
+        ),
+        CRS(source_epsg),
+    )
+    assert _geobox_native_aligned(source, destination) is expected
+
+
 def test_load_aoi_rejects_empty_geometry_frame():
     geopandas = pytest.importorskip("geopandas")
     from hydroseason.io import load_aoi

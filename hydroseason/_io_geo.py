@@ -486,6 +486,39 @@ def _item_year(item) -> int:
     return int(date.year)
 
 
+def _geobox_native_aligned(source, destination) -> bool:
+    import math
+
+    if source.crs != destination.crs:
+        return False
+    if not (
+        math.isclose(abs(source.resolution.x), abs(destination.resolution.x), abs_tol=1e-9)
+        and math.isclose(abs(source.resolution.y), abs(destination.resolution.y), abs_tol=1e-9)
+    ):
+        return False
+    x_offset = (destination.affine.c - source.affine.c) / destination.resolution.x
+    y_offset = (destination.affine.f - source.affine.f) / destination.resolution.y
+    return math.isclose(x_offset, round(x_offset), abs_tol=1e-9) and math.isclose(
+        y_offset, round(y_offset), abs_tol=1e-9
+    )
+
+
+def _all_sources_native_aligned(items: list, geobox, band: str = "water") -> bool:
+    import odc.stac
+
+    try:
+        parsed = odc.stac.parse_items(items)
+        band_info = parsed.resolve_bands([band])
+        if band not in band_info:
+            return False
+        source_geoboxes = band_info[band].geobox
+        if source_geoboxes is None:
+            return False
+        return all(_geobox_native_aligned(src, geobox) for src in source_geoboxes)
+    except Exception:
+        return False
+
+
 def build_wofs_year_graph(
     items,
     aoi_gdf,
@@ -498,6 +531,7 @@ def build_wofs_year_graph(
     time_chunk: int = 12,
     majority: bool = True,
     groupby: str = "solar_day",
+    resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
 ):
     """Build one shared lazy WOfS cube for a single calendar year onto a fixed grid.
 
@@ -515,7 +549,9 @@ def build_wofs_year_graph(
       off its ``resolution`` argument, which this path deliberately leaves
       unset). This function passes ``resampling="mode"`` explicitly through
       :func:`_load_wofs_items`'s ``resampling`` keyword so geobox-based loads
-      keep the same categorical-safe mode resampling as the legacy path.
+      keep the same categorical-safe mode resampling as the legacy path, unless
+      ``resampling_policy="native_aligned"`` is requested and ALL items are proven
+      native-grid aligned.
 
     Every supplied item's timestamp must fall within the requested calendar
     year (validated against ``start_date``/``end_date`` -- for this
@@ -545,6 +581,10 @@ def build_wofs_year_graph(
                 f"to {end_date})."
             )
 
+    resampling = "mode"
+    if resampling_policy == "native_aligned" and _all_sources_native_aligned(items, geobox, band="water"):
+        resampling = None
+
     return _load_wofs_items(
         items,
         aoi_gdf,
@@ -559,7 +599,7 @@ def build_wofs_year_graph(
         majority=majority,
         duplicate_month_policy="raise",
         groupby=groupby,
-        resampling="mode",
+        resampling=resampling,
     )
 
 
