@@ -280,34 +280,47 @@ def _read_json(path: Path) -> dict | None:
         return None
 
 
+def _is_pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if handle == 0:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 @contextmanager
 def cache_writer_lock(cache_root: Path, request_digest: str) -> Iterator[None]:
-    """Exclusive on-disk lock guarding writes to one request's cache store.
-
-    Acquires ``cache_root / ".locks" / f"{request_digest}.lock"`` via
-    ``os.open`` with ``O_CREAT | O_EXCL`` -- an atomic create-if-absent that
-    the OS refuses if the file already exists, so two processes racing to
-    acquire the same lock can never both succeed. A losing process gets
-    ``FileExistsError`` from the OS, which is re-raised here as a
-    ``RuntimeError`` naming the request as already being written, rather
-    than silently proceeding or auto-deleting the other process's lock file
-    (that file might belong to a writer that is still very much alive; only
-    the process that created a lock file ever removes it, in its own
-    ``finally`` block on exit -- releasing on exception too).
-
-    The lock file's contents (PID and creation timestamp) are informational
-    only, useful for a human diagnosing a stuck lock; this module never
-    reads them back to decide anything.
-    """
+    """Exclusive on-disk lock guarding writes to one request's cache store."""
     lock_path = _lock_path(Path(cache_root), request_digest)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError as exc:
-        raise RuntimeError(
-            f"cache request {request_digest} is already being written "
-            f"(lock file present at {lock_path})"
-        ) from exc
+        data = _read_json(lock_path)
+        if data and "pid" in data and not _is_pid_alive(data["pid"]):
+            lock_path.unlink(missing_ok=True)
+            try:
+                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                raise RuntimeError(
+                    f"cache request {request_digest} is already being written "
+                    f"(lock file present at {lock_path})"
+                ) from exc
+        else:
+            raise RuntimeError(
+                f"cache request {request_digest} is already being written "
+                f"(lock file present at {lock_path})"
+            ) from exc
     try:
         with os.fdopen(descriptor, "w") as handle:
             handle.write(json.dumps({"pid": os.getpid(), "created": time.time()}))
@@ -546,6 +559,10 @@ class AnnualWriteStats:
     chunks_written: int
     loaded_pixels: int
     item_digest: str
+    compute_seconds: float = 0.0
+    encode_write_seconds: float = 0.0
+    validation_seconds: float = 0.0
+
 
 
 def _item_digest(item_ids: tuple[str, ...]) -> str:
@@ -748,7 +765,7 @@ def write_annual_group(
     try:
         dataset, year_mask = _mask_template(mask, year)
 
-        compressor = Blosc(cname="zstd", clevel=5, shuffle=Blosc.BITSHUFFLE)
+        compressor = Blosc(cname="zstd", clevel=1, shuffle=Blosc.BITSHUFFLE)
         encoding = {
             "water_mask": {
                 "dtype": "int8",
@@ -802,6 +819,9 @@ def write_annual_group(
         chunks_considered = len(spatial_keys) * time_len
         chunks_written = 0
         loaded_pixels = 0
+        compute_seconds = 0.0
+        encode_write_seconds = 0.0
+        validation_seconds = 0.0
         content_hasher = hashlib.sha256()
         content_hasher.update(
             _canonical_json_bytes(
@@ -813,46 +833,64 @@ def write_annual_group(
             )
         )
 
-        for cy, cx in sorted(spatial_keys):
-            cy_stop = min(cy + _STORAGE_CHUNK, height)
-            cx_stop = min(cx + _STORAGE_CHUNK, width)
-            block = year_mask.isel(
-                time=slice(0, time_len), y=slice(cy, cy_stop), x=slice(cx, cx_stop)
-            ).data
-            if hasattr(block, "__dask_graph__"):
-                task_count += len(block.__dask_graph__())
-            values = np.asarray(block.compute() if hasattr(block, "compute") else block)
-            loaded_pixels += int(values.size)
-            content_hasher.update(
-                _canonical_json_bytes(
-                    {"y_start": cy, "x_start": cx, "shape": list(values.shape)}
+        import dask
+
+        keys_list = sorted(spatial_keys)
+        batch_size = 4
+        for i in range(0, len(keys_list), batch_size):
+            batch_keys = keys_list[i : i + batch_size]
+            blocks_to_compute = []
+            block_metadata = []
+            for cy, cx in batch_keys:
+                cy_stop = min(cy + _STORAGE_CHUNK, height)
+                cx_stop = min(cx + _STORAGE_CHUNK, width)
+                block = year_mask.isel(
+                    time=slice(0, time_len), y=slice(cy, cy_stop), x=slice(cx, cx_stop)
+                ).data
+                if hasattr(block, "__dask_graph__"):
+                    task_count += len(block.__dask_graph__())
+                blocks_to_compute.append(block)
+                block_metadata.append((cy, cx, cy_stop, cx_stop))
+
+            compute_started = time.perf_counter()
+            computed_blocks = dask.compute(*blocks_to_compute, num_workers=8, scheduler="threads")
+            compute_seconds += time.perf_counter() - compute_started
+
+            write_started = time.perf_counter()
+            for (cy, cx, cy_stop, cx_stop), raw_val in zip(block_metadata, computed_blocks):
+                values = np.asarray(raw_val)
+                loaded_pixels += int(values.size)
+                content_hasher.update(
+                    _canonical_json_bytes(
+                        {"y_start": cy, "x_start": cx, "shape": list(values.shape)}
+                    )
                 )
-            )
-            content_hasher.update(np.ascontiguousarray(values).tobytes())
+                content_hasher.update(np.ascontiguousarray(values).tobytes())
 
-            invalid_domain = ~np.isin(values, CANONICAL_VALUES)
-            if invalid_domain.any():
-                bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
-                raise ValueError(
-                    f"mask contains values outside the canonical domain {CANONICAL_VALUES}: {bad}"
-                )
+                invalid_domain = ~np.isin(values, CANONICAL_VALUES)
+                if invalid_domain.any():
+                    bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
+                    raise ValueError(
+                        f"mask contains values outside the canonical domain {CANONICAL_VALUES}: {bad}"
+                    )
 
-            if bool((values == -2).all()):
-                continue
-
-            for t in range(time_len):
-                plane = values[t]
-                if bool((plane == -2).all()):
+                if bool((values == -2).all()):
                     continue
-                mask_array[t, cy:cy_stop, cx:cx_stop] = plane
-                chunks_written += 1
 
-            wet_values = (values == 1).sum(axis=0).astype(np.uint16)
-            clear_values = ((values == 0) | (values == 1)).sum(axis=0).astype(np.uint16)
-            if bool(wet_values.any()):
-                derived_arrays["wet_count"][cy:cy_stop, cx:cx_stop] = wet_values
-            if bool(clear_values.any()):
-                derived_arrays["clear_count"][cy:cy_stop, cx:cx_stop] = clear_values
+                for t in range(time_len):
+                    plane = values[t]
+                    if bool((plane == -2).all()):
+                        continue
+                    mask_array[t, cy:cy_stop, cx:cx_stop] = plane
+                    chunks_written += 1
+
+                wet_values = (values == 1).sum(axis=0).astype(np.uint16)
+                clear_values = ((values == 0) | (values == 1)).sum(axis=0).astype(np.uint16)
+                if bool(wet_values.any()):
+                    derived_arrays["wet_count"][cy:cy_stop, cx:cx_stop] = wet_values
+                if bool(clear_values.any()):
+                    derived_arrays["clear_count"][cy:cy_stop, cx:cx_stop] = clear_values
+            encode_write_seconds += time.perf_counter() - write_started
 
         digest = _item_digest(tuple(item_ids))
         time_values = pd.DatetimeIndex(np.asarray(year_mask.time.values))
@@ -873,12 +911,14 @@ def write_annual_group(
 
         expected_shape = (time_len, height, width)
         expected_transform = tuple(year_mask.rio.transform())[:6]
+        validation_started = time.perf_counter()
         validate_annual_group(
             temp_path,
             expected_year=year,
             expected_shape=expected_shape,
             expected_transform=expected_transform,
         )
+        validation_seconds = time.perf_counter() - validation_started
 
         del mask_array, group, derived_arrays
         import gc
@@ -900,6 +940,9 @@ def write_annual_group(
         chunks_written=chunks_written,
         loaded_pixels=loaded_pixels,
         item_digest=digest,
+        compute_seconds=compute_seconds,
+        encode_write_seconds=encode_write_seconds,
+        validation_seconds=validation_seconds,
     )
 
 

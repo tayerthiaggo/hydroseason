@@ -392,3 +392,47 @@ def test_storage_preflight_fails_before_stac_query(monkeypatch, tmp_path):
             "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
         )
     query.assert_not_called()
+
+
+def test_manifest_contains_year_diagnostics(monkeypatch, tmp_path):
+    import json
+
+    items = [_item("2015-01-15", "a"), _item("2016-02-15", "b")]
+    stats2015 = SimpleNamespace(
+        year=2015, task_count=10, chunks_considered=12, chunks_written=8,
+        loaded_pixels=1000, item_digest="dig2015", compute_seconds=1.2,
+        encode_write_seconds=0.3, validation_seconds=0.1,
+    )
+    stats2016 = SimpleNamespace(
+        year=2016, task_count=15, chunks_considered=12, chunks_written=10,
+        loaded_pixels=1200, item_digest="dig2016", compute_seconds=1.5,
+        encode_write_seconds=0.4, validation_seconds=0.2,
+    )
+
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(side_effect=[_cube(2015), _cube(2016)]),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.write_annual_group",
+        Mock(side_effect=[stats2015, stats2016]),
+    )
+
+    handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2016-12-31", cache_root=tmp_path, resolution=30,
+    )
+
+    manifest_path = handle.path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    year_diags = manifest["acquisition"]["year_diagnostics"]
+    assert len(year_diags) == 2
+    assert year_diags[0]["year"] == 2015
+    assert year_diags[0]["compute_seconds"] == 1.2
+    assert year_diags[1]["year"] == 2016
+    assert year_diags[1]["validation_seconds"] == 0.2
+

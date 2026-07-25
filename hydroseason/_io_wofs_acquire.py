@@ -203,6 +203,7 @@ def acquire_wofs_cache(
     progress_desc: str | None = None,
     progress_position: int | None = None,
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
+    wet_aoi: Any = None,
 ) -> WOfSCacheHandle:
     """Fill (or reuse) a WOfS Zarr cache store for ``aoi``/``[start_date, end_date]``.
 
@@ -276,11 +277,7 @@ def acquire_wofs_cache(
         cache_root, aoi_gdf, crs=crs_value, resolution=float(resolution), months=months
     )
 
-    phase_started = time.monotonic()
-    items, queried_aoi_gdf = _query_wofs_items(stac_url, collection, aoi_gdf, start_date, end_date)
-    query_elapsed = time.monotonic() - phase_started
-
-    target = queried_aoi_gdf.to_crs(crs_value) if crs_value is not None else queried_aoi_gdf
+    target = aoi_gdf.to_crs(crs_value) if crs_value is not None else aoi_gdf
     # crs/resolution are always explicit here (never None), so output_geobox
     # only needs the AOI geometry -- no per-item raster metadata is required
     # to derive the parent grid, so an empty item list is passed rather than
@@ -299,10 +296,45 @@ def acquire_wofs_cache(
         already_done = set() if force else completed_years(handle)
         missing_years = sorted(requested_years - already_done)
 
+        if not missing_years:
+            if diagnostics_callback is not None:
+                diagnostics_callback(_diagnostics_payload(0, 0))
+            return handle
+
+        phase_started = time.monotonic()
+        query_elapsed = 0.0
+        graph_count = 0
+        all_item_ids: list[str] = []
+        plan_diagnostics: list[dict[str, Any]] = []
+        write_stats: list[Any] = []
+
+        missing_start, missing_end = f"{missing_years[0]}-01-01", f"{missing_years[-1]}-12-31"
+        if progress:
+            print(f"[{aoi_name}] Searching STAC catalog for missing years ({missing_years[0]} to {missing_years[-1]})...", flush=True)
+        phase_started = time.monotonic()
+        items, _ = _query_wofs_items(stac_url, collection, aoi_gdf, missing_start, missing_end)
+        query_elapsed = time.monotonic() - phase_started
+        if progress:
+            print(f"[{aoi_name}] Found {len(items)} STAC scenes in {query_elapsed:.1f}s. Preparing Zarr acquisition...", flush=True)
+
         by_year = partition_items_by_year(items)
         graph_count = 0
         plan_diagnostics: list[dict[str, Any]] = []
         write_stats: list[Any] = []
+
+        pruning_geom = (
+            wet_aoi.geometry.union_all()
+            if (wet_aoi is not None and hasattr(wet_aoi.geometry, "union_all"))
+            else (wet_aoi.geometry.unary_union if wet_aoi is not None
+                  else (target.geometry.union_all() if hasattr(target.geometry, "union_all")
+                        else target.geometry.unary_union))
+        )
+        plan = plan_spatial_slices(
+            pruning_geom,
+            shape=tuple(int(v) for v in parent_geobox.shape),
+            transform=parent_geobox.affine,
+        )
+        planned_shape = _planned_pixel_shape(plan)
 
         year_iter = missing_years
         if progress and missing_years:
@@ -318,6 +350,10 @@ def acquire_wofs_cache(
                 tqdm_kwargs["leave"] = True
             year_iter = tqdm(missing_years, **tqdm_kwargs)
 
+        import gc
+        from hydroseason._io_wofs_zarr import preflight_cache_space
+
+        year_diagnostics: list[dict[str, Any]] = []
         for year in year_iter:
             year_start, year_end = _year_date_bounds(year, request.start_date, request.end_date)
             year_items = by_year.get(year, ())
@@ -339,12 +375,6 @@ def acquire_wofs_cache(
             else:
                 mask = _empty_year_mask(parent_geobox, year_start, year_end, target)
 
-            plan = plan_spatial_slices(
-                target.geometry.union_all() if hasattr(target.geometry, "union_all")
-                else target.geometry.unary_union,
-                shape=tuple(int(v) for v in parent_geobox.shape),
-                transform=parent_geobox.affine,
-            )
             plan_diagnostics.append(
                 {
                     "year": year,
@@ -354,7 +384,6 @@ def acquire_wofs_cache(
                 }
             )
 
-            planned_shape = _planned_pixel_shape(plan)
             year_months = len(
                 pd.date_range(
                     pd.Timestamp(year_start).to_period("M").to_timestamp(),
@@ -362,11 +391,11 @@ def acquire_wofs_cache(
                     freq="MS",
                 )
             )
-            from hydroseason._io_wofs_zarr import preflight_cache_space
 
             preflight_cache_space(handle.path, shape=planned_shape, months=year_months)
 
             item_ids = tuple(item.id for item in year_items)
+            all_item_ids.extend(item_ids)
             final_year_path = Path(handle.path) / "years" / str(int(year))
             stats = write_annual_group(
                 handle,
@@ -377,6 +406,23 @@ def acquire_wofs_cache(
                 overwrite=force or Path(_long_path(final_year_path)).exists(),
             )
             write_stats.append(stats)
+            year_diag = {
+                "year": int(year),
+                "item_count": len(item_ids),
+                "selected_tile_pixels": plan.selected_tile_pixels,
+                "n_windows": len(plan.windows),
+                "task_count": stats.task_count,
+                "chunks_considered": stats.chunks_considered,
+                "chunks_written": stats.chunks_written,
+                "loaded_pixels": stats.loaded_pixels,
+                "compute_seconds": getattr(stats, "compute_seconds", 0.0),
+                "encode_write_seconds": getattr(stats, "encode_write_seconds", 0.0),
+                "validation_seconds": getattr(stats, "validation_seconds", 0.0),
+            }
+            year_diagnostics.append(year_diag)
+            _write_acquisition_progress(handle, query_elapsed, [year_diag])
+            del mask
+            gc.collect()
 
         elapsed = time.monotonic() - phase_started
         _write_acquisition_manifest(
@@ -387,6 +433,7 @@ def acquire_wofs_cache(
             item_ids=tuple(item.id for item in items),
             write_stats=write_stats,
             elapsed_phases={"query_seconds": query_elapsed, "total_seconds": elapsed},
+            year_diagnostics=year_diagnostics,
         )
         if diagnostics_callback is not None:
             diagnostics_callback(_diagnostics_payload(1, graph_count, write_stats))
@@ -640,6 +687,23 @@ def _output_digest(write_stats: list[Any]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def _write_acquisition_progress(
+    handle: WOfSCacheHandle,
+    query_seconds: float,
+    year_diagnostics: list[dict[str, Any]],
+) -> None:
+    from hydroseason._io_wofs_zarr import _read_json, _write_json_atomic
+
+    manifest_path = Path(handle.path) / "manifest.json"
+    manifest = _read_json(manifest_path) or {}
+    acq = manifest.setdefault("acquisition", {})
+    existing = {d["year"]: d for d in acq.get("year_diagnostics", [])}
+    for d in year_diagnostics:
+        existing[d["year"]] = d
+    acq["year_diagnostics"] = [existing[y] for y in sorted(existing)]
+    _write_json_atomic(manifest_path, manifest)
+
+
 def _write_acquisition_manifest(
     handle: WOfSCacheHandle,
     *,
@@ -649,6 +713,7 @@ def _write_acquisition_manifest(
     item_ids: tuple[str, ...],
     write_stats: list[Any],
     elapsed_phases: dict[str, float],
+    year_diagnostics: list[dict[str, Any]] = (),
 ) -> None:
     """Record acquisition provenance into the store's root manifest.json.
 
@@ -667,15 +732,21 @@ def _write_acquisition_manifest(
     item_digest = hashlib.sha256(
         json.dumps({"item_ids": sorted(item_ids)}, sort_keys=True).encode("utf-8")
     ).hexdigest()
+    acq = manifest.get("acquisition", {})
+    existing_diags = {d["year"]: d for d in acq.get("year_diagnostics", [])}
+    for d in year_diagnostics:
+        existing_diags[d["year"]] = d
+
     manifest["acquisition"] = {
-        "query_count": manifest.get("acquisition", {}).get("query_count", 0) + query_count,
-        "graph_count": manifest.get("acquisition", {}).get("graph_count", 0) + graph_count,
-        "plan_diagnostics": manifest.get("acquisition", {}).get("plan_diagnostics", []) + plan_diagnostics,
+        "query_count": acq.get("query_count", 0) + query_count,
+        "graph_count": acq.get("graph_count", 0) + graph_count,
+        "plan_diagnostics": acq.get("plan_diagnostics", []) + plan_diagnostics,
         "item_ids": sorted(item_ids),
         "item_digest": item_digest,
         "output_digest": _output_digest(write_stats),
         "package_versions": _package_versions(),
         "elapsed_phases": elapsed_phases,
+        "year_diagnostics": [existing_diags[y] for y in sorted(existing_diags)],
     }
     _write_json_atomic(manifest_path, manifest)
 

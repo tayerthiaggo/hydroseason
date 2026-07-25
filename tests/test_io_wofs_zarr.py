@@ -345,3 +345,23 @@ def test_reader_rejects_duplicate_or_out_of_order_months(tmp_path):
     group["time"][:] = encoded[::-1]
     with pytest.raises(ValueError, match="strict monthly order"):
         open_completed_mask_cache(handle, "2015-01-01", "2015-12-31")
+
+
+def test_annual_writer_reports_non_negative_phase_timings(tmp_path):
+    mask = _canonical_cube(shape=(12, 512, 512), fill=1).chunk(
+        {"time": 1, "y": 512, "x": 512}
+    )
+    handle = _handle_for_cube(tmp_path, mask)
+
+    stats = write_annual_group(
+        handle,
+        2015,
+        mask,
+        windows=(GridWindow("r0c0", 0, 512, 0, 512),),
+        item_ids=("a",),
+    )
+
+    assert stats.compute_seconds >= 0.0
+    assert stats.encode_write_seconds >= 0.0
+    assert stats.validation_seconds >= 0.0
+
