@@ -314,7 +314,10 @@ def acquire_wofs_cache(
         if progress:
             print(f"[{aoi_name}] Searching STAC catalog for missing years ({missing_years[0]} to {missing_years[-1]})...", flush=True)
         phase_started = time.monotonic()
-        items, _ = _query_wofs_items(stac_url, collection, aoi_gdf, missing_start, missing_end)
+        items, _ = _query_wofs_items(
+            stac_url, collection, aoi_gdf, missing_start, missing_end,
+            item_cache_root=cache_root, force_item_refresh=force,
+        )
         query_elapsed = time.monotonic() - phase_started
         if progress:
             print(f"[{aoi_name}] Found {len(items)} STAC scenes in {query_elapsed:.1f}s. Preparing Zarr acquisition...", flush=True)

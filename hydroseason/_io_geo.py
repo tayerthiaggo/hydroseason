@@ -59,7 +59,7 @@ def _configure_cog_read_env() -> None:
         "GDAL_HTTP_MULTIPLEX": "YES",
         "GDAL_HTTP_VERSION": "2",
         "VSI_CACHE": "TRUE",
-        "VSI_CACHE_SIZE": "67108864",  # 64 MB
+        "VSI_CACHE_SIZE": "134217728",  # 128 MB
         "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff",
         "GDAL_HTTP_MAX_RETRY": "5",
         "GDAL_HTTP_RETRY_DELAY": "1",
@@ -191,24 +191,63 @@ def load_monthly_masks_zarr(
     return masks.chunk({"time": min(time_chunk, masks.sizes["time"]), "x": chunk_x, "y": chunk_y})
 
 
-def _query_wofs_items(stac_url, collection, aoi, start_date, end_date):
+def _query_wofs_items(
+    stac_url: str,
+    collection: str,
+    aoi,
+    start_date: str,
+    end_date: str,
+    *,
+    item_cache_root: str | Path | None = None,
+    force_item_refresh: bool = False,
+):
     """Query STAC for WOfS items in an AOI and date range.
 
     Returns a tuple of (items, aoi_gdf) where items is a list of STAC items
     and aoi_gdf is the loaded AOI GeoDataFrame.
     """
     import pystac_client
+    from hydroseason._io_stac_cache import (
+        STACItemCacheKey,
+        load_cached_items,
+        write_cached_items,
+    )
+    from hydroseason._io_wofs_acquire import _aoi_digest
 
     aoi_gdf = load_aoi(aoi)
+    aoi_hash = _aoi_digest(aoi_gdf)
+    start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
+    start_str = start.strftime("%Y-%m-%d")
+    end_str = end.strftime("%Y-%m-%d")
+
+    cache_key = STACItemCacheKey(
+        stac_url=stac_url,
+        collection=collection,
+        aoi_sha256=aoi_hash,
+        start_date=start_str,
+        end_date=end_str,
+    )
+
+    if item_cache_root is not None and not force_item_refresh:
+        cached_items = load_cached_items(item_cache_root, cache_key)
+        if cached_items is not None and len(cached_items) > 0:
+            items = sorted(cached_items, key=_stac_item_sort_key)
+            return items, aoi_gdf
+
     try:
         aoi_4326 = aoi_gdf.to_crs("EPSG:4326")
+        geometry = (
+            aoi_4326.geometry.union_all()
+            if hasattr(aoi_4326.geometry, "union_all")
+            else aoi_4326.geometry.unary_union
+        )
         client = pystac_client.Client.open(stac_url)
-        start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
         items = _collect_stac_items(
             client,
             collections=[collection],
             datetime=f"{start:%Y-%m-%d}/{end:%Y-%m-%d}",
-            bbox=list(aoi_4326.total_bounds),
+            intersects=geometry.__geo_interface__,
+            limit=1000,
         )
     except Exception as exc:
         raise AOIRasterizationError("STAC AOI query failed; refusing to load an unclipped raster.") from exc
@@ -218,6 +257,8 @@ def _query_wofs_items(stac_url, collection, aoi, start_date, end_date):
     # otherwise reach odc-stac in different orders across repeated queries,
     # making categorical mosaic tie-breaks change by a pixel or two.
     items = sorted(items, key=_stac_item_sort_key)
+    if item_cache_root is not None:
+        write_cached_items(item_cache_root, cache_key, items)
     return items, aoi_gdf
 
 
@@ -681,6 +722,7 @@ def iter_wofs_tiles_from_stac(
 
 
 def _collect_stac_items(client, *, max_attempts: int = 4, **search_kwargs):
+    search_kwargs.setdefault("limit", 1000)
     delay = 2.0
     for attempt in range(1, max_attempts + 1):
         try:
@@ -754,9 +796,9 @@ def _preserve_georef(result, source):
 
 
 def _combine_observations(series, majority):
-    water = (series == 1).sum("time")
-    dry = (series == 0).sum("time")
-    invalid = (series == -1).sum("time")
+    water = (series == 1).sum("time", dtype=np.int32)
+    dry = (series == 0).sum("time", dtype=np.int32)
+    invalid = (series == -1).sum("time", dtype=np.int32)
     water_wins = (water > 0) & ((water > dry) if majority else True)
 
     import xarray as xr
@@ -776,11 +818,6 @@ def _clip_to_aoi(mask, aoi_gdf):
         crs = _resolve_raster_crs(mask)
         if crs is None:
             raise GeoreferencingError("raster is missing CRS")
-        # Canonical values are already int8, so an unset nodata makes
-        # rio.clip's outside-AOI fill land on NaN, which casts straight to
-        # 0 (dry) instead of a real sentinel. Write nodata=-2 first so
-        # clip's fill value is representable and outside pixels survive as
-        # outside (-2), not dry.
         mask = mask.rio.write_nodata(outside_value)
         clipped = mask.rio.clip(aoi_gdf.to_crs(crs).geometry, drop=False, all_touched=True)
     except Exception as exc:
@@ -800,7 +837,17 @@ def mark_in_aoi_nodata_as_invalid(mask, aoi, *, outside_value: int = -2, invalid
         if isinstance(exc, AOIRasterizationError):
             raise
         raise AOIRasterizationError("AOI masking failed; refusing unclipped raster.") from exc
-    return mask.where(~((mask == outside_value) & inside), np.int8(invalid_value)).astype(np.int8)
+
+    import xarray as xr
+
+    in_aoi_nodata = (mask == outside_value) & inside
+    res = xr.where(in_aoi_nodata, np.int8(invalid_value), mask).astype(np.int8)
+    res.attrs = mask.attrs
+    if hasattr(mask, "spatial_ref"):
+        res = res.assign_coords(spatial_ref=mask.spatial_ref)
+    if crs is not None:
+        res = res.rio.write_crs(crs)
+    return res
 
 
 def _inside_aoi_mask_like(template, aoi_gdf):
@@ -810,6 +857,11 @@ def _inside_aoi_mask_like(template, aoi_gdf):
 
         transform = _resolve_raster_transform(template)
         inside = geometry_mask(list(aoi_gdf.geometry), out_shape=(template.sizes["y"], template.sizes["x"]), transform=transform, invert=True, all_touched=True)
+        if hasattr(template.data, "dask"):
+            import dask.array as da
+            chunk_y = template.chunksizes["y"][0] if hasattr(template, "chunksizes") and "y" in template.chunksizes else 512
+            chunk_x = template.chunksizes["x"][0] if hasattr(template, "chunksizes") and "x" in template.chunksizes else 512
+            inside = da.from_array(inside, chunks=(chunk_y, chunk_x))
         return xr.DataArray(inside, dims=("y", "x"), coords={"y": template.y, "x": template.x})
     except Exception as exc:
         raise AOIRasterizationError("AOI rasterization failed; refusing unclipped raster.") from exc

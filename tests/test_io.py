@@ -90,6 +90,30 @@ def test_load_aoi_validates_geometry_and_reprojects():
     assert loaded.crs.to_epsg() == 3857
 
 
+def test_query_wofs_items_uses_polygon_intersects(monkeypatch):
+    from unittest.mock import Mock
+    import pystac_client
+    import hydroseason._io_geo as geo
+
+    mock_client = Mock()
+    mock_search = Mock(return_value=Mock(items=Mock(return_value=[])))
+    mock_client.search = mock_search
+    monkeypatch.setattr(pystac_client.Client, "open", lambda _url: mock_client)
+
+    with pytest.raises(ValueError, match="No STAC items found"):
+        geo._query_wofs_items(
+            "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+            "2015-01-01", "2015-12-31",
+        )
+
+    mock_search.assert_called_once()
+    kwargs = mock_search.call_args.kwargs
+    assert "intersects" in kwargs
+    assert "bbox" not in kwargs
+    assert kwargs["limit"] == 1000
+
+
+
 def test_load_aoi_rejects_empty_geometry_frame():
     geopandas = pytest.importorskip("geopandas")
     from hydroseason.io import load_aoi
