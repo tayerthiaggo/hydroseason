@@ -207,6 +207,7 @@ def acquire_wofs_cache(
     compute_batch_size: int = 16,
     read_workers: int | None = None,
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
+    year_workers: int = 1,
 ) -> WOfSCacheHandle:
     """Fill (or reuse) a WOfS Zarr cache store for ``aoi``/``[start_date, end_date]``.
 
@@ -360,13 +361,11 @@ def acquire_wofs_cache(
         import gc
         from hydroseason._io_wofs_zarr import preflight_cache_space
 
-        year_diagnostics: list[dict[str, Any]] = []
-        for year in year_iter:
+        def _process_one_year(year: int):
             year_start, year_end = _year_date_bounds(year, request.start_date, request.end_date)
             year_items = by_year.get(year, ())
 
             if year_items:
-                graph_count += 1
                 mask = build_wofs_year_graph(
                     list(year_items),
                     target,
@@ -383,14 +382,12 @@ def acquire_wofs_cache(
             else:
                 mask = _empty_year_mask(parent_geobox, year_start, year_end, target)
 
-            plan_diagnostics.append(
-                {
-                    "year": year,
-                    "selected_tile_pixels": plan.selected_tile_pixels,
-                    "reason": plan.reason,
-                    "n_windows": len(plan.windows),
-                }
-            )
+            p_diag = {
+                "year": year,
+                "selected_tile_pixels": plan.selected_tile_pixels,
+                "reason": plan.reason,
+                "n_windows": len(plan.windows),
+            }
 
             year_months = len(
                 pd.date_range(
@@ -403,7 +400,6 @@ def acquire_wofs_cache(
             preflight_cache_space(handle.path, shape=planned_shape, months=year_months)
 
             item_ids = tuple(item.id for item in year_items)
-            all_item_ids.extend(item_ids)
             final_year_path = Path(handle.path) / "years" / str(int(year))
             stats = write_annual_group(
                 handle,
@@ -415,8 +411,7 @@ def acquire_wofs_cache(
                 compute_batch_size=compute_batch_size,
                 read_workers=read_workers,
             )
-            write_stats.append(stats)
-            year_diag = {
+            y_diag = {
                 "year": int(year),
                 "item_count": len(item_ids),
                 "selected_tile_pixels": plan.selected_tile_pixels,
@@ -429,10 +424,35 @@ def acquire_wofs_cache(
                 "encode_write_seconds": getattr(stats, "encode_write_seconds", 0.0),
                 "validation_seconds": getattr(stats, "validation_seconds", 0.0),
             }
-            year_diagnostics.append(year_diag)
-            _write_acquisition_progress(handle, query_elapsed, [year_diag])
             del mask
             gc.collect()
+            return y_diag, stats, p_diag, item_ids, bool(year_items)
+
+        year_diagnostics: list[dict[str, Any]] = []
+        if year_workers > 1 and len(missing_years) > 1:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            with ThreadPoolExecutor(max_workers=min(year_workers, len(missing_years))) as pool:
+                futures = {pool.submit(_process_one_year, yr): yr for yr in missing_years}
+                for future in as_completed(futures):
+                    y_diag, stats, p_diag, item_ids, was_graph = future.result()
+                    if was_graph:
+                        graph_count += 1
+                    all_item_ids.extend(item_ids)
+                    write_stats.append(stats)
+                    plan_diagnostics.append(p_diag)
+                    year_diagnostics.append(y_diag)
+                    _write_acquisition_progress(handle, query_elapsed, [y_diag])
+        else:
+            for year in year_iter:
+                y_diag, stats, p_diag, item_ids, was_graph = _process_one_year(year)
+                if was_graph:
+                    graph_count += 1
+                all_item_ids.extend(item_ids)
+                write_stats.append(stats)
+                plan_diagnostics.append(p_diag)
+                year_diagnostics.append(y_diag)
+                _write_acquisition_progress(handle, query_elapsed, [y_diag])
 
         elapsed = time.monotonic() - phase_started
         _write_acquisition_manifest(

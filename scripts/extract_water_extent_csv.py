@@ -121,6 +121,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="resampling policy for WOfS loading (default: categorical_safe)",
     )
     parser.add_argument(
+        "--year-workers", type=int, default=1,
+        help="number of concurrent worker processes for parallel multi-year acquisition (default: 1)",
+    )
+    parser.add_argument(
         "--profile", action="store_true",
         help="print per-phase timing (precompute vs tiled, per-year, tile-skip counts) to stderr",
     )
@@ -171,6 +175,7 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
         progress_position=position,
         read_workers=args.read_workers if args.read_workers > 0 else None,
         resampling_policy=args.resampling_policy,
+        year_workers=args.year_workers,
         **tile_kwargs,
     )
     elapsed = time.monotonic() - t0
@@ -189,6 +194,7 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
             resolution=args.resolution,
             offline=True,
             resampling_policy=args.resampling_policy,
+            year_workers=args.year_workers,
         )
         manifest_path = Path(handle.path) / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

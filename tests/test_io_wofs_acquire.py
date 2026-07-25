@@ -122,6 +122,27 @@ def test_completed_year_is_not_rebuilt(monkeypatch, tmp_path):
     graph.assert_not_called()
 
 
+def test_acquisition_year_workers_parameter(monkeypatch, tmp_path):
+    handle = SimpleNamespace(path=tmp_path / "store.zarr", identity="id", request_digest="request")
+    handle.path.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.resolve_cached_request", Mock(return_value=handle))
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.create_cache_handle", Mock(return_value=handle))
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.completed_years", Mock(return_value=set()))
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=([_item("2015-01-15", "a"), _item("2016-01-15", "b")], _aoi())),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", Mock(side_effect=[_cube(2015), _cube(2016)]))
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    res = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2016-12-31", cache_root=tmp_path, resolution=30,
+        year_workers=2,
+    )
+    assert res == handle
+
+
 def test_corrupt_final_year_directory_is_rebuilt_with_overwrite(monkeypatch, tmp_path):
     handle = SimpleNamespace(path=tmp_path / "store.zarr", identity="id", request_digest="request")
     (handle.path / "years" / "2015").mkdir(parents=True)
