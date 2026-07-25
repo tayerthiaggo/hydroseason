@@ -114,6 +114,7 @@ def _child_run(args: argparse.Namespace) -> int:
         "precompute_wet_aoi": True,
         "auto_tiling": False,
         "read_workers": args.read_workers if getattr(args, "read_workers", 0) > 0 else None,
+        "resampling_policy": getattr(args, "resampling_policy", "categorical_safe"),
     }
     if args.mode == "legacy":
         import hydroseason._io_geo as geo
@@ -200,6 +201,8 @@ def _run_child(
         str(getattr(args, "compute_batch_size", 16)),
         "--read-workers",
         str(getattr(args, "read_workers", 0)),
+        "--resampling-policy",
+        getattr(args, "resampling_policy", "categorical_safe"),
     ]
     if mask_cache is not None:
         command.extend(["--mask-cache", str(mask_cache)])
@@ -410,6 +413,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--compute-batch-size", type=int, default=16)
     parser.add_argument("--read-workers", type=int, default=0)
+    parser.add_argument("--resampling-policy", choices=("categorical_safe", "native_aligned"), default="categorical_safe")
     parser.add_argument("--work-dir", type=Path, default=None)
     parser.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--case", choices=sorted(CASES), help=argparse.SUPPRESS)

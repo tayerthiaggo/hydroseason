@@ -206,6 +206,7 @@ def acquire_wofs_cache(
     wet_aoi: Any = None,
     compute_batch_size: int = 16,
     read_workers: int | None = None,
+    resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
 ) -> WOfSCacheHandle:
     """Fill (or reuse) a WOfS Zarr cache store for ``aoi``/``[start_date, end_date]``.
 
@@ -377,6 +378,7 @@ def acquire_wofs_cache(
                     time_chunk=time_chunk,
                     majority=majority,
                     groupby="solar_day",
+                    resampling_policy=resampling_policy,
                 )
             else:
                 mask = _empty_year_mask(parent_geobox, year_start, year_end, target)

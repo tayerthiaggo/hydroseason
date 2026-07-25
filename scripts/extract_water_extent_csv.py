@@ -115,6 +115,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
              "(0 = leave dask's own default alone; only set if confirmed to help)",
     )
     parser.add_argument(
+        "--resampling-policy",
+        choices=("categorical_safe", "native_aligned"),
+        default="categorical_safe",
+        help="resampling policy for WOfS loading (default: categorical_safe)",
+    )
+    parser.add_argument(
         "--profile", action="store_true",
         help="print per-phase timing (precompute vs tiled, per-year, tile-skip counts) to stderr",
     )
@@ -164,6 +170,7 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
         progress_desc=f"[{name}]",
         progress_position=position,
         read_workers=args.read_workers if args.read_workers > 0 else None,
+        resampling_policy=args.resampling_policy,
         **tile_kwargs,
     )
     elapsed = time.monotonic() - t0
@@ -181,6 +188,7 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
             crs=OUTPUT_CRS,
             resolution=args.resolution,
             offline=True,
+            resampling_policy=args.resampling_policy,
         )
         manifest_path = Path(handle.path) / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
