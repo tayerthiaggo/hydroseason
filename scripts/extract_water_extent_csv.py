@@ -35,7 +35,8 @@ os.environ.pop("PROJ_DATA", None)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from hydroseason.io import acquire_wofs_cache, load_wofs_monthly_extent  # noqa: E402
+from hydroseason.io import acquire_wofs_cache, load_aoi, load_wofs_monthly_extent  # noqa: E402
+from hydroseason._io_wofs_acquire import _resolve_wet_aoi  # noqa: E402
 
 STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 COLLECTION = "ga_ls_wo_3"
@@ -199,6 +200,27 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
     print(f"[{name}] {len(extent)} months written in {elapsed:.1f}s -> {out_csv}", flush=True)
 
     if args.profile and not args.legacy_remote_path:
+        # offline=True never touches the network, so it can only derive
+        # wet_mask_sha256 from an explicit wet_aoi (see
+        # hydroseason._io_wofs_acquire.acquire_wofs_cache's `if offline:`
+        # branch). Passing wet_mask straight through here would silently
+        # resolve to the unpruned store identity and 404 against the pruned
+        # store the main call above just wrote. Resolve the mask ourselves
+        # first (same preference order the main call uses) and pass the
+        # resolved wet_aoi instead.
+        aoi_gdf = load_aoi(boundary_path)
+        profile_years = list(range(pd.Timestamp(args.start_date).year, pd.Timestamp(args.end_date).year + 1))
+        resolved_wet_aoi, _resolved_digest = _resolve_wet_aoi(
+            STAC_URL,
+            aoi_gdf,
+            profile_years,
+            wet_aoi=None,
+            wet_mask=args.wet_mask,
+            crs=OUTPUT_CRS,
+            resolution=args.resolution,
+            progress=False,
+            aoi_name=name,
+        )
         handle = acquire_wofs_cache(
             STAC_URL,
             COLLECTION,
@@ -211,7 +233,7 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
             offline=True,
             resampling_policy=args.resampling_policy,
             year_workers=args.year_workers,
-            wet_mask=args.wet_mask,
+            wet_aoi=resolved_wet_aoi,
         )
         manifest_path = Path(handle.path) / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
