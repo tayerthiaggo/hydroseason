@@ -537,3 +537,246 @@ def test_acquisition_passes_512_aligned_windows_to_writer(monkeypatch, tmp_path)
         assert (w.x_stop - w.x_start) <= 512
 
 
+def test_resolve_wet_aoi_prefers_explicit_mask_over_dea_stats(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    import hydroseason._io_wofs_acquire as acquire
+
+    explicit = gpd.GeoDataFrame({"geometry": [box(0.0, 0.0, 100.0, 100.0)]}, crs="EPSG:3577")
+
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError("DEA stats must not be queried when wet_aoi is explicit")
+
+    monkeypatch.setattr(acquire, "fetch_dea_stats_wet_aoi", _must_not_be_called)
+
+    resolved, digest = acquire._resolve_wet_aoi(
+        "https://example.test/stac", explicit, [2015],
+        wet_aoi=explicit, wet_mask="dea_stats",
+        crs=3577, resolution=30.0, progress=False, aoi_name="test",
+    )
+    assert resolved is explicit
+    assert digest is not None and len(digest) == 64
+
+
+def test_resolve_wet_aoi_falls_open_when_dea_stats_unavailable(monkeypatch):
+    """A failed stats fetch must yield NO pruning, never partial pruning:
+    pruning on a bad mask silently deletes real water."""
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    import hydroseason._io_wofs_acquire as acquire
+    from hydroseason._io_dea_stats import DEAStatsUnavailable
+
+    aoi = gpd.GeoDataFrame({"geometry": [box(0.0, 0.0, 100.0, 100.0)]}, crs="EPSG:3577")
+
+    def _unavailable(*args, **kwargs):
+        raise DEAStatsUnavailable("collection unreachable")
+
+    monkeypatch.setattr(acquire, "fetch_dea_stats_wet_aoi", _unavailable)
+
+    resolved, digest = acquire._resolve_wet_aoi(
+        "https://example.test/stac", aoi, [2015],
+        wet_aoi=None, wet_mask="dea_stats",
+        crs=3577, resolution=30.0, progress=False, aoi_name="test",
+    )
+    assert resolved is None
+    assert digest is None
+
+
+def test_resolve_wet_aoi_off_never_queries_stats(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    import hydroseason._io_wofs_acquire as acquire
+
+    aoi = gpd.GeoDataFrame({"geometry": [box(0.0, 0.0, 100.0, 100.0)]}, crs="EPSG:3577")
+
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError("wet_mask='off' must not query DEA stats")
+
+    monkeypatch.setattr(acquire, "fetch_dea_stats_wet_aoi", _must_not_be_called)
+
+    resolved, digest = acquire._resolve_wet_aoi(
+        "https://example.test/stac", aoi, [2015],
+        wet_aoi=None, wet_mask="off",
+        crs=3577, resolution=30.0, progress=False, aoi_name="test",
+    )
+    assert resolved is None
+    assert digest is None
+
+
+def test_pruned_and_unpruned_requests_use_distinct_stores(tmp_path):
+    """The whole point of wet_mask_sha256: a pruned store must not be mistaken
+    for a full-coverage one."""
+    from hydroseason._io_wofs_zarr import (
+        WOFS_CACHE_SCHEMA_VERSION,
+        WOFS_CLASSIFIER_VERSION,
+        WOFS_PLANNER_VERSION,
+        WOfSCacheRequest,
+    )
+
+    common = {
+        "stac_url": "https://example.test/stac",
+        "collection": "ga_ls_wo_3",
+        "aoi_sha256": "a" * 64,
+        "start_date": "2015-01-01",
+        "end_date": "2015-12-31",
+        "crs": "3577",
+        "resolution": 30.0,
+        "classifier_version": WOFS_CLASSIFIER_VERSION,
+        "groupby": "solar_day",
+        "majority": True,
+        "planner_version": WOFS_PLANNER_VERSION,
+        "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+    }
+    full = WOfSCacheRequest(**common)
+    pruned = WOfSCacheRequest(**common, wet_mask_sha256="d" * 64)
+    assert full.request_digest() != pruned.request_digest()
+
+
+def test_resolve_wet_aoi_prefers_local_cached_counts_over_dea_stats(monkeypatch, tmp_path):
+    """Local cached wet counts (free, exact for completed years) must win
+    over a DEA-stats fetch when both are available."""
+    import hydroseason._io_wofs_acquire as acquire
+
+    handle = _completed_cache_handle(tmp_path)
+
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError("DEA stats must not be queried when local counts cover the request")
+
+    monkeypatch.setattr(acquire, "fetch_dea_stats_wet_aoi", _must_not_be_called)
+
+    resolved, digest = acquire._resolve_wet_aoi(
+        "https://example.test/stac", _aoi(), [2015, 2016],
+        wet_aoi=None, wet_mask="dea_stats",
+        crs=3577, resolution=30.0, progress=False, aoi_name="test",
+        local_wet_aoi_handle=handle,
+    )
+    assert resolved is not None
+    assert digest is not None and len(digest) == 64
+
+
+def test_resolve_wet_aoi_falls_through_to_dea_stats_when_local_years_incomplete(monkeypatch, tmp_path):
+    """A local store exists but doesn't cover every requested year: the
+    local-cached-counts level must not apply, and dea_stats must still run."""
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    import hydroseason._io_wofs_acquire as acquire
+
+    handle = _completed_cache_handle(tmp_path)  # only covers 2015, 2016
+    dea_result = gpd.GeoDataFrame({"geometry": [box(0.0, 0.0, 100.0, 100.0)]}, crs="EPSG:3577")
+
+    monkeypatch.setattr(acquire, "fetch_dea_stats_wet_aoi", Mock(return_value=dea_result))
+
+    resolved, digest = acquire._resolve_wet_aoi(
+        "https://example.test/stac", _aoi(), [2015, 2016, 2017],
+        wet_aoi=None, wet_mask="dea_stats",
+        crs=3577, resolution=30.0, progress=False, aoi_name="test",
+        local_wet_aoi_handle=handle,
+    )
+    assert resolved is dea_result
+    assert digest is not None and len(digest) == 64
+
+
+def test_resolve_wet_aoi_falls_through_to_dea_stats_when_local_handle_has_no_completed_years(monkeypatch, tmp_path):
+    """A freshly created (empty) handle must not raise out of _resolve_wet_aoi;
+    it must fall through to dea_stats instead."""
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    from hydroseason._io_wofs_zarr import (
+        WOFS_CACHE_SCHEMA_VERSION,
+        WOFS_CLASSIFIER_VERSION,
+        WOFS_PLANNER_VERSION,
+        WOfSCacheIdentity,
+        WOfSCacheRequest,
+        create_cache_handle,
+    )
+    import hydroseason._io_wofs_acquire as acquire
+
+    request = WOfSCacheRequest(
+        stac_url="https://example.test/stac", collection="ga_ls_wo_3",
+        aoi_sha256="a" * 64, start_date="2015-01-01", end_date="2015-12-31",
+        crs="3577", resolution=30.0, classifier_version=WOFS_CLASSIFIER_VERSION,
+        groupby="solar_day", majority=True, planner_version=WOFS_PLANNER_VERSION,
+        schema_version=WOFS_CACHE_SCHEMA_VERSION,
+    )
+    identity = WOfSCacheIdentity.from_request(
+        request, shape=(4, 4), transform=(1.0, 0.0, 0.0, 0.0, -1.0, 0.0)
+    )
+    empty_handle = create_cache_handle(tmp_path, identity)
+    dea_result = gpd.GeoDataFrame({"geometry": [box(0.0, 0.0, 100.0, 100.0)]}, crs="EPSG:3577")
+
+    monkeypatch.setattr(acquire, "fetch_dea_stats_wet_aoi", Mock(return_value=dea_result))
+
+    resolved, digest = acquire._resolve_wet_aoi(
+        "https://example.test/stac", _aoi(), [2015],
+        wet_aoi=None, wet_mask="dea_stats",
+        crs=3577, resolution=30.0, progress=False, aoi_name="test",
+        local_wet_aoi_handle=empty_handle,
+    )
+    assert resolved is dea_result
+    assert digest is not None and len(digest) == 64
+
+
+def test_default_wet_mask_off_reuses_existing_full_coverage_store(monkeypatch, tmp_path):
+    """A completed full-coverage store must be reused as-is on a later call
+    with the default wet_mask="off" and no explicit wet_aoi -- it must never
+    resolve to a *different* (pruned) store just because a local wet mask
+    happens to be derivable from that same store."""
+    import hydroseason._io_wofs_acquire as acquire
+
+    items = [_item("2015-01-15", "a"), _item("2016-02-15", "b")]
+    stats2015 = SimpleNamespace(
+        year=2015, task_count=1, chunks_considered=1, chunks_written=1,
+        loaded_pixels=16, item_digest="dig2015",
+    )
+    stats2016 = SimpleNamespace(
+        year=2016, task_count=1, chunks_considered=1, chunks_written=1,
+        loaded_pixels=16, item_digest="dig2016",
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(side_effect=[_cube(2015), _cube(2016)]),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.write_annual_group",
+        Mock(side_effect=[stats2015, stats2016]),
+    )
+
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError("wet_mask='off' must never derive or query a wet mask")
+
+    monkeypatch.setattr(acquire, "load_or_build_cached_wet_aoi", _must_not_be_called)
+    monkeypatch.setattr(acquire, "fetch_dea_stats_wet_aoi", _must_not_be_called)
+
+    first = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2016-12-31", cache_root=tmp_path, resolution=30,
+    )
+
+    # Pre-existing behaviour (unrelated to this task): a repeat call still
+    # re-queries STAC even on a full cache hit, but must resolve to the SAME
+    # store. The property under test here is that this call resolves to the
+    # same store/identity as before, never a different (pruned) one, even
+    # though a locally-derivable wet mask now exists for that same store.
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=([], _aoi())),
+    )
+
+    second = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2016-12-31", cache_root=tmp_path, resolution=30,
+    )
+
+    assert second.path == first.path
+    assert second.identity == first.identity
+
+

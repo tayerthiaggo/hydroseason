@@ -27,10 +27,15 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import pandas as pd
 
+from hydroseason._io_dea_stats import (
+    DEAStatsUnavailable,
+    fetch_dea_stats_wet_aoi,
+    wet_mask_digest,
+)
 from hydroseason._io_geo import (
     _output_geobox_for_aoi,
     _query_wofs_items,
@@ -184,6 +189,95 @@ def _empty_year_mask(geobox, start_date: str, end_date: str, aoi_gdf):
     return _clip_to_aoi(template, aoi_gdf)
 
 
+def _resolve_wet_aoi(
+    stac_url: str,
+    aoi_gdf,
+    years: list[int],
+    *,
+    wet_aoi,
+    wet_mask: str,
+    crs,
+    resolution: float,
+    progress: bool,
+    aoi_name: str,
+    local_wet_aoi_handle: "WOfSCacheHandle | None" = None,
+):
+    """Decide which wet mask (if any) to prune this acquisition with.
+
+    Returns ``(wet_aoi, wet_mask_sha256)``. Both are ``None`` when no
+    pruning applies -- the full-coverage path, byte-identical to the
+    behaviour before pruning existed.
+
+    Preference order:
+
+    1. An explicit caller-supplied ``wet_aoi``. The caller has asserted this
+       is a valid superset; trust it and never spend a network call.
+    2. Locally cached wet counts: if ``local_wet_aoi_handle`` points at a
+       full-coverage store that has already completed every year in
+       ``years``, derive the mask from its ``wet_count``/``clear_count``
+       arrays (:func:`load_or_build_cached_wet_aoi`) -- free, no network,
+       and an exact superset for the years it covers. Any failure here
+       (no completed years yet, years that don't cover the request, or any
+       other exception) falls through to the next level rather than
+       propagating.
+    3. ``wet_mask="dea_stats"``: fetch the DEA Water Observation Statistics
+       summaries.
+    4. Nothing -- no pruning.
+
+    Fails OPEN in every failure case. A mask that is wrong, partial, or
+    empty would silently prune real water into permanent ``-2``, so any
+    doubt drops back to a full read rather than pruning on a bad mask.
+    """
+    if wet_aoi is not None:
+        return wet_aoi, wet_mask_digest(wet_aoi)
+
+    if local_wet_aoi_handle is not None:
+        try:
+            covered_years = completed_years(local_wet_aoi_handle)
+            if set(years) <= covered_years:
+                resolved = load_or_build_cached_wet_aoi(local_wet_aoi_handle)
+                if progress:
+                    print(
+                        f"[{aoi_name}] Pruning reads to the locally cached wet mask.",
+                        flush=True,
+                    )
+                return resolved, wet_mask_digest(resolved)
+        except Exception:
+            # No completed years yet, years don't cover the request, or any
+            # other failure: this level doesn't apply. Fall through to
+            # dea_stats -- never treat this as "no pruning" if a later level
+            # might still succeed.
+            pass
+
+    if wet_mask != "dea_stats":
+        return None, None
+
+    try:
+        resolved = fetch_dea_stats_wet_aoi(
+            stac_url, aoi_gdf, years, crs=crs, resolution=float(resolution)
+        )
+    except DEAStatsUnavailable as exc:
+        if progress:
+            print(
+                f"[{aoi_name}] DEA statistics wet mask unavailable ({exc}); "
+                "falling back to a full-coverage read.",
+                flush=True,
+            )
+        return None, None
+    except Exception as exc:
+        if progress:
+            print(
+                f"[{aoi_name}] DEA statistics wet mask failed "
+                f"({type(exc).__name__}: {exc}); falling back to a full-coverage read.",
+                flush=True,
+            )
+        return None, None
+
+    if progress:
+        print(f"[{aoi_name}] Pruning reads to the DEA statistics wet mask.", flush=True)
+    return resolved, wet_mask_digest(resolved)
+
+
 def acquire_wofs_cache(
     stac_url: str,
     collection: str,
@@ -205,6 +299,7 @@ def acquire_wofs_cache(
     progress_position: int | None = None,
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
     wet_aoi: Any = None,
+    wet_mask: Literal["off", "dea_stats"] = "off",
     compute_batch_size: int = 16,
     read_workers: int | None = None,
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
@@ -249,8 +344,12 @@ def acquire_wofs_cache(
     aoi_gdf = load_aoi(aoi)
     aoi_hash = _aoi_digest(aoi_gdf)
     crs_value = _crs_value(crs)
+    requested_years = list(range(start.year, end.year + 1))
 
-    request = WOfSCacheRequest(
+    # Every field of WOfSCacheRequest except wet_mask_sha256, shared by the
+    # offline lookup, the unpruned local-cache probe, and the final request
+    # built below -- kept in one place so the three never drift apart.
+    base_request_kwargs = dict(
         stac_url=stac_url,
         collection=collection,
         aoi_sha256=aoi_hash,
@@ -265,13 +364,62 @@ def acquire_wofs_cache(
         schema_version=WOFS_CACHE_SCHEMA_VERSION,
     )
 
+    # Resolve the wet mask BEFORE building the request: its digest is part of
+    # the cache identity, so a pruned run and a full-coverage run of otherwise
+    # identical parameters resolve to different stores and can never mix.
+    #
+    # ``offline=True`` must never touch the network or a not-yet-existing
+    # local store, so it skips mask resolution entirely and looks up the
+    # request directly (with wet_mask_sha256 set only from an explicit
+    # caller-supplied wet_aoi) -- matching the pre-existing offline contract
+    # byte-for-byte when the caller passes neither ``wet_aoi`` nor ``wet_mask``.
     if offline:
+        request = WOfSCacheRequest(
+            **base_request_kwargs,
+            wet_mask_sha256=wet_mask_digest(wet_aoi) if wet_aoi is not None else None,
+        )
         handle = require_cached_request(cache_root, request, offline=True)
         if diagnostics_callback is not None:
             diagnostics_callback(_diagnostics_payload(0, 0))
         return handle
 
-    requested_years = set(range(start.year, end.year + 1))
+    # Probe for an already-completed full-coverage (unpruned) store for this
+    # same request. If one exists and its completed years cover the request,
+    # its wet_count/clear_count arrays are a free, network-free, exact
+    # superset mask -- ranked above dea_stats (see _resolve_wet_aoi).
+    #
+    # Only attempted when the caller has opted into pruning at all
+    # (wet_aoi explicit, or wet_mask != "off"): wet_mask="off" with no
+    # explicit wet_aoi is the default, no-pruning path, and must stay
+    # byte-identical to acquisition before pruning existed -- including
+    # never resolving to a *different* (pruned) store digest than before
+    # even when a completed full-coverage store already happens to exist.
+    local_wet_aoi_handle = (
+        None
+        if wet_aoi is not None or wet_mask == "off"
+        else resolve_cached_request(
+            cache_root,
+            WOfSCacheRequest(**base_request_kwargs, wet_mask_sha256=None),
+            offline=True,
+        )
+    )
+
+    wet_aoi, wet_mask_sha256 = _resolve_wet_aoi(
+        stac_url,
+        aoi_gdf,
+        requested_years,
+        wet_aoi=wet_aoi,
+        wet_mask=wet_mask,
+        crs=crs,
+        resolution=float(resolution),
+        progress=progress,
+        aoi_name=aoi_name,
+        local_wet_aoi_handle=local_wet_aoi_handle,
+    )
+
+    request = WOfSCacheRequest(**base_request_kwargs, wet_mask_sha256=wet_mask_sha256)
+
+    requested_years = set(requested_years)
 
     existing_handle = resolve_cached_request(cache_root, request, offline=True)
     if existing_handle is not None and not force:
@@ -384,6 +532,7 @@ def acquire_wofs_cache(
                     majority=majority,
                     groupby="solar_day",
                     resampling_policy=resampling_policy,
+                    wet_aoi=wet_aoi,
                 )
             else:
                 mask = _empty_year_mask(parent_geobox, year_start, year_end, target)
