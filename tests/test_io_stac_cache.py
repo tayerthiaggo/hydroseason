@@ -123,12 +123,6 @@ def test_query_caches_per_year_so_a_narrower_rerun_hits(tmp_path, monkeypatch):
         ]
 
     monkeypatch.setattr(io_geo, "_collect_stac_items", _fake_collect)
-    monkeypatch.setattr(
-        io_geo.__dict__["pystac_client"] if "pystac_client" in io_geo.__dict__ else io_geo,
-        "_noop",
-        None,
-        raising=False,
-    )
 
     class _FakeClient:
         @staticmethod

@@ -542,11 +542,14 @@ def test_stac_loader_omits_resolution_when_none(monkeypatch):
 def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
     """Long direct ranges should pay one STAC search and one odc.stac load per year.
 
-    ``_query_wofs_items`` now queries STAC per calendar year (see
+    ``_query_wofs_items`` caches STAC results per calendar year (see
     ``test_query_caches_per_year_so_a_narrower_rerun_hits`` in
-    ``test_io_stac_cache.py``), so a two-year range pays two search calls
-    even with no cache configured -- one per year, not one for the whole
-    range.
+    ``test_io_stac_cache.py``), but that per-year fan-out only applies when an
+    ``item_cache_root`` is configured -- there's something to gain by reusing
+    already-cached years. ``load_wofs_from_stac`` here has no cache root, so
+    the uncached path issues a single STAC search spanning the whole
+    requested range, same as before per-year caching was introduced. Annual
+    *loading* (via ``odc.stac.stac_load``) still happens per year regardless.
     """
     xr = pytest.importorskip("xarray")
     pytest.importorskip("dask")
@@ -594,9 +597,51 @@ def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
         "2020-01-01", "2021-01-31", resolution=100,
     )
 
-    assert client.search.call_count == 2  # one STAC search per calendar year
+    assert client.search.call_count == 1  # single whole-range search, uncached
     assert stac_load.call_count == 2
     assert result.sizes["time"] == 13
+
+
+def test_query_wofs_items_uncached_path_issues_one_search_for_multi_year_range(monkeypatch):
+    """Without a cache root there is nothing to gain from per-year granularity.
+
+    ``_query_wofs_items`` caches STAC results per calendar year so a resume
+    after partial failure can reuse already-fetched years (see
+    ``test_query_caches_per_year_so_a_narrower_rerun_hits`` in
+    ``test_io_stac_cache.py``). But when no ``item_cache_root`` is given --
+    the path used by ``_io_extent_cache.py``'s direct ``load_wofs_from_stac``
+    callers and by ``_io_resolution.py``'s resolution probing -- nothing is
+    ever cached, so looping per year just trades one batched STAC search for
+    N smaller ones with no offsetting benefit. The uncached path must issue
+    exactly one network search spanning the whole requested range.
+    """
+    pytest.importorskip("pystac_client")
+    from unittest.mock import Mock
+
+    import hydroseason._io_geo as io_geo
+
+    client = Mock()
+
+    def fake_search(*, datetime, **kwargs):
+        result = Mock()
+        result.items.return_value = []
+        return result
+
+    client.search.side_effect = fake_search
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
+
+    def _fake_collect(client, **kwargs):
+        return list(client.search(**kwargs).items())
+
+    monkeypatch.setattr(io_geo, "_collect_stac_items", _fake_collect)
+
+    with pytest.raises(ValueError, match="No STAC items found"):
+        io_geo._query_wofs_items(
+            "https://example.invalid/stac", "wofs", _aoi(),
+            "2014-01-01", "2015-12-31",
+        )
+
+    assert client.search.call_count == 1  # one search for the whole pending span, uncached
 
 
 def test_stac_loader_retries_transient_search_failure(monkeypatch):

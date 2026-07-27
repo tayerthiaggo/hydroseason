@@ -271,33 +271,56 @@ def _query_wofs_items(
             import pystac_client
 
             client = pystac_client.Client.open(stac_url)
-            for year in pending:
-                year_start, year_end = _year_bounds(year)
-                year_items = _collect_stac_items(
+            fields = {
+                "include": [
+                    "assets.water",
+                    "properties.datetime",
+                    "properties.start_datetime",
+                    "properties.end_datetime",
+                ]
+            }
+            if item_cache_root is not None:
+                # Per-year granularity is only useful when results are
+                # cached: that's what lets a narrower resume range reuse
+                # years already fetched. Search each still-missing year
+                # individually and cache its result (including empty years --
+                # "this year genuinely has no items" is a real, reusable
+                # answer, and re-querying it on every resume is exactly the
+                # waste this task removes).
+                for year in pending:
+                    year_start, year_end = _year_bounds(year)
+                    year_items = _collect_stac_items(
+                        client,
+                        collections=[collection],
+                        datetime=f"{year_start:%Y-%m-%d}/{year_end:%Y-%m-%d}",
+                        intersects=geometry.__geo_interface__,
+                        limit=1000,
+                        # DEA STAC supports the Fields extension.  Keep only
+                        # the WOfS asset and timestamp fields needed by
+                        # odc-stac/classification; geometry, id, bbox and
+                        # other STAC core fields remain automatic.
+                        fields=fields,
+                    )
+                    items.extend(year_items)
+                    write_cached_items(item_cache_root, _year_key(year), list(year_items))
+            else:
+                # No cache root means nothing is ever cached, so per-year
+                # fan-out has no benefit -- it would just trade one batched
+                # STAC search for N smaller ones. Issue a single search
+                # spanning the whole pending span instead (clamped to the
+                # caller's actual requested window, same as the per-year
+                # helper does for an individual year).
+                fetch_start = max(start, pd.Timestamp(f"{pending[0]}-01-01"))
+                fetch_end = min(end, pd.Timestamp(f"{pending[-1]}-12-31"))
+                fetched_items = _collect_stac_items(
                     client,
                     collections=[collection],
-                    datetime=f"{year_start:%Y-%m-%d}/{year_end:%Y-%m-%d}",
+                    datetime=f"{fetch_start:%Y-%m-%d}/{fetch_end:%Y-%m-%d}",
                     intersects=geometry.__geo_interface__,
                     limit=1000,
-                    # DEA STAC supports the Fields extension.  Keep only the
-                    # WOfS asset and timestamp fields needed by
-                    # odc-stac/classification; geometry, id, bbox and other
-                    # STAC core fields remain automatic.
-                    fields={
-                        "include": [
-                            "assets.water",
-                            "properties.datetime",
-                            "properties.start_datetime",
-                            "properties.end_datetime",
-                        ]
-                    },
+                    fields=fields,
                 )
-                items.extend(year_items)
-                if item_cache_root is not None:
-                    # Cache even an empty year: "this year genuinely has no
-                    # items" is a real, reusable answer, and re-querying it on
-                    # every resume is exactly the waste this task removes.
-                    write_cached_items(item_cache_root, _year_key(year), list(year_items))
+                items.extend(fetched_items)
         except Exception as exc:
             raise AOIRasterizationError(
                 "STAC AOI query failed; refusing to load an unclipped raster."
