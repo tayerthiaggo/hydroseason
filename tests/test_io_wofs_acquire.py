@@ -780,3 +780,34 @@ def test_default_wet_mask_off_reuses_existing_full_coverage_store(monkeypatch, t
     assert second.identity == first.identity
 
 
+def test_resolve_wet_aoi_off_refuses_pruning_even_with_a_working_local_handle(tmp_path):
+    """wet_mask="off" must refuse to prune even when a genuinely usable local
+    wet mask exists -- i.e. a handle whose completed_years(...) really is a
+    superset of the requested years and whose load_or_build_cached_wet_aoi(...)
+    would really succeed if called. This must hold as a property of
+    _resolve_wet_aoi itself, not merely because of how acquire_wofs_cache
+    happens to gate the local_wet_aoi_handle it passes in."""
+    import hydroseason._io_wofs_acquire as acquire
+
+    handle = _completed_cache_handle(tmp_path)  # real completed store: covers 2015, 2016
+
+    # Sanity check: the handle really is usable at the local-cached-counts
+    # level -- completed_years covers the request and load_or_build_cached_wet_aoi
+    # genuinely succeeds. If this weren't true, a (None, None) result below
+    # would prove nothing about the wet_mask="off" guard.
+    assert {2015, 2016} <= acquire.completed_years(handle)
+    sanity_mask = acquire.load_or_build_cached_wet_aoi(handle)
+    assert isinstance(sanity_mask, gpd.GeoDataFrame)
+    assert len(sanity_mask) > 0
+
+    resolved, digest = acquire._resolve_wet_aoi(
+        "https://example.test/stac", _aoi(), [2015, 2016],
+        wet_aoi=None, wet_mask="off",
+        crs=3577, resolution=30.0, progress=False, aoi_name="test",
+        local_wet_aoi_handle=handle,
+    )
+
+    assert resolved is None
+    assert digest is None
+
+

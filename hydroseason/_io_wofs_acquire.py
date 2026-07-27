@@ -212,9 +212,10 @@ def _resolve_wet_aoi(
 
     1. An explicit caller-supplied ``wet_aoi``. The caller has asserted this
        is a valid superset; trust it and never spend a network call.
-    2. Locally cached wet counts: if ``local_wet_aoi_handle`` points at a
-       full-coverage store that has already completed every year in
-       ``years``, derive the mask from its ``wet_count``/``clear_count``
+    2. Locally cached wet counts: only consulted when ``wet_mask`` requests
+       pruning at all (i.e. ``wet_mask != "off"``). If ``local_wet_aoi_handle``
+       points at a full-coverage store that has already completed every year
+       in ``years``, derive the mask from its ``wet_count``/``clear_count``
        arrays (:func:`load_or_build_cached_wet_aoi`) -- free, no network,
        and an exact superset for the years it covers. Any failure here
        (no completed years yet, years that don't cover the request, or any
@@ -224,6 +225,13 @@ def _resolve_wet_aoi(
        summaries.
     4. Nothing -- no pruning.
 
+    ``wet_mask="off"`` with no explicit ``wet_aoi`` always returns
+    ``(None, None)``, regardless of whether ``local_wet_aoi_handle`` is
+    supplied and regardless of whether that handle could otherwise resolve a
+    usable mask. This is enforced here independently of the caller -- it must
+    not depend on any caller only ever passing a handle when pruning was
+    requested.
+
     Fails OPEN in every failure case. A mask that is wrong, partial, or
     empty would silently prune real water into permanent ``-2``, so any
     doubt drops back to a full read rather than pruning on a bad mask.
@@ -231,7 +239,7 @@ def _resolve_wet_aoi(
     if wet_aoi is not None:
         return wet_aoi, wet_mask_digest(wet_aoi)
 
-    if local_wet_aoi_handle is not None:
+    if local_wet_aoi_handle is not None and wet_mask != "off":
         try:
             covered_years = completed_years(local_wet_aoi_handle)
             if set(years) <= covered_years:
