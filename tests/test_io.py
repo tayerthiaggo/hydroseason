@@ -540,7 +540,14 @@ def test_stac_loader_omits_resolution_when_none(monkeypatch):
 
 
 def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
-    """Long direct ranges should pay one STAC search and one odc.stac load per year."""
+    """Long direct ranges should pay one STAC search and one odc.stac load per year.
+
+    ``_query_wofs_items`` now queries STAC per calendar year (see
+    ``test_query_caches_per_year_so_a_narrower_rerun_hits`` in
+    ``test_io_stac_cache.py``), so a two-year range pays two search calls
+    even with no cache configured -- one per year, not one for the whole
+    range.
+    """
     xr = pytest.importorskip("xarray")
     pytest.importorskip("dask")
     pytest.importorskip("pystac_client")
@@ -587,7 +594,7 @@ def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
         "2020-01-01", "2021-01-31", resolution=100,
     )
 
-    assert client.search.call_count == 1
+    assert client.search.call_count == 2  # one STAC search per calendar year
     assert stac_load.call_count == 2
     assert result.sizes["time"] == 13
 

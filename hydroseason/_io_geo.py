@@ -217,7 +217,6 @@ def _query_wofs_items(
     Returns a tuple of (items, aoi_gdf) where items is a list of STAC items
     and aoi_gdf is the loaded AOI GeoDataFrame.
     """
-    import pystac_client
     from hydroseason._io_stac_cache import (
         STACItemCacheKey,
         load_cached_items,
@@ -228,59 +227,88 @@ def _query_wofs_items(
     aoi_gdf = load_aoi(aoi)
     aoi_hash = _aoi_digest(aoi_gdf)
     start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
-    start_str = start.strftime("%Y-%m-%d")
-    end_str = end.strftime("%Y-%m-%d")
 
-    cache_key = STACItemCacheKey(
-        stac_url=stac_url,
-        collection=collection,
-        aoi_sha256=aoi_hash,
-        start_date=start_str,
-        end_date=end_str,
-    )
-
-    if item_cache_root is not None and not force_item_refresh:
-        cached_items = load_cached_items(item_cache_root, cache_key)
-        if cached_items is not None and len(cached_items) > 0:
-            items = sorted(cached_items, key=_stac_item_sort_key)
-            return items, aoi_gdf
-
-    try:
-        aoi_4326 = aoi_gdf.to_crs("EPSG:4326")
-        geometry = (
-            aoi_4326.geometry.union_all()
-            if hasattr(aoi_4326.geometry, "union_all")
-            else aoi_4326.geometry.unary_union
+    # Cache per calendar year, not per requested range. acquire_wofs_cache
+    # derives its query range from the years still missing, so after a partial
+    # failure the range narrows and a whole-range key would miss every time,
+    # refetching every item. Per-year keys make a resume reuse everything the
+    # previous attempt already fetched.
+    def _year_key(year: int) -> STACItemCacheKey:
+        return STACItemCacheKey(
+            stac_url=stac_url,
+            collection=collection,
+            aoi_sha256=aoi_hash,
+            start_date=f"{year}-01-01",
+            end_date=f"{year}-12-31",
         )
-        client = pystac_client.Client.open(stac_url)
-        items = _collect_stac_items(
-            client,
-            collections=[collection],
-            datetime=f"{start:%Y-%m-%d}/{end:%Y-%m-%d}",
-            intersects=geometry.__geo_interface__,
-            limit=1000,
-            # DEA STAC supports the Fields extension.  Keep only the WOfS
-            # asset and timestamp fields needed by odc-stac/classification;
-            # geometry, id, bbox and other STAC core fields remain automatic.
-            fields={
-                "include": [
-                    "assets.water",
-                    "properties.datetime",
-                    "properties.start_datetime",
-                    "properties.end_datetime",
-                ]
-            },
+
+    def _year_bounds(year: int) -> tuple[pd.Timestamp, pd.Timestamp]:
+        """Clamp a calendar year to the caller's requested window."""
+        return (
+            max(start, pd.Timestamp(f"{year}-01-01")),
+            min(end, pd.Timestamp(f"{year}-12-31")),
         )
-    except Exception as exc:
-        raise AOIRasterizationError("STAC AOI query failed; refusing to load an unclipped raster.") from exc
+
+    years = list(range(start.year, end.year + 1))
+    pending: list[int] = []
+    items: list = []
+    for year in years:
+        if item_cache_root is not None and not force_item_refresh:
+            cached_items = load_cached_items(item_cache_root, _year_key(year))
+            if cached_items is not None:
+                items.extend(cached_items)
+                continue
+        pending.append(year)
+
+    if pending:
+        try:
+            aoi_4326 = aoi_gdf.to_crs("EPSG:4326")
+            geometry = (
+                aoi_4326.geometry.union_all()
+                if hasattr(aoi_4326.geometry, "union_all")
+                else aoi_4326.geometry.unary_union
+            )
+            import pystac_client
+
+            client = pystac_client.Client.open(stac_url)
+            for year in pending:
+                year_start, year_end = _year_bounds(year)
+                year_items = _collect_stac_items(
+                    client,
+                    collections=[collection],
+                    datetime=f"{year_start:%Y-%m-%d}/{year_end:%Y-%m-%d}",
+                    intersects=geometry.__geo_interface__,
+                    limit=1000,
+                    # DEA STAC supports the Fields extension.  Keep only the
+                    # WOfS asset and timestamp fields needed by
+                    # odc-stac/classification; geometry, id, bbox and other
+                    # STAC core fields remain automatic.
+                    fields={
+                        "include": [
+                            "assets.water",
+                            "properties.datetime",
+                            "properties.start_datetime",
+                            "properties.end_datetime",
+                        ]
+                    },
+                )
+                items.extend(year_items)
+                if item_cache_root is not None:
+                    # Cache even an empty year: "this year genuinely has no
+                    # items" is a real, reusable answer, and re-querying it on
+                    # every resume is exactly the waste this task removes.
+                    write_cached_items(item_cache_root, _year_key(year), list(year_items))
+        except Exception as exc:
+            raise AOIRasterizationError(
+                "STAC AOI query failed; refusing to load an unclipped raster."
+            ) from exc
+
     if not items:
         raise ValueError("No STAC items found for requested AOI and date range.")
     # STAC APIs do not promise a stable order. Same-day overlapping scenes can
     # otherwise reach odc-stac in different orders across repeated queries,
     # making categorical mosaic tie-breaks change by a pixel or two.
     items = sorted(items, key=_stac_item_sort_key)
-    if item_cache_root is not None:
-        write_cached_items(item_cache_root, cache_key, items)
     return items, aoi_gdf
 
 
