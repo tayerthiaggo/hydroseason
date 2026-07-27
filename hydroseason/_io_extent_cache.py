@@ -156,6 +156,7 @@ def _cache_path(
     resolution,
     majority: bool,
     wet_aoi_hash: str = "",
+    wet_mask: str = "off",
 ) -> Path:
     identity = {
         "schema": _CACHE_SCHEMA_VERSION,
@@ -169,6 +170,13 @@ def _cache_path(
         "majority": majority,
         "wet_aoi_sha256": wet_aoi_hash,
     }
+    if wet_mask != "off":
+        # Omitted entirely when "off" (the pre-existing default/only value),
+        # so every CSV cache written before wet_mask existed keeps its
+        # original digest and stays reachable -- mirrors how
+        # WOfSCacheRequest.wet_mask_sha256 is omitted from its digest
+        # payload when None (see hydroseason/_io_wofs_zarr.py).
+        identity["wet_mask"] = wet_mask
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     return cache_dir / f"extent_{start:%Y%m%d}_{end:%Y%m%d}_{digest}.csv"
 
@@ -212,6 +220,7 @@ def _write_requested_annual_extent_parts(
     majority: bool,
     wet_aoi_hash: str,
     force: bool,
+    wet_mask: str = "off",
 ) -> None:
     """Persist only missing (or forced) annual CSV extent cache parts."""
     if cache_root is None:
@@ -233,6 +242,7 @@ def _write_requested_annual_extent_parts(
             resolution=resolution,
             majority=majority,
             wet_aoi_hash=wet_aoi_hash,
+            wet_mask=wet_mask,
         )
         cached = None if force or not cache_path.exists() else _read_cached_extent(cache_path)
         if cached is None or not cached.index.equals(expected_index):
@@ -251,6 +261,7 @@ def _read_requested_annual_extent_parts(
     resolution: float | None,
     majority: bool,
     wet_aoi_hash: str,
+    wet_mask: str = "off",
 ) -> pd.DataFrame | None:
     """Return the complete requested legacy CSV cache, if every part is valid."""
     parts = []
@@ -271,6 +282,7 @@ def _read_requested_annual_extent_parts(
             resolution=resolution,
             majority=majority,
             wet_aoi_hash=wet_aoi_hash,
+            wet_mask=wet_mask,
         )
         cached = _read_cached_extent(cache_path) if cache_path.exists() else None
         if cached is None or not cached.index.equals(expected_index):
@@ -585,6 +597,7 @@ def load_wofs_monthly_extent(
                 resolution=resolution,
                 majority=majority,
                 wet_aoi_hash=wet_aoi_hash,
+                wet_mask=wet_mask,
             )
             if cached_extent is not None:
                 return cached_extent
@@ -637,6 +650,7 @@ def load_wofs_monthly_extent(
                     majority=majority,
                     wet_aoi_hash=wet_aoi_hash,
                     force=force,
+                    wet_mask=wet_mask,
                 )
                 return fast_extent
         masks = _io.open_completed_mask_cache(
@@ -668,6 +682,7 @@ def load_wofs_monthly_extent(
             majority=majority,
             wet_aoi_hash=wet_aoi_hash,
             force=force,
+            wet_mask=wet_mask,
         )
         return extent
 
@@ -733,6 +748,7 @@ def load_wofs_monthly_extent(
                 resolution=resolution,
                 majority=majority,
                 wet_aoi_hash=wet_aoi_hash,
+                wet_mask=wet_mask,
             )
             cached = None if force or not cache_path.exists() else _read_cached_extent(cache_path)
             if cached is not None and not cached.index.equals(expected_index):

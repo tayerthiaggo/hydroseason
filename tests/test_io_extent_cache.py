@@ -473,6 +473,76 @@ def test_cache_path_wet_aoi_hash_defaults_to_empty(tmp_path):
     assert _cache_path(**common) == _cache_path(**common, wet_aoi_hash="")
 
 
+def test_cache_path_depends_on_wet_mask(tmp_path):
+    # A dea_stats-pruned run and an off (unpruned) run of the same AOI/dates/
+    # params must not collide on the annual CSV cache key -- otherwise
+    # whichever ran first "poisons" the cache for the other (the bug this
+    # test exists to catch).
+    from hydroseason._io_extent_cache import _cache_path
+
+    common = dict(
+        cache_dir=tmp_path, stac_url="s", collection="c", aoi_hash="a",
+        start=pd.Timestamp("2020-01-01"), end=pd.Timestamp("2020-12-31"),
+        crs=3577, resolution=30.0, majority=True,
+    )
+    p_off = _cache_path(**common, wet_mask="off")
+    p_dea_stats = _cache_path(**common, wet_mask="dea_stats")
+    assert p_off != p_dea_stats
+
+
+def test_cache_path_wet_mask_default_matches_pre_fix_signature(tmp_path):
+    # wet_mask="off" with no explicit wet_aoi (the default) must reproduce
+    # the EXACT pre-fix cache key, so every already-written CSV cache file
+    # on disk stays reachable. Prove it by construction: the identity dict's
+    # serialized JSON must be byte-identical whether wet_mask is omitted,
+    # passed explicitly as "off", or wet_aoi_hash is passed/omitted -- all
+    # of these describe the pre-fix "no wet AOI in play" case.
+    from hydroseason._io_extent_cache import _cache_path
+
+    common = dict(
+        cache_dir=tmp_path, stac_url="s", collection="c", aoi_hash="a",
+        start=pd.Timestamp("2020-01-01"), end=pd.Timestamp("2020-12-31"),
+        crs=3577, resolution=30.0, majority=True,
+    )
+    pre_fix_default = _cache_path(**common)
+    assert _cache_path(**common, wet_mask="off") == pre_fix_default
+    assert _cache_path(**common, wet_aoi_hash="", wet_mask="off") == pre_fix_default
+    assert _cache_path(**common, wet_aoi_hash="") == pre_fix_default
+
+
+def test_load_wofs_monthly_extent_does_not_share_csv_cache_across_wet_mask(monkeypatch, tmp_path):
+    # End-to-end regression test for the live bug: two calls to
+    # load_wofs_monthly_extent with identical AOI/dates but different
+    # wet_mask values must not silently share a CSV cache entry. Uses the
+    # untiled legacy path (no mask_cache_dir) via a mocked load_wofs_from_stac,
+    # following the pattern in test_cached_extent_is_invalidated_when_resolution_changes.
+    pytest.importorskip("dask")
+    import hydroseason.io as hio
+    from hydroseason.io import load_wofs_monthly_extent
+
+    aoi = tmp_path / "aoi.geojson"
+    aoi.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    load = Mock(side_effect=lambda _u, _c, _a, start, end, **kw: _fake_monthly_cube(start, end))
+    monkeypatch.setattr(hio, "load_wofs_from_stac", load)
+
+    common = dict(
+        stac_url="https://example.invalid/stac",
+        collection="wofs",
+        aoi=aoi,
+        start_date="2020-01-01",
+        end_date="2020-12-31",
+        cache_dir=tmp_path / "cache",
+        resolution=100,
+    )
+    load_wofs_monthly_extent(**common, wet_mask="off")
+    load_wofs_monthly_extent(**common, wet_mask="dea_stats")
+
+    # If the two wet_mask values shared a cache key, the second call would
+    # hit the first call's cached CSV and load_wofs_from_stac would only be
+    # invoked once in total instead of once per wet_mask value.
+    assert load.call_count == 2
+
+
 def test_precompute_requires_tile_pixels(tmp_path):
     from hydroseason._io_extent_cache import load_wofs_monthly_extent
 
