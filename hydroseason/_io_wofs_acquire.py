@@ -57,6 +57,7 @@ from hydroseason._io_wofs_zarr import (
     require_cached_request,
     resolve_cached_request,
     write_annual_group,
+    write_empty_annual_group,
 )
 from hydroseason._spatial_plan import plan_spatial_slices, plan_storage_aligned_slices
 
@@ -406,17 +407,26 @@ def acquire_wofs_cache(
 
             item_ids = tuple(item.id for item in year_items)
             final_year_path = Path(handle.path) / "years" / str(int(year))
+            overwrite = force or Path(_long_path(final_year_path)).exists()
             try:
-                stats = write_annual_group(
-                    handle,
-                    year,
-                    mask,
-                    windows=plan.windows,
-                    item_ids=item_ids,
-                    overwrite=force or Path(_long_path(final_year_path)).exists(),
-                    compute_batch_size=compute_batch_size,
-                    read_workers=read_workers,
-                )
+                if year_items:
+                    stats = write_annual_group(
+                        handle,
+                        year,
+                        mask,
+                        windows=plan.windows,
+                        item_ids=item_ids,
+                        overwrite=overwrite,
+                        compute_batch_size=compute_batch_size,
+                        read_workers=read_workers,
+                    )
+                else:
+                    # No source observations: every pixel is -2 by
+                    # construction, so skip computing and hashing every block
+                    # only to write none of them.
+                    stats = write_empty_annual_group(
+                        handle, year, mask, overwrite=overwrite
+                    )
             finally:
                 del mask
                 gc.collect()

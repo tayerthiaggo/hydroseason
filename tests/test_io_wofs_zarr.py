@@ -585,6 +585,74 @@ def test_validation_uses_written_chunk_keys_when_present(tmp_path):
     assert all(k[2] == 0 for k in payload["written_chunk_keys"])
 
 
+def test_write_empty_annual_group_matches_full_path_output(tmp_path):
+    """The no-items fast path must produce a group indistinguishable from the
+    general path, so a year written either way validates and reads back the
+    same."""
+    import numpy as np
+    import xarray as xr
+
+    from hydroseason._io_wofs_zarr import (
+        WOfSCacheIdentity,
+        WOfSCacheRequest,
+        WOFS_CACHE_SCHEMA_VERSION,
+        WOFS_CLASSIFIER_VERSION,
+        WOFS_PLANNER_VERSION,
+        completed_years,
+        create_cache_handle,
+        validate_annual_group,
+        write_empty_annual_group,
+    )
+
+    times = pd.date_range("1987-01-01", "1987-12-01", freq="MS")
+    empty = xr.DataArray(
+        np.full((len(times), 64, 64), -2, dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={
+            "time": times,
+            "y": np.arange(64) * -30.0,
+            "x": np.arange(64) * 30.0,
+        },
+    ).rio.write_crs("EPSG:3577").rio.write_transform()
+
+    request = WOfSCacheRequest(
+        stac_url="https://example.test/stac",
+        collection="ga_ls_wo_3",
+        aoi_sha256="a" * 64,
+        start_date="1987-01-01",
+        end_date="1987-12-31",
+        crs="3577",
+        resolution=30.0,
+        classifier_version=WOFS_CLASSIFIER_VERSION,
+        groupby="solar_day",
+        majority=True,
+        planner_version=WOFS_PLANNER_VERSION,
+        schema_version=WOFS_CACHE_SCHEMA_VERSION,
+    )
+    identity = WOfSCacheIdentity.from_request(
+        request, shape=(64, 64), transform=tuple(empty.rio.transform())[:6]
+    )
+    handle = create_cache_handle(tmp_path, identity)
+
+    stats = write_empty_annual_group(handle, 1987, empty)
+
+    assert stats.year == 1987
+    assert stats.chunks_written == 0
+    assert stats.loaded_pixels == 0
+    assert 1987 in completed_years(handle)
+    validate_annual_group(
+        Path(handle.path) / "years" / "1987",
+        expected_year=1987,
+        expected_shape=(len(times), 64, 64),
+        expected_transform=tuple(empty.rio.transform())[:6],
+    )
+
+    counts = json.loads(
+        (Path(handle.path) / "years" / "1987" / "extent_counts.json").read_text(encoding="utf-8")
+    )
+    assert counts["n_water"] == [0] * len(times)
+    assert counts["n_valid"] == [0] * len(times)
+    assert counts["n_aoi"] == [0] * len(times)
 
 
 

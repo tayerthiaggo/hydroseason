@@ -996,6 +996,154 @@ def write_annual_group(
     )
 
 
+def write_empty_annual_group(
+    handle: WOfSCacheHandle,
+    year: int,
+    mask,
+    *,
+    overwrite: bool = False,
+) -> AnnualWriteStats:
+    """Write a completed annual group for a year with no source observations.
+
+    When STAC returned no items for ``year``, every pixel of every month is
+    ``-2`` (outside/no-data) by construction. ``write_annual_group`` would
+    still compute and hash every 512px block to discover that, then write
+    none of them -- pure waste proportional to AOI area. This produces the
+    identical on-disk group directly: the same Zarr layout, the same
+    all-zero ``wet_count``/``clear_count``, the same zeroed
+    ``extent_counts.json``, and a ``complete.json`` carrying an empty
+    ``item_ids``. ``validate_annual_group`` accepts the result unchanged.
+    """
+    import shutil as _shutil
+
+    import zarr
+    from numcodecs import Blosc
+
+    store_path = Path(handle.path)
+    years_dir = _years_dir(store_path)
+    Path(_long_path(years_dir)).mkdir(parents=True, exist_ok=True)
+    final_year_path = _year_dir(store_path, year)
+    if Path(_long_path(final_year_path)).exists() and not overwrite:
+        raise FileExistsError(
+            f"annual group for year {year} already exists at {final_year_path} "
+            "(pass overwrite=True to replace it)"
+        )
+
+    temp_path = years_dir / f".{int(year)}.incomplete-{uuid.uuid4().hex}"
+    Path(_long_path(temp_path)).mkdir(parents=True, exist_ok=True)
+
+    try:
+        dataset, year_mask = _mask_template(mask, year)
+
+        compressor = Blosc(cname="zstd", clevel=1, shuffle=Blosc.BITSHUFFLE)
+        encoding = {
+            "water_mask": {
+                "dtype": "int8",
+                "chunks": MASK_CHUNKS,
+                "compressor": compressor,
+                "_FillValue": -2,
+                "write_empty_chunks": False,
+            }
+        }
+        dataset.to_zarr(
+            _zarr_store(temp_path), mode="w", compute=False, consolidated=False, encoding=encoding
+        )
+
+        height = year_mask.sizes["y"]
+        width = year_mask.sizes["x"]
+        time_len = year_mask.sizes["time"]
+
+        group = zarr.open_group(_zarr_store(temp_path), mode="r+")
+        # No data to write into water_mask: every chunk stays unwritten, which
+        # with write_empty_chunks=False and _FillValue=-2 reads back as -2
+        # everywhere -- exactly what the general path would have produced.
+        for derived_name in ("wet_count", "clear_count"):
+            derived_array = group.create_dataset(
+                derived_name,
+                shape=(height, width),
+                dtype=np.uint16,
+                chunks=(_STORAGE_CHUNK, _STORAGE_CHUNK),
+                fill_value=0,
+                overwrite=True,
+            )
+            derived_array.attrs["_ARRAY_DIMENSIONS"] = ["y", "x"]
+
+        digest = _item_digest(())
+        time_values = pd.DatetimeIndex(np.asarray(year_mask.time.values))
+        zeros = [0] * time_len
+
+        content_hasher = _content_hasher()
+        content_hasher.update(
+            _canonical_json_bytes(
+                {
+                    "dtype": "int8",
+                    "shape": [time_len, height, width],
+                    "spatial_chunks": [],
+                }
+            )
+        )
+
+        extent_counts_payload = {
+            "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+            "year": int(year),
+            "dates": [d.strftime("%Y-%m-%d") for d in time_values],
+            "n_aoi": list(zeros),
+            "n_valid": list(zeros),
+            "n_water": list(zeros),
+            "n_invalid": list(zeros),
+        }
+        extent_counts_payload["content_digest"] = _sha256_digest(extent_counts_payload)
+        _write_json_atomic(temp_path / "extent_counts.json", extent_counts_payload)
+
+        complete_payload = {
+            "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+            "year": int(year),
+            "start_date": time_values[0].strftime("%Y-%m-%d"),
+            "end_date": time_values[-1].strftime("%Y-%m-%d"),
+            "month_count": int(len(time_values)),
+            "item_ids": [],
+            "item_digest": digest,
+            "content_digest": content_hasher.hexdigest(),
+            "chunks_considered": 0,
+            "chunks_written": 0,
+            "loaded_pixels": 0,
+            "written_chunk_keys": [],
+        }
+        _write_json_atomic(temp_path / _COMPLETE_FILENAME, complete_payload)
+
+        validate_annual_group(
+            temp_path,
+            expected_year=year,
+            expected_shape=(time_len, height, width),
+            expected_transform=tuple(year_mask.rio.transform())[:6],
+        )
+
+        del group
+        import gc
+
+        gc.collect()
+        if Path(_long_path(final_year_path)).exists():
+            _shutil.rmtree(_long_path(final_year_path))
+        os.rename(_long_path(temp_path), _long_path(final_year_path))
+    except BaseException:
+        _shutil.rmtree(_long_path(temp_path), ignore_errors=True)
+        raise
+
+    _record_completed_year(store_path, year)
+
+    return AnnualWriteStats(
+        year=int(year),
+        task_count=0,
+        chunks_considered=0,
+        chunks_written=0,
+        loaded_pixels=0,
+        item_digest=digest,
+        compute_seconds=0.0,
+        encode_write_seconds=0.0,
+        validation_seconds=0.0,
+    )
+
+
 def _record_completed_year(store_path: Path, year: int) -> None:
     """Add ``year`` to the store's root manifest, preserving every other key.
 
@@ -1588,6 +1736,7 @@ __all__ = [
     "preflight_request_space",
     "AnnualWriteStats",
     "write_annual_group",
+    "write_empty_annual_group",
     "validate_annual_group",
     "completed_years",
     "open_completed_mask_cache",
