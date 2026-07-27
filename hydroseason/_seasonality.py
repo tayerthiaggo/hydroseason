@@ -76,8 +76,15 @@ def _classify_values(month: np.ndarray, values: np.ndarray, tolerance: float) ->
     return ("unimodal_annual" if len(maxima) == 1 else "bimodal_or_complex"), curve, order, strength
 
 
-def classify_seasonal_pattern(extent, *, n_bootstrap: int = 200, random_state: int = 0, measurement_tolerance_pct: float = 1.0) -> SeasonalPatternResult:
-    frame = prepare_monthly_extent(extent, allow_unknown_quality=False)
+def classify_seasonal_pattern(
+    extent,
+    *,
+    n_bootstrap: int = 200,
+    random_state: int = 0,
+    measurement_tolerance_pct: float = 1.0,
+    quality_policy: Literal["exclude", "flag"] = "exclude",
+) -> SeasonalPatternResult:
+    frame = prepare_monthly_extent(extent, quality_policy=quality_policy)
     usable = frame.loc[frame["candidate_usable"]]
     complete_years = [year for year, group in usable.groupby(usable.index.year) if set(group.index.month) == set(range(1, 13))]
     if len(complete_years) < 5:

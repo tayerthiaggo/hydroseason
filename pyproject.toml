@@ -53,7 +53,8 @@ raster = [
 stac = [
   "hydroseason[raster]",
   "pystac-client>=0.8",
-  "odc-stac>=0.5"
+  "odc-stac>=0.5",
+  "tqdm>=4.65"
 ]
 all = [
   "hydroseason[raster,stac]"
@@ -88,6 +89,8 @@ testpaths = ["tests"]
 markers = [
   "slow: integration or data-backed checks",
   "experimental: promotion-gate comparison, may fail without blocking release",
+  "network: requires external DEA/STAC access",
+  "performance: opt-in wall-clock performance gate",
 ]
 
 [tool.ruff]

@@ -91,3 +91,128 @@ def test_low_quality_month_has_no_condition_rank():
     )
     result = compute_monthly_surface_water_condition(frame)
     assert pd.isna(result.loc["2001-01-01", "condition_percentile"])
+
+
+def _annual_n(n_years, peak, trough, start=2000):
+    years = np.arange(start, start + n_years)
+    return pd.DataFrame(
+        {
+            "hy_year": years,
+            "status": "complete",
+            "boundary_status": "confirmed",
+            "hy_end": pd.to_datetime([f"{year}-09-01" for year in years]),
+            "peak_extent_pct": peak,
+            "trough_extent_pct": trough,
+        }
+    )
+
+
+def test_rolling_baseline_phases_label_every_year_past_floor():
+    n = 21
+    rng = np.random.default_rng(0)
+    peak = 50 + rng.normal(0, 5, n)
+    trough = 10 + rng.normal(0, 2, n)
+    annual = _annual_n(n, peak, trough)
+    result = classify_annual_surface_water_condition(
+        annual, reference="rolling", rolling_window_cycles=10, rolling_min_cycles=5
+    ).set_index("hy_year")
+    # First 5 rows (0..4 prior cycles) are below the floor.
+    assert (result["baseline_mode"].iloc[:5] == "insufficient").all()
+    # Rows with 5..9 prior cycles are the expanding phase.
+    assert (result["baseline_mode"].iloc[5:10] == "expanding").all()
+    assert result["baseline_uncertain"].iloc[5:10].all()
+    # Rows with >=10 prior cycles are the rolling phase, window pinned to 10.
+    assert (result["baseline_mode"].iloc[10:] == "rolling").all()
+    assert (result["baseline_n"].iloc[10:] == 10).all()
+    assert not result["baseline_uncertain"].iloc[10:].any()
+    # Every row past the floor has a real (non-insufficient) label.
+    assert (result["annual_condition"].iloc[5:] != "insufficient_baseline").all()
+
+
+def test_rolling_baseline_forgets_pre_shift_regime():
+    # 25 years: peak ~30 for years 0..14, steps up to ~70 for years 15..24.
+    n = 25
+    peak = np.concatenate([np.full(15, 30.0), np.full(10, 70.0)])
+    trough = np.full(n, 5.0)
+    annual = _annual_n(n, peak, trough)
+    result = classify_annual_surface_water_condition(
+        annual, reference="rolling", rolling_window_cycles=10, rolling_min_cycles=5
+    ).set_index("hy_year")
+    # By the last year (2024), the trailing-10 window (2014..2023 -> positions
+    # 14..23) holds 9 post-shift values (70) and only 1 pre-shift value (30 at
+    # position 14), so its median is already 70 -- the baseline has adapted to
+    # the new regime despite one straggling pre-shift cycle still in view.
+    # 2024's own peak (70) matches that median -> should NOT read as "high".
+    assert result.loc[2024, "baseline_mode"] == "rolling"
+    # A clean post-shift year whose window is entirely post-shift: position 25 would
+    # be needed for a pure window, but with n=25 the last row's window still holds
+    # one pre-shift value (pos 14). Assert the softer, still-meaningful claim:
+    # the last year is NOT labelled "high" (pre-shift baseline would have made 70 high).
+    assert result.loc[2024, "recharge_condition"] != "high"
+
+
+def test_noise_floor_hedge_downgrades_within_band_only():
+    # 12 confirmed years (2000..2011); year 2011 peak (120) is the record high -> "high" unhedged.
+    annual = _annual().copy()
+    annual["boundary_status"] = "confirmed"
+    # Large noise_pp so the peak's departure from baseline median is inside the band.
+    big = classify_annual_surface_water_condition(
+        annual, min_baseline_cycles=5, noise_pp=1000.0
+    ).set_index("hy_year")
+    assert big.loc[2011, "recharge_condition"] == "high"          # unhedged unchanged
+    assert big.loc[2011, "recharge_condition_qualified"] == "typical_uncertain"
+    assert big.loc[2011, "noise_floor_pp"] == 1000.0
+    # Small noise_pp: real departure survives -> qualified equals unhedged.
+    small = classify_annual_surface_water_condition(
+        annual, min_baseline_cycles=5, noise_pp=0.01
+    ).set_index("hy_year")
+    assert small.loc[2011, "recharge_condition_qualified"] == "high"
+    # None: hedge skipped, qualified mirrors unhedged, noise_floor_pp is NaN.
+    none = classify_annual_surface_water_condition(
+        annual, min_baseline_cycles=5
+    ).set_index("hy_year")
+    assert none.loc[2011, "recharge_condition_qualified"] == none.loc[2011, "recharge_condition"]
+    assert pd.isna(none.loc[2011, "noise_floor_pp"])
+
+
+def test_timing_confidence_from_amplitude_vs_noise():
+    annual = _annual().copy()
+    annual["boundary_status"] = "confirmed"
+    # amplitudes (peak-trough) for _annual(): 9,8,27,36,45,54,63,72,81,90,108,109
+    result = classify_annual_surface_water_condition(
+        annual, min_baseline_cycles=5, noise_pp=10.0, timing_amplitude_k=2.0
+    ).set_index("hy_year")
+    # 2000 amplitude 9 < 2*10=20 -> low; 2001 amplitude 8 < 20 -> low
+    assert result.loc[2000, "timing_confidence"] == "low"
+    assert result.loc[2001, "timing_confidence"] == "low"
+    # 2003 amplitude 36 >= 20 -> high
+    assert result.loc[2003, "timing_confidence"] == "high"
+    # noise_pp None -> unknown
+    unknown = classify_annual_surface_water_condition(
+        annual, min_baseline_cycles=5
+    ).set_index("hy_year")
+    assert (unknown["timing_confidence"] == "unknown").all()
+
+
+def test_existing_columns_unchanged_for_full_record_mode():
+    # The default (full_record) call must yield the same pre-existing columns
+    # it always did; new columns are purely additive.
+    annual = _annual().copy()
+    annual["boundary_status"] = "confirmed"
+    result = classify_annual_surface_water_condition(annual, min_baseline_cycles=5)
+    # Pre-existing columns still present and populated.
+    for col in ["recharge_condition", "refuge_condition", "annual_condition",
+                "peak_percentile", "trough_percentile",
+                "consecutive_dry_cycles", "consecutive_wet_cycles"]:
+        assert col in result.columns
+    # New columns are additive.
+    for col in ["baseline_mode", "baseline_n", "baseline_uncertain",
+                "noise_floor_pp", "recharge_condition_qualified",
+                "refuge_condition_qualified", "annual_condition_qualified",
+                "timing_confidence"]:
+        assert col in result.columns
+    # With noise_pp None (default), all three qualified columns mirror their
+    # unhedged counterparts exactly.
+    assert (result["recharge_condition_qualified"] == result["recharge_condition"]).all()
+    assert (result["refuge_condition_qualified"] == result["refuge_condition"]).all()
+    assert (result["annual_condition_qualified"] == result["annual_condition"]).all()

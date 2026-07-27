@@ -53,6 +53,29 @@ labels = label_hydrological_months(extent.index, hydro_years)
 For the raster/WOfS paths, canonical mask values, and AOI requirements, see
 the [usage guide](docs/guide.md).
 
+## Empirical resolution check
+
+To quantify native-pixel vs coarsened WOfS loading on the real catchment
+fixtures, run:
+
+```bash
+python scripts/compare_catchment_resolution_windows.py --start-date 2005-01-01 --end-date 2025-12-31 --workers 2
+```
+
+The script uses each `data/catchments` stream network to infer a lower/outlet
+reach, builds a 50 km square around that reach, clips it to the catchment, and
+compares monthly extent at 30 m versus a coarsened resolution (default 100 m).
+It exports per-catchment AOIs, monthly CSVs, summary JSON/CSV, and a visual HTML
+report at `notebooks/hydroseason_resolution_window_comparison.html`.
+STAC reads are batched annually; each completed year is cached, and catchments
+run in parallel. Rerun the same command to resume from the annual cache.
+
+The regular multi-catchment workflow uses the same optimised path:
+
+```bash
+python scripts/run_multi_catchment_report.py --start-date 2005-01-01 --end-date 2025-12-31 --workers 2
+```
+
 ## Public API
 
 ```python

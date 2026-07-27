@@ -80,6 +80,47 @@ extent = monthly_water_extent(masks)
 hydro_years = detect_hydrological_years(extent)
 ```
 
+### Canonical local WOfS cache
+
+The extraction CLI uses the internal canonical mask cache at
+`output/wofs_cache` by default. It is not a public Zarr-input mode; use the
+loader APIs above for supported inputs. A request's cache identity covers its
+AOI content, date range, CRS, resolution, source, and cache schema settings,
+so incompatible requests never share a store.
+
+```powershell
+python scripts\extract_water_extent_csv.py --aoi data\Gilbert_river_buffer.geojson --resolution 30
+python scripts\extract_water_extent_csv.py --aoi data\Gilbert_river_buffer.geojson --resolution 30 --offline
+python scripts\extract_water_extent_csv.py --aoi data\Gilbert_river_buffer.geojson --resolution 30 --legacy-remote-path
+```
+
+Acquisition records completion one calendar year at a time. An interrupted
+run resumes completed annual groups, while a concurrent writer for the same
+store is rejected. `--offline` makes no STAC request: a missing matching cache
+is reported explicitly. `--legacy-remote-path` opts out of the canonical cache
+for direct STAC loading.
+
+### Opt-in WOfS cache benchmark
+
+The real DEA/STAC cache benchmark is intentionally excluded from normal test
+runs because it is network and wall-clock dependent. It compares the current
+tiled remote path against a cold canonical cache for the Gilbert and Fitzroy
+2015 AOIs, then verifies Gilbert offline cache reads. It writes raw runs,
+medians, output digests, cache/read diagnostics, memory when available, and
+GDAL `VSI_CACHE` A/B results to JSON.
+
+```powershell
+$env:HYDROSEASON_RUN_WOFS_PERF = "1"
+python -m pytest tests\test_wofs_cache_performance.py -m "network and performance" -v
+```
+
+For an investigation without pytest, run
+`python scripts\benchmark_wofs_cache.py --output output\wofs_cache_benchmark.json --runs 3`.
+The 20% Gilbert cold-cache, 10% Fitzroy cold-cache-regression, 80% Gilbert
+offline-cache, exact-output, and zero-offline-STAC-call checks are hard gates;
+the 35% target and 40% stretch results are recorded but do not fail a passing
+hard gate.
+
 For a pre-built canonical Zarr cube (already AOI-clipped):
 
 ```python
@@ -95,17 +136,22 @@ Requires `pip install hydroseason[stac]`. Queries a STAC catalog, groups
 items by month, classifies WOfS pixel flags, and clips to the AOI — lazy and
 Dask-backed end to end.
 
-```python
-from hydroseason import load_wofs_from_stac, monthly_water_extent, detect_hydrological_years
+For long-running analyses, use the resumable loader below. It batches STAC
+reads by calendar year, aligns Dask computation to 12-month chunks, and caches
+the small extent table so reruns resume from completed years.
 
-masks = load_wofs_from_stac(
+```python
+from hydroseason import load_wofs_monthly_extent, detect_hydrological_years
+
+extent = load_wofs_monthly_extent(
     stac_url="<your-stac-catalog-url>",
     collection="<wofs-collection-id>",
     aoi="aoi.geojson",
     start_date="2015-01-01",
     end_date="2020-12-31",
+    cache_dir="output/extent_cache/my_aoi",
+    time_block=12,
 )
-extent = monthly_water_extent(masks)
 hydro_years = detect_hydrological_years(extent)
 ```
 

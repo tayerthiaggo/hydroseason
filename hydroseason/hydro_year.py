@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 DuplicateMonthPolicy = Literal["raise", "warn"]
 MissingMonthPolicy = Literal["raise", "ignore"]
+QualityPolicy = Literal["exclude", "flag"]
 
 
 @dataclass(frozen=True)
@@ -156,6 +157,9 @@ def monthly_water_extent(
     outside_value: int = -2,
     invalid_value: int = -1,
     spatial_dims: tuple[str, str] = ("y", "x"),
+    time_block: int = 1,
+    wet_aoi=None,
+    read_workers: int | None = None,
 ) -> pd.DataFrame:
     """Summarise monthly canonical masks without treating invalid pixels as dry.
 
@@ -163,30 +167,138 @@ def monthly_water_extent(
     ``dry_value``; any other code (unknown values, NaN, out-of-domain codes
     that bypassed a classifier) counts as invalid rather than silently
     inflating the valid denominator. Raster dependencies are imported only at
-    this computation boundary. The four scalar summaries share one
-    ``dask.compute`` call.
+    this computation boundary. The four scalar summaries are computed in
+    streamed blocks of ``time_block`` steps along ``time`` rather than in one
+    all-at-once ``dask.compute`` call, so peak memory stays bounded by
+    ``time_block`` (times the spatial chunk footprint) instead of scaling
+    with the full length of ``time``. Raising ``time_block`` trades scheduler
+    overhead (more, smaller ``dask.compute`` calls) for locality (fewer calls,
+    more spatial chunks held concurrently); lower it to bound memory more
+    tightly, raise it to reduce per-call scheduling overhead.
+
+    ``wet_aoi``, if given, is a polygon or GeoDataFrame (in any CRS) describing
+    the historical wet-AOI extent. It is rasterised against ``water_mask``'s
+    spatial grid exactly once (the grid is time-invariant across the whole
+    cube), then used to compute ``n_wet_aoi`` -- the per-month count of pixels
+    inside the wet AOI that are also not ``outside_value`` -- and the derived
+    ``wet_fill_pct = 100 * n_water / n_wet_aoi`` drought-signal ratio (NaN when
+    ``n_wet_aoi`` is 0). When ``wet_aoi`` is ``None`` (the default), no
+    rasterisation happens at all and ``n_wet_aoi`` is set equal to
+    ``n_valid``, so existing callers adding no wet AOI see no change to any
+    pre-existing column, and get a well-defined ``wet_fill_pct`` computed
+    with the same ``100 * n_water / n_wet_aoi`` formula used in the
+    ``wet_aoi``-given case (this keeps ``wet_fill_pct`` an exact
+    sum-then-percentage tiled aggregation of ``n_water``/``n_wet_aoi``,
+    matching how ``extent_pct`` and ``invalid_pct`` already aggregate).
+    ``wet_fill_pct`` therefore equals ``extent_pct`` exactly and
+    unconditionally when ``wet_aoi`` is ``None``, regardless of whether
+    invalid pixels are present, because both ratios reduce to the same
+    ``100 * n_water / n_valid`` formula in that case (they can legitimately
+    differ only when a real ``wet_aoi`` is supplied).
+
+    ``read_workers``, if given (and > 0), overrides dask's threaded-scheduler
+    worker count for the ``dask.compute`` reductions below, where the lazy
+    STAC/COG graph is actually materialised. Profiling on real WOfS data found
+    this workload is decode/warp-CPU-bound rather than I/O-latency-bound as
+    might be assumed for remote reads: dask's own default worker count
+    outperformed every explicit override tried (4 through 64), and forcing a
+    higher count made it monotonically worse. Leave this at ``None`` (the
+    default, which leaves dask's configuration untouched) unless you have
+    profiled your own workload and confirmed a specific value helps -- see
+    ``hydroseason._io_extent_cache.load_wofs_monthly_extent``'s ``read_workers``
+    docstring for the measurements. The override, if used, is scoped via
+    ``dask.config.set`` and restored on exit.
     """
     try:
         import dask
     except ImportError as exc:  # pragma: no cover - depends on optional extra
         raise ImportError("monthly_water_extent requires the raster extra (dask and xarray).") from exc
 
-    dims = list(spatial_dims)
-    n_aoi = (water_mask != outside_value).sum(dim=dims)
-    n_water = (water_mask == water_value).sum(dim=dims)
-    n_dry = (water_mask == dry_value).sum(dim=dims)
-    n_valid = n_water + n_dry
-    n_invalid = n_aoi - n_valid
-    n_aoi, n_valid, n_water, n_invalid = dask.compute(n_aoi, n_valid, n_water, n_invalid)
+    from contextlib import nullcontext
 
-    n_aoi_arr = np.asarray(n_aoi.values, dtype=float)
-    n_valid_arr = np.asarray(n_valid.values, dtype=float)
-    n_water_arr = np.asarray(n_water.values, dtype=float)
-    n_invalid_arr = np.asarray(n_invalid.values, dtype=float)
+    concurrency = (
+        dask.config.set(scheduler="threads", num_workers=read_workers)
+        if read_workers is not None and read_workers > 0
+        else nullcontext()
+    )
+
+    dims = list(spatial_dims)
+    n_time = water_mask.sizes["time"]
+
+    first_slice = water_mask.isel(time=0)
+
+    inside_wet = None
+    if wet_aoi is not None:
+        import geopandas as gpd
+        import rioxarray  # noqa: F401  (registers the .rio accessor used below)
+
+        from hydroseason._io_geo import _inside_aoi_mask_like, _resolve_raster_crs
+
+        mask_crs = _resolve_raster_crs(water_mask)
+        gdf = (
+            wet_aoi
+            if isinstance(wet_aoi, gpd.GeoDataFrame)
+            else gpd.GeoDataFrame({"geometry": [wet_aoi]}, geometry="geometry", crs=mask_crs)
+        )
+        if gdf.crs is not None and mask_crs is not None:
+            gdf = gdf.to_crs(mask_crs)
+        inside_wet = _inside_aoi_mask_like(first_slice, gdf)
+
+    n_aoi_parts: list[np.ndarray] = []
+    n_valid_parts: list[np.ndarray] = []
+    n_water_parts: list[np.ndarray] = []
+    n_invalid_parts: list[np.ndarray] = []
+    n_wet_aoi_parts: list[np.ndarray] = []
+    with concurrency:
+        for start in range(0, n_time, time_block):
+            block = water_mask.isel(time=slice(start, start + time_block))
+            n_water_block = (block == water_value).sum(dim=dims, dtype=np.int32)
+            n_dry_block = (block == dry_value).sum(dim=dims, dtype=np.int32)
+            n_valid_block = n_water_block + n_dry_block
+            n_aoi_block = (block != outside_value).sum(dim=dims, dtype=np.int32)
+            n_invalid_block = n_aoi_block - n_valid_block
+            if inside_wet is not None:
+                n_wet_aoi_block = ((block != outside_value) & inside_wet).sum(dim=dims, dtype=np.int32)
+                (
+                    n_aoi_block,
+                    n_valid_block,
+                    n_water_block,
+                    n_invalid_block,
+                    n_wet_aoi_block,
+                ) = dask.compute(
+                    n_aoi_block, n_valid_block, n_water_block, n_invalid_block, n_wet_aoi_block
+                )
+                n_wet_aoi_parts.append(np.asarray(n_wet_aoi_block.values, dtype=float))
+            else:
+                n_aoi_block, n_valid_block, n_water_block, n_invalid_block = dask.compute(
+                    n_aoi_block, n_valid_block, n_water_block, n_invalid_block
+                )
+            n_aoi_parts.append(np.asarray(n_aoi_block.values, dtype=float))
+            n_valid_parts.append(np.asarray(n_valid_block.values, dtype=float))
+            n_water_parts.append(np.asarray(n_water_block.values, dtype=float))
+            n_invalid_parts.append(np.asarray(n_invalid_block.values, dtype=float))
+
+    n_aoi_arr = np.concatenate(n_aoi_parts)
+    n_valid_arr = np.concatenate(n_valid_parts)
+    n_water_arr = np.concatenate(n_water_parts)
+    n_invalid_arr = np.concatenate(n_invalid_parts)
     extent_pct = np.full_like(n_valid_arr, np.nan)
     np.divide(n_water_arr * 100.0, n_valid_arr, out=extent_pct, where=n_valid_arr > 0)
     invalid_pct = np.full_like(n_aoi_arr, np.nan)
     np.divide(n_invalid_arr * 100.0, n_aoi_arr, out=invalid_pct, where=n_aoi_arr > 0)
+
+    if inside_wet is not None:
+        n_wet_aoi_arr = np.concatenate(n_wet_aoi_parts)
+    else:
+        # No wet AOI given: fall back to n_valid (not n_aoi) so wet_fill_pct
+        # is an EXACT alias of extent_pct in this case (same formula and
+        # denominator), not merely equal when there happen to be zero
+        # invalid pixels -- while remaining tiling-exact, since n_valid is
+        # itself already a tiling-exact summed count.
+        n_wet_aoi_arr = n_valid_arr
+    wet_fill_pct = np.full_like(n_wet_aoi_arr, np.nan)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        np.divide(n_water_arr * 100.0, n_wet_aoi_arr, out=wet_fill_pct, where=n_wet_aoi_arr > 0)
 
     return pd.DataFrame(
         {
@@ -194,8 +306,10 @@ def monthly_water_extent(
             "n_aoi": n_aoi_arr.astype(int),
             "n_valid": n_valid_arr.astype(int),
             "n_invalid": n_invalid_arr.astype(int),
+            "n_wet_aoi": n_wet_aoi_arr.astype(int),
             "extent_pct": extent_pct,
             "invalid_pct": invalid_pct,
+            "wet_fill_pct": wet_fill_pct,
         },
         index=pd.DatetimeIndex(np.asarray(water_mask.time.values)),
     )
@@ -210,16 +324,19 @@ def detect_hydrological_years(
     duplicate_month_policy: DuplicateMonthPolicy = "raise",
     missing_month_policy: MissingMonthPolicy = "raise",
     max_invalid_pct: float = 20.0,
+    quality_policy: QualityPolicy = "exclude",
 ) -> pd.DataFrame:
     """Detect hydrological years from a complete, quality-screened monthly series.
 
     ``invalid_pct`` is honoured when supplied in a DataFrame. The conservative
-    default rejects months with more than 20% invalid coverage (see migration
-    plan §6.2); callers may explicitly raise ``max_invalid_pct`` after
-    assessing data quality.
+    default rejects months with more than 20% invalid coverage. Set
+    ``quality_policy="flag"`` to retain those observations and continue while
+    leaving quality interpretation to the caller.
     """
     if not 0 <= max_invalid_pct <= 100:
         raise ValueError("max_invalid_pct must be between 0 and 100.")
+    if quality_policy not in {"exclude", "flag"}:
+        raise ValueError("quality_policy must be 'exclude' or 'flag'.")
     cfg = config or HydroYearConfig()
     series, invalid_pct, full_index = _coerce_monthly_series(
         extent,
@@ -227,7 +344,7 @@ def detect_hydrological_years(
         date_col=date_col,
         duplicate_month_policy=duplicate_month_policy,
     )
-    if invalid_pct is not None:
+    if invalid_pct is not None and quality_policy == "exclude":
         invalid = invalid_pct.reindex(full_index)
         if invalid.isna().any() or (invalid > max_invalid_pct).any():
             raise ValueError(
