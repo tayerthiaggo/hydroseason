@@ -13,10 +13,12 @@ from affine import Affine
 
 from hydroseason._spatial_plan import GridWindow
 from hydroseason._io_wofs_zarr import (
+    CONTENT_DIGEST_ALGORITHM,
     WOFS_CACHE_SCHEMA_VERSION,
     WOfSCacheHandle,
     WOfSCacheIdentity,
     WOfSCacheRequest,
+    _content_hasher,
     cache_writer_lock,
     completed_years,
     create_cache_handle,
@@ -31,6 +33,21 @@ from hydroseason._io_wofs_zarr import (
 )
 
 pytest.importorskip("rioxarray")
+
+
+def test_content_hasher_is_blake2b_and_is_fresh_each_call():
+    assert CONTENT_DIGEST_ALGORITHM == "blake2b"
+
+    first = _content_hasher()
+    assert first.name == "blake2b"
+
+    # Each call must return an independent hasher, never a shared module-level
+    # object -- write_annual_group runs concurrently under year_workers, and a
+    # shared hasher would interleave two years' bytes into one digest.
+    first.update(b"year-1986")
+    second = _content_hasher()
+    assert second.hexdigest() != first.hexdigest()
+    assert second.hexdigest() == _content_hasher().hexdigest()
 
 
 def _request() -> WOfSCacheRequest:

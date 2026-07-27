@@ -74,6 +74,20 @@ WOFS_CLASSIFIER_VERSION = 1
 # if that module's internal version constant changes independently.
 WOFS_PLANNER_VERSION = 1
 
+# The per-year content digest is a cache-invalidation fingerprint over the
+# pixels actually loaded, not a security boundary, so it is chosen for speed.
+# blake2b is 2-4x faster than sha256 on the multi-hundred-GB byte volume a
+# continental 40-year acquisition pushes through it, and because hashing holds
+# the GIL, that directly unblocks the year_workers threads in
+# _io_wofs_acquire.acquire_wofs_cache.
+CONTENT_DIGEST_ALGORITHM = "blake2b"
+
+
+def _content_hasher():
+    """A fresh content-digest hash object. Never share one across years."""
+    return hashlib.blake2b()
+
+
 # Canonical WOfS mask values: -2 outside AOI, -1 invalid/no observation,
 # 0 dry, 1 water.
 CANONICAL_VALUES = (-2, -1, 0, 1)
@@ -820,7 +834,7 @@ def write_annual_group(
         n_invalid_cnt = np.zeros(time_len, dtype=np.int64)
         written_chunk_keys_set: set[tuple[int, int, int]] = set()
 
-        content_hasher = hashlib.sha256()
+        content_hasher = _content_hasher()
         content_hasher.update(
             _canonical_json_bytes(
                 {
@@ -870,7 +884,14 @@ def write_annual_group(
                         {"y_start": cy, "x_start": cx, "shape": list(values.shape)}
                     )
                 )
-                content_hasher.update(np.ascontiguousarray(values).tobytes())
+                # dask.compute already returns C-contiguous arrays here, so
+                # ascontiguousarray was allocating a full second copy of every
+                # block. Assert-and-use instead of copy-always; the fallback
+                # covers any future non-contiguous producer.
+                content_hasher.update(
+                    values.tobytes() if values.flags["C_CONTIGUOUS"]
+                    else np.ascontiguousarray(values).tobytes()
+                )
 
                 invalid_domain = ~np.isin(values, CANONICAL_VALUES)
                 if invalid_domain.any():
