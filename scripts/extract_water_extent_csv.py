@@ -36,7 +36,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from hydroseason.io import acquire_wofs_cache, load_aoi, load_wofs_monthly_extent  # noqa: E402
-from hydroseason._io_wofs_acquire import _resolve_wet_aoi  # noqa: E402
+from hydroseason._io_geo import _crs_value  # noqa: E402
+from hydroseason._io_wofs_acquire import (  # noqa: E402
+    _aoi_digest,
+    _probe_local_wet_aoi_handle,
+    _resolve_wet_aoi,
+)
+from hydroseason._io_wofs_zarr import (  # noqa: E402
+    WOFS_CACHE_SCHEMA_VERSION,
+    WOFS_CLASSIFIER_VERSION,
+    WOFS_PLANNER_VERSION,
+)
 
 STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 COLLECTION = "ga_ls_wo_3"
@@ -210,6 +220,31 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
         # resolved wet_aoi instead.
         aoi_gdf = load_aoi(boundary_path)
         profile_years = list(range(pd.Timestamp(args.start_date).year, pd.Timestamp(args.end_date).year + 1))
+        # Every field of WOfSCacheRequest except wet_mask_sha256, built the
+        # same way hydroseason._io_wofs_acquire.acquire_wofs_cache builds its
+        # own base_request_kwargs -- must match the main (non-profile) call
+        # above exactly, or the local-store probe below looks up the wrong
+        # request and always misses.
+        base_request_kwargs = dict(
+            stac_url=STAC_URL,
+            collection=COLLECTION,
+            aoi_sha256=_aoi_digest(aoi_gdf),
+            start_date=pd.Timestamp(args.start_date).strftime("%Y-%m-%d"),
+            end_date=pd.Timestamp(args.end_date).strftime("%Y-%m-%d"),
+            crs=str(_crs_value(OUTPUT_CRS)),
+            resolution=float(args.resolution),
+            classifier_version=WOFS_CLASSIFIER_VERSION,
+            groupby="solar_day",
+            majority=True,
+            planner_version=WOFS_PLANNER_VERSION,
+            schema_version=WOFS_CACHE_SCHEMA_VERSION,
+        )
+        local_wet_aoi_handle = _probe_local_wet_aoi_handle(
+            args.mask_cache_dir,
+            base_request_kwargs,
+            wet_aoi=None,
+            wet_mask=args.wet_mask,
+        )
         resolved_wet_aoi, _resolved_digest = _resolve_wet_aoi(
             STAC_URL,
             aoi_gdf,
@@ -220,6 +255,7 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
             resolution=args.resolution,
             progress=False,
             aoi_name=name,
+            local_wet_aoi_handle=local_wet_aoi_handle,
         )
         handle = acquire_wofs_cache(
             STAC_URL,

@@ -286,6 +286,35 @@ def _resolve_wet_aoi(
     return resolved, wet_mask_digest(resolved)
 
 
+def _probe_local_wet_aoi_handle(
+    cache_root: str | Path,
+    base_request_kwargs: dict[str, Any],
+    *,
+    wet_aoi: Any,
+    wet_mask: str,
+) -> "WOfSCacheHandle | None":
+    """Look up an already-completed full-coverage (unpruned) local store for
+    ``base_request_kwargs``, for :func:`_resolve_wet_aoi` to prefer over a
+    ``dea_stats`` network call (see that function's preference order).
+
+    Shared verbatim between :func:`acquire_wofs_cache`'s own resolution and
+    any caller (e.g. the ``--profile`` diagnostics block in
+    ``scripts/extract_water_extent_csv.py``) that needs to reproduce exactly
+    which store the main call will resolve to, so the two never diverge.
+
+    Only attempted when the caller has opted into pruning at all (``wet_aoi``
+    explicit, or ``wet_mask != "off"``); returns ``None`` otherwise, matching
+    ``wet_mask="off"``'s no-pruning, byte-identical-to-legacy contract.
+    """
+    if wet_aoi is not None or wet_mask == "off":
+        return None
+    return resolve_cached_request(
+        cache_root,
+        WOfSCacheRequest(**base_request_kwargs, wet_mask_sha256=None),
+        offline=True,
+    )
+
+
 def acquire_wofs_cache(
     stac_url: str,
     collection: str,
@@ -402,14 +431,8 @@ def acquire_wofs_cache(
     # byte-identical to acquisition before pruning existed -- including
     # never resolving to a *different* (pruned) store digest than before
     # even when a completed full-coverage store already happens to exist.
-    local_wet_aoi_handle = (
-        None
-        if wet_aoi is not None or wet_mask == "off"
-        else resolve_cached_request(
-            cache_root,
-            WOfSCacheRequest(**base_request_kwargs, wet_mask_sha256=None),
-            offline=True,
-        )
+    local_wet_aoi_handle = _probe_local_wet_aoi_handle(
+        cache_root, base_request_kwargs, wet_aoi=wet_aoi, wet_mask=wet_mask
     )
 
     wet_aoi, wet_mask_sha256 = _resolve_wet_aoi(
