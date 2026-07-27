@@ -360,6 +360,7 @@ def _load_wofs_items(
     duplicate_month_policy="raise",
     groupby="solar_day",
     resampling=None,
+    wet_aoi=None,
 ):
     """Load WOfS items, classify, compose monthly, and clip to AOI.
 
@@ -477,7 +478,7 @@ def _load_wofs_items(
 
     try:
         stacked = xr.concat(masks, dim="time").assign_coords(time=("time", dates))
-        clipped_cube = _io._clip_to_aoi(stacked, target)
+        clipped_cube = _io._clip_to_aoi(stacked, target, wet_aoi=wet_aoi)
     except AOIRasterizationError:
         raise
     except Exception as exc:
@@ -625,6 +626,7 @@ def build_wofs_year_graph(
     majority: bool = True,
     groupby: str = "solar_day",
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
+    wet_aoi=None,
 ):
     """Build one shared lazy WOfS cube for a single calendar year onto a fixed grid.
 
@@ -654,6 +656,10 @@ def build_wofs_year_graph(
     mismatched item raises ``ValueError`` naming it, so a caller's partition
     bug is caught immediately rather than silently loading the wrong year's
     pixels onto this year's grid.
+
+    ``wet_aoi``, when given, is intersected with the AOI during the final
+    clip so pixels outside the ever-wet region become ``-2``. It must be a
+    superset of ever-wet -- see :func:`_clip_to_aoi`.
     """
     if geobox is None:
         raise ValueError("build_wofs_year_graph requires a parent geobox.")
@@ -693,6 +699,7 @@ def build_wofs_year_graph(
         duplicate_month_policy="raise",
         groupby=groupby,
         resampling=resampling,
+        wet_aoi=wet_aoi,
     )
 
 
@@ -946,7 +953,21 @@ def _combine_observations(series, majority):
     return _preserve_georef(combined, series)
 
 
-def _clip_to_aoi(mask, aoi_gdf):
+def _clip_to_aoi(mask, aoi_gdf, *, wet_aoi=None):
+    """Clip ``mask`` to the AOI, optionally intersected with a wet mask.
+
+    ``wet_aoi`` narrows the kept region to pixels where water has ever been
+    observed. Pixels inside the AOI but outside ``wet_aoi`` become ``-2``
+    (outside), which lets ``write_annual_group`` skip entire 512px blocks it
+    would otherwise read, reproject, and hash. This is the fine-grain half of
+    spatial pruning; ``plan_storage_aligned_slices`` handles the coarse half
+    at 512px window granularity, and a 512px tile is 15.4 km at 30 m, far too
+    coarse to prune around a river on its own.
+
+    ``wet_aoi`` MUST be a superset of ever-wet: pixels it excludes read as
+    permanently outside, indistinguishable from genuinely dry. ``None``
+    disables pruning entirely and preserves the original behaviour exactly.
+    """
     outside_value = np.int8(-2)
     invalid_value = np.int8(-1)
     try:
@@ -955,6 +976,9 @@ def _clip_to_aoi(mask, aoi_gdf):
         if crs is None:
             raise GeoreferencingError("raster is missing CRS")
         inside = _inside_aoi_mask_like(mask, aoi_gdf.to_crs(crs))
+        if wet_aoi is not None and len(wet_aoi) and not bool(wet_aoi.geometry.is_empty.all()):
+            wet_inside = _inside_aoi_mask_like(mask, wet_aoi.to_crs(crs))
+            inside = inside & wet_inside
     except Exception as exc:
         if isinstance(exc, (AOIRasterizationError, GeoreferencingError)):
             raise

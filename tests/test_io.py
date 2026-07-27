@@ -364,6 +364,70 @@ def test_clip_once_on_cube_matches_per_slice_clip():
     )
 
 
+def test_wet_aoi_prunes_pixels_to_outside_value():
+    """Pixels outside the wet mask must read as -2 (outside), so
+    write_annual_group's all-(-2) block skip drops them from the Zarr write.
+
+    Pixels inside the AOI but outside the wet mask are pruned; the mask is a
+    superset of ever-wet, so this is the intended data loss.
+    """
+    gpd = pytest.importorskip("geopandas")
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    import rioxarray  # noqa: F401
+    from shapely.geometry import box
+
+    import hydroseason.io as io_module
+
+    times = pd.date_range("2015-01-01", periods=1, freq="MS")
+    # 0/1 water mask, all dry, over a 300m x 300m grid at 30m.
+    cube = xr.DataArray(
+        np.zeros((1, 10, 10), dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": times, "y": np.arange(10) * -30.0, "x": np.arange(10) * 30.0},
+    ).rio.write_crs("EPSG:3577").rio.write_transform()
+
+    aoi = gpd.GeoDataFrame({"geometry": [box(0.0, -300.0, 300.0, 0.0)]}, crs="EPSG:3577")
+    # Wet mask covers only the left third of the AOI.
+    wet_aoi = gpd.GeoDataFrame({"geometry": [box(0.0, -300.0, 100.0, 0.0)]}, crs="EPSG:3577")
+
+    clipped = io_module._clip_to_aoi(cube, aoi, wet_aoi=wet_aoi)
+    values = np.asarray(clipped.isel(time=0).values)
+
+    # Left column (x=15m centre) is inside both AOI and wet mask -> stays dry (0).
+    assert values[5, 0] == 0
+    # Right column (x=285m centre) is inside the AOI but outside the wet mask
+    # -> pruned to -2.
+    assert values[5, 9] == -2
+
+
+def test_clip_without_wet_aoi_is_unchanged():
+    """No mask means no pruning: the existing full-coverage behaviour must be
+    byte-identical."""
+    gpd = pytest.importorskip("geopandas")
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    import rioxarray  # noqa: F401
+    from shapely.geometry import box
+
+    import hydroseason.io as io_module
+
+    times = pd.date_range("2015-01-01", periods=1, freq="MS")
+    cube = xr.DataArray(
+        np.zeros((1, 10, 10), dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": times, "y": np.arange(10) * -30.0, "x": np.arange(10) * 30.0},
+    ).rio.write_crs("EPSG:3577").rio.write_transform()
+    aoi = gpd.GeoDataFrame({"geometry": [box(0.0, -300.0, 300.0, 0.0)]}, crs="EPSG:3577")
+
+    baseline = np.asarray(io_module._clip_to_aoi(cube, aoi).isel(time=0).values)
+    explicit_none = np.asarray(
+        io_module._clip_to_aoi(cube, aoi, wet_aoi=None).isel(time=0).values
+    )
+    assert np.array_equal(baseline, explicit_none)
+    assert (baseline == 0).all()
+
+
 def test_raster_loader_fails_closed_when_aoi_cannot_reproject(tmp_path):
     geopandas = pytest.importorskip("geopandas")
     from shapely.geometry import box
@@ -590,7 +654,7 @@ def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
 
     client.search.side_effect = fake_search
     monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
-    monkeypatch.setattr("hydroseason.io._clip_to_aoi", lambda mask, target: mask)
+    monkeypatch.setattr("hydroseason.io._clip_to_aoi", lambda mask, target, wet_aoi=None: mask)
 
     result = load_wofs_from_stac(
         "https://example.invalid/stac", "wofs", _aoi(),
@@ -677,7 +741,7 @@ def test_stac_loader_retries_transient_search_failure(monkeypatch):
     client.search.side_effect = fake_search
     monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
     monkeypatch.setattr("odc.stac.stac_load", Mock(return_value=ds))
-    monkeypatch.setattr("hydroseason.io._clip_to_aoi", lambda mask, target: mask)
+    monkeypatch.setattr("hydroseason.io._clip_to_aoi", lambda mask, target, wet_aoi=None: mask)
     monkeypatch.setattr("hydroseason._io_geo.time.sleep", Mock())
 
     result = load_wofs_from_stac(
