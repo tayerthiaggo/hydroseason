@@ -25,6 +25,7 @@ from hydroseason._io_wofs_zarr import (
     preflight_cache_space,
     require_cached_request,
     resolve_cached_request,
+    _compute_with_remote_read_retries,
     validate_annual_group,
     write_annual_group,
 )
@@ -368,6 +369,26 @@ def test_annual_writer_reports_non_negative_phase_timings(tmp_path):
     assert stats.validation_seconds >= 0.0
 
 
+def test_remote_read_retry_recomputes_transient_tiff_failure(monkeypatch):
+    calls = []
+
+    def flaky_compute(*args, **kwargs):
+        calls.append((args, kwargs))
+        if len(calls) == 1:
+            raise RuntimeError("TIFFReadEncodedTile() failed: got 0 bytes")
+        return ("ok",)
+
+    monkeypatch.setattr("hydroseason._io_wofs_zarr.time.sleep", lambda _seconds: None)
+    result = _compute_with_remote_read_retries(
+        flaky_compute,
+        ("lazy-block",),
+        {},
+    )
+
+    assert result == ("ok",)
+    assert len(calls) == 2
+
+
 def test_annual_writer_leaves_dask_worker_count_unset_by_default(monkeypatch, tmp_path):
     seen = []
     real_compute = dask.compute
@@ -465,23 +486,44 @@ def test_annual_writer_persists_exact_monthly_extent_counts(tmp_path):
     assert extent["invalid_pct"].tolist() == [20.0, 20.0]
 
 
-def test_extent_counts_backward_compatibility(tmp_path):
-    mask = _canonical_cube(shape=(12, 2, 2), fill=0)
+def test_extent_counts_backfills_legacy_group_from_stored_chunks(tmp_path):
+    mask = _canonical_cube(shape=(2, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, 0]]
+    mask.values[1] = [[0, 0, -1], [-2, 1, 1]]
     handle = _handle_for_cube(tmp_path, mask)
     write_annual_group(
         handle,
         2015,
-        mask.chunk({"time": 1, "y": 2, "x": 2}),
-        windows=(GridWindow("r0c0", 0, 2, 0, 2),),
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
         item_ids=("a",),
     )
 
     sidecar = handle.path / "years" / "2015" / "extent_counts.json"
-    if sidecar.exists():
-        sidecar.unlink()
+    sidecar.unlink()
 
-    assert open_completed_extent_counts(handle, "2015-01-01", "2015-12-31") is None
+    extent = open_completed_extent_counts(
+        handle, "2015-01-01", "2015-02-01", read_workers=2
+    )
+
+    assert extent is not None
+    assert extent["n_aoi"].tolist() == [5, 5]
+    assert extent["n_valid"].tolist() == [4, 4]
+    assert extent["n_water"].tolist() == [2, 2]
+    assert extent["n_invalid"].tolist() == [1, 1]
+    assert sidecar.exists()
     assert completed_years(handle) == {2015}
+
+    # Backfill must release its Zarr handle so an atomic annual rewrite can
+    # remove/rename the group on Windows.
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+        overwrite=True,
+    )
 
 
 def test_extent_counts_equal_raster_reduction(tmp_path):

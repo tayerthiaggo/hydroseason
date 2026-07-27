@@ -49,8 +49,14 @@ def test_stac_query_results_are_stably_ordered(monkeypatch):
         _item("2015-01-15T00:00:00Z", "same-day-a"),
         _item("2015-01-01T00:00:00Z", "earlier"),
     ]
+    query_kwargs = {}
     monkeypatch.setattr(pystac_client.Client, "open", lambda _url: object())
-    monkeypatch.setattr(geo, "_collect_stac_items", lambda *_args, **_kwargs: items)
+
+    def collect(*_args, **kwargs):
+        query_kwargs.update(kwargs)
+        return items
+
+    monkeypatch.setattr(geo, "_collect_stac_items", collect)
 
     result, _aoi_gdf = geo._query_wofs_items(
         "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
@@ -58,6 +64,14 @@ def test_stac_query_results_are_stably_ordered(monkeypatch):
     )
 
     assert [item.id for item in result] == ["earlier", "same-day-a", "same-day-b"]
+    assert query_kwargs["fields"] == {
+        "include": [
+            "assets.water",
+            "properties.datetime",
+            "properties.start_datetime",
+            "properties.end_datetime",
+        ]
+    }
 
 
 def test_multi_year_acquisition_queries_once_and_builds_one_graph_per_year(monkeypatch, tmp_path):
@@ -78,6 +92,44 @@ def test_multi_year_acquisition_queries_once_and_builds_one_graph_per_year(monke
     assert graph.call_count == 2
     assert writer.call_count == 2
     assert [tuple(item.id for item in call.args[0]) for call in graph.call_args_list] == [("a", "b"), ("c",)]
+
+
+def test_failed_year_is_deferred_until_other_years_finish(monkeypatch, tmp_path):
+    items = [_item("2015-01-15", "a"), _item("2016-01-15", "b")]
+    call_order = []
+    attempts = {2015: 0, 2016: 0}
+
+    def build(_items, _aoi_gdf, start_date, _end_date, **_kwargs):
+        return _cube(pd.Timestamp(start_date).year)
+
+    def write(_handle, year, _mask, **_kwargs):
+        call_order.append(year)
+        attempts[year] += 1
+        if year == 2015 and attempts[year] == 1:
+            raise RuntimeError("transient remote read")
+        stats = _stats()
+        stats.year = year
+        return stats
+
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", build)
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", write)
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.time.sleep", lambda _seconds: None)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac",
+        "ga_ls_wo_3",
+        _aoi(),
+        "2015-01-01",
+        "2016-12-31",
+        cache_root=tmp_path,
+        resolution=30,
+    )
+
+    assert call_order == [2015, 2016, 2015]
 
 
 def test_acquisition_reports_query_and_graph_counts_to_diagnostics_callback(monkeypatch, tmp_path):

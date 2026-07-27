@@ -156,4 +156,5 @@ def tile_intersects_wet_aoi(tile_geobox, wet_aoi) -> bool:
 
     bounds = tile_geobox.extent.boundingbox
     tile_polygon = box(bounds.left, bounds.bottom, bounds.right, bounds.top)
-    return bool(wet_aoi.to_crs(tile_geobox.crs).geometry.intersects(tile_polygon).any())
+    target_wet_aoi = wet_aoi.to_crs(tile_geobox.crs) if wet_aoi.crs is not None else wet_aoi
+    return bool(target_wet_aoi.geometry.intersects(tile_polygon).any())

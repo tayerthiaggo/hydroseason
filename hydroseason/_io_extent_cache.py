@@ -618,7 +618,9 @@ def load_wofs_monthly_extent(
                 raise FileNotFoundError(f"offline WOfS cache miss: {exc}") from exc
             raise
         if wet_aoi is None and not precompute_wet_aoi:
-            fast_extent = _io.open_completed_extent_counts(handle, start_date, end_date)
+            fast_extent = _io.open_completed_extent_counts(
+                handle, start_date, end_date, read_workers=read_workers
+            )
             if fast_extent is not None:
                 _write_requested_annual_extent_parts(
                     fast_extent,

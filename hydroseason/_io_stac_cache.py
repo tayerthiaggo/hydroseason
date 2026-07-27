@@ -56,22 +56,22 @@ def load_cached_items(
     if not fetched_at_str or not items_dict:
         return None
 
-    # Expiration logic
-    end_year = int(key.end_date.split("-")[0])
-    current_utc_year = (
-        datetime.fromisoformat(now.replace("Z", "+00:00")).year
-        if now
-        else datetime.now(timezone.utc).year
-    )
-    if end_year >= current_utc_year:
-        fetched_at = datetime.fromisoformat(fetched_at_str.replace("Z", "+00:00"))
+    # Expiration logic. Malformed timestamps invalidate cache entry rather
+    # than leaking ``ValueError`` into acquisition.
+    try:
+        end_year = int(key.end_date.split("-")[0])
         now_dt = (
             datetime.fromisoformat(now.replace("Z", "+00:00"))
             if now
             else datetime.now(timezone.utc)
         )
-        if (now_dt - fetched_at).total_seconds() > 86400:
-            return None
+        fetched_at = datetime.fromisoformat(fetched_at_str.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None
+    if now_dt.tzinfo is None or fetched_at.tzinfo is None:
+        return None
+    if end_year >= now_dt.year and (now_dt - fetched_at).total_seconds() > 86400:
+        return None
 
     try:
         item_collection = pystac.ItemCollection.from_dict(items_dict)

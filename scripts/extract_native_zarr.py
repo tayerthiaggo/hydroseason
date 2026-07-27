@@ -16,6 +16,9 @@ from hydroseason._io_wofs_zarr import (
     WOfSCacheIdentity,
     WOfSCacheRequest,
     create_cache_handle,
+    WOFS_CACHE_SCHEMA_VERSION,
+    WOFS_CLASSIFIER_VERSION,
+    WOFS_PLANNER_VERSION,
 )
 from hydroseason._io_geo import _resolve_raster_transform
 
@@ -45,6 +48,11 @@ def extract_native_zarr(
         end_date=end_date,
         crs=crs_str,
         resolution=resolution,
+        classifier_version=WOFS_CLASSIFIER_VERSION,
+        groupby="solar_day",
+        majority=True,
+        planner_version=WOFS_PLANNER_VERSION,
+        schema_version=WOFS_CACHE_SCHEMA_VERSION,
     )
     
     # Load from STAC (this performs clipping and temporal reduction)

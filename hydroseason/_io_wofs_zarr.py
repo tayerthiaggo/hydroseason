@@ -704,6 +704,21 @@ def _mask_template(mask, year: int) -> "object":
     return xr.Dataset({"water_mask": template}), year_mask
 
 
+def _compute_with_remote_read_retries(
+    compute_fn, *args, retries: int = 3, retry_delay: float = 1.0, **kwargs
+):
+    last_exc = None
+    for attempt in range(retries + 1):
+        try:
+            return compute_fn(*args, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(retry_delay)
+            else:
+                raise last_exc
+
+
 def write_annual_group(
     handle: WOfSCacheHandle,
     year: int,
@@ -839,7 +854,11 @@ def write_annual_group(
                 block_metadata.append((cy, cx, cy_stop, cx_stop))
 
             compute_started = time.perf_counter()
-            computed_blocks = dask.compute(*blocks_to_compute, **compute_kwargs)
+            computed_blocks = _compute_with_remote_read_retries(
+                dask.compute,
+                *blocks_to_compute,
+                **compute_kwargs,
+            )
             compute_seconds += time.perf_counter() - compute_started
 
             write_started = time.perf_counter()
@@ -1409,10 +1428,46 @@ def open_completed_mask_cache(
     return complete_monthly_axis(combined, start_date, end_date)
 
 
+def _backfill_extent_counts_json(year_path: Path, year: int) -> dict | None:
+    try:
+        import xarray as xr
+        opened_ds = xr.open_zarr(_zarr_store(year_path), consolidated=False, mask_and_scale=False)
+        try:
+            mask_da, _crs, _transform = _read_georef(opened_ds)
+            values = np.asarray(mask_da.values)
+            time_index = pd.DatetimeIndex(np.asarray(mask_da.time.values))
+            dates = [d.strftime("%Y-%m-%d") for d in time_index]
+
+            water = (values == 1).sum(axis=(1, 2), dtype=np.int64)
+            dry = (values == 0).sum(axis=(1, 2), dtype=np.int64)
+            aoi = (values != -2).sum(axis=(1, 2), dtype=np.int64)
+            valid = water + dry
+            invalid = aoi - valid
+
+            payload = {
+                "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+                "year": int(year),
+                "dates": dates,
+                "n_aoi": aoi.tolist(),
+                "n_valid": valid.tolist(),
+                "n_water": water.tolist(),
+                "n_invalid": invalid.tolist(),
+            }
+            payload["content_digest"] = _sha256_digest(payload)
+            _write_json_atomic(year_path / "extent_counts.json", payload)
+            return payload
+        finally:
+            opened_ds.close()
+    except Exception:
+        return None
+
+
 def open_completed_extent_counts(
     handle: WOfSCacheHandle,
     start_date: str,
     end_date: str,
+    *,
+    read_workers: int | None = None,
 ) -> pd.DataFrame | None:
     start = pd.Timestamp(start_date)
     end = pd.Timestamp(end_date)
@@ -1428,8 +1483,11 @@ def open_completed_extent_counts(
     all_n_invalid = []
 
     for year in requested_years:
-        path = Path(handle.path) / "years" / str(int(year)) / "extent_counts.json"
+        year_path = Path(handle.path) / "years" / str(int(year))
+        path = year_path / "extent_counts.json"
         payload = _read_json(path)
+        if payload is None:
+            payload = _backfill_extent_counts_json(year_path, year)
         if payload is None:
             return None
         content_digest = payload.get("content_digest")

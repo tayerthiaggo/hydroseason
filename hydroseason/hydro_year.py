@@ -252,13 +252,13 @@ def monthly_water_extent(
     with concurrency:
         for start in range(0, n_time, time_block):
             block = water_mask.isel(time=slice(start, start + time_block))
-            n_water_block = (block == water_value).sum(dim=dims)
-            n_dry_block = (block == dry_value).sum(dim=dims)
+            n_water_block = (block == water_value).sum(dim=dims, dtype=np.int32)
+            n_dry_block = (block == dry_value).sum(dim=dims, dtype=np.int32)
             n_valid_block = n_water_block + n_dry_block
-            n_aoi_block = (block != outside_value).sum(dim=dims)
+            n_aoi_block = (block != outside_value).sum(dim=dims, dtype=np.int32)
             n_invalid_block = n_aoi_block - n_valid_block
             if inside_wet is not None:
-                n_wet_aoi_block = ((block != outside_value) & inside_wet).sum(dim=dims)
+                n_wet_aoi_block = ((block != outside_value) & inside_wet).sum(dim=dims, dtype=np.int32)
                 (
                     n_aoi_block,
                     n_valid_block,

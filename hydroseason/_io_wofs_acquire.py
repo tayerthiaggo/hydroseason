@@ -226,6 +226,11 @@ def acquire_wofs_cache(
     mirroring the ``force`` convention already used elsewhere in this
     package (e.g. :mod:`hydroseason._io_extent_cache`) to mean "treat a
     cache hit as a miss."
+
+    A failed year is deferred while the remaining missing years continue,
+    then retried once after the first pass. Successfully published years stay
+    resumable even if a deferred year fails again; the final error lists only
+    years still incomplete after that retry.
     """
     cache_root = Path(cache_root)
     aoi_name = "aoi"
@@ -401,16 +406,20 @@ def acquire_wofs_cache(
 
             item_ids = tuple(item.id for item in year_items)
             final_year_path = Path(handle.path) / "years" / str(int(year))
-            stats = write_annual_group(
-                handle,
-                year,
-                mask,
-                windows=plan.windows,
-                item_ids=item_ids,
-                overwrite=force or Path(_long_path(final_year_path)).exists(),
-                compute_batch_size=compute_batch_size,
-                read_workers=read_workers,
-            )
+            try:
+                stats = write_annual_group(
+                    handle,
+                    year,
+                    mask,
+                    windows=plan.windows,
+                    item_ids=item_ids,
+                    overwrite=force or Path(_long_path(final_year_path)).exists(),
+                    compute_batch_size=compute_batch_size,
+                    read_workers=read_workers,
+                )
+            finally:
+                del mask
+                gc.collect()
             y_diag = {
                 "year": int(year),
                 "item_count": len(item_ids),
@@ -424,35 +433,65 @@ def acquire_wofs_cache(
                 "encode_write_seconds": getattr(stats, "encode_write_seconds", 0.0),
                 "validation_seconds": getattr(stats, "validation_seconds", 0.0),
             }
-            del mask
-            gc.collect()
             return y_diag, stats, p_diag, item_ids, bool(year_items)
 
         year_diagnostics: list[dict[str, Any]] = []
+        deferred_years: list[int] = []
+
+        def _record_year_result(result) -> None:
+            nonlocal graph_count
+            y_diag, stats, p_diag, item_ids, was_graph = result
+            if was_graph:
+                graph_count += 1
+            all_item_ids.extend(item_ids)
+            write_stats.append(stats)
+            plan_diagnostics.append(p_diag)
+            year_diagnostics.append(y_diag)
+            _write_acquisition_progress(handle, query_elapsed, [y_diag])
+
+        def _defer_failed_year(year: int, exc: Exception) -> None:
+            deferred_years.append(int(year))
+            if progress:
+                print(
+                    f"[{aoi_name}] Year {year} failed ({type(exc).__name__}: {exc}); "
+                    "deferring until the remaining years finish.",
+                    flush=True,
+                )
+
         if year_workers > 1 and len(missing_years) > 1:
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
             with ThreadPoolExecutor(max_workers=min(year_workers, len(missing_years))) as pool:
                 futures = {pool.submit(_process_one_year, yr): yr for yr in missing_years}
                 for future in as_completed(futures):
-                    y_diag, stats, p_diag, item_ids, was_graph = future.result()
-                    if was_graph:
-                        graph_count += 1
-                    all_item_ids.extend(item_ids)
-                    write_stats.append(stats)
-                    plan_diagnostics.append(p_diag)
-                    year_diagnostics.append(y_diag)
-                    _write_acquisition_progress(handle, query_elapsed, [y_diag])
+                    year = futures[future]
+                    try:
+                        result = future.result()
+                    except Exception as exc:
+                        _defer_failed_year(year, exc)
+                    else:
+                        _record_year_result(result)
         else:
             for year in year_iter:
-                y_diag, stats, p_diag, item_ids, was_graph = _process_one_year(year)
-                if was_graph:
-                    graph_count += 1
-                all_item_ids.extend(item_ids)
-                write_stats.append(stats)
-                plan_diagnostics.append(p_diag)
-                year_diagnostics.append(y_diag)
-                _write_acquisition_progress(handle, query_elapsed, [y_diag])
+                try:
+                    result = _process_one_year(year)
+                except Exception as exc:
+                    _defer_failed_year(year, exc)
+                else:
+                    _record_year_result(result)
+
+        terminal_failures: dict[int, str] = {}
+        if deferred_years:
+            if progress:
+                years_text = ", ".join(str(year) for year in deferred_years)
+                print(f"[{aoi_name}] Retrying deferred years: {years_text}", flush=True)
+            for year in deferred_years:
+                try:
+                    result = _process_one_year(year)
+                except Exception as exc:
+                    terminal_failures[year] = f"{type(exc).__name__}: {exc}"
+                else:
+                    _record_year_result(result)
 
         elapsed = time.monotonic() - phase_started
         _write_acquisition_manifest(
@@ -467,6 +506,11 @@ def acquire_wofs_cache(
         )
         if diagnostics_callback is not None:
             diagnostics_callback(_diagnostics_payload(1, graph_count, write_stats))
+        if terminal_failures:
+            details = "; ".join(
+                f"{year}: {message}" for year, message in sorted(terminal_failures.items())
+            )
+            raise RuntimeError(f"WOfS acquisition failed after deferred retry ({details})")
 
     return handle
 

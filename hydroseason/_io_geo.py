@@ -61,15 +61,26 @@ def _configure_cog_read_env() -> None:
         "VSI_CACHE": "TRUE",
         "VSI_CACHE_SIZE": "134217728",  # 128 MB
         "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff",
-        "GDAL_HTTP_MAX_RETRY": "5",
-        "GDAL_HTTP_RETRY_DELAY": "1",
-        # GDAL >= 3.11 only; silently ignored on older GDAL (e.g. 3.10). Sized
-        # to comfortably exceed the default read_workers pool so worker count,
-        # not GDAL, governs concurrency once GDAL is new enough.
+        "GDAL_HTTP_MAX_RETRY": "10",
+        "GDAL_HTTP_RETRY_DELAY": "3",
+        "GDAL_HTTP_RETRY_CODES": "429,500,502,503,504,520,522,524",
+        "GDAL_HTTP_TIMEOUT": "30",
+        "GDAL_HTTP_CONNECTTIMEOUT": "15",
         "GDAL_HTTP_MAX_TOTAL_CONNECTIONS": "64",
     }
     for key, value in defaults.items():
         os.environ.setdefault(key, value)
+    os.environ.pop("PROJ_LIB", None)
+    os.environ.pop("PROJ_DATA", None)
+    try:
+        import rasterio
+
+        proj_data = Path(rasterio.__file__).parent / "proj_data"
+        if proj_data.exists():
+            os.environ["PROJ_DATA"] = str(proj_data)
+            os.environ["PROJ_LIB"] = str(proj_data)
+    except Exception:
+        pass
 
 MaskEncoding = Literal["canonical", "binary", "wofs"]
 
@@ -248,6 +259,17 @@ def _query_wofs_items(
             datetime=f"{start:%Y-%m-%d}/{end:%Y-%m-%d}",
             intersects=geometry.__geo_interface__,
             limit=1000,
+            # DEA STAC supports the Fields extension.  Keep only the WOfS
+            # asset and timestamp fields needed by odc-stac/classification;
+            # geometry, id, bbox and other STAC core fields remain automatic.
+            fields={
+                "include": [
+                    "assets.water",
+                    "properties.datetime",
+                    "properties.start_datetime",
+                    "properties.end_datetime",
+                ]
+            },
         )
     except Exception as exc:
         raise AOIRasterizationError("STAC AOI query failed; refusing to load an unclipped raster.") from exc
@@ -490,6 +512,26 @@ def _geobox_native_aligned(source, destination) -> bool:
     import math
 
     if source.crs != destination.crs:
+        return False
+    # Native bypass is safe only for north-up grids with matching axis
+    # orientation.  ``GeoBox.resolution`` reports magnitudes, so checking it
+    # alone would incorrectly accept rotated/sheared or flipped transforms.
+    source_affine = source.affine
+    destination_affine = destination.affine
+    if any(
+        not math.isclose(float(value), 0.0, abs_tol=1e-12)
+        for value in (
+            source_affine.b,
+            source_affine.d,
+            destination_affine.b,
+            destination_affine.d,
+        )
+    ):
+        return False
+    if not (
+        math.isclose(source_affine.a, destination_affine.a, abs_tol=1e-9)
+        and math.isclose(source_affine.e, destination_affine.e, abs_tol=1e-9)
+    ):
         return False
     if not (
         math.isclose(abs(source.resolution.x), abs(destination.resolution.x), abs_tol=1e-9)
@@ -836,34 +878,45 @@ def _preserve_georef(result, source):
 
 
 def _combine_observations(series, majority):
-    water = (series == 1).sum("time", dtype=np.int32)
-    dry = (series == 0).sum("time", dtype=np.int32)
-    invalid = (series == -1).sum("time", dtype=np.int32)
-    water_wins = (water > 0) & ((water > dry) if majority else True)
-
     import xarray as xr
 
-    combined = xr.where(
-        water_wins,
-        np.int8(1),
-        xr.where(dry > 0, np.int8(0), xr.where(invalid > 0, np.int8(-1), np.int8(-2))),
-    ).astype(np.int8)
+    if majority:
+        vote = xr.where(series == 1, np.int32(1), xr.where(series == 0, np.int32(-1), np.int32(0)))
+        score = vote.sum("time", dtype=np.int32)
+        fallback = series.max("time")
+        combined = xr.where(
+            score > 0,
+            np.int8(1),
+            xr.where(fallback >= 0, np.int8(0), fallback.astype(np.int8)),
+        ).astype(np.int8)
+    else:
+        combined = series.max("time").astype(np.int8)
+
     return _preserve_georef(combined, series)
 
 
 def _clip_to_aoi(mask, aoi_gdf):
     outside_value = np.int8(-2)
+    invalid_value = np.int8(-1)
     try:
         mask = mask.rio.set_spatial_dims(x_dim="x", y_dim="y")
         crs = _resolve_raster_crs(mask)
         if crs is None:
             raise GeoreferencingError("raster is missing CRS")
-        mask = mask.rio.write_nodata(outside_value)
-        clipped = mask.rio.clip(aoi_gdf.to_crs(crs).geometry, drop=False, all_touched=True)
+        inside = _inside_aoi_mask_like(mask, aoi_gdf.to_crs(crs))
     except Exception as exc:
+        if isinstance(exc, (AOIRasterizationError, GeoreferencingError)):
+            raise
         raise AOIRasterizationError("AOI clip failed; refusing to process an unclipped raster.") from exc
-    clipped = clipped.fillna(outside_value).astype(np.int8)
-    return mark_in_aoi_nodata_as_invalid(clipped, aoi_gdf)
+
+    import xarray as xr
+
+    res = (
+        xr.where(inside, xr.where(mask == outside_value, invalid_value, mask), outside_value)
+        .astype(np.int8)
+        .transpose(*mask.dims)
+    )
+    return _preserve_georef(res, mask)
 
 
 def mark_in_aoi_nodata_as_invalid(mask, aoi, *, outside_value: int = -2, invalid_value: int = -1):

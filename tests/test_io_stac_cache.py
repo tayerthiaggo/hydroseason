@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import pystac
 import pytest
 
@@ -46,3 +47,26 @@ def test_item_cache_round_trip_preserves_item_dicts(tmp_path):
     loaded = load_cached_items(tmp_path, key, now="2026-07-25T01:00:00Z")
     assert loaded is not None
     assert [item.to_dict() for item in loaded] == [item.to_dict() for item in items]
+
+
+def test_item_cache_invalid_timestamp_fails_closed(tmp_path):
+    key = STACItemCacheKey(
+        stac_url="https://example.test/stac",
+        collection="ga_ls_wo_3",
+        aoi_sha256="a" * 64,
+        start_date="2026-01-01",
+        end_date="2026-12-31",
+    )
+    cache_path = tmp_path / ".stac-items" / f"{key.digest()}.json"
+    cache_path.parent.mkdir()
+    cache_path.write_text(
+        json.dumps(
+            {
+                "fetched_at": "not-a-timestamp",
+                "items": {"type": "FeatureCollection", "features": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_cached_items(tmp_path, key, now="2026-07-26T00:00:00Z") is None

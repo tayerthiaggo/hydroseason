@@ -125,6 +125,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="number of concurrent worker processes for parallel multi-year acquisition (default: 1)",
     )
     parser.add_argument(
+        "--output-csv", type=str, default=None,
+        help="explicit path for output CSV (default: output/water_extent_csv/{name}_{res}m_water_extent.csv)",
+    )
+    parser.add_argument(
         "--profile", action="store_true",
         help="print per-phase timing (precompute vs tiled, per-year, tile-skip counts) to stderr",
     )
@@ -157,8 +161,9 @@ def _resolve_jobs(args) -> list[tuple[str, Path]]:
 
 def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int = 0) -> dict:
     name, boundary_path = job
-    out_csv = OUTPUT_DIR / f"{name}_water_extent.csv"
     res_val = args.resolution if args.resolution is not None else 30.0
+    res_suffix = f"_{int(res_val)}m" if args.resolution is not None else ""
+    out_csv = Path(args.output_csv) if getattr(args, "output_csv", None) else OUTPUT_DIR / f"{name}{res_suffix}_water_extent.csv"
 
     t0 = time.monotonic()
     extent = load_wofs_monthly_extent(

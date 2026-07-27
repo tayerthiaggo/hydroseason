@@ -62,6 +62,21 @@ def test_benchmark_source_count_gate_rejects_extra_cold_queries():
         sys.modules.pop(spec.name, None)
 
 
+def test_benchmark_parser_accepts_selected_cases():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "benchmark_wofs_cache.py"
+    spec = importlib.util.spec_from_file_location("benchmark_wofs_cache_parser", script)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    try:
+        args = mod._parser().parse_args(["--cases", "gilbert,fitzroy,moonie"])
+        assert args.cases == ["gilbert", "fitzroy", "moonie"]
+    finally:
+        sys.modules.pop(spec.name, None)
+
+
 @pytest.mark.network
 @pytest.mark.performance
 def test_real_wofs_cache_performance_gates(tmp_path):

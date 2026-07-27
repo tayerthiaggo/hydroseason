@@ -42,6 +42,9 @@ from hydroseason._io_wofs_zarr import (
     WOfSCacheIdentity,
     WOfSCacheHandle,
     resolve_cached_request,
+    WOFS_CACHE_SCHEMA_VERSION,
+    WOFS_CLASSIFIER_VERSION,
+    WOFS_PLANNER_VERSION,
 )
 from hydroseason._io_wofs_coarsen import (
     derive_resolution_cache,
@@ -237,6 +240,11 @@ def run_one_catchment(
         end_date=end_date,
         crs="EPSG:3577",
         resolution=native_res_m,
+        classifier_version=WOFS_CLASSIFIER_VERSION,
+        groupby="solar_day",
+        majority=True,
+        planner_version=WOFS_PLANNER_VERSION,
+        schema_version=WOFS_CACHE_SCHEMA_VERSION,
     )
     
     native_handle = resolve_cached_request(cache_dir, request, offline=True)

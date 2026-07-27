@@ -23,6 +23,9 @@ from typing import Any
 
 import pandas as pd
 
+os.environ.pop("PROJ_LIB", None)
+os.environ.pop("PROJ_DATA", None)
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -38,6 +41,7 @@ LEGACY_QUERIES_PER_RUN = 2
 CASES = {
     "gilbert": REPO_ROOT / "data" / "Gilbert_river_buffer.geojson",
     "fitzroy": REPO_ROOT / "data" / "fitzroy_kimberley_aoi.geojson",
+    "moonie": REPO_ROOT / "data" / "catchments" / "moonie_river_qld_nsw_boundary.geojson",
 }
 GDAL_SETTINGS = {
     "inherited": {},
@@ -207,6 +211,8 @@ def _run_child(
     if mask_cache is not None:
         command.extend(["--mask-cache", str(mask_cache)])
     environment = os.environ.copy()
+    environment.pop("PROJ_LIB", None)
+    environment.pop("PROJ_DATA", None)
     environment.update(setting)
     completed = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, env=environment)
     if completed.returncode != 0:
@@ -288,15 +294,15 @@ def _summarise_case(
 
 def _source_counts_ok(result: dict[str, Any], *, runs: int) -> bool:
     """Hard source-count gate for the real one-year benchmark cases."""
-    return (
-        result["gilbert"]["legacy_stac_calls"] == LEGACY_QUERIES_PER_RUN * runs
-        and result["fitzroy"]["legacy_stac_calls"] == LEGACY_QUERIES_PER_RUN * runs
-        and result["gilbert"]["cold_stac_calls"] == runs
-        and result["fitzroy"]["cold_stac_calls"] == runs
-        and result["gilbert"]["cold_graph_builds"] == runs
-        and result["fitzroy"]["cold_graph_builds"] == runs
-        and result["gilbert"]["cached_stac_calls"] == 0
-        and result["gilbert"]["cached_graph_builds"] == 0
+    cases = result.get("selected_cases", tuple(name for name in CASES if name in result))
+    return all(
+        result[case]["legacy_stac_calls"] == LEGACY_QUERIES_PER_RUN * runs
+        and result[case]["cold_stac_calls"] == runs
+        and result[case]["cold_graph_builds"] == runs
+        for case in cases
+    ) and (
+        not {"gilbert", "cached_stac_calls", "cached_graph_builds"}.issubset(result)
+        or (result["gilbert"]["cached_stac_calls"] == 0 and result["gilbert"]["cached_graph_builds"] == 0)
     )
 
 
@@ -305,10 +311,11 @@ def _run_benchmark(args: argparse.Namespace) -> int:
     work_dir.mkdir(parents=True, exist_ok=False)
     gdal_results: dict[str, dict[str, Any]] = {}
     all_exact = True
+    selected_cases = list(args.cases)
     try:
         for setting_name, setting in GDAL_SETTINGS.items():
             per_case: dict[str, Any] = {}
-            for case in CASES:
+            for case in selected_cases:
                 legacy = []
                 cold = []
                 for run_index in range(args.runs):
@@ -334,7 +341,7 @@ def _run_benchmark(args: argparse.Namespace) -> int:
             candidate = gdal_results[setting_name]
             faster_both = all(
                 candidate[case]["cold_median_seconds"] <= inherited[case]["cold_median_seconds"] * 0.95
-                for case in CASES
+                for case in selected_cases
             )
             exact_both = all(
                 candidate[case]["exact_output_equality"]
@@ -346,46 +353,44 @@ def _run_benchmark(args: argparse.Namespace) -> int:
                         strict=True,
                     )
                 )
-                for case in CASES
+                for case in selected_cases
             )
             rss_ok = all(
                 _rss_not_over(
                     inherited[case]["cache_cold_runs"], candidate[case]["cache_cold_runs"], 1.10
                 )
-                for case in CASES
+                for case in selected_cases
             )
             if faster_both and exact_both and rss_ok:
                 promoted = setting_name
                 break
 
         selected = gdal_results[promoted]
-        warm_cache = work_dir / f"gilbert-warm-cache-{promoted}"
-        _run_child(
-            args, case="gilbert", mode="cold", label=f"gilbert-warm-seed-{promoted}",
-            setting=GDAL_SETTINGS[promoted], mask_cache=warm_cache,
-        )
-        warm = [
+        if "gilbert" in selected_cases:
+            warm_cache = work_dir / f"gilbert-warm-cache-{promoted}"
             _run_child(
-                args,
-                case="gilbert",
-                mode="warm",
-                label=f"gilbert-warm-{promoted}-{run_index}",
-                setting=GDAL_SETTINGS[promoted],
-                mask_cache=warm_cache,
+                args, case="gilbert", mode="cold", label=f"gilbert-warm-seed-{promoted}",
+                setting=GDAL_SETTINGS[promoted], mask_cache=warm_cache,
             )
-            for run_index in range(args.runs)
-        ]
-        selected["gilbert"] = _summarise_case(
-            selected["gilbert"]["legacy_runs"], selected["gilbert"]["cache_cold_runs"], warm
-        ) | {"exact_output_equality": selected["gilbert"]["exact_output_equality"]}
-        all_exact = all_exact and all(
-            _assert_exact(reference, candidate)
-            for reference, candidate in zip(selected["gilbert"]["legacy_runs"], warm, strict=True)
-        )
+            warm = [
+                _run_child(
+                    args, case="gilbert", mode="warm",
+                    label=f"gilbert-warm-{promoted}-{run_index}",
+                    setting=GDAL_SETTINGS[promoted], mask_cache=warm_cache,
+                )
+                for run_index in range(args.runs)
+            ]
+            selected["gilbert"] = _summarise_case(
+                selected["gilbert"]["legacy_runs"], selected["gilbert"]["cache_cold_runs"], warm
+            ) | {"exact_output_equality": selected["gilbert"]["exact_output_equality"]}
+            all_exact = all_exact and all(
+                _assert_exact(reference, candidate)
+                for reference, candidate in zip(selected["gilbert"]["legacy_runs"], warm, strict=True)
+            )
 
         result = {
-            "gilbert": selected["gilbert"],
-            "fitzroy": selected["fitzroy"],
+            **selected,
+            "selected_cases": selected_cases,
             "gdal_ab": gdal_results,
             "gdal_promoted_setting": promoted,
             "exact_output_equality": all_exact,
@@ -394,11 +399,12 @@ def _run_benchmark(args: argparse.Namespace) -> int:
         _write_json_atomic(Path(args.output), result)
 
         source_failure = not all_exact or not _source_counts_ok(result, runs=args.runs)
-        hard_failure = (
-            result["gilbert"]["cold_median_improvement"] < 0.20
-            or result["fitzroy"]["cold_median_regression"] > 0.10
-            or result["gilbert"]["cached_median_improvement"] < 0.80
+        hard_failure = any(
+            result[case]["cold_median_improvement"] < 0.20
+            for case in selected_cases
         )
+        if "gilbert" in selected_cases:
+            hard_failure = hard_failure or result["gilbert"]["cached_median_improvement"] < 0.80
         if source_failure:
             return 3
         return 2 if hard_failure else 0
@@ -411,6 +417,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "output" / "wofs_cache_benchmark.json")
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument(
+        "--cases",
+        type=lambda value: [item.strip() for item in value.split(",") if item.strip()],
+        default=["gilbert", "fitzroy"],
+        help="comma-separated benchmark cases (default: gilbert,fitzroy)",
+    )
     parser.add_argument("--compute-batch-size", type=int, default=16)
     parser.add_argument("--read-workers", type=int, default=0)
     parser.add_argument("--resampling-policy", choices=("categorical_safe", "native_aligned"), default="categorical_safe")
@@ -430,6 +442,9 @@ def main() -> int:
     args = _parser().parse_args()
     if args.runs < 1:
         raise SystemExit("--runs must be at least 1")
+    unknown = sorted(set(args.cases) - set(CASES))
+    if not args.cases or unknown:
+        raise SystemExit(f"--cases must name supported cases: {', '.join(sorted(CASES))}")
     if args.child:
         required = (args.case, args.mode, args.extent_cache, args.frame, args.frame_pickle, args.result)
         if any(value is None for value in required):

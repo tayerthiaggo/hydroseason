@@ -34,6 +34,61 @@ def test_combine_observations_flat_selection():
     np.testing.assert_array_equal(combined.values, expected)
 
 
+def test_combine_observations_exhaustive_parity():
+    pytest.importorskip("xarray")
+    import itertools
+    import xarray as xr
+    from hydroseason._io_geo import _combine_observations
+
+    values = [1, 0, -1, -2]
+    # Test all permutations of length 4
+    all_combos = list(itertools.product(values, repeat=4))
+    obs_arr = np.array(all_combos, dtype=np.int8).T  # shape (4, 256)
+    obs = xr.DataArray(obs_arr, dims=["time", "x"])
+
+    for maj in (True, False):
+        res = _combine_observations(obs, majority=maj)
+        # Verify result manually for each column
+        for col_idx, col_vals in enumerate(all_combos):
+            w = sum(1 for v in col_vals if v == 1)
+            d = sum(1 for v in col_vals if v == 0)
+            inv = sum(1 for v in col_vals if v == -1)
+
+            w_wins = (w > 0) and ((w > d) if maj else True)
+            if w_wins:
+                expected_val = 1
+            elif d > 0:
+                expected_val = 0
+            elif inv > 0:
+                expected_val = -1
+            else:
+                expected_val = -2
+
+            assert res.values[col_idx] == expected_val, f"Mismatch for combo {col_vals} with majority={maj}"
+
+
+@pytest.mark.parametrize(
+    "transform, expected",
+    [
+        pytest.param((30, 0, 0, 0, -30, 300), True, id="north-up"),
+        pytest.param((30, 1, 0, 0, -30, 300), False, id="sheared"),
+        pytest.param((30, 0, 0, 1, -30, 300), False, id="rotated"),
+        pytest.param((-30, 0, 0, 0, 30, 300), False, id="flipped"),
+    ],
+)
+def test_native_grid_alignment_rejects_rotated_or_flipped_source(transform, expected):
+    pytest.importorskip("odc.geo")
+    from affine import Affine
+    from odc.geo.crs import CRS
+    from odc.geo.geobox import GeoBox
+
+    from hydroseason._io_geo import _geobox_native_aligned
+
+    destination = GeoBox((10, 10), Affine(30, 0, 0, 0, -30, 300), CRS("EPSG:3577"))
+    source = GeoBox((10, 10), Affine(*transform), CRS("EPSG:3577"))
+    assert _geobox_native_aligned(source, destination) is expected
+
+
 def _write_binary_tif(path):
     rasterio = pytest.importorskip("rasterio")
     from rasterio.transform import from_origin
