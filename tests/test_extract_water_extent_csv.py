@@ -31,3 +31,15 @@ def test_offline_and_legacy_remote_are_mutually_exclusive(mod):
         mod._build_arg_parser().parse_args([
             "--aoi", "data/Gilbert_river_buffer.geojson", "--offline", "--legacy-remote-path"
         ])
+
+
+def test_wet_mask_flag_defaults_off_and_accepts_dea_stats():
+    import scripts.extract_water_extent_csv as script
+
+    parser = script._build_arg_parser()
+
+    assert parser.parse_args([]).wet_mask == "off"
+    assert parser.parse_args(["--wet-mask", "dea_stats"]).wet_mask == "dea_stats"
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--wet-mask", "nonsense"])

@@ -408,6 +408,7 @@ def load_wofs_monthly_extent(
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
     year_workers: int = 1,
+    wet_mask: Literal["off", "dea_stats"] = "off",
 ) -> pd.DataFrame:
     """Compute monthly WOfS extent in resumable calendar-year pieces.
 
@@ -612,6 +613,7 @@ def load_wofs_monthly_extent(
                 read_workers=read_workers,
                 resampling_policy=resampling_policy,
                 year_workers=year_workers,
+                wet_mask=wet_mask,
             )
         except FileNotFoundError as exc:
             if offline:

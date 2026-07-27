@@ -122,7 +122,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--year-workers", type=int, default=1,
-        help="number of concurrent worker processes for parallel multi-year acquisition (default: 1)",
+        help="number of concurrent worker threads for parallel multi-year acquisition (default: 1)",
+    )
+    parser.add_argument(
+        "--wet-mask",
+        choices=("off", "dea_stats"),
+        default="off",
+        help="prune reads to an ever-wet mask. 'dea_stats' derives it from DEA Water "
+             "Observation Statistics (ga_ls_wo_fq_myear_3 + ga_ls_wo_fq_cyear_3). "
+             "NOTE: a pruned run writes to a DIFFERENT cache store than a full-coverage "
+             "run, so it will not reuse years already acquired without the mask "
+             "(default: off)",
     )
     parser.add_argument(
         "--output-csv", type=str, default=None,
@@ -181,6 +191,7 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
         read_workers=args.read_workers if args.read_workers > 0 else None,
         resampling_policy=args.resampling_policy,
         year_workers=args.year_workers,
+        wet_mask=args.wet_mask,
         **tile_kwargs,
     )
     elapsed = time.monotonic() - t0
@@ -200,6 +211,7 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
             offline=True,
             resampling_policy=args.resampling_policy,
             year_workers=args.year_workers,
+            wet_mask=args.wet_mask,
         )
         manifest_path = Path(handle.path) / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
