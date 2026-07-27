@@ -60,7 +60,8 @@ import pandas as pd
 
 # Bumped whenever the on-disk index/manifest layout changes in a way that
 # makes an old cache unreadable by new code (or vice versa).
-WOFS_CACHE_SCHEMA_VERSION = 2
+# 3: WOfSCacheRequest gained wet_mask_sha256 (spatial pruning provenance).
+WOFS_CACHE_SCHEMA_VERSION = 3
 
 # Bumped whenever the water classifier's pixel-value semantics change (e.g.
 # a different canonical-value mapping), so old cached pixels are never read
@@ -154,9 +155,21 @@ class WOfSCacheRequest:
     majority: bool
     planner_version: int
     schema_version: int
+    # Digest of the wet mask a pruned acquisition read under, or None for a
+    # full-coverage read. Outside the mask a pruned year is permanently -2,
+    # which no reader can distinguish from genuinely dry, so pruned and
+    # unpruned results must never share a store. Omitted from the digest
+    # payload entirely when None, so every cache written before this field
+    # existed keeps its original request_digest and stays reachable.
+    wet_mask_sha256: str | None = None
 
     def _digest_payload(self) -> dict:
-        return dataclasses.asdict(self)
+        payload = dataclasses.asdict(self)
+        if payload.get("wet_mask_sha256") is None:
+            # Absent, not null: keeps pre-existing full-coverage caches at
+            # their original digest.
+            payload.pop("wet_mask_sha256", None)
+        return payload
 
     def request_digest(self) -> str:
         return _sha256_digest(self._digest_payload())

@@ -86,6 +86,55 @@ def test_every_data_semantic_changes_request_digest():
         assert dataclasses.replace(base, **{field: changed}).request_digest() != base.request_digest()
 
 
+def _base_request(**overrides):
+    from hydroseason._io_wofs_zarr import (
+        WOFS_CACHE_SCHEMA_VERSION,
+        WOFS_CLASSIFIER_VERSION,
+        WOFS_PLANNER_VERSION,
+        WOfSCacheRequest,
+    )
+
+    fields = {
+        "stac_url": "https://example.test/stac",
+        "collection": "ga_ls_wo_3",
+        "aoi_sha256": "a" * 64,
+        "start_date": "1986-05-01",
+        "end_date": "2026-06-01",
+        "crs": "3577",
+        "resolution": 30.0,
+        "classifier_version": WOFS_CLASSIFIER_VERSION,
+        "groupby": "solar_day",
+        "majority": True,
+        "planner_version": WOFS_PLANNER_VERSION,
+        "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+    }
+    fields.update(overrides)
+    return WOfSCacheRequest(**fields)
+
+
+def test_wet_mask_digest_separates_pruned_from_unpruned_stores():
+    """A pruned cache must never share a store with an unpruned one: outside
+    the mask a pruned year is permanently -2, which is indistinguishable from
+    genuinely dry."""
+    unpruned = _base_request()
+    pruned = _base_request(wet_mask_sha256="b" * 64)
+    other_mask = _base_request(wet_mask_sha256="c" * 64)
+
+    assert unpruned.wet_mask_sha256 is None
+    assert pruned.request_digest() != unpruned.request_digest()
+    assert pruned.request_digest() != other_mask.request_digest()
+    # Same mask, same digest -- a second pruned run reuses the first's store.
+    assert pruned.request_digest() == _base_request(wet_mask_sha256="b" * 64).request_digest()
+
+
+def test_absent_wet_mask_preserves_the_legacy_request_digest():
+    """Existing full-coverage caches on disk must stay reachable: with no wet
+    mask the digest payload must be byte-identical to the pre-field version."""
+    request = _base_request()
+    payload = request._digest_payload()
+    assert "wet_mask_sha256" not in payload
+
+
 def test_transform_changes_full_identity_not_request_digest():
     request = _request()
     left = WOfSCacheIdentity.from_request(request, shape=(10, 20), transform=(30, 0, 0, 0, -30, 0))
