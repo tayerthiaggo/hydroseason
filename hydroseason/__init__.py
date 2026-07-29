@@ -2,6 +2,9 @@
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
+from ._catchment import CatchmentAnalysis, analyze_catchment
+from ._events import WaterEventResult, extract_water_events
+from ._regime import Regime, WaterRegimeAssessment, assess_water_regime
 from .hydro_year import (
     HydroYearConfig,
     detect_hydrological_years,
@@ -50,4 +53,7 @@ __all__ = [
     "analyze_hydrological_state", "classify_annual_surface_water_condition",
     "classify_seasonal_pattern", "compute_monthly_surface_water_condition",
     "detect_dynamic_hydrological_years", "suggest_dynamic_hydro_year_config",
+    "Regime", "WaterRegimeAssessment", "assess_water_regime",
+    "WaterEventResult", "extract_water_events",
+    "CatchmentAnalysis", "analyze_catchment",
 ]

@@ -85,8 +85,8 @@ def wet_aoi_polygon(
     """
     import geopandas as gpd
     import rasterio.features
+    import shapely
     from shapely.geometry import shape
-    from shapely.ops import unary_union
 
     crs = ever_wet.rio.crs
     transform = ever_wet.rio.transform()
@@ -104,7 +104,11 @@ def wet_aoi_polygon(
             {"geometry": []}, geometry="geometry", crs=crs
         )
 
-    merged = unary_union(geometries)
+    # shapely.union_all works on the array directly (STRtree-backed), rather
+    # than unary_union's Python-list reduction -- a large constant-factor win
+    # when rasterio.features.shapes emits many small polygons (speckle from
+    # isolated wet pixels), which is the common case at fine resolution.
+    merged = shapely.union_all(geometries)
     if close_m > 0.0:
         merged = merged.buffer(close_m).buffer(-close_m)
     if buffer_m > 0.0:

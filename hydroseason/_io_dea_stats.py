@@ -50,6 +50,33 @@ class DEAStatsUnavailable(RuntimeError):
     """
 
 
+# Wall-clock budget for one source's STAC search + COG read + dask compute,
+# combined. Per-request GDAL/pystac_client timeouts bound a single socket,
+# but a large catchment fans out to many tile requests -- with retries, that
+# can still run for minutes with no overall cap. This is the backstop.
+SOURCE_TIMEOUT_S = 120.0
+
+
+def _run_with_timeout(fn, timeout_s: float):
+    """Run ``fn()`` in a worker thread; raise ``TimeoutError`` past timeout.
+
+    A thread (not ``signal.alarm``) so this works on Windows, where the
+    overnight extraction runs. Deliberately does NOT use the executor as a
+    context manager: ``shutdown(wait=True)`` on exit would block on the
+    still-running worker and defeat the timeout. There is no way to forcibly
+    kill a Python thread -- an orphaned worker is left to finish or die on
+    its own, and the un-joined pool is garbage-collected once it does.
+    """
+    import concurrent.futures
+
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(fn)
+    try:
+        return future.result(timeout=timeout_s)
+    finally:
+        pool.shutdown(wait=False)
+
+
 def _load_count_wet(stac_url: str, collection: str, year: int | None, geobox):
     """Load the ``count_wet`` band for one collection over ``geobox``.
 
@@ -57,6 +84,7 @@ def _load_count_wet(stac_url: str, collection: str, year: int | None, geobox):
     """
     import odc.stac
     import pystac_client
+    import rioxarray  # noqa: F401  (registers the .rio accessor used downstream)
 
     from hydroseason._io_geo import _configure_cog_read_env
 
@@ -70,7 +98,9 @@ def _load_count_wet(stac_url: str, collection: str, year: int | None, geobox):
     if year is not None:
         search_kwargs["datetime"] = f"{year}-01-01/{year}-12-31"
 
-    client = pystac_client.Client.open(stac_url)
+    # (connect, read) timeout -- a hung STAC connection otherwise blocks
+    # forever, since pystac_client's default is None (no bound).
+    client = pystac_client.Client.open(stac_url, timeout=(15, 30))
     items = list(client.search(**search_kwargs).items())
     if not items:
         raise DEAStatsUnavailable(
@@ -99,18 +129,31 @@ def fetch_dea_stats_wet_aoi(
     *,
     crs: int | str = 3577,
     resolution: float = 30.0,
-    close_m: float = 150.0,
-    buffer_m: float = 300.0,
+    close_m: float = 0.0,
+    buffer_m: float = 0.0,
     cache_root: str | Path | None = None,
     _loader=None,
 ):
-    """Build a buffered ever-wet polygon for ``aoi_gdf`` over ``years``.
+    """Build an ever-wet polygon for ``aoi_gdf`` over ``years``.
 
     Unions ``count_wet > 0`` from the all-time summary with each requested
-    year's annual summary, then closes and buffers the result via
+    year's annual summary, then vectorizes the result via
     :func:`hydroseason._wet_aoi.wet_aoi_polygon` (the same vectoriser the
     local-counts path uses, so both wet-AOI sources produce identically
     shaped geometry).
+
+    ``close_m`` and ``buffer_m`` both default to 0 here. This source is
+    already a DEA-computed all-time/all-year maximum extent -- there is no
+    pixel-level acquisition error to pad against (unlike the local-counts
+    path), and both are pure ``shapely`` distance-buffer operations whose
+    cost tracks merged-geometry boundary complexity, not polygon count. On
+    gilbert_river_qld's braided floodplain (a genuinely fragmented mask, not
+    sparse speckle) ``buffer_m=300`` alone cost ~760s and ``close_m=150``
+    alone cost ~490s on top of a ~24s fetch+union. The result is a superset
+    with more/thinner disconnected fragments than a closed+buffered mask
+    would give, which only affects tile-pruning granularity, not
+    correctness -- fine since this mask only gates which tiles get fetched.
+    Left overridable for a caller that wants the smoothing back.
 
     ``_loader`` is a test seam: a callable ``(collection, year, geobox) ->
     DataArray`` of ``count_wet``. Production callers leave it ``None``.
@@ -120,8 +163,13 @@ def fetch_dea_stats_wet_aoi(
     AOI, which is never a correct answer.
     """
     import numpy as np
+    import rioxarray  # noqa: F401  (registers the .rio accessor used below)
 
-    from hydroseason._io_geo import _crs_value, _output_geobox_for_aoi
+    from hydroseason._io_geo import (
+        _crs_value,
+        _output_geobox_for_aoi,
+        _preserve_georef,
+    )
     from hydroseason._wet_aoi import wet_aoi_polygon
 
     if not years:
@@ -129,7 +177,18 @@ def fetch_dea_stats_wet_aoi(
 
     crs_value = _crs_value(crs)
     target = aoi_gdf.to_crs(crs_value) if crs_value is not None else aoi_gdf
-    geobox = _output_geobox_for_aoi([], target, crs=crs_value, resolution=float(resolution))
+    # Vectorized at a coarser resolution than the caller's extraction
+    # resolution: this is a boolean presence mask, so fine-resolution
+    # precision here is wasted, and polygon count from
+    # rasterio.features.shapes feeds shapely.union_all, whose cost scales
+    # worse than linearly with polygon count on fragmented masks. Measured
+    # on gilbert_river_qld's braided floodplain (isolated, no network):
+    # 100m -> 170,277 polygons -> union_all alone took 361.6s. 300m ->
+    # ~25,000 polygons -> union_all ~12.9s. 100m is not a safe floor for a
+    # heavily-fragmented wet mask; 300m is. Never coarsens below the
+    # caller's request, only above this floor.
+    mask_resolution = max(float(resolution), 300.0)
+    geobox = _output_geobox_for_aoi([], target, crs=crs_value, resolution=mask_resolution)
 
     loader = _loader if _loader is not None else (
         lambda collection, year, gb: _load_count_wet(stac_url, collection, year, gb)
@@ -138,14 +197,27 @@ def fetch_dea_stats_wet_aoi(
     sources = [(DEA_STATS_ALLTIME_COLLECTION, None)]
     sources.extend((DEA_STATS_ANNUAL_COLLECTION, year) for year in sorted(set(years)))
 
+    def _load_and_materialize(collection, year):
+        count_wet = loader(collection, year, geobox)
+        # A source that resolves but is entirely zero contributes nothing;
+        # that is fine as long as SOME source contributes. Computed eagerly,
+        # inside the timeout, so a slow tile fetch on a large catchment is
+        # bounded here rather than deferred to the final union's compute.
+        #
+        # The comparison drops rioxarray's CRS/transform, which wet_aoi_polygon
+        # needs downstream -- restore them from the source, exactly as the
+        # local-counts path does in compute_ever_wet_from_counts.
+        wet = _preserve_georef(count_wet > 0, count_wet)
+        return wet.load()
+
     union = None
     failures = []
     for collection, year in sources:
         try:
-            count_wet = loader(collection, year, geobox)
-            # A source that resolves but is entirely zero contributes nothing;
-            # that is fine as long as SOME source contributes.
-            wet = count_wet > 0
+            wet = _run_with_timeout(
+                lambda c=collection, y=year: _load_and_materialize(c, y),
+                SOURCE_TIMEOUT_S,
+            )
         except DEAStatsUnavailable as exc:
             failures.append(f"{collection}/{year}: {exc}")
             continue
@@ -167,9 +239,20 @@ def fetch_dea_stats_wet_aoi(
         )
 
     wet_aoi = wet_aoi_polygon(union, close_m=close_m, buffer_m=buffer_m)
-    if wet_aoi.empty or bool(wet_aoi.geometry.is_empty.all()):
+
+    # Clip to the AOI itself. The geobox above spans the AOI's BOUNDING BOX,
+    # so the raw mask carries every ever-wet pixel in that rectangle --
+    # including large areas outside an irregular catchment (on
+    # fitzroy_river_wa the unclipped mask made the coarse planner select 828
+    # storage windows where the bare AOI polygon selects 489: pruning that
+    # added 69% more work than not pruning at all). Intersecting here fixes
+    # it once for every consumer, and cannot break the superset guarantee:
+    # pixels outside the AOI are already written as -2 by _clip_to_aoi, so
+    # dropping them costs no real water.
+    clipped = wet_aoi.clip(target) if not wet_aoi.empty else wet_aoi
+    if clipped.empty or bool(clipped.geometry.is_empty.all()):
         raise DEAStatsUnavailable("wet-AOI vectorisation produced an empty geometry")
-    return wet_aoi
+    return clipped
 
 
 def wet_mask_digest(wet_aoi) -> str:

@@ -62,18 +62,23 @@ def test_missing_months_raise_by_default():
         detect_hydrological_years(extent)
 
 
-def test_unsupported_season_window_geometry_fails_fast():
+def test_wet_window_inside_one_year_is_now_supported():
+    """Was rejected as "unsupported geometry"; it is the winter-rainfall phase.
+
+    Windows are cyclic, so a mid-year wet season is expressible and southern
+    Australian catchments are no longer excluded by construction.
+    """
     from hydroseason.hydro_year import HydroYearConfig
 
-    with pytest.raises(ValueError, match="supported"):
-        HydroYearConfig(wet_start_month=4, wet_end_month=6)
+    config = HydroYearConfig(wet_start_month=4, wet_end_month=6)
+    assert config.wet_span_months == 3
 
 
-def test_dry_window_cross_year_fails_fast():
+def test_dry_window_crossing_the_year_is_now_supported():
     from hydroseason.hydro_year import HydroYearConfig
 
-    with pytest.raises(ValueError, match="supported"):
-        HydroYearConfig(dry_start_month=10, dry_end_month=3)
+    config = HydroYearConfig(dry_start_month=10, dry_end_month=3)
+    assert config.dry_span_months == 6
 
 
 def test_dry_window_before_wet_end_fails_fast():
@@ -536,3 +541,32 @@ def test_monthly_water_extent_static_aoi_equivalence():
     assert res["n_valid"].iloc[0] == 2
     assert res["n_invalid"].iloc[0] == 1
 
+
+
+def test_confidence_is_capped_by_the_noise_floor_not_only_peer_amplitude():
+    """Confidence must not be graded purely against the record's own median
+    amplitude: on a pure-noise record that self-reference rates most years
+    "high", which is exactly where a caller most needs a warning.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from hydroseason.hydro_year import HydroYearConfig, detect_hydrological_years
+
+    rng = np.random.default_rng(11)
+    index = pd.date_range("1990-01-01", periods=12 * 30, freq="MS")
+    noise_only = pd.DataFrame(
+        {"extent_pct": np.abs(rng.normal(0.15, 0.12, len(index))), "invalid_pct": 0.0},
+        index=index,
+    )
+    cfg = HydroYearConfig(
+        wet_start_month=12, wet_end_month=4, dry_start_month=5, dry_end_month=10
+    )
+    result = detect_hydrological_years(
+        noise_only, config=cfg, quality_policy="flag", missing_month_policy="ignore"
+    )
+    assert len(result) > 10
+    # A threshold rule cannot promise zero false positives on 28 draws; the
+    # defensible property is that noise no longer dominates the "high" grade.
+    high_fraction = float((result["confidence"] == "high").mean())
+    assert high_fraction < 0.10, f"pure noise rated {high_fraction:.0%} high"

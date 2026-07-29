@@ -48,7 +48,10 @@ raster = [
   "shapely>=2.0",
   "affine>=2.4",
   "dask[array]>=2024.1",
-  "zarr>=2.16,<3"
+  "zarr>=2.16,<3",
+  "h5netcdf>=1.3",
+  "h5py>=3.10",
+  "s3fs>=2024.6"
 ]
 stac = [
   "hydroseason[raster]",
@@ -86,6 +89,10 @@ include = ["hydroseason*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+# The promotion-gate harness is documented as "intentionally allowed to fail"
+# and must never block a release, but declaring the marker alone did not stop
+# it running. Exclude it by default; run it deliberately with `-m experimental`.
+addopts = ["-m", "not experimental"]
 markers = [
   "slow: integration or data-backed checks",
   "experimental: promotion-gate comparison, may fail without blocking release",
