@@ -52,6 +52,7 @@ from hydroseason._io_resolution import (  # noqa: F401
     probe_amplitude,
 )
 from hydroseason._wet_aoi import compute_wet_aoi, tile_intersects_wet_aoi  # noqa: F401
+from hydroseason._io_dea_stats import open_wo_statistics  # noqa: F401
 
 
 def acquire_wofs_cache(*args, **kwargs):
@@ -82,5 +83,5 @@ def open_completed_extent_counts(*args, **kwargs):
     return _open_completed_extent_counts(*args, **kwargs)
 
 
-__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_extent_counts", "WOfSCacheHandle"]
+__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_extent_counts", "WOfSCacheHandle", "open_wo_statistics"]
 

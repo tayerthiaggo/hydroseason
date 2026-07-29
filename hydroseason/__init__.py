@@ -31,6 +31,7 @@ from .io import (
     load_monthly_masks_zarr,
     load_wofs_from_stac,
     load_wofs_monthly_extent,
+    open_wo_statistics,
 )
 from .report import generate_html_report
 
@@ -44,7 +45,7 @@ __all__ = [
     "label_hydrological_months", "monthly_water_extent", "suggest_hydro_year_config",
     "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
     "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
-    "acquire_wofs_cache", "WOfSCacheHandle",
+    "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics",
     "generate_html_report", "DynamicHydroYearConfig", "HydrologicalStateResult",
     "SeasonalPatternResult", "aggregate_basin_monthly_extent",
     "analyze_hydrological_state", "classify_annual_surface_water_condition",
