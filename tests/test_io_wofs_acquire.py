@@ -1186,3 +1186,51 @@ def test_planning_footprint_derived_wet_aoi_clips_pixels_outside_it_via_clip_to_
 
     assert np.all(values[:, :10] != -2)  # footprint-covered columns: not clipped
     assert np.all(values[:, 30:] == -2)  # far outside the buffered footprint: clipped
+
+
+def test_acquire_wofs_cache_persists_identical_aoi_pixel_count_across_pruned_and_unpruned_runs(
+    monkeypatch, tmp_path
+):
+    """End-to-end proof of task W2.3's central correctness property, exercised
+    through the real acquire_wofs_cache entry point (not the standalone
+    record_cache_footprints unit tests in test_io_cache_footprints.py): a
+    pruned acquisition (explicit wet_aoi, a strict subset of the full AOI)
+    and an unpruned acquisition of the SAME catchment must persist the SAME
+    aoi_pixel_count, while analysis_pixel_count legitimately differs."""
+    from hydroseason._io_wofs_zarr import read_cache_footprints
+
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    # _aoi() is a 120x120 m box at 30 m resolution -> 4x4 = 16 pixels.
+    unpruned_handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path / "unpruned", resolution=30,
+    )
+
+    # A strict half-AOI wet mask: the left half of the same 120x120 m box.
+    half_wet_aoi = gpd.GeoDataFrame(geometry=[box(0, 0, 60, 120)], crs="EPSG:3577")
+    pruned_handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path / "pruned", resolution=30,
+        wet_aoi=half_wet_aoi,
+    )
+
+    unpruned_footprints = read_cache_footprints(unpruned_handle)
+    pruned_footprints = read_cache_footprints(pruned_handle)
+
+    assert unpruned_footprints.aoi_pixel_count == 16
+    assert pruned_footprints.aoi_pixel_count == 16
+    assert unpruned_footprints.aoi_pixel_count == pruned_footprints.aoi_pixel_count
+
+    assert unpruned_footprints.analysis_pixel_count == 16
+    assert pruned_footprints.analysis_pixel_count == 8
+    assert pruned_footprints.analysis_pixel_count != unpruned_footprints.analysis_pixel_count

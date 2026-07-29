@@ -60,6 +60,7 @@ from hydroseason._io_wofs_zarr import (
     completed_years,
     create_cache_handle,
     preflight_request_space,
+    record_cache_footprints,
     require_cached_request,
     resolve_cached_request,
     write_annual_group,
@@ -605,6 +606,25 @@ def acquire_wofs_cache(
 
     with cache_writer_lock(cache_root, identity.request_digest):
         handle = create_cache_handle(cache_root, identity)
+
+        # Persist full-AOI vs analysis-footprint geometry/counts/digests
+        # (task W2.3) every time a handle is created/reused, not only when
+        # new years are written: this call is idempotent (re-writing the
+        # same geometry produces the same manifest block) and self-heals a
+        # cache whose store predates this task. `target` is the full
+        # requested catchment (the fixed aoi_pixel_count reference area);
+        # `wet_aoi` is the (possibly None, meaning unpruned) footprint that
+        # actually gated reads -- falling back to `target` itself when no
+        # pruning applied, so an unpruned cache's analysis footprint is
+        # identical to its full AOI (same geometry, same pixel count).
+        record_cache_footprints(
+            handle,
+            full_aoi_gdf=target,
+            analysis_footprint_gdf=wet_aoi if wet_aoi is not None else target,
+            shape=tuple(int(v) for v in parent_geobox.shape),
+            transform=tuple(parent_geobox.affine)[:6],
+            crs=str(crs_value),
+        )
 
         already_done = set() if force else completed_years(handle)
         missing_years = sorted(requested_years - already_done)

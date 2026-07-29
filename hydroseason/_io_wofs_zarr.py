@@ -1206,6 +1206,297 @@ def _record_completed_year(store_path: Path, year: int) -> None:
     _write_json_atomic(manifest_path, manifest)
 
 
+_FOOTPRINTS_KEY = "footprints"
+_FOOTPRINTS_SCHEMA_VERSION = 1
+# Fixed precision grid for canonical WKB serialisation, matching
+# hydroseason._io_dea_stats.wet_mask_digest's convention exactly, so a
+# geometry that round-trips through this module and through that one digests
+# identically.
+_GEOMETRY_PRECISION_GRID_SIZE = 0.001
+
+
+@dataclasses.dataclass(frozen=True)
+class CacheFootprints:
+    """Persisted full-AOI and analysis-footprint geometry/counts/digests.
+
+    ``aoi_geometry_wkb_hex``/``analysis_geometry_wkb_hex`` are canonical WKB
+    (fixed 1e-3 precision, matching
+    :func:`hydroseason._io_dea_stats.wet_mask_digest`'s convention) for the
+    full user AOI and the (possibly identical, when no pruning applied)
+    analysis footprint actually used to gate reads/writes. ``shape``/
+    ``transform``/``crs`` describe the cache's grid these geometries were
+    rasterized against. ``aoi_pixel_count``/``analysis_pixel_count`` are the
+    exact pixel counts of each geometry rasterized onto that grid.
+    ``aoi_digest``/``analysis_digest`` are SHA-256 digests over
+    ``(crs, wkb)``, independent of anything else in the manifest, so a
+    consumer (e.g. HydroFragments) can re-rasterize from the persisted WKB
+    and cross-check both the digest and the pixel count without trusting
+    either alone.
+
+    ``aoi_pixel_count`` is the fixed reference-area denominator (APSEC/LPI
+    per the plan's global constraints) and must be identical between a
+    pruned and an unpruned cache covering the same catchment.
+    ``analysis_pixel_count`` is the conservative potential-water footprint
+    denominator (monthly coverage) and MAY legitimately differ between them.
+    """
+
+    aoi_geometry_wkb_hex: str
+    analysis_geometry_wkb_hex: str
+    crs: str
+    shape: tuple[int, int]
+    transform: tuple[float, float, float, float, float, float]
+    aoi_pixel_count: int
+    analysis_pixel_count: int
+    aoi_digest: str
+    analysis_digest: str
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_version": _FOOTPRINTS_SCHEMA_VERSION,
+            "aoi_geometry_wkb_hex": self.aoi_geometry_wkb_hex,
+            "analysis_geometry_wkb_hex": self.analysis_geometry_wkb_hex,
+            "crs": self.crs,
+            "shape": list(self.shape),
+            "transform": list(self.transform),
+            "aoi_pixel_count": int(self.aoi_pixel_count),
+            "analysis_pixel_count": int(self.analysis_pixel_count),
+            "aoi_digest": self.aoi_digest,
+            "analysis_digest": self.analysis_digest,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "CacheFootprints":
+        return cls(
+            aoi_geometry_wkb_hex=payload["aoi_geometry_wkb_hex"],
+            analysis_geometry_wkb_hex=payload["analysis_geometry_wkb_hex"],
+            crs=payload["crs"],
+            shape=(int(payload["shape"][0]), int(payload["shape"][1])),
+            transform=tuple(float(v) for v in payload["transform"]),
+            aoi_pixel_count=int(payload["aoi_pixel_count"]),
+            analysis_pixel_count=int(payload["analysis_pixel_count"]),
+            aoi_digest=payload["aoi_digest"],
+            analysis_digest=payload["analysis_digest"],
+        )
+
+
+def _canonical_geometry_wkb_hex(gdf) -> str:
+    """Canonical (fixed-precision, dissolved) WKB hex for one geometry column.
+
+    Mirrors :func:`hydroseason._io_dea_stats.wet_mask_digest`'s geometry
+    handling exactly (union to a single geometry, snap to a fixed 1e-3
+    precision grid before serialising) so the same geometry always produces
+    the same bytes regardless of shapely/geopandas version or how many rows
+    the caller's GeoDataFrame happens to have.
+    """
+    import shapely
+    from shapely import wkb
+
+    geometry = (
+        gdf.geometry.union_all()
+        if hasattr(gdf.geometry, "union_all")
+        else gdf.geometry.unary_union
+    )
+    geometry = shapely.set_precision(geometry, grid_size=_GEOMETRY_PRECISION_GRID_SIZE)
+    return wkb.dumps(geometry).hex()
+
+
+def _geometry_digest(crs: str, wkb_hex: str) -> str:
+    """A stable SHA-256 over ``(crs, wkb_hex)``, independent of pixel counts.
+
+    Kept separate from :data:`_sha256_digest`'s canonical-JSON convention
+    (which is fine for plain JSON payloads) because the digest here must
+    stay stable however the caller chooses to name/order surrounding
+    manifest keys -- it only ever covers the geometry identity itself.
+    """
+    hasher = hashlib.sha256()
+    hasher.update(str(crs).encode("utf-8"))
+    hasher.update(bytes.fromhex(wkb_hex))
+    return hasher.hexdigest()
+
+
+def _rasterize_pixel_count(
+    wkb_hex: str, *, shape: tuple[int, int], transform: tuple[float, ...]
+) -> int:
+    """Re-rasterize a canonical WKB geometry onto ``shape``/``transform`` and count True pixels.
+
+    Uses ``rasterio.features.geometry_mask`` with ``invert=True`` (True
+    inside the geometry) and ``all_touched=True`` -- the same rasterization
+    primitive and touch convention :mod:`hydroseason._io_geo`'s own
+    ``_inside_aoi_mask_like`` uses for AOI clipping, so a geometry
+    round-tripped through this module counts pixels exactly the same way
+    the acquisition path itself would have clipped them.
+    """
+    from affine import Affine
+    from rasterio.features import geometry_mask
+    from shapely import wkb
+
+    geometry = wkb.loads(bytes.fromhex(wkb_hex))
+    height, width = int(shape[0]), int(shape[1])
+    affine_transform = Affine(*transform)
+    inside = geometry_mask(
+        [geometry],
+        out_shape=(height, width),
+        transform=affine_transform,
+        invert=True,
+        all_touched=True,
+    )
+    return int(np.count_nonzero(inside))
+
+
+def record_cache_footprints(
+    handle: WOfSCacheHandle,
+    *,
+    full_aoi_gdf,
+    analysis_footprint_gdf,
+    shape: tuple[int, int],
+    transform: tuple[float, float, float, float, float, float],
+    crs: str,
+) -> CacheFootprints:
+    """Persist full-AOI and analysis-footprint geometry/counts/digests atomically.
+
+    ``full_aoi_gdf`` is the caller's full requested catchment (the fixed
+    reference area APSEC/LPI denominators use per the plan's global
+    constraints). ``analysis_footprint_gdf`` is the (possibly pruned, or --
+    when no pruning was applied -- identical to ``full_aoi_gdf``) footprint
+    actually used to gate which storage windows were read/written; it feeds
+    the conservative potential-water ``analysis_mask`` denominator.
+
+    Both geometries are canonicalised to fixed-precision WKB (see
+    :func:`_canonical_geometry_wkb_hex`), rasterized onto ``shape``/
+    ``transform`` to derive exact pixel counts (see
+    :func:`_rasterize_pixel_count`), and digested independently of those
+    counts (see :func:`_geometry_digest`) -- so a later reader
+    (:func:`verify_cache_footprints`) can re-rasterize from the persisted
+    WKB and cross-check both the digest and the pixel count, never trusting
+    either alone.
+
+    Written into the store's root ``manifest.json`` under a ``footprints``
+    key via read-modify-write + :func:`_write_json_atomic`, mirroring
+    :func:`_record_completed_year`'s pattern exactly: every other manifest
+    key (``identity``/``request_digest``/``completed_years``/...) is
+    preserved untouched.
+
+    Because ``full_aoi_gdf`` is the SAME requested catchment for a pruned
+    and an unpruned acquisition of that catchment, ``aoi_pixel_count`` is
+    identical between the two regardless of pruning; ``analysis_pixel_count``
+    reflects whichever footprint was actually used and so may legitimately
+    differ.
+    """
+    aoi_wkb_hex = _canonical_geometry_wkb_hex(full_aoi_gdf)
+    analysis_wkb_hex = _canonical_geometry_wkb_hex(analysis_footprint_gdf)
+    crs_text = str(crs)
+    shape_tuple = (int(shape[0]), int(shape[1]))
+    transform_tuple = tuple(float(v) for v in transform)
+
+    footprints = CacheFootprints(
+        aoi_geometry_wkb_hex=aoi_wkb_hex,
+        analysis_geometry_wkb_hex=analysis_wkb_hex,
+        crs=crs_text,
+        shape=shape_tuple,
+        transform=transform_tuple,
+        aoi_pixel_count=_rasterize_pixel_count(
+            aoi_wkb_hex, shape=shape_tuple, transform=transform_tuple
+        ),
+        analysis_pixel_count=_rasterize_pixel_count(
+            analysis_wkb_hex, shape=shape_tuple, transform=transform_tuple
+        ),
+        aoi_digest=_geometry_digest(crs_text, aoi_wkb_hex),
+        analysis_digest=_geometry_digest(crs_text, analysis_wkb_hex),
+    )
+
+    manifest_path = Path(handle.path) / _MANIFEST_FILENAME
+    manifest = _read_json(manifest_path) or {}
+    manifest[_FOOTPRINTS_KEY] = footprints.to_dict()
+    _write_json_atomic(manifest_path, manifest)
+
+    return footprints
+
+
+def read_cache_footprints(handle: WOfSCacheHandle) -> CacheFootprints:
+    """Read back the :class:`CacheFootprints` persisted by :func:`record_cache_footprints`.
+
+    Raises ``FileNotFoundError`` if the store has no manifest, or ``ValueError``
+    if the manifest exists but carries no ``footprints`` block (e.g. a cache
+    written before this task existed) or the block is malformed.
+    """
+    manifest_path = Path(handle.path) / _MANIFEST_FILENAME
+    manifest = _read_json(manifest_path)
+    if manifest is None:
+        raise FileNotFoundError(f"no manifest found at {manifest_path}")
+    payload = manifest.get(_FOOTPRINTS_KEY)
+    if payload is None:
+        raise ValueError(
+            f"manifest at {manifest_path} has no '{_FOOTPRINTS_KEY}' metadata "
+            "(cache was written before task W2.3, or record_cache_footprints "
+            "was never called for it)"
+        )
+    try:
+        return CacheFootprints.from_dict(payload)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"manifest at {manifest_path} has malformed '{_FOOTPRINTS_KEY}' metadata: {exc}"
+        ) from exc
+
+
+def verify_cache_footprints(handle: WOfSCacheHandle) -> CacheFootprints:
+    """Read, independently re-rasterize, and verify persisted cache footprints.
+
+    This is the tamper-detection entry point: it reads the persisted
+    :class:`CacheFootprints` (:func:`read_cache_footprints`), then
+    independently:
+
+    1. Recomputes each geometry's digest from its persisted WKB and
+       compares it against the persisted digest.
+    2. Re-rasterizes each geometry from its persisted WKB onto the
+       persisted ``shape``/``transform`` and compares the resulting pixel
+       count against the persisted pixel count.
+
+    Raises ``ValueError`` describing the first mismatch found -- a
+    corrupted/hand-edited WKB string, a digest that no longer matches its
+    geometry, or a pixel count that no longer matches what re-rasterizing
+    the (otherwise valid) geometry actually produces. Never silently
+    accepts a mismatch: this is what makes persisted geometry tamper-evident
+    rather than merely informative.
+    """
+    footprints = read_cache_footprints(handle)
+
+    for label, wkb_hex, expected_digest, expected_count in (
+        ("aoi", footprints.aoi_geometry_wkb_hex, footprints.aoi_digest, footprints.aoi_pixel_count),
+        (
+            "analysis",
+            footprints.analysis_geometry_wkb_hex,
+            footprints.analysis_digest,
+            footprints.analysis_pixel_count,
+        ),
+    ):
+        try:
+            recomputed_digest = _geometry_digest(footprints.crs, wkb_hex)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"cache footprint '{label}' geometry at {handle.path} is not valid WKB hex "
+                f"(tampered or corrupted): {exc}"
+            ) from exc
+        if recomputed_digest != expected_digest:
+            raise ValueError(
+                f"cache footprint '{label}' digest mismatch at {handle.path}: "
+                f"persisted digest {expected_digest!r} does not match the digest "
+                f"recomputed from its persisted geometry {recomputed_digest!r} "
+                "(tampered or corrupted manifest)"
+            )
+        recomputed_count = _rasterize_pixel_count(
+            wkb_hex, shape=footprints.shape, transform=footprints.transform
+        )
+        if recomputed_count != expected_count:
+            raise ValueError(
+                f"cache footprint '{label}' pixel count mismatch at {handle.path}: "
+                f"persisted count {expected_count} does not match the count "
+                f"{recomputed_count} obtained by re-rasterizing its persisted "
+                "geometry (tampered or corrupted manifest)"
+            )
+
+    return footprints
+
+
 def _read_georef(dataset) -> tuple["object", object, tuple[float, ...]]:
     """Recover ``water_mask``'s CRS/transform from a freshly-``xr.open_zarr``'d dataset.
 
@@ -1788,5 +2079,9 @@ __all__ = [
     "completed_years",
     "open_completed_mask_cache",
     "open_completed_extent_counts",
+    "CacheFootprints",
+    "record_cache_footprints",
+    "read_cache_footprints",
+    "verify_cache_footprints",
 ]
 
