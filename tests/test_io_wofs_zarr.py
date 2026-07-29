@@ -135,6 +135,110 @@ def test_absent_wet_mask_preserves_the_legacy_request_digest():
     assert "wet_mask_sha256" not in payload
 
 
+# ---------------------------------------------------------------------------
+# W2.1: planning-footprint / composite-bundle cache-identity tests (Step 2)
+# ---------------------------------------------------------------------------
+
+
+def test_absent_footprint_fields_preserve_the_legacy_request_digest():
+    """Existing full-coverage/wet_aoi-pruned caches on disk must stay
+    reachable: with no planning footprint the digest payload must be
+    byte-identical to the pre-footprint-field version (same guarantee as
+    test_absent_wet_mask_preserves_the_legacy_request_digest, extended to the
+    new footprint fields)."""
+    request = _base_request()
+    payload = request._digest_payload()
+    assert "footprint_digest" not in payload
+    assert "footprint_factor" not in payload
+    assert "footprint_safety_cells" not in payload
+    assert "footprint_covered_years" not in payload
+
+
+def test_legacy_composite_bundle_is_the_default_and_preserves_request_digest():
+    """composite_bundle="legacy" is the default and must not perturb the
+    digest of a request that never mentions it -- legacy callers' caches
+    stay reachable byte-for-byte."""
+    request = _base_request()
+    assert request.composite_bundle == "legacy"
+    explicit_legacy = _base_request(composite_bundle="legacy")
+    assert explicit_legacy.request_digest() == request.request_digest()
+
+
+def test_footprint_digest_changes_request_digest():
+    base = _base_request()
+    changed = _base_request(footprint_digest="d" * 64, footprint_factor=4,
+                             footprint_safety_cells=1, footprint_covered_years=(2015,))
+    other_digest = _base_request(footprint_digest="e" * 64, footprint_factor=4,
+                                  footprint_safety_cells=1, footprint_covered_years=(2015,))
+    assert changed.request_digest() != base.request_digest()
+    assert changed.request_digest() != other_digest.request_digest()
+
+
+def test_footprint_factor_changes_request_digest():
+    common = dict(footprint_digest="d" * 64, footprint_safety_cells=1, footprint_covered_years=(2015,))
+    a = _base_request(footprint_factor=4, **common)
+    b = _base_request(footprint_factor=8, **common)
+    assert a.request_digest() != b.request_digest()
+
+
+def test_footprint_safety_cells_changes_request_digest():
+    common = dict(footprint_digest="d" * 64, footprint_factor=4, footprint_covered_years=(2015,))
+    a = _base_request(footprint_safety_cells=1, **common)
+    b = _base_request(footprint_safety_cells=2, **common)
+    assert a.request_digest() != b.request_digest()
+
+
+def test_footprint_covered_years_changes_request_digest():
+    common = dict(footprint_digest="d" * 64, footprint_factor=4, footprint_safety_cells=1)
+    a = _base_request(footprint_covered_years=(2015,), **common)
+    b = _base_request(footprint_covered_years=(2015, 2016), **common)
+    assert a.request_digest() != b.request_digest()
+
+
+def test_composite_bundle_changes_request_digest():
+    legacy = _base_request(composite_bundle="legacy")
+    hydrofragments = _base_request(composite_bundle="hydrofragments_v1")
+    assert legacy.request_digest() != hydrofragments.request_digest()
+
+
+def test_worker_counts_never_change_request_digest():
+    """read_workers/year_workers are execution parallelism knobs, never part
+    of a cache's data-semantic identity: two runs that agree on everything
+    else but differ only in worker count must resolve to the SAME store,
+    and preserve deterministic byte-identical output across worker counts
+    (see the global constraint). WOfSCacheRequest simply never has fields
+    for worker counts -- assert that stays true."""
+    field_names = {f.name for f in dataclasses.fields(WOfSCacheRequest)}
+    assert "read_workers" not in field_names
+    assert "year_workers" not in field_names
+
+
+def test_footprint_and_composite_bundle_are_independent_of_each_other():
+    """Every listed field -- factor, safety halo, footprint digest, covered
+    years, and composite bundle -- must EACH independently change identity,
+    not just in combination."""
+    base = _base_request(
+        footprint_digest="d" * 64, footprint_factor=4,
+        footprint_safety_cells=1, footprint_covered_years=(2015,),
+        composite_bundle="legacy",
+    )
+    only_bundle_changed = dataclasses.replace(base, composite_bundle="hydrofragments_v1")
+    only_factor_changed = dataclasses.replace(base, footprint_factor=8)
+    only_safety_changed = dataclasses.replace(base, footprint_safety_cells=2)
+    only_years_changed = dataclasses.replace(base, footprint_covered_years=(2015, 2016))
+    only_digest_changed = dataclasses.replace(base, footprint_digest="e" * 64)
+
+    digests = {
+        base.request_digest(),
+        only_bundle_changed.request_digest(),
+        only_factor_changed.request_digest(),
+        only_safety_changed.request_digest(),
+        only_years_changed.request_digest(),
+        only_digest_changed.request_digest(),
+    }
+    assert len(digests) == 6
+
+
 def test_transform_changes_full_identity_not_request_digest():
     request = _request()
     left = WOfSCacheIdentity.from_request(request, shape=(10, 20), transform=(30, 0, 0, 0, -30, 0))

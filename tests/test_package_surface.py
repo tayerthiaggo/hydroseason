@@ -11,7 +11,7 @@ def test_package_import_exposes_only_migration_safe_surface():
         "label_hydrological_months", "monthly_water_extent", "suggest_hydro_year_config",
         "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
         "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
-        "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics",
+        "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
         "generate_html_report", "DynamicHydroYearConfig", "HydrologicalStateResult",
         "SeasonalPatternResult", "aggregate_basin_monthly_extent",
         "analyze_hydrological_state", "classify_annual_surface_water_condition",
@@ -23,6 +23,11 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert callable(hydroseason.load_extent_csv)
     assert callable(hydroseason.load_wofs_monthly_extent)
     assert callable(hydroseason.acquire_wofs_cache)
+    # open_completed_mask_cache is acquire_wofs_cache's public reader
+    # counterpart (Task W2.1): a caller that acquired a cache must be able to
+    # read it back through the top-level package surface, not just via the
+    # private hydroseason._io_wofs_zarr module.
+    assert callable(hydroseason.open_completed_mask_cache)
     assert "ValidationSeasonConfig" not in vars(hydroseason)
 
     stripped_names = {

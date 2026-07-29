@@ -162,6 +162,29 @@ class WOfSCacheRequest:
     # payload entirely when None, so every cache written before this field
     # existed keeps its original request_digest and stays reachable.
     wet_mask_sha256: str | None = None
+    # A prepared hydroseason._io_dea_stats.WetPlanningFootprint's identity,
+    # threaded independently of wet_mask_sha256 (a planning_footprint and an
+    # explicit wet_aoi are mutually exclusive at the acquire_wofs_cache call
+    # site, but the cache identity still needs its own dedicated fields --
+    # reusing wet_mask_sha256 would conflate two different provenance
+    # stories). All four are None together or set together (see
+    # _io_wofs_acquire.acquire_wofs_cache); omitted from the digest payload
+    # entirely when None, exactly like wet_mask_sha256, so every cache
+    # written before planning-footprint support existed keeps its original
+    # request_digest and stays reachable.
+    footprint_digest: str | None = None
+    footprint_factor: int | None = None
+    footprint_safety_cells: int | None = None
+    footprint_covered_years: tuple[int, ...] | None = None
+    # "legacy" (the default) preserves every existing hydroseason result and
+    # cache identity byte-for-byte -- see test_legacy_composite_bundle_is_the_
+    # default_and_preserves_request_digest. "hydrofragments_v1" is new
+    # behaviour (task W2.2's dual-composite extent counts, not implemented by
+    # this field alone) that must never share a store with a "legacy" run of
+    # otherwise-identical parameters, so unlike the fields above this one IS
+    # always included in the digest payload -- there is no meaningful
+    # "absent" composite bundle to omit.
+    composite_bundle: str = "legacy"
 
     def _digest_payload(self) -> dict:
         payload = dataclasses.asdict(self)
@@ -169,6 +192,17 @@ class WOfSCacheRequest:
             # Absent, not null: keeps pre-existing full-coverage caches at
             # their original digest.
             payload.pop("wet_mask_sha256", None)
+        for footprint_field in (
+            "footprint_digest", "footprint_factor", "footprint_safety_cells",
+            "footprint_covered_years",
+        ):
+            if payload.get(footprint_field) is None:
+                payload.pop(footprint_field, None)
+        if payload.get("footprint_covered_years") is not None:
+            # Tuples survive dataclasses.asdict() as tuples, but canonical
+            # JSON encoding needs a list -- keep the payload JSON-serialisable
+            # like every other field.
+            payload["footprint_covered_years"] = list(payload["footprint_covered_years"])
         return payload
 
     def request_digest(self) -> str:

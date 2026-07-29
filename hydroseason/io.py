@@ -63,7 +63,17 @@ def acquire_wofs_cache(*args, **kwargs):
 
 
 def open_completed_mask_cache(*args, **kwargs):
-    """Internal facade for the canonical cache reader."""
+    """Lazily open the canonical WOfS water-mask cube for a completed cache store.
+
+    Public reader counterpart to :func:`acquire_wofs_cache`: given a
+    :class:`WOfSCacheHandle` (as returned by ``acquire_wofs_cache``) and a
+    ``[start_date, end_date]`` range, opens every completed annual Zarr
+    group that overlaps the range, concatenates them in year order, and
+    fills any still-missing months with the package's standard missing-month
+    convention (``-1`` invalid, never fabricated). See
+    :func:`hydroseason._io_wofs_zarr.open_completed_mask_cache` for the full
+    contract, including its ``FileNotFoundError``/``ValueError`` cases.
+    """
     from hydroseason._io_wofs_zarr import open_completed_mask_cache as _open_completed_mask_cache
 
     return _open_completed_mask_cache(*args, **kwargs)
@@ -83,5 +93,5 @@ def open_completed_extent_counts(*args, **kwargs):
     return _open_completed_extent_counts(*args, **kwargs)
 
 
-__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_extent_counts", "WOfSCacheHandle", "open_wo_statistics"]
+__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_mask_cache", "open_completed_extent_counts", "WOfSCacheHandle", "open_wo_statistics"]
 
