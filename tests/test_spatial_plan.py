@@ -1,7 +1,13 @@
+import numpy as np
+import pytest
 from affine import Affine
 from shapely.geometry import box
 
-from hydroseason._spatial_plan import plan_spatial_slices, plan_storage_aligned_slices
+from hydroseason._spatial_plan import (
+    plan_spatial_slices,
+    plan_storage_aligned_slices,
+    active_windows_from_mask,
+)
 
 
 def test_thin_aoi_selects_1024_windows():
@@ -93,4 +99,68 @@ def test_storage_aligned_plan_never_expands_back_to_coarser_windows():
         (w.y_stop - w.y_start) * (w.x_stop - w.x_start)
         for w in plan.windows
     ) == 4 * 25 * 25
+
+
+# --------------------------------------------------------------------------
+# active_windows_from_mask: storage/source-aligned active acquisition windows
+# derived directly from a coarse boolean planning mask (W1.5), rather than
+# from a vectorised polygon. Coordinates are in NATIVE pixel space: each
+# True coarse cell expands to the ``factor``x``factor`` block of native
+# pixels it summarises, clipped to ``native_shape``.
+# --------------------------------------------------------------------------
+
+
+def test_active_windows_from_mask_one_window_per_true_coarse_cell():
+    coarse = np.array([
+        [True, False],
+        [False, True],
+    ])
+    windows = active_windows_from_mask(
+        coarse, factor=4, native_shape=(8, 8), storage_chunk=4,
+    )
+
+    assert len(windows) == 2
+    covered = {(w.y_start, w.y_stop, w.x_start, w.x_stop) for w in windows}
+    assert covered == {(0, 4, 0, 4), (4, 8, 4, 8)}
+
+
+def test_active_windows_from_mask_clips_partial_edge_block():
+    # A 3x3 native grid coarsened by factor 2 -> 2x2 coarse grid, where the
+    # last coarse row/col only covers 1 native pixel, not 2.
+    coarse = np.array([
+        [True, False],
+        [False, True],
+    ])
+    windows = active_windows_from_mask(
+        coarse, factor=2, native_shape=(3, 3), storage_chunk=2,
+    )
+
+    covered = {(w.y_start, w.y_stop, w.x_start, w.x_stop) for w in windows}
+    # (0,0) coarse cell -> native (0:2, 0:2); (1,1) coarse cell -> native
+    # (2:3, 2:3) clipped to the 3x3 shape, never overhanging it.
+    assert covered == {(0, 2, 0, 2), (2, 3, 2, 3)}
+    for w in windows:
+        assert w.y_stop <= 3 and w.x_stop <= 3
+
+
+def test_active_windows_from_mask_empty_mask_returns_no_windows():
+    coarse = np.zeros((4, 4), dtype=bool)
+    windows = active_windows_from_mask(
+        coarse, factor=4, native_shape=(16, 16), storage_chunk=4,
+    )
+    assert windows == ()
+
+
+def test_active_windows_from_mask_merges_adjacent_true_cells_to_storage_chunk():
+    # Two adjacent True coarse cells that both fall inside the same
+    # storage_chunk-aligned native block should not duplicate overlapping
+    # windows -- the storage grid is the unit of dedup.
+    coarse = np.array([[True, True]])
+    windows = active_windows_from_mask(
+        coarse, factor=2, native_shape=(2, 4), storage_chunk=4,
+    )
+    # Both coarse cells (native cols 0:2 and 2:4) land in the single
+    # storage_chunk=4 block spanning native cols 0:4.
+    assert len(windows) == 1
+    assert (windows[0].y_start, windows[0].y_stop, windows[0].x_start, windows[0].x_stop) == (0, 2, 0, 4)
 

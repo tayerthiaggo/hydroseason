@@ -25,8 +25,15 @@ from __future__ import annotations
 
 import hashlib
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Collection, Mapping, Sequence
+
+if TYPE_CHECKING:
+    import geopandas
+    import xarray as xr
+
+    from hydroseason._spatial_plan import GridWindow
 
 # The all-time summary: one small raster covering the full WOfS archive.
 # Cheap, and the primary source.
@@ -54,6 +61,13 @@ COUNT_CLEAR_BAND = "count_clear"
 # loader (any DEA WO Statistics product), not specifically the wet-AOI path.
 DEFAULT_WO_STATISTICS_PRODUCT = DEA_STATS_ALLTIME_COLLECTION
 DEFAULT_WO_STATISTICS_STAC_URL = "https://explorer.sandbox.dea.ga.gov.au/stac"
+
+# The on-disk WOfS storage tiling unit used elsewhere in the package (see
+# plan_storage_aligned_slices's default in _spatial_plan.py / its
+# storage_chunk=512 call site in _io_wofs_acquire.py). build_wet_planning_footprint
+# snaps its active_windows onto this same stride so a later acquisition pass
+# reads whole storage chunks.
+_WOFS_STORAGE_CHUNK_PIXELS = 512
 
 # Wall-clock ceiling for the STAC search phase of open_wo_statistics. This is
 # the "overall load deadline" from the task brief: odc.stac.load itself
@@ -333,6 +347,272 @@ def _item_time_span(items) -> str | None:
     return f"{min(starts)}/{max(ends)}"
 
 
+@dataclass(frozen=True)
+class WetPlanningFootprint:
+    """A conservative, coarse pruning aid for planning remote WOfS reads.
+
+    This is a SEPARATE, performance-only artifact from anything zoning-related
+    (``build_zones()``). It must never be fed into zoning as frequency or
+    support, and it must never change what counts as inside/outside the
+    catchment for any metric denominator -- pixels it skips for I/O still
+    represent dry/outside-the-planning-footprint, not a smaller catchment.
+
+    ``native_mask`` is ``count_wet > 0`` at the statistics' native grid.
+    ``coarse_mask`` is ``native_mask`` aggregated by ``factor`` via aligned
+    max-pooling (``coarsen(..., boundary="pad").max()``) plus an optional
+    ``safety_cells``-wide coarse-grid dilation halo -- never nearest/mode/mean,
+    so an isolated native wet pixel can never disappear when coarsened. Every
+    accepted footprint satisfies the round-trip proof: expanding
+    ``coarse_mask`` back to the native grid is always a superset of
+    ``native_mask`` (see :func:`build_wet_planning_footprint`'s tests).
+
+    ``active_windows`` are storage/source-aligned native-grid ``GridWindow``s
+    covering the wet coarse cells -- a chunk/window predicate, not a polygon.
+    ``geometry`` stays ``None`` on the default path (no Shapely close/buffer);
+    it exists only for a consumer that explicitly needs a vectorised polygon.
+    """
+
+    native_mask: "xr.DataArray"
+    coarse_mask: "xr.DataArray"
+    active_windows: "Sequence[GridWindow]"
+    factor: int
+    safety_cells: int
+    digest: str
+    covered_years: Sequence[int]
+    source_collection: str
+    source_version: str
+    source_lineage: str
+    geometry: "geopandas.GeoDataFrame | None" = None
+
+
+def _eager_values(array: "xr.DataArray"):
+    """``array``'s values, computing first if it is Dask-backed.
+
+    ``count_wet``/``coarse_mask`` stay lazy through every xarray operation in
+    :func:`build_wet_planning_footprint`; this is the one, explicit place
+    values get materialized, for the emptiness check and for the digest/window
+    derivation, which both need concrete data.
+    """
+    return array.compute().values if hasattr(array.data, "compute") else array.values
+
+
+def _dilate_coarse_mask(mask: "xr.DataArray", safety_cells: int) -> "xr.DataArray":
+    """Grow ``mask`` (boolean, coarse grid) by ``safety_cells`` coarse cells in every direction.
+
+    Implemented as a union of shifted copies (never scipy, matching the rest
+    of the package's raster-morphology style, e.g. ``_wet_aoi.py``) so it
+    works identically whether ``mask`` is numpy- or Dask-backed. A cell within
+    Chebyshev distance ``safety_cells`` of any True cell becomes True. This is
+    the "one coarse-cell safety dilation when grids are not exactly aligned"
+    the task brief calls for.
+    """
+    if safety_cells <= 0:
+        return mask
+    dilated = mask
+    for dy in range(-safety_cells, safety_cells + 1):
+        for dx in range(-safety_cells, safety_cells + 1):
+            if dy == 0 and dx == 0:
+                continue
+            dilated = dilated | mask.shift(y=dy, x=dx, fill_value=False)
+    return dilated
+
+
+def _resolve_source_provenance(stats: "xr.Dataset") -> tuple[str, str, str, str | None]:
+    """Extract ``(collection, version, lineage, time_span)`` from ``stats.attrs``.
+
+    Raises :class:`DEAStatsUnavailable` if the ``provenance`` block
+    ``open_wo_statistics`` writes is absent or missing the ``product`` field
+    -- the statistics/daily-observation lineage/version contract this
+    function needs to validate temporal coverage against is itself the thing
+    being checked, so an absent or malformed contract must fail open exactly
+    like an uncovered year would.
+    """
+    provenance = stats.attrs.get("provenance")
+    if not isinstance(provenance, Mapping) or not provenance.get("product"):
+        raise DEAStatsUnavailable(
+            "DEA Water Observation Statistics lineage/version provenance is "
+            "absent or incompatible; refusing to build a wet planning "
+            "footprint without a verifiable source contract"
+        )
+
+    collection = str(provenance["product"])
+    # DEA WOfS statistics collection ids encode their processing version as a
+    # trailing "_<n>" token (e.g. "ga_ls_wo_fq_myear_3" -> version "3"). Fall
+    # back to the full collection id if that convention isn't present rather
+    # than fabricating a version number.
+    tail = collection.rsplit("_", 1)[-1]
+    version = tail if tail.isdigit() else collection
+
+    item_ids = provenance.get("item_ids") or []
+    lineage = f"{collection}:{','.join(sorted(str(i) for i in item_ids))}" if item_ids else collection
+
+    time_span = provenance.get("time_span")
+    return collection, version, lineage, time_span
+
+
+def _years_covered_by_time_span(time_span: str | None, requested_years: Collection[int]) -> bool:
+    """True if every year in ``requested_years`` falls within ``time_span``.
+
+    ``time_span`` is the ``"start/end"`` ISO string ``open_wo_statistics``
+    records (see ``_item_time_span``); ``None`` means "unknown coverage",
+    which is never treated as covering anything.
+    """
+    if not time_span or "/" not in time_span:
+        return False
+    start_str, _, end_str = time_span.partition("/")
+    try:
+        start_year = int(start_str[:4])
+        end_year = int(end_str[:4])
+    except (ValueError, IndexError):
+        return False
+    return all(start_year <= year <= end_year for year in requested_years)
+
+
+def build_wet_planning_footprint(
+    stats: "xr.Dataset",
+    *,
+    factor: int = 4,
+    safety_cells: int = 1,
+    requested_years: Collection[int],
+) -> WetPlanningFootprint:
+    """Build a conservative coarse wet-pixel planning footprint from ``stats``.
+
+    ``stats`` is the ``xr.Dataset`` returned by :func:`open_wo_statistics`
+    (``count_wet``/``count_clear``/``frequency`` at native resolution, with
+    ``.attrs["provenance"]``). This is a PERFORMANCE-ONLY artifact: it gates
+    which spatial windows a later remote read touches, and must never be
+    confused with or fed into zoning (``build_zones()``).
+
+    Steps, matching the task's correctness contract exactly:
+
+    1. ``native_mask = count_wet > 0`` at native resolution.
+    2. ``coarse_mask = native_mask.coarsen(y=factor, x=factor,
+       boundary="pad").max()`` -- aligned max-pooling only (never
+       nearest/mode/mean), with ``boundary="pad"`` so a trailing partial
+       block is padded (False) rather than dropped, preserving edge cells.
+    3. A ``safety_cells``-wide coarse-grid dilation halo is applied on top,
+       covering grids that are not exactly aligned.
+
+    Every accepted footprint satisfies ``native_mask <= expand(coarse_mask)``
+    (the round-trip proof) -- see the test suite in ``test_io_dea_stats.py``.
+
+    ``active_windows`` are derived directly from ``coarse_mask`` as a
+    raster/chunk predicate (:func:`hydroseason._spatial_plan.active_windows_from_mask`);
+    no polygon is vectorised on this path. ``geometry`` stays ``None``.
+
+    Fails open (raises :class:`DEAStatsUnavailable`) rather than returning a
+    partial or empty mask when:
+
+    * ``count_wet`` has no wet pixels at all -- an empty footprint could be
+      mistaken for "nothing here to prune" and must never be returned.
+    * ``stats.attrs["provenance"]`` is absent or missing a resolvable
+      collection/version -- the statistics/daily-observation lineage/version
+      contract is itself unverifiable.
+    * ``stats``'s recorded ``time_span`` does not cover every year in
+      ``requested_years``.
+    """
+    import numpy as np
+
+    from hydroseason._spatial_plan import active_windows_from_mask
+
+    if not requested_years:
+        raise DEAStatsUnavailable(
+            "build_wet_planning_footprint requires at least one requested year"
+        )
+    if factor < 1:
+        raise ValueError(f"factor must be at least 1, got {factor!r}")
+    if safety_cells < 0:
+        raise ValueError(f"safety_cells must be non-negative, got {safety_cells!r}")
+
+    collection, version, lineage, time_span = _resolve_source_provenance(stats)
+    if not _years_covered_by_time_span(time_span, requested_years):
+        raise DEAStatsUnavailable(
+            f"DEA Water Observation Statistics time_span {time_span!r} does not "
+            f"cover requested years {sorted(requested_years)!r}; refusing to "
+            "build a wet planning footprint that would silently under-prune"
+        )
+
+    count_wet = stats["count_wet"]
+    native_mask = (count_wet > 0).astype(bool)
+    native_mask.name = "wet_planning_native_mask"
+
+    if not bool(_eager_values(native_mask.any())):
+        raise DEAStatsUnavailable(
+            "DEA Water Observation Statistics returned no wet pixels for this "
+            "AOI; refusing to build a planning footprint (an empty footprint "
+            "would be indistinguishable from 'nothing here to prune')"
+        )
+
+    coarse_mask = (
+        native_mask.coarsen(y=factor, x=factor, boundary="pad").max().astype(bool)
+    )
+    coarse_mask = _dilate_coarse_mask(coarse_mask, safety_cells)
+    coarse_mask.name = "wet_planning_coarse_mask"
+
+    native_shape = (native_mask.sizes["y"], native_mask.sizes["x"])
+    coarse_values = np.asarray(_eager_values(coarse_mask), dtype=bool)
+    # Snap active windows onto the same 512px storage-chunk stride
+    # plan_storage_aligned_slices uses elsewhere in the package (the
+    # on-disk WOfS Zarr/COG tiling unit), so a later acquisition pass reads
+    # whole storage chunks rather than a mix of chunk-unaligned windows.
+    # Must stay a multiple of factor so every coarse cell lands on exactly
+    # one storage-aligned block edge (see active_windows_from_mask).
+    storage_chunk = _WOFS_STORAGE_CHUNK_PIXELS
+    if storage_chunk % factor != 0:
+        storage_chunk = factor
+    active_windows = active_windows_from_mask(
+        coarse_values,
+        factor=factor,
+        native_shape=native_shape,
+        storage_chunk=storage_chunk,
+    )
+
+    covered_years = tuple(sorted(requested_years))
+    digest = _wet_planning_footprint_digest(
+        coarse_values, factor=factor, safety_cells=safety_cells,
+        covered_years=covered_years, source_collection=collection,
+        source_version=version,
+    )
+
+    return WetPlanningFootprint(
+        native_mask=native_mask,
+        coarse_mask=coarse_mask,
+        active_windows=active_windows,
+        factor=factor,
+        safety_cells=safety_cells,
+        digest=digest,
+        covered_years=covered_years,
+        source_collection=collection,
+        source_version=version,
+        source_lineage=lineage,
+        geometry=None,
+    )
+
+
+def _wet_planning_footprint_digest(
+    coarse_values, *, factor: int, safety_cells: int,
+    covered_years: Sequence[int], source_collection: str, source_version: str,
+) -> str:
+    """A stable SHA-256 over the coarse mask's values and the plan's parameters.
+
+    Feeds cache identity per the plan's global constraint ("Cache identity
+    includes both masks, grid, temporal coverage, product provenance,
+    aggregation factor, safety halo, and composite bundle"). Uses the raw
+    boolean bytes of ``coarse_mask`` rather than a geometry hash so two
+    footprints with identical masks and parameters always digest identically,
+    independent of dask chunking.
+    """
+    hasher = hashlib.sha256()
+    hasher.update(coarse_values.tobytes())
+    hasher.update(str(coarse_values.shape).encode("utf-8"))
+    hasher.update(str(factor).encode("utf-8"))
+    hasher.update(str(safety_cells).encode("utf-8"))
+    hasher.update(str(tuple(covered_years)).encode("utf-8"))
+    hasher.update(source_collection.encode("utf-8"))
+    hasher.update(source_version.encode("utf-8"))
+    return hasher.hexdigest()
+
+
 def fetch_dea_stats_wet_aoi(
     stac_url: str,
     aoi_gdf,
@@ -448,7 +728,9 @@ __all__ = [
     "DEFAULT_WO_STATISTICS_PRODUCT",
     "DEFAULT_WO_STATISTICS_STAC_URL",
     "DEAStatsUnavailable",
+    "WetPlanningFootprint",
     "WoStatisticsUnavailable",
+    "build_wet_planning_footprint",
     "fetch_dea_stats_wet_aoi",
     "open_wo_statistics",
     "wet_mask_digest",

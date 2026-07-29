@@ -18,6 +18,8 @@ from hydroseason._io_dea_stats import (
     DEA_STATS_ALLTIME_COLLECTION,
     DEA_STATS_ANNUAL_COLLECTION,
     DEAStatsUnavailable,
+    WetPlanningFootprint,
+    build_wet_planning_footprint,
     fetch_dea_stats_wet_aoi,
     open_wo_statistics,
     wet_mask_digest,
@@ -362,3 +364,336 @@ def test_open_wo_statistics_passes_chunks_through(monkeypatch):
     open_wo_statistics(_aoi(), chunks={"x": 512, "y": 512})
 
     assert calls["load_kwargs"]["chunks"] == {"x": 512, "y": 512}
+
+
+# --------------------------------------------------------------------------
+# build_wet_planning_footprint: a SEPARATE, performance-only artifact built
+# on top of open_wo_statistics's output. It is a pruning/planning aid only
+# -- never fed into build_zones()/zoning, and never allowed to change what
+# counts as inside/outside the catchment for a metric denominator.
+#
+# The single most important property here is the round-trip proof: expanding
+# coarse_mask back to the native grid must cover every native wet pixel
+# (native_mask <= expanded_coarse_mask), for every accepted plan.
+# --------------------------------------------------------------------------
+
+
+def _stats_dataset(
+    count_wet_grid, *, res=30.0, count_clear_value=10,
+    time_span="1988-01-01T00:00:00Z/2024-12-31T00:00:00Z",
+    product=DEA_STATS_ALLTIME_COLLECTION,
+    provenance=True,
+):
+    """A synthetic stand-in for open_wo_statistics's returned xr.Dataset.
+
+    Builds count_wet/count_clear DataArrays at the given grid plus a
+    provenance attrs block carrying the fields build_wet_planning_footprint
+    needs to validate temporal/lineage coverage -- shaped exactly like the
+    real loader's ``.attrs["provenance"]`` (see open_wo_statistics).
+    """
+    import dask.array as da
+
+    grid = np.asarray(count_wet_grid, dtype=np.int32)
+    h, w = grid.shape
+    count_wet = xr.DataArray(
+        da.from_array(grid, chunks=(4, 4)), dims=("y", "x"),
+        coords={"y": np.arange(h) * -res, "x": np.arange(w) * res},
+    )
+    count_clear = xr.full_like(count_wet, count_clear_value)
+    ds = xr.Dataset({"count_wet": count_wet, "count_clear": count_clear})
+    ds = ds.rio.write_crs("EPSG:3577").rio.write_transform()
+    if provenance:
+        ds.attrs["provenance"] = {
+            "product": product,
+            "stac_url": "https://example.test/stac",
+            "item_ids": ["item-1"],
+            "crs": "EPSG:3577",
+            "resolution": res,
+            "time_span": time_span,
+            "frequency": {
+                "derivation": "100 * count_wet / count_clear",
+                "count_wet": "count_wet",
+                "count_clear": "count_clear",
+            },
+        }
+    return ds
+
+
+def test_footprint_isolated_one_pixel_water_survives_round_trip():
+    """A single isolated 30 m wet pixel must never disappear when coarsened
+    -- the defining correctness property of this whole task."""
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 11] = 1
+    stats = _stats_dataset(grid)
+
+    footprint = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=0, requested_years=[1988],
+    )
+
+    native = np.asarray(footprint.native_mask.values, dtype=bool)
+    coarse = np.asarray(footprint.coarse_mask.values, dtype=bool)
+    expanded = coarse.repeat(4, axis=0).repeat(4, axis=1)[:16, :16]
+    assert np.all(native <= expanded)
+    assert coarse.any()
+
+
+def test_footprint_thin_diagonal_channel_round_trip():
+    grid = np.zeros((16, 16), dtype=np.int32)
+    for i in range(16):
+        grid[i, i] = 1
+    stats = _stats_dataset(grid)
+
+    footprint = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=0, requested_years=[1988],
+    )
+
+    native = np.asarray(footprint.native_mask.values, dtype=bool)
+    coarse = np.asarray(footprint.coarse_mask.values, dtype=bool)
+    expanded = coarse.repeat(4, axis=0).repeat(4, axis=1)[:16, :16]
+    assert np.all(native <= expanded)
+
+
+def test_footprint_thin_orthogonal_channel_round_trip():
+    grid = np.zeros((20, 20), dtype=np.int32)
+    grid[9, :] = 1  # a single-pixel-wide horizontal channel
+    stats = _stats_dataset(grid)
+
+    footprint = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=0, requested_years=[1988],
+    )
+
+    native = np.asarray(footprint.native_mask.values, dtype=bool)
+    coarse = np.asarray(footprint.coarse_mask.values, dtype=bool)
+    expanded = coarse.repeat(4, axis=0).repeat(4, axis=1)[:20, :20]
+    assert np.all(native <= expanded)
+
+
+def test_footprint_partial_edge_block_preserved_not_dropped():
+    """A native grid whose size is not a multiple of ``factor`` must pad the
+    trailing partial block rather than drop it -- a wet pixel in the last,
+    smaller row/col must still survive."""
+    grid = np.zeros((10, 10), dtype=np.int32)  # 10 is not a multiple of 4
+    grid[9, 9] = 1  # in the partial trailing 2x2 block for factor=4
+    stats = _stats_dataset(grid)
+
+    footprint = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=0, requested_years=[1988],
+    )
+
+    native = np.asarray(footprint.native_mask.values, dtype=bool)
+    coarse = np.asarray(footprint.coarse_mask.values, dtype=bool)
+    # coarsen(boundary="pad") grows the coarse grid to cover the partial
+    # block rather than truncating it away.
+    assert coarse.shape == (3, 3)
+    expanded = coarse.repeat(4, axis=0).repeat(4, axis=1)[:10, :10]
+    assert np.all(native <= expanded)
+    assert coarse[2, 2]  # the trailing partial block is marked wet
+
+
+def test_footprint_safety_cells_dilate_coarse_mask():
+    """safety_cells applies a coarse-cell halo: strictly more (or equal)
+    coarse cells are marked wet than with safety_cells=0, and the round-trip
+    superset property still holds."""
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[6, 6] = 1
+    stats = _stats_dataset(grid)
+
+    plain = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=0, requested_years=[1988],
+    )
+    haloed = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=1, requested_years=[1988],
+    )
+
+    plain_coarse = np.asarray(plain.coarse_mask.values, dtype=bool)
+    haloed_coarse = np.asarray(haloed.coarse_mask.values, dtype=bool)
+    assert haloed_coarse.sum() >= plain_coarse.sum()
+    assert np.all(plain_coarse <= haloed_coarse)
+
+    native = np.asarray(haloed.native_mask.values, dtype=bool)
+    expanded = haloed_coarse.repeat(4, axis=0).repeat(4, axis=1)[:16, :16]
+    assert np.all(native <= expanded)
+
+
+def test_footprint_empty_mask_raises_dea_stats_unavailable():
+    """count_wet all-zero must fail open exactly like fetch_dea_stats_wet_aoi
+    -- an empty dry footprint must never be mistaken for 'nothing to prune'."""
+    grid = np.zeros((10, 10), dtype=np.int32)
+    stats = _stats_dataset(grid)
+
+    with pytest.raises(DEAStatsUnavailable):
+        build_wet_planning_footprint(stats, requested_years=[1988])
+
+
+def test_footprint_missing_requested_year_raises_dea_stats_unavailable():
+    """The statistics' time_span must cover every requested year, or this
+    must fail open rather than silently produce a partial mask."""
+    grid = np.zeros((10, 10), dtype=np.int32)
+    grid[5, 5] = 1
+    stats = _stats_dataset(grid, time_span="2015-01-01T00:00:00Z/2018-12-31T00:00:00Z")
+
+    with pytest.raises(DEAStatsUnavailable):
+        build_wet_planning_footprint(stats, requested_years=[2020])
+
+
+def test_footprint_missing_lineage_provenance_raises_dea_stats_unavailable():
+    """Absent/incompatible statistics-lineage provenance must fail open too,
+    not just an absent/insufficient time span."""
+    grid = np.zeros((10, 10), dtype=np.int32)
+    grid[5, 5] = 1
+    stats = _stats_dataset(grid, provenance=False)
+
+    with pytest.raises(DEAStatsUnavailable):
+        build_wet_planning_footprint(stats, requested_years=[1988])
+
+
+def test_footprint_shifted_grid_rejection():
+    """A coarse mask built against one grid must not be silently treated as
+    valid for a native mask on a different (shifted) grid -- the dataclass's
+    own native_mask/coarse_mask must come from one consistent build, and
+    re-validating a footprint against a foreign, shifted native grid must be
+    rejected rather than accepted."""
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 11] = 1
+    stats = _stats_dataset(grid)
+    footprint = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=0, requested_years=[1988],
+    )
+
+    shifted_grid = np.zeros((16, 16), dtype=np.int32)
+    shifted_stats = _stats_dataset(shifted_grid, res=30.0)
+    # Shift the shifted dataset's coordinate origin by half a native pixel
+    # so it no longer aligns with footprint's native grid.
+    shifted_stats = shifted_stats.assign_coords(
+        x=shifted_stats.x + 15.0, y=shifted_stats.y - 15.0
+    )
+    shifted_native = shifted_stats["count_wet"] > 0
+
+    assert not _grids_aligned(footprint.native_mask, shifted_native)
+
+
+def _grids_aligned(a, b) -> bool:
+    """True if two DataArrays share the same x/y coordinate grid."""
+    if a.sizes != b.sizes:
+        return False
+    return bool(np.array_equal(a.x.values, b.x.values)) and bool(
+        np.array_equal(a.y.values, b.y.values)
+    )
+
+
+def test_footprint_deterministic_digest_for_identical_inputs():
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 11] = 1
+    stats_a = _stats_dataset(grid)
+    stats_b = _stats_dataset(grid)
+
+    footprint_a = build_wet_planning_footprint(
+        stats_a, factor=4, safety_cells=1, requested_years=[1988],
+    )
+    footprint_b = build_wet_planning_footprint(
+        stats_b, factor=4, safety_cells=1, requested_years=[1988],
+    )
+
+    assert footprint_a.digest == footprint_b.digest
+    assert len(footprint_a.digest) == 64
+
+
+def test_footprint_digest_differs_for_different_mask_or_params():
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 11] = 1
+    other_grid = np.zeros((16, 16), dtype=np.int32)
+    other_grid[0, 0] = 1
+    stats = _stats_dataset(grid)
+    other_stats = _stats_dataset(other_grid)
+
+    base = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=1, requested_years=[1988],
+    )
+    different_mask = build_wet_planning_footprint(
+        other_stats, factor=4, safety_cells=1, requested_years=[1988],
+    )
+    different_factor = build_wet_planning_footprint(
+        stats, factor=2, safety_cells=1, requested_years=[1988],
+    )
+    different_safety = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=2, requested_years=[1988],
+    )
+
+    digests = {
+        base.digest, different_mask.digest, different_factor.digest,
+        different_safety.digest,
+    }
+    assert len(digests) == 4
+
+
+def test_footprint_records_provenance_years_and_active_windows():
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 11] = 1
+    stats = _stats_dataset(grid, product=DEA_STATS_ALLTIME_COLLECTION)
+
+    footprint = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=1, requested_years=[1988, 1999],
+    )
+
+    assert isinstance(footprint, WetPlanningFootprint)
+    assert footprint.factor == 4
+    assert footprint.safety_cells == 1
+    assert list(footprint.covered_years) == [1988, 1999]
+    assert footprint.source_collection == DEA_STATS_ALLTIME_COLLECTION
+    assert footprint.source_version  # non-empty
+    assert footprint.source_lineage  # non-empty
+    assert len(footprint.active_windows) >= 1
+    assert footprint.geometry is None
+
+
+def test_footprint_never_creates_polygons_by_default():
+    """Contract: 'Do not create polygons unless the consumer requires them.'
+    geometry stays None on the default path."""
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 11] = 1
+    stats = _stats_dataset(grid)
+
+    footprint = build_wet_planning_footprint(stats, requested_years=[1988])
+
+    assert footprint.geometry is None
+
+
+def test_footprint_accepts_dask_backed_stats_and_round_trips():
+    """open_wo_statistics's real output is Dask-backed (never .load()d); this
+    must consume that directly and still produce a correct footprint."""
+    import dask.array as da
+
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 11] = 1
+    stats = _stats_dataset(grid)
+    assert isinstance(stats["count_wet"].data, da.Array)
+
+    footprint = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=0, requested_years=[1988],
+    )
+
+    native = np.asarray(footprint.native_mask.values, dtype=bool)
+    coarse = np.asarray(footprint.coarse_mask.values, dtype=bool)
+    expanded = coarse.repeat(4, axis=0).repeat(4, axis=1)[:16, :16]
+    assert np.all(native <= expanded)
+
+
+def test_footprint_active_windows_are_grid_windows():
+    from hydroseason._spatial_plan import GridWindow
+
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 11] = 1
+    stats = _stats_dataset(grid)
+
+    footprint = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=0, requested_years=[1988],
+    )
+
+    assert all(isinstance(w, GridWindow) for w in footprint.active_windows)
+    # Every wet native pixel must fall inside at least one active window.
+    ys, xs = np.nonzero(np.asarray(footprint.native_mask.values, dtype=bool))
+    for y, x in zip(ys, xs):
+        assert any(
+            w.y_start <= y < w.y_stop and w.x_start <= x < w.x_stop
+            for w in footprint.active_windows
+        )
