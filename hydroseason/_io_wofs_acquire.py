@@ -195,17 +195,30 @@ def _wet_aoi_from_planning_footprint(footprint: WetPlanningFootprint):
     a ``wet_aoi``-shaped GeoDataFrame, for reuse by :func:`build_wofs_year_graph`'s
     existing ``wet_aoi`` pixel-clip path (see :func:`hydroseason._io_geo._clip_to_aoi`).
 
-    ``footprint.native_mask`` is already a conservative, provenance-checked
-    superset of ever-wet pixels (``build_wet_planning_footprint``'s whole
-    contract) -- this reuses the SAME vectoriser
-    (:func:`hydroseason._wet_aoi.wet_aoi_polygon`) the existing
-    ``wet_mask="dea_stats"`` path already trusts, at the native (30 m, by
-    default) resolution the footprint carries, rather than the coarser
-    ``coarse_mask``. This is the one place a footprint's mask is turned into
-    a polygon on the acquisition path -- ``build_wet_planning_footprint``
-    itself never does (``geometry`` stays ``None`` there); an
-    ``acquire_wofs_cache`` caller supplying a prepared footprint is exactly
-    the "a consumer explicitly needs one" case that justifies it here.
+    ``footprint.native_mask`` is ``count_wet > 0`` at the statistics' native
+    grid, built in :func:`hydroseason._io_dea_stats.build_wet_planning_footprint`
+    *before* that function's ``safety_cells`` dilation is applied -- the
+    dilation only ever touches ``coarse_mask`` (which feeds
+    ``active_windows``), never ``native_mask``. So ``native_mask`` alone
+    already covers 100% of native wet pixels exactly (no lossy
+    coarsening), but it carries NO grid-alignment safety margin of its own.
+
+    This function therefore calls :func:`hydroseason._wet_aoi.wet_aoi_polygon`
+    with its default ``close_m=150.0, buffer_m=300.0`` -- the SAME margin
+    convention used by the two sibling functions that already produce a
+    ``wet_aoi``-shaped polygon for this identical downstream
+    :func:`hydroseason._io_geo._clip_to_aoi` pixel-clip path:
+    :func:`hydroseason._io_dea_stats.fetch_dea_stats_wet_aoi` and
+    :func:`load_or_build_cached_wet_aoi`. The 300 m outward buffer is what
+    supplies the grid-alignment safety margin here: the acquisition's own
+    ``parent_geobox`` (derived via ``_output_geobox_for_aoi``) is not
+    guaranteed to align exactly with the DEA-statistics grid the footprint
+    was built from, and this vectorised polygon is what drives
+    :func:`hydroseason._spatial_plan.plan_storage_aligned_slices` for the
+    storage-window plan -- the same misalignment risk
+    ``build_wet_planning_footprint``'s own ``safety_cells`` dilation exists
+    to guard against for ``active_windows``, just applied here in vector
+    space instead of on the coarse raster grid.
 
     Distinct from the coarse ``active_windows``, which prune WHICH storage
     windows are read at all (the coarse half of spatial pruning, replacing
@@ -216,7 +229,7 @@ def _wet_aoi_from_planning_footprint(footprint: WetPlanningFootprint):
     """
     from hydroseason._wet_aoi import wet_aoi_polygon
 
-    return wet_aoi_polygon(footprint.native_mask, close_m=0.0, buffer_m=0.0)
+    return wet_aoi_polygon(footprint.native_mask, close_m=150.0, buffer_m=300.0)
 
 
 def _resolve_wet_aoi(

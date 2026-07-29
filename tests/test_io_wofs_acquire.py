@@ -1119,59 +1119,70 @@ def test_planning_footprint_native_mask_produces_a_valid_wet_aoi_polygon():
     assert len(wet_aoi) > 0
     assert not bool(wet_aoi.geometry.is_empty.all())
     assert wet_aoi.crs is not None
-    # native_mask is entirely wet (all-ones 4x4 grid, see _planning_footprint),
-    # so the vectorised polygon must cover the whole native grid extent.
+    # native_mask is entirely wet (all-ones 4x4 grid, see _planning_footprint).
+    # _wet_aoi_from_planning_footprint uses wet_aoi_polygon's default
+    # close_m=150.0/buffer_m=300.0 (the same margin convention as the sibling
+    # wet_aoi-producing functions), so the vectorised polygon covers the
+    # whole native grid extent PLUS the 300 m outward safety buffer.
     minx, miny, maxx, maxy = wet_aoi.total_bounds
-    assert (minx, miny, maxx, maxy) == pytest.approx((0.0, 0.0, 120.0, 120.0))
+    assert (minx, miny, maxx, maxy) == pytest.approx((-300.0, -300.0, 420.0, 420.0))
 
 
 def test_planning_footprint_derived_wet_aoi_clips_pixels_outside_it_via_clip_to_aoi():
     """Real (non-mocked) hydroseason._io_geo._clip_to_aoi check that the
     wet_aoi _wet_aoi_from_planning_footprint derives actually narrows the
-    written mask: a footprint wet only in the left half of the AOI must
-    leave the right half -2 (outside) after the real clip, not water/dry/
-    invalid -- this is the fine-grain pixel-clip half of spatial pruning
-    that build_wofs_year_graph applies via its existing wet_aoi parameter."""
+    written mask: a footprint wet only near the left edge of a large AOI must
+    leave pixels far to the right -2 (outside) after the real clip, not
+    water/dry/invalid -- this is the fine-grain pixel-clip half of spatial
+    pruning that build_wofs_year_graph applies via its existing wet_aoi
+    parameter. The grid is deliberately much larger than the 300 m
+    buffer_m/150 m close_m margin _wet_aoi_from_planning_footprint now
+    applies (matching the sibling wet_aoi-producing functions' convention),
+    so the buffered polygon still leaves a clearly-outside region."""
     from hydroseason._io_dea_stats import WetPlanningFootprint
     from hydroseason._io_wofs_acquire import _wet_aoi_from_planning_footprint
     from hydroseason._io_geo import _clip_to_aoi
     from hydroseason._spatial_plan import GridWindow
 
-    # AOI is box(0, 0, 120, 120) in EPSG:3577 at 30 m -> a 4x4 native pixel
-    # grid. A footprint wet only in the left half (columns 0-1) must clip the
-    # right half (columns 2-3) to -2, regardless of what an all-water source
-    # mask says there.
-    transform = Affine(30.0, 0.0, 0.0, 0.0, -30.0, 120.0)
-    half_wet = np.zeros((4, 4), dtype=bool)
-    half_wet[:, :2] = True
+    # AOI is box(0, 0, 1200, 1200) in EPSG:3577 at 30 m -> a 40x40 native
+    # pixel grid. A footprint wet only in columns 0-9 (0-300 m) buffers out
+    # to ~600 m (300 m buffer + up to ~150 m close-related growth), so
+    # columns from x=900 m (col 30) onward -- 300 m clear of the buffered
+    # edge -- must still clip to -2, while the wet columns themselves must
+    # not be clipped.
+    size = 40
+    transform = Affine(30.0, 0.0, 0.0, 0.0, -30.0, size * 30.0)
+    left_wet = np.zeros((size, size), dtype=bool)
+    left_wet[:, :10] = True
     native_mask = xr.DataArray(
-        half_wet, dims=("y", "x"),
+        left_wet, dims=("y", "x"),
         coords={
-            "y": transform.f + (np.arange(4) + 0.5) * transform.e,
-            "x": transform.c + (np.arange(4) + 0.5) * transform.a,
+            "y": transform.f + (np.arange(size) + 0.5) * transform.e,
+            "x": transform.c + (np.arange(size) + 0.5) * transform.a,
         },
     ).rio.write_crs("EPSG:3577").rio.write_transform(transform)
     footprint = WetPlanningFootprint(
         native_mask=native_mask,
         coarse_mask=xr.DataArray(np.array([[True]]), dims=("y", "x")),
-        active_windows=(GridWindow("r0c0", 0, 4, 0, 4),),
-        factor=4, safety_cells=0, digest="a" * 64, covered_years=(2015,),
+        active_windows=(GridWindow("r0c0", 0, size, 0, size),),
+        factor=size, safety_cells=0, digest="a" * 64, covered_years=(2015,),
         source_collection="ga_ls_wo_fq_myear_3", source_version="3",
         source_lineage="ga_ls_wo_fq_myear_3:item-1", geometry=None,
     )
     footprint_wet_aoi = _wet_aoi_from_planning_footprint(footprint)
 
     all_water_cube = xr.DataArray(
-        np.ones((1, 4, 4), dtype=np.int8), dims=("time", "y", "x"),
+        np.ones((1, size, size), dtype=np.int8), dims=("time", "y", "x"),
         coords={
             "time": pd.date_range("2015-06-01", periods=1, freq="MS"),
-            "y": transform.f + (np.arange(4) + 0.5) * transform.e,
-            "x": transform.c + (np.arange(4) + 0.5) * transform.a,
+            "y": transform.f + (np.arange(size) + 0.5) * transform.e,
+            "x": transform.c + (np.arange(size) + 0.5) * transform.a,
         },
     ).rio.write_crs("EPSG:3577").rio.write_transform(transform)
 
-    clipped = _clip_to_aoi(all_water_cube, _aoi(), wet_aoi=footprint_wet_aoi)
+    aoi = gpd.GeoDataFrame(geometry=[box(0, 0, size * 30.0, size * 30.0)], crs="EPSG:3577")
+    clipped = _clip_to_aoi(all_water_cube, aoi, wet_aoi=footprint_wet_aoi)
     values = clipped.isel(time=0).values
 
-    assert np.all(values[:, :2] != -2)  # left half (footprint-covered): not clipped
-    assert np.all(values[:, 2:] == -2)  # right half (outside footprint): clipped
+    assert np.all(values[:, :10] != -2)  # footprint-covered columns: not clipped
+    assert np.all(values[:, 30:] == -2)  # far outside the buffered footprint: clipped
