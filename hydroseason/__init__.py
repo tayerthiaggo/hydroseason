@@ -33,6 +33,7 @@ from .io import (
     load_wofs_monthly_extent,
     open_completed_mask_cache,
     open_wo_statistics,
+    verify_cache_footprints,
 )
 from .report import generate_html_report
 
@@ -47,6 +48,7 @@ __all__ = [
     "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
     "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
     "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
+    "verify_cache_footprints",
     "generate_html_report", "DynamicHydroYearConfig", "HydrologicalStateResult",
     "SeasonalPatternResult", "aggregate_basin_monthly_extent",
     "analyze_hydrological_state", "classify_annual_surface_water_condition",

@@ -12,6 +12,7 @@ def test_package_import_exposes_only_migration_safe_surface():
         "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
         "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
         "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
+        "verify_cache_footprints",
         "generate_html_report", "DynamicHydroYearConfig", "HydrologicalStateResult",
         "SeasonalPatternResult", "aggregate_basin_monthly_extent",
         "analyze_hydrological_state", "classify_annual_surface_water_condition",
@@ -28,6 +29,12 @@ def test_package_import_exposes_only_migration_safe_surface():
     # read it back through the top-level package surface, not just via the
     # private hydroseason._io_wofs_zarr module.
     assert callable(hydroseason.open_completed_mask_cache)
+    # verify_cache_footprints is the public tamper-detection entry point for
+    # a cache's persisted full-AOI/analysis-footprint metadata (Task W2.3):
+    # HydroFragments calls hydroseason.verify_cache_footprints(handle)
+    # directly, so it must be reachable from the top-level package surface,
+    # not just via the private hydroseason._io_wofs_zarr module.
+    assert callable(hydroseason.verify_cache_footprints)
     assert "ValidationSeasonConfig" not in vars(hydroseason)
 
     stripped_names = {

@@ -93,5 +93,24 @@ def open_completed_extent_counts(*args, **kwargs):
     return _open_completed_extent_counts(*args, **kwargs)
 
 
-__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_mask_cache", "open_completed_extent_counts", "WOfSCacheHandle", "open_wo_statistics"]
+def verify_cache_footprints(*args, **kwargs):
+    """Read, independently re-rasterize, and verify a cache's persisted AOI/analysis footprints.
+
+    Public reader/verifier counterpart to :func:`acquire_wofs_cache` (Task
+    W2.3): given a :class:`WOfSCacheHandle`, reads the full-AOI and
+    analysis-footprint geometry/counts/digests persisted in the store's root
+    manifest, re-rasterizes each geometry from its persisted canonical WKB,
+    and cross-checks both the digest and the pixel count against what was
+    persisted -- never trusting either alone. Raises ``ValueError`` on any
+    tamper/corruption mismatch, or ``FileNotFoundError``/``ValueError`` if no
+    manifest or no footprints metadata exists yet. See
+    :func:`hydroseason._io_wofs_zarr.verify_cache_footprints` for the full
+    contract.
+    """
+    from hydroseason._io_wofs_zarr import verify_cache_footprints as _verify_cache_footprints
+
+    return _verify_cache_footprints(*args, **kwargs)
+
+
+__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_mask_cache", "open_completed_extent_counts", "WOfSCacheHandle", "open_wo_statistics", "verify_cache_footprints"]
 
