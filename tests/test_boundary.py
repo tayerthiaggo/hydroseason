@@ -2,12 +2,17 @@ import pandas as pd
 import pytest
 
 from hydroseason._boundary import (
+    SIGNAL_FLOOR_FRACTION,
     BoundarySelection,
     RobustBoundaryConfig,
     select_boundary_sequence,
     select_cycle_peak,
     select_window_minimum,
 )
+
+
+def test_signal_floor_fraction_is_defined_and_importable():
+    assert SIGNAL_FLOOR_FRACTION == 0.10
 
 
 def test_peak_selector_flags_isolated_high_without_hiding_raw_maximum():

@@ -6,8 +6,14 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+__all__ = ["SIGNAL_FLOOR_FRACTION", "RobustBoundaryConfig", "BoundarySelection",
+           "robust_scale", "select_window_minimum", "select_cycle_peak",
+           "select_boundary_sequence"]
+
 WindowStatus = Literal["full", "left_truncated", "right_truncated", "internal_gap"]
 SelectionStatus = Literal["raw", "ambiguous", "quality_adjusted", "unresolved"]
+
+SIGNAL_FLOOR_FRACTION = 0.10
 
 
 @dataclass(frozen=True)
@@ -72,7 +78,7 @@ def _epsilon_pp(row: pd.Series, *, noise_pp: float, amplitude_pp: float) -> floa
     when available, otherwise by the noise estimate.
     """
     resolution = 100.0 / float(row["n_valid"]) if "n_valid" in row and row["n_valid"] > 0 else 0.0
-    return min(0.10 * amplitude_pp, max(resolution, noise_pp)) if amplitude_pp > 0 else 0.0
+    return min(SIGNAL_FLOOR_FRACTION * amplitude_pp, max(resolution, noise_pp)) if amplitude_pp > 0 else 0.0
 
 
 def _select_window_extreme(

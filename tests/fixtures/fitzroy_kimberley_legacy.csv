@@ -1,12 +1,12 @@
-hy_year,hy_start,hy_end,peak_month,peak_extent_pct,mid_dry_month,mid_extent_pct,end_dry_month,end_extent_pct,amplitude_pct,n_months_cycle,confidence,boundary_source,source,aoi
-2015,2015-01-01,2015-12-01,2015-02-01,1.710738,2015-07-01,0.615471,2015-12-01,0.070603,1.640136,12,medium,annual_window,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
-2016,2016-01-01,2016-11-01,2015-03-01,1.292827,2016-01-01,0.626079,2016-11-01,0.04047,1.252357,11,low,annual_window_low_amplitude,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
-2017,2016-12-01,2017-11-01,2017-02-01,50.849357,2017-07-01,1.309904,2017-11-01,0.798981,50.050375,12,high,annual_window,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
-2018,2017-12-01,2018-12-01,2018-02-01,6.932218,2018-07-01,1.060259,2018-12-01,0.645259,6.28696,13,high,annual_window,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
-2019,2019-01-01,2019-12-01,2018-03-01,1.935844,2019-01-01,1.016258,2019-12-01,0.370045,1.565799,12,low,annual_window_low_amplitude,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
-2020,2020-01-01,2020-11-01,2020-02-01,1.548489,2020-07-01,0.636753,2020-11-01,0.060555,1.487935,11,low,annual_window_low_amplitude,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
-2021,2020-12-01,2021-12-01,2021-02-01,34.289542,2021-07-01,1.221751,2021-12-01,0.540206,33.749336,13,high,annual_window,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
-2022,2022-01-01,2022-11-01,2021-03-01,34.863511,2022-01-01,0.568017,2022-11-01,0.568419,34.295092,11,high,annual_window,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
-2023,2022-12-01,2023-12-01,2023-01-01,20.237842,2023-07-01,1.403677,2023-12-01,0.427176,19.810666,13,high,annual_window,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
-2024,2024-01-01,2024-10-01,2024-02-01,2.368275,2024-06-01,0.580932,2024-10-01,0.134083,2.234193,10,medium,annual_window,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
-2025,2024-11-01,2025-11-01,2024-03-01,8.593304,2025-01-01,0.719282,2025-11-01,0.05539,8.537914,13,high,annual_window,hydroseason.detect_hydrological_years v0.1.0,data/fitzroy_kimberley_aoi.geojson
+hy_year,hy_start,hy_end,peak_month,peak_extent_pct,mid_dry_month,mid_extent_pct,end_dry_month,end_extent_pct,amplitude_pct,n_months_cycle,confidence,boundary_source
+2015,2015-01-01,2015-12-01,2015-02-01,1.710738,2015-07-01,0.615471,2015-12-01,0.070603,1.640136,12,low,annual_window_low_amplitude
+2016,2016-01-01,2016-11-01,2016-02-01,1.037308,2016-07-01,0.252243,2016-11-01,0.04047,0.996838,11,low,annual_window_low_amplitude
+2017,2016-12-01,2017-11-01,2017-02-01,50.849357,2017-07-01,1.309904,2017-11-01,0.798981,50.050375,12,high,annual_window
+2018,2017-12-01,2018-12-01,2018-02-01,6.932218,2018-07-01,1.060259,2018-12-01,0.645259,6.28696,13,high,annual_window
+2019,2019-01-01,2019-12-01,2019-03-01,1.128708,2019-07-01,0.618334,2019-12-01,0.370045,0.758663,12,low,annual_window_low_amplitude
+2020,2020-01-01,2020-11-01,2020-03-01,10.813485,2020-07-01,0.636753,2020-11-01,0.060555,10.75293,11,high,annual_window
+2021,2020-12-01,2021-12-01,2021-03-01,34.863511,2021-07-01,1.221751,2021-12-01,0.540206,34.323305,13,high,annual_window
+2022,2022-01-01,2022-11-01,2022-02-01,7.39226,2022-07-01,0.785132,2022-11-01,0.568419,6.823841,11,high,annual_window
+2023,2022-12-01,2023-12-01,2023-01-01,20.237842,2023-07-01,1.403677,2023-12-01,0.427176,19.810666,13,high,annual_window
+2024,2024-01-01,2024-10-01,2024-03-01,8.593304,2024-06-01,0.580932,2024-10-01,0.134083,8.459222,10,high,annual_window
+2025,2024-11-01,2025-11-01,2025-02-01,1.460585,2025-07-01,0.811502,2025-11-01,0.05539,1.405195,13,low,annual_window_low_amplitude

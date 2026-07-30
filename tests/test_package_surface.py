@@ -9,17 +9,26 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert hydroseason.__all__ == [
         "__version__", "HydroYearConfig", "detect_hydrological_years",
         "label_hydrological_months", "monthly_water_extent", "suggest_hydro_year_config",
-        "load_aoi", "load_wofs_from_stac", "load_monthly_masks",
+        "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
         "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
+        "acquire_wofs_cache", "WOfSCacheHandle",
         "generate_html_report", "DynamicHydroYearConfig", "HydrologicalStateResult",
         "SeasonalPatternResult", "aggregate_basin_monthly_extent",
         "analyze_hydrological_state", "classify_annual_surface_water_condition",
         "classify_seasonal_pattern", "compute_monthly_surface_water_condition",
         "detect_dynamic_hydrological_years", "suggest_dynamic_hydro_year_config",
+        "Regime", "WaterRegimeAssessment", "assess_water_regime",
+        "WaterEventResult", "extract_water_events",
+        "CatchmentAnalysis", "analyze_catchment",
     ]
     assert callable(hydroseason.detect_hydrological_years)
     assert callable(hydroseason.label_hydrological_months)
     assert callable(hydroseason.load_extent_csv)
+    assert callable(hydroseason.load_wofs_monthly_extent)
+    assert callable(hydroseason.acquire_wofs_cache)
+    assert callable(hydroseason.assess_water_regime)
+    assert callable(hydroseason.extract_water_events)
+    assert callable(hydroseason.analyze_catchment)
     assert "ValidationSeasonConfig" not in vars(hydroseason)
 
     stripped_names = {

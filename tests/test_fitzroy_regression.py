@@ -19,7 +19,19 @@ def _month_shift(left, right):
     return (left.dt.year - right.dt.year) * 12 + left.dt.month - right.dt.month
 
 
-def test_legacy_fitzroy_output_is_unchanged():
+def test_fitzroy_output_matches_reviewed_phase():
+    """Pins detector output for Fitzroy against the cyclic-window geometry.
+
+    Regenerated 2026-07-28 when ``HydroYearConfig`` windows became cyclic. The
+    previous fixture pinned output from a forced geometry that could not
+    express Fitzroy's Jan-Mar wet season and wrapped the wet window across all
+    12 months instead; that window spanned 22 months per cycle and could take a
+    peak from an adjacent year. Scored against the independent human review in
+    ``fitzroy_reviewed_events.csv``, the old output had a peak MAE of 4.36
+    months (64% within one month, worst case 12); this fixture scores 0.00
+    months, 100% within one month. Previous fixture retained alongside as
+    ``.pre-cyclic-geometry.bak``.
+    """
     monthly = pd.read_csv(FIXTURES / "fitzroy_kimberley_monthly.csv", parse_dates=["date"]).set_index("date")
     expected = pd.read_csv(FIXTURES / "fitzroy_kimberley_legacy.csv", parse_dates=["hy_start", "hy_end", "peak_month", "mid_dry_month", "end_dry_month"])
     actual = detect_hydrological_years(

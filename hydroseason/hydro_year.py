@@ -18,14 +18,43 @@ if TYPE_CHECKING:
 
 DuplicateMonthPolicy = Literal["raise", "warn"]
 MissingMonthPolicy = Literal["raise", "ignore"]
+QualityPolicy = Literal["exclude", "flag"]
+
+# Cycle spans beyond this make consecutive years' search windows overlap by
+# more than six months; see HydroYearConfig.__post_init__.
+_MAX_CYCLE_SPAN_MONTHS = 18
+
+
+def _cyclic_span(start_month: int, end_month: int) -> int:
+    """Inclusive month count walking forward from ``start_month`` to ``end_month``."""
+    return ((end_month - start_month) % 12) + 1
+
+
+def _cyclic_gap(from_month: int, to_month: int) -> int:
+    """Months stepped forward from ``from_month`` to reach ``to_month``."""
+    return (to_month - from_month) % 12
 
 
 @dataclass(frozen=True)
 class HydroYearConfig:
-    """Supported cross-year wet and same-year dry search windows.
+    """Wet then dry search windows, at any phase of the calendar year.
 
-    A record labelled ``Y`` uses wet months Nov(Y-1)..Apr(Y), then dry
-    months Jul(Y)..Dec(Y). Other shapes must retain that geometry.
+    Windows are **cyclic month ranges**, not calendar-anchored spans: each is
+    read by walking forward from its start month to its end month, wrapping
+    through December where needed. The cycle for the record labelled ``Y`` is
+    anchored so the wet window *ends* in year ``Y``; the wet window's start and
+    the whole dry window then fall wherever that anchoring puts them, which may
+    be the previous or the following calendar year.
+
+    The shipped default is unchanged and describes a tropical monsoon: wet
+    Nov(Y-1)..Apr(Y), then dry Jul(Y)..Dec(Y).
+
+    Because the geometry is cyclic, phases the earlier fixed geometry could not
+    express are now valid -- notably southern-Australian winter-rainfall
+    catchments, e.g. ``wet_start_month=6, wet_end_month=9,
+    dry_start_month=11, dry_end_month=2``, whose dry window ends in ``Y+1``.
+    The only ordering rule left is that the dry window must begin after the wet
+    window ends.
     """
 
     wet_start_month: int = 11
@@ -46,22 +75,56 @@ class HydroYearConfig:
         )
         if any(month < 1 or month > 12 for month in months):
             raise ValueError("Season months must be in 1..12.")
-        if self.wet_start_month <= self.wet_end_month:
+        if _cyclic_gap(self.wet_end_month, self.dry_start_month) == 0:
             raise ValueError(
-                "Unsupported season-window geometry: wet season must cross the year boundary."
+                "Unsupported season-window geometry: the dry window must follow the "
+                "wet window, so dry_start_month cannot equal wet_end_month."
             )
-        if self.dry_start_month > self.dry_end_month:
+        # Consecutive years' search windows overlap by (cycle_span - 12) months.
+        # The shipped default spans 14, so a 2-month overlap is normal and fine.
+        # Past 18 the overlap exceeds half a year and the same observation can
+        # be the peak of two different records, which makes the assignment
+        # ambiguous rather than merely generous.
+        if self.cycle_span_months > _MAX_CYCLE_SPAN_MONTHS:
             raise ValueError(
-                "Unsupported season-window geometry: dry season must stay within one year."
-            )
-        if self.dry_start_month <= self.wet_end_month:
-            raise ValueError(
-                "Unsupported season-window geometry: dry season must follow wet-season end."
+                "Unsupported season-window geometry: wet window, gap and dry window "
+                f"span {self.cycle_span_months} months (max {_MAX_CYCLE_SPAN_MONTHS}); "
+                "consecutive hydrological years would overlap ambiguously."
             )
         if self.min_wet_months < 1 or self.min_dry_months < 1:
             raise ValueError("Minimum wet and dry month counts must be positive.")
         if not 0 <= self.low_confidence_ratio <= self.medium_confidence_ratio <= 1:
             raise ValueError("Confidence ratios must satisfy 0 <= low <= medium <= 1.")
+
+    @property
+    def wet_span_months(self) -> int:
+        return _cyclic_span(self.wet_start_month, self.wet_end_month)
+
+    @property
+    def dry_span_months(self) -> int:
+        return _cyclic_span(self.dry_start_month, self.dry_end_month)
+
+    @property
+    def wet_to_dry_gap_months(self) -> int:
+        return _cyclic_gap(self.wet_end_month, self.dry_start_month)
+
+    @property
+    def cycle_span_months(self) -> int:
+        """Total months from wet-window start to dry-window end."""
+        return self.wet_span_months + self.wet_to_dry_gap_months + self.dry_span_months - 1
+
+    def windows_for_year(self, year: int) -> tuple[pd.Timestamp, pd.Timestamp, pd.Timestamp, pd.Timestamp]:
+        """Absolute (wet_start, wet_end, dry_start, dry_end) for record ``year``.
+
+        Anchored on the wet window ending in ``year``, then walked outward by
+        the cyclic spans, so every other bound lands in whichever calendar year
+        the phase implies without the caller specifying offsets.
+        """
+        wet_end = pd.Timestamp(year, self.wet_end_month, 1)
+        wet_start = wet_end - pd.DateOffset(months=self.wet_span_months - 1)
+        dry_start = wet_end + pd.DateOffset(months=self.wet_to_dry_gap_months)
+        dry_end = dry_start + pd.DateOffset(months=self.dry_span_months - 1)
+        return wet_start, wet_end, dry_start, dry_end
 
 
 def suggest_hydro_year_config(
@@ -73,13 +136,17 @@ def suggest_hydro_year_config(
 ) -> HydroYearConfig:
     """Propose a ``HydroYearConfig`` from a monthly-mean climatology of ``extent``.
 
-    Averages ``extent`` by calendar month, then centres the wet window on the
-    climatological peak and the dry window on the trough. The result still
-    obeys ``HydroYearConfig``'s fixed geometry (wet season crosses the year
-    boundary, dry season follows within the same year), so this is a
-    first-guess for review, not a substitute for it: bimodal, flat, or noisy
-    climatologies can produce a split that doesn't match physical wet/dry
-    seasons. Pass explicit ``HydroYearConfig`` fields as ``overrides`` (e.g.
+    Averages ``extent`` by calendar month, then takes the contiguous
+    above-mean run around the climatological peak as the wet window and the
+    below-mean run around the trough as the dry window. Because
+    ``HydroYearConfig`` windows are cyclic, the suggestion keeps whatever phase
+    the climatology shows rather than reshaping it toward a cross-year wet
+    season -- a winter-rainfall catchment gets a mid-year wet window.
+
+    This remains a first guess for review, not a substitute for it: bimodal,
+    flat, or noisy climatologies can produce a split that doesn't match
+    physical wet/dry seasons. Screen the record with ``assess_water_regime``
+    first; a catchment it calls aseasonal has no phase worth suggesting. Pass explicit ``HydroYearConfig`` fields as ``overrides`` (e.g.
     ``min_wet_months=3``) to keep the suggested months but override other
     settings.
     """
@@ -123,19 +190,13 @@ def suggest_hydro_year_config(
     wet_start_month, wet_end_month = wet_months[0], wet_months[-1]
     dry_start_month, dry_end_month = dry_months[0], dry_months[-1]
 
-    # HydroYearConfig requires the wet window to cross the year boundary
-    # (wet_start_month > wet_end_month) and the dry window to sit fully
-    # within one year, after the wet window ends.
-    if wet_start_month <= wet_end_month:
-        wet_end_month = peak_month
-        wet_start_month = peak_month + 1 if peak_month < 12 else 1
-        if wet_start_month <= wet_end_month:
-            wet_start_month, wet_end_month = 12, 1
-    if dry_start_month > dry_end_month:
-        dry_start_month, dry_end_month = trough_month, trough_month
-    if dry_start_month <= wet_end_month:
-        dry_start_month = wet_end_month + 1 if wet_end_month < 12 else 1
-        if dry_end_month < dry_start_month:
+    # Windows are cyclic, so the runs above are kept at whatever phase the
+    # climatology actually shows -- no reshaping toward a cross-year wet
+    # season. The single remaining rule is that the dry window must begin
+    # after the wet window ends; nudge it by one month only if they collide.
+    if _cyclic_gap(wet_end_month, dry_start_month) == 0:
+        dry_start_month = (wet_end_month % 12) + 1
+        if _cyclic_span(dry_start_month, dry_end_month) > 12:
             dry_end_month = dry_start_month
 
     fields = {
@@ -156,6 +217,9 @@ def monthly_water_extent(
     outside_value: int = -2,
     invalid_value: int = -1,
     spatial_dims: tuple[str, str] = ("y", "x"),
+    time_block: int = 1,
+    wet_aoi=None,
+    read_workers: int | None = None,
 ) -> pd.DataFrame:
     """Summarise monthly canonical masks without treating invalid pixels as dry.
 
@@ -163,39 +227,149 @@ def monthly_water_extent(
     ``dry_value``; any other code (unknown values, NaN, out-of-domain codes
     that bypassed a classifier) counts as invalid rather than silently
     inflating the valid denominator. Raster dependencies are imported only at
-    this computation boundary. The four scalar summaries share one
-    ``dask.compute`` call.
+    this computation boundary. The four scalar summaries are computed in
+    streamed blocks of ``time_block`` steps along ``time`` rather than in one
+    all-at-once ``dask.compute`` call, so peak memory stays bounded by
+    ``time_block`` (times the spatial chunk footprint) instead of scaling
+    with the full length of ``time``. Raising ``time_block`` trades scheduler
+    overhead (more, smaller ``dask.compute`` calls) for locality (fewer calls,
+    more spatial chunks held concurrently); lower it to bound memory more
+    tightly, raise it to reduce per-call scheduling overhead.
+
+    ``wet_aoi``, if given, is a polygon or GeoDataFrame (in any CRS) describing
+    the historical wet-AOI extent. It is rasterised against ``water_mask``'s
+    spatial grid exactly once (the grid is time-invariant across the whole
+    cube), then used to compute ``n_wet_aoi`` -- the per-month count of pixels
+    inside the wet AOI that are also not ``outside_value`` -- and the derived
+    ``wet_fill_pct = 100 * n_water / n_wet_aoi`` drought-signal ratio (NaN when
+    ``n_wet_aoi`` is 0). When ``wet_aoi`` is ``None`` (the default), no
+    rasterisation happens at all and ``n_wet_aoi`` is set equal to
+    ``n_valid``, so existing callers adding no wet AOI see no change to any
+    pre-existing column, and get a well-defined ``wet_fill_pct`` computed
+    with the same ``100 * n_water / n_wet_aoi`` formula used in the
+    ``wet_aoi``-given case (this keeps ``wet_fill_pct`` an exact
+    sum-then-percentage tiled aggregation of ``n_water``/``n_wet_aoi``,
+    matching how ``extent_pct`` and ``invalid_pct`` already aggregate).
+    ``wet_fill_pct`` therefore equals ``extent_pct`` exactly and
+    unconditionally when ``wet_aoi`` is ``None``, regardless of whether
+    invalid pixels are present, because both ratios reduce to the same
+    ``100 * n_water / n_valid`` formula in that case (they can legitimately
+    differ only when a real ``wet_aoi`` is supplied).
+
+    ``read_workers``, if given (and > 0), overrides dask's threaded-scheduler
+    worker count for the ``dask.compute`` reductions below, where the lazy
+    STAC/COG graph is actually materialised. Profiling on real WOfS data found
+    this workload is decode/warp-CPU-bound rather than I/O-latency-bound as
+    might be assumed for remote reads: dask's own default worker count
+    outperformed every explicit override tried (4 through 64), and forcing a
+    higher count made it monotonically worse. Leave this at ``None`` (the
+    default, which leaves dask's configuration untouched) unless you have
+    profiled your own workload and confirmed a specific value helps -- see
+    ``hydroseason._io_extent_cache.load_wofs_monthly_extent``'s ``read_workers``
+    docstring for the measurements. The override, if used, is scoped via
+    ``dask.config.set`` and restored on exit.
     """
     try:
         import dask
     except ImportError as exc:  # pragma: no cover - depends on optional extra
         raise ImportError("monthly_water_extent requires the raster extra (dask and xarray).") from exc
 
-    dims = list(spatial_dims)
-    n_aoi = (water_mask != outside_value).sum(dim=dims)
-    n_water = (water_mask == water_value).sum(dim=dims)
-    n_dry = (water_mask == dry_value).sum(dim=dims)
-    n_valid = n_water + n_dry
-    n_invalid = n_aoi - n_valid
-    n_aoi, n_valid, n_water, n_invalid = dask.compute(n_aoi, n_valid, n_water, n_invalid)
+    from contextlib import nullcontext
 
-    n_aoi_arr = np.asarray(n_aoi.values, dtype=float)
-    n_valid_arr = np.asarray(n_valid.values, dtype=float)
-    n_water_arr = np.asarray(n_water.values, dtype=float)
-    n_invalid_arr = np.asarray(n_invalid.values, dtype=float)
+    concurrency = (
+        dask.config.set(scheduler="threads", num_workers=read_workers)
+        if read_workers is not None and read_workers > 0
+        else nullcontext()
+    )
+
+    dims = list(spatial_dims)
+    n_time = water_mask.sizes["time"]
+
+    first_slice = water_mask.isel(time=0)
+
+    inside_wet = None
+    if wet_aoi is not None:
+        import geopandas as gpd
+        import rioxarray  # noqa: F401  (registers the .rio accessor used below)
+
+        from hydroseason._io_geo import _inside_aoi_mask_like, _resolve_raster_crs
+
+        mask_crs = _resolve_raster_crs(water_mask)
+        gdf = (
+            wet_aoi
+            if isinstance(wet_aoi, gpd.GeoDataFrame)
+            else gpd.GeoDataFrame({"geometry": [wet_aoi]}, geometry="geometry", crs=mask_crs)
+        )
+        if gdf.crs is not None and mask_crs is not None:
+            gdf = gdf.to_crs(mask_crs)
+        inside_wet = _inside_aoi_mask_like(first_slice, gdf)
+
+    n_aoi_parts: list[np.ndarray] = []
+    n_valid_parts: list[np.ndarray] = []
+    n_water_parts: list[np.ndarray] = []
+    n_invalid_parts: list[np.ndarray] = []
+    n_wet_aoi_parts: list[np.ndarray] = []
+    with concurrency:
+        for start in range(0, n_time, time_block):
+            block = water_mask.isel(time=slice(start, start + time_block))
+            n_water_block = (block == water_value).sum(dim=dims, dtype=np.int32)
+            n_dry_block = (block == dry_value).sum(dim=dims, dtype=np.int32)
+            n_valid_block = n_water_block + n_dry_block
+            n_aoi_block = (block != outside_value).sum(dim=dims, dtype=np.int32)
+            n_invalid_block = n_aoi_block - n_valid_block
+            if inside_wet is not None:
+                n_wet_aoi_block = ((block != outside_value) & inside_wet).sum(dim=dims, dtype=np.int32)
+                (
+                    n_aoi_block,
+                    n_valid_block,
+                    n_water_block,
+                    n_invalid_block,
+                    n_wet_aoi_block,
+                ) = dask.compute(
+                    n_aoi_block, n_valid_block, n_water_block, n_invalid_block, n_wet_aoi_block
+                )
+                n_wet_aoi_parts.append(np.asarray(n_wet_aoi_block.values, dtype=float))
+            else:
+                n_aoi_block, n_valid_block, n_water_block, n_invalid_block = dask.compute(
+                    n_aoi_block, n_valid_block, n_water_block, n_invalid_block
+                )
+            n_aoi_parts.append(np.asarray(n_aoi_block.values, dtype=float))
+            n_valid_parts.append(np.asarray(n_valid_block.values, dtype=float))
+            n_water_parts.append(np.asarray(n_water_block.values, dtype=float))
+            n_invalid_parts.append(np.asarray(n_invalid_block.values, dtype=float))
+
+    n_aoi_arr = np.concatenate(n_aoi_parts)
+    n_valid_arr = np.concatenate(n_valid_parts)
+    n_water_arr = np.concatenate(n_water_parts)
+    n_invalid_arr = np.concatenate(n_invalid_parts)
     extent_pct = np.full_like(n_valid_arr, np.nan)
     np.divide(n_water_arr * 100.0, n_valid_arr, out=extent_pct, where=n_valid_arr > 0)
     invalid_pct = np.full_like(n_aoi_arr, np.nan)
     np.divide(n_invalid_arr * 100.0, n_aoi_arr, out=invalid_pct, where=n_aoi_arr > 0)
 
+    if inside_wet is not None:
+        n_wet_aoi_arr = np.concatenate(n_wet_aoi_parts)
+    else:
+        # No wet AOI given: fall back to n_valid (not n_aoi) so wet_fill_pct
+        # is an EXACT alias of extent_pct in this case (same formula and
+        # denominator), not merely equal when there happen to be zero
+        # invalid pixels -- while remaining tiling-exact, since n_valid is
+        # itself already a tiling-exact summed count.
+        n_wet_aoi_arr = n_valid_arr
+    wet_fill_pct = np.full_like(n_wet_aoi_arr, np.nan)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        np.divide(n_water_arr * 100.0, n_wet_aoi_arr, out=wet_fill_pct, where=n_wet_aoi_arr > 0)
+
     return pd.DataFrame(
         {
-            "n_water": n_water_arr.astype(int),
-            "n_aoi": n_aoi_arr.astype(int),
-            "n_valid": n_valid_arr.astype(int),
-            "n_invalid": n_invalid_arr.astype(int),
+            "n_water": n_water_arr.astype(np.int64),
+            "n_aoi": n_aoi_arr.astype(np.int64),
+            "n_valid": n_valid_arr.astype(np.int64),
+            "n_invalid": n_invalid_arr.astype(np.int64),
+            "n_wet_aoi": n_wet_aoi_arr.astype(np.int64),
             "extent_pct": extent_pct,
             "invalid_pct": invalid_pct,
+            "wet_fill_pct": wet_fill_pct,
         },
         index=pd.DatetimeIndex(np.asarray(water_mask.time.values)),
     )
@@ -210,16 +384,19 @@ def detect_hydrological_years(
     duplicate_month_policy: DuplicateMonthPolicy = "raise",
     missing_month_policy: MissingMonthPolicy = "raise",
     max_invalid_pct: float = 20.0,
+    quality_policy: QualityPolicy = "exclude",
 ) -> pd.DataFrame:
     """Detect hydrological years from a complete, quality-screened monthly series.
 
     ``invalid_pct`` is honoured when supplied in a DataFrame. The conservative
-    default rejects months with more than 20% invalid coverage (see migration
-    plan §6.2); callers may explicitly raise ``max_invalid_pct`` after
-    assessing data quality.
+    default rejects months with more than 20% invalid coverage. Set
+    ``quality_policy="flag"`` to retain those observations and continue while
+    leaving quality interpretation to the caller.
     """
     if not 0 <= max_invalid_pct <= 100:
         raise ValueError("max_invalid_pct must be between 0 and 100.")
+    if quality_policy not in {"exclude", "flag"}:
+        raise ValueError("quality_policy must be 'exclude' or 'flag'.")
     cfg = config or HydroYearConfig()
     series, invalid_pct, full_index = _coerce_monthly_series(
         extent,
@@ -227,7 +404,7 @@ def detect_hydrological_years(
         date_col=date_col,
         duplicate_month_policy=duplicate_month_policy,
     )
-    if invalid_pct is not None:
+    if invalid_pct is not None and quality_policy == "exclude":
         invalid = invalid_pct.reindex(full_index)
         if invalid.isna().any() or (invalid > max_invalid_pct).any():
             raise ValueError(
@@ -240,8 +417,9 @@ def detect_hydrological_years(
 
     rows: list[dict] = []
     for year in range(int(series.index.min().year), int(series.index.max().year) + 1):
-        wet = _window(series, pd.Timestamp(year - 1, cfg.wet_start_month, 1), pd.Timestamp(year, cfg.wet_end_month, 1))
-        dry = _window(series, pd.Timestamp(year, cfg.dry_start_month, 1), pd.Timestamp(year, cfg.dry_end_month, 1))
+        wet_start, wet_end, dry_start, dry_end = cfg.windows_for_year(year)
+        wet = _window(series, wet_start, wet_end)
+        dry = _window(series, dry_start, dry_end)
         if len(wet) < cfg.min_wet_months or len(dry) < cfg.min_dry_months:
             continue
         peak_month = _idxmax_with_middle_tie_break(wet)
@@ -264,7 +442,7 @@ def detect_hydrological_years(
     result = pd.DataFrame(rows)
     if result.empty:
         return _empty_result()
-    return _assign_confidence(_assign_end_dry_spans(result, series.index), cfg)
+    return _assign_confidence(_assign_end_dry_spans(result, series.index), cfg, series)
 
 
 def label_hydrological_months(dates: pd.Index | pd.Series | pd.DatetimeIndex, hy_df: pd.DataFrame) -> pd.DataFrame:
@@ -352,7 +530,33 @@ def _month_nearest_midpoint(dates, start, end):
     return pd.Timestamp(dates[int(np.argmin(np.abs(np.array([date.toordinal() for date in dates]) - midpoint)))])
 
 
-def _assign_confidence(result, cfg):
+def _noise_floor_pp(series: pd.Series) -> float:
+    """Robust month-to-month noise scale, in percentage points.
+
+    Month-of-year medians are removed first so a genuine seasonal cycle is not
+    counted as noise; the MAD of successive differences of the residual then
+    estimates the scale of variation that carries no annual information.
+    """
+    values = pd.to_numeric(series, errors="coerce").dropna().astype(float)
+    if len(values) < 3:
+        return 0.0
+    residual = values - values.groupby(values.index.month).transform("median")
+    delta = residual.diff().dropna().to_numpy(float)
+    if not len(delta):
+        return 0.0
+    centre = float(np.median(delta))
+    scale = 1.4826 * float(np.median(np.abs(delta - centre))) / np.sqrt(2.0)
+    # Successive differences of an AR(1) series recover sigma*sqrt(1-phi), not
+    # sigma, so on a persistent record (multi-year wet and dry spells are the
+    # norm in dryland catchments) this under-reads the true spread -- and it
+    # under-reads most on exactly the records whose apparent amplitude is
+    # persistence rather than season. Rescale to the iid-equivalent spread.
+    phi = float(pd.Series(residual.to_numpy(float)).autocorr(1) or 0.0)
+    phi = min(max(phi, 0.0), 0.9)
+    return scale / np.sqrt(1.0 - phi)
+
+
+def _assign_confidence(result, cfg, series=None):
     out = result.copy()
     positive = out.loc[out["amplitude_pct"] > 0, "amplitude_pct"]
     typical = float(positive.median()) if len(positive) else 0.0
@@ -360,6 +564,26 @@ def _assign_confidence(result, cfg):
         [out["amplitude_pct"] <= max(0.0, typical * cfg.low_confidence_ratio), out["amplitude_pct"] <= max(0.0, typical * cfg.medium_confidence_ratio)],
         ["low", "medium"], default="high",
     )
+    # The grade above is purely relative to this record's own median amplitude,
+    # so a record containing nothing but noise still rates most of its years
+    # "high" -- precisely where a caller most needs a warning. Cap the grade
+    # against an absolute noise floor so a year must clear month-to-month
+    # variability to earn confidence. This can only lower a grade, never raise
+    # one, so records carrying real signal are unaffected.
+    if series is not None:
+        noise = _noise_floor_pp(series)
+        if noise > 0:
+            # amplitude_pct is a max-minus-min, whose expected value grows with
+            # window length even for pure noise (the range of n iid draws is
+            # ~2*sqrt(ln n) standard deviations). Comparing against a flat
+            # multiple of noise would therefore keep passing longer windows;
+            # compare against the range noise alone would produce over this
+            # year's own span instead.
+            months = out["n_months_cycle"].clip(lower=3).astype(float)
+            expected_noise_range = noise * 2.0 * np.sqrt(np.log(months))
+            ratio = out["amplitude_pct"] / expected_noise_range
+            out.loc[(ratio <= 1.5) & (out["confidence"] == "high"), "confidence"] = "medium"
+            out.loc[ratio <= 1.0, "confidence"] = "low"
     out.loc[out["confidence"] == "low", "boundary_source"] = "annual_window_low_amplitude"
     out.loc[out["amplitude_pct"] <= 0, "boundary_source"] = "flat_window"
     return out

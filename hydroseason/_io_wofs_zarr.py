@@ -1,0 +1,1758 @@
+"""Identity, on-disk index, writer lock, and disk preflight for the WOfS Zarr cache.
+
+This module defines what makes one cached WOfS (Water Observations from
+Space) Zarr store the *same* as another: a :class:`WOfSCacheRequest` captures
+every data-semantic input a caller controls before any STAC/network access
+(the STAC endpoint, collection, AOI content hash, date range, CRS,
+resolution, and the classifier/planner/schema versions that shift output
+semantics), and hashes to a stable ``request_digest()``. Once STAC resolution
+and spatial planning (see :mod:`hydroseason._spatial_plan`) determine the
+actual raster grid, a :class:`WOfSCacheIdentity` extends the request with
+that grid's ``shape``/``transform``/``grid_anchor`` and hashes to a fuller
+``digest`` that also pins the grid -- two requests with identical semantics
+but different resolved grids get different stores.
+
+On disk, ``cache_root / "index" / f"{request_digest}.json"`` is a small JSON
+pointer (written atomically) from a request digest to its store path and
+full identity, so a later *offline* run (:func:`resolve_cached_request`,
+:func:`require_cached_request`) can look up a completed cache from local
+files alone, with zero network access. :func:`cache_writer_lock` is an
+exclusive on-disk lock (``cache_root / ".locks" / f"{request_digest}.lock"``)
+so two processes never write the same store concurrently.
+:func:`preflight_cache_space` and :func:`preflight_request_space` are
+conservative disk-space checks callers run *before* any expensive
+network/read work, so an undersized disk fails fast rather than mid-write.
+
+This module also implements the annual Zarr group writer/reader that
+persists WOfS pixels underneath a :class:`WOfSCacheHandle`'s store
+(``handle.path``). :func:`write_annual_group` materialises one calendar
+year's canonical water-mask cube into ``handle.path / "years" / "<year>"``
+as a resumable, atomically-published Zarr v2 group: it writes to a sibling
+temporary directory first, validates the result (:func:`validate_annual_group`),
+and only then publishes it in place with a single ``os.replace`` -- so a
+crash or interruption mid-write leaves either the previous completed state
+or nothing, never a half-written year directory that :func:`completed_years`
+would mistake for done. :func:`open_completed_mask_cache` is the read side:
+it lazily opens every completed year in a requested date range, concatenates
+them in year order, and fills any still-missing months using the same
+:func:`hydroseason._io_extent.complete_monthly_axis` convention the rest of
+the codebase already uses for gappy monthly cubes (missing months become
+``-1`` invalid, matching :data:`CANONICAL_VALUES` semantics).
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import hashlib
+import json
+import math
+import os
+import shutil
+import tempfile
+import time
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
+import numpy as np
+import pandas as pd
+
+# Bumped whenever the on-disk index/manifest layout changes in a way that
+# makes an old cache unreadable by new code (or vice versa).
+# 3: WOfSCacheRequest gained wet_mask_sha256 (spatial pruning provenance).
+WOFS_CACHE_SCHEMA_VERSION = 3
+
+# Bumped whenever the water classifier's pixel-value semantics change (e.g.
+# a different canonical-value mapping), so old cached pixels are never read
+# as if they were classified under the new rule.
+WOFS_CLASSIFIER_VERSION = 1
+
+# Bumped whenever the spatial planner's tiling/selection rule changes in a
+# way that could shift which windows a cached grid was built from. Mirrors
+# hydroseason._spatial_plan's own planner version; kept as a separate
+# constant here because a cache identity must remain valid to compare even
+# if that module's internal version constant changes independently.
+WOFS_PLANNER_VERSION = 1
+
+# The per-year content digest is a cache-invalidation fingerprint over the
+# pixels actually loaded, not a security boundary, so it is chosen for speed.
+# blake2b is 2-4x faster than sha256 on the multi-hundred-GB byte volume a
+# continental 40-year acquisition pushes through it, and because hashing holds
+# the GIL, that directly unblocks the year_workers threads in
+# _io_wofs_acquire.acquire_wofs_cache.
+CONTENT_DIGEST_ALGORITHM = "blake2b"
+
+
+def _content_hasher():
+    """A fresh content-digest hash object. Never share one across years."""
+    return hashlib.blake2b()
+
+
+# Canonical WOfS mask values: -2 outside AOI, -1 invalid/no observation,
+# 0 dry, 1 water.
+CANONICAL_VALUES = (-2, -1, 0, 1)
+
+# Fixed chunk shape (time, y, x) for the annual Zarr mask arrays written by
+# the Task 3 store writer. Defined here because it is part of the cache's
+# on-disk identity/contract, not a per-call tuning knob.
+MASK_CHUNKS = (1, 512, 512)
+
+_INDEX_DIRNAME = "index"
+_LOCKS_DIRNAME = ".locks"
+_MANIFEST_FILENAME = "manifest.json"
+
+# Spatial chunk edge (pixels) for the annual Zarr storage grid; matches
+# MASK_CHUNKS' y/x extent. Also used to derive the wet_count/clear_count
+# local derived-array chunking.
+_STORAGE_CHUNK = 512
+
+_YEARS_DIRNAME = "years"
+# Written last, inside the temporary annual group, only after validation
+# passes -- its presence (post-rename) is what distinguishes a genuinely
+# completed annual group from a directory that merely exists.
+_COMPLETE_FILENAME = "complete.json"
+
+
+def _canonical_json_bytes(payload: dict) -> bytes:
+    """Order- and whitespace-independent JSON encoding used for all digests."""
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
+        "utf-8"
+    )
+
+
+def _sha256_digest(payload: dict) -> str:
+    return hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
+
+
+@dataclasses.dataclass(frozen=True)
+class WOfSCacheRequest:
+    """Every data-semantic input that identifies a WOfS cache request.
+
+    Known before any STAC/network access: the source (``stac_url``,
+    ``collection``), the AOI (as a content hash, ``aoi_sha256`` -- callers
+    hash their own AOI object so this module never needs to know how to
+    hash arbitrary AOI types), the requested date range, the target CRS and
+    resolution, the compositing knobs (``groupby``, ``majority``), and the
+    versions of the classifier/planner/schema that could shift output
+    semantics for otherwise-identical inputs.
+
+    ``request_digest()`` is a stable SHA-256 over every field, computed via
+    canonical (sorted-key, whitespace-free) JSON -- see the module
+    docstring. It does not depend on the resolved raster grid; see
+    :class:`WOfSCacheIdentity` for the digest that does.
+    """
+
+    stac_url: str
+    collection: str
+    aoi_sha256: str
+    start_date: str
+    end_date: str
+    crs: str
+    resolution: float
+    classifier_version: int
+    groupby: str
+    majority: bool
+    planner_version: int
+    schema_version: int
+    # Digest of the wet mask a pruned acquisition read under, or None for a
+    # full-coverage read. Outside the mask a pruned year is permanently -2,
+    # which no reader can distinguish from genuinely dry, so pruned and
+    # unpruned results must never share a store. Omitted from the digest
+    # payload entirely when None, so every cache written before this field
+    # existed keeps its original request_digest and stays reachable.
+    wet_mask_sha256: str | None = None
+
+    def _digest_payload(self) -> dict:
+        payload = dataclasses.asdict(self)
+        if payload.get("wet_mask_sha256") is None:
+            # Absent, not null: keeps pre-existing full-coverage caches at
+            # their original digest.
+            payload.pop("wet_mask_sha256", None)
+        return payload
+
+    def request_digest(self) -> str:
+        return _sha256_digest(self._digest_payload())
+
+
+@dataclasses.dataclass(frozen=True)
+class WOfSCacheIdentity:
+    """A :class:`WOfSCacheRequest` extended with the resolved raster grid.
+
+    ``shape`` is ``(rows, cols)`` and ``transform`` is a six-value affine
+    tuple ``(a, b, c, d, e, f)`` (the same convention as
+    ``affine.Affine`` / ``rasterio``'s ``.to_gdal()`` ordering), neither of
+    which is known until STAC resolution and spatial planning have run.
+    ``grid_anchor`` is a caller-supplied stable label for the grid's origin
+    (e.g. a rounded top-left coordinate string) used to keep the identity
+    stable across equivalent-but-differently-derived grids; it participates
+    in ``digest`` like any other field.
+
+    ``request_digest`` (a property here, not a method -- unlike the
+    underlying request) is delegated from the wrapped request and is
+    unaffected by ``shape``/``transform``/``grid_anchor``. ``digest`` is the
+    full store identity: it changes whenever the grid changes even though
+    ``request_digest`` does not, because two requests that agree on every
+    semantic field can still resolve to different grids (e.g. a STAC catalog
+    update shifts pixel alignment) and must not share a store.
+    """
+
+    request: WOfSCacheRequest
+    shape: tuple[int, int]
+    transform: tuple[float, float, float, float, float, float]
+    grid_anchor: str
+
+    @classmethod
+    def from_request(
+        cls,
+        request: WOfSCacheRequest,
+        *,
+        shape: tuple[int, int],
+        transform: tuple[float, float, float, float, float, float],
+        grid_anchor: str | None = None,
+    ) -> "WOfSCacheIdentity":
+        shape = (int(shape[0]), int(shape[1]))
+        transform = tuple(float(v) for v in transform)
+        if len(transform) != 6:
+            raise ValueError(f"transform must have six values, got {transform!r}")
+        if grid_anchor is None:
+            grid_anchor = f"{transform[2]:.6f},{transform[5]:.6f}"
+        return cls(request=request, shape=shape, transform=transform, grid_anchor=grid_anchor)
+
+    @property
+    def request_digest(self) -> str:
+        return self.request.request_digest()
+
+    @property
+    def digest(self) -> str:
+        payload = {
+            "request": self.request._digest_payload(),
+            "shape": list(self.shape),
+            "transform": list(self.transform),
+            "grid_anchor": self.grid_anchor,
+        }
+        return _sha256_digest(payload)
+
+    def to_dict(self) -> dict:
+        return {
+            "request": self.request._digest_payload(),
+            "request_digest": self.request_digest,
+            "shape": list(self.shape),
+            "transform": list(self.transform),
+            "grid_anchor": self.grid_anchor,
+            "digest": self.digest,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "WOfSCacheIdentity":
+        request = WOfSCacheRequest(**payload["request"])
+        return cls(
+            request=request,
+            shape=(int(payload["shape"][0]), int(payload["shape"][1])),
+            transform=tuple(float(v) for v in payload["transform"]),
+            grid_anchor=payload["grid_anchor"],
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class WOfSCacheHandle:
+    """A resolved pointer to a (possibly complete) on-disk WOfS cache store."""
+
+    path: Path
+    identity: str
+    request_digest: str
+
+
+def _index_path(cache_root: Path, request_digest: str) -> Path:
+    return Path(cache_root) / _INDEX_DIRNAME / f"{request_digest}.json"
+
+
+def _lock_path(cache_root: Path, request_digest: str) -> Path:
+    return Path(cache_root) / _LOCKS_DIRNAME / f"{request_digest}.lock"
+
+
+def _store_dir(cache_root: Path, identity_digest: str) -> Path:
+    return Path(cache_root) / f"{identity_digest}.zarr"
+
+
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    """Write ``payload`` as canonical JSON to ``path`` without ever partial-writing.
+
+    Uses ``tempfile.mkstemp`` in the same directory as ``path`` (so the
+    final ``os.replace`` is an atomic rename on the same filesystem), then
+    replaces the target in one step. A crash or concurrent read at any point
+    before the final ``os.replace`` observes either the old file or nothing
+    new -- never a truncated/partial one. Routes through :func:`_long_path`
+    so this also works when ``path`` is nested deep enough to exceed
+    Windows' legacy ``MAX_PATH`` (e.g. an annual group's ``complete.json``).
+    """
+    parent = Path(_long_path(path.parent))
+    parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        dir=str(parent), prefix=f".{path.name}-", suffix=".tmp"
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(_canonical_json_bytes(payload))
+        os.replace(str(temp_path), _long_path(path))
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _read_json(path: Path) -> dict | None:
+    try:
+        return json.loads(Path(_long_path(path)).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _is_pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if handle == 0:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+@contextmanager
+def cache_writer_lock(cache_root: Path, request_digest: str) -> Iterator[None]:
+    """Exclusive on-disk lock guarding writes to one request's cache store."""
+    lock_path = _lock_path(Path(cache_root), request_digest)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        data = _read_json(lock_path)
+        if data and "pid" in data and not _is_pid_alive(data["pid"]):
+            lock_path.unlink(missing_ok=True)
+            try:
+                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                raise RuntimeError(
+                    f"cache request {request_digest} is already being written "
+                    f"(lock file present at {lock_path})"
+                ) from exc
+        else:
+            raise RuntimeError(
+                f"cache request {request_digest} is already being written "
+                f"(lock file present at {lock_path})"
+            ) from exc
+    try:
+        with os.fdopen(descriptor, "w") as handle:
+            handle.write(json.dumps({"pid": os.getpid(), "created": time.time()}))
+        yield
+    finally:
+        lock_path.unlink(missing_ok=True)
+
+
+def _manifest_identity(identity: Any) -> dict:
+    if hasattr(identity, "to_dict"):
+        return identity.to_dict()
+    if hasattr(identity, "as_dict"):
+        return identity.as_dict()
+    import dataclasses
+    if dataclasses.is_dataclass(identity):
+        return dataclasses.asdict(identity)
+    raise TypeError(f"Cannot serialize identity: {identity!r}")
+
+
+def create_cache_handle(cache_root: Path, identity: Any) -> WOfSCacheHandle:
+    """Create the root Zarr group for ``identity`` and register it in the index.
+
+    Creates (or opens, idempotently) the store's root Zarr group at
+    ``cache_root / "stores" / <request_digest>``, writes that store's root
+    manifest (its full identity, so a later reader can validate a hit
+    without recomputing anything) and the request index entry pointing to
+    it -- both atomically, via :func:`_write_json_atomic` -- and returns the
+    resulting :class:`WOfSCacheHandle`.
+
+    Does not acquire :func:`cache_writer_lock` itself; callers that need
+    exclusivity across processes must wrap this (and any subsequent writes)
+    in that context manager themselves.
+    """
+    cache_root = Path(cache_root)
+    request_digest = identity.request_digest
+    store_dir = _store_dir(cache_root, identity.digest)
+    store_dir.mkdir(parents=True, exist_ok=True)
+
+    import zarr
+
+    zarr.open_group(_zarr_store(store_dir), mode="a")
+
+    identity_dict = _manifest_identity(identity)
+    manifest = {
+        "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+        "request_digest": request_digest,
+        "identity": identity_dict,
+    }
+    _write_json_atomic(store_dir / _MANIFEST_FILENAME, manifest)
+
+    start_date = identity.request.start_date if hasattr(identity, "request") else identity.start_date
+    end_date = identity.request.end_date if hasattr(identity, "request") else identity.end_date
+
+    index_entry = {
+        "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+        "request_digest": request_digest,
+        "identity": identity_dict,
+        "store": str(store_dir.relative_to(cache_root)).replace(os.sep, "/"),
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+    _write_json_atomic(_index_path(cache_root, request_digest), index_entry)
+
+    return WOfSCacheHandle(path=store_dir, identity=identity.digest, request_digest=request_digest)
+
+
+def _validate_hit(cache_root: Path, index_entry: dict, request: WOfSCacheRequest) -> WOfSCacheHandle | None:
+    """Confirm an index entry's store manifest still matches both digests.
+
+    A hit requires the index entry's own request digest to match the
+    request being looked up (cheap, no filesystem access beyond what the
+    caller already did to find the entry), AND the store's own manifest
+    file to independently agree on both the request digest and the full
+    identity digest. The second check catches a stale or hand-edited index
+    entry that points at a store manifest which no longer matches -- such
+    an entry is treated as a miss (``None``), never as a hit trusted purely
+    from the index.
+    """
+    if index_entry.get("request_digest") != request.request_digest():
+        return None
+    store_rel = index_entry.get("store")
+    if not store_rel:
+        return None
+    store_dir = cache_root / Path(store_rel)
+    manifest = _read_json(store_dir / _MANIFEST_FILENAME)
+    if manifest is None:
+        return None
+    if manifest.get("request_digest") != request.request_digest():
+        return None
+    index_identity = index_entry.get("identity") or {}
+    manifest_identity = manifest.get("identity") or {}
+    if index_identity.get("digest") != manifest_identity.get("digest"):
+        return None
+    try:
+        resolved_identity = WOfSCacheIdentity.from_dict(manifest_identity)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if resolved_identity.digest != manifest_identity.get("digest"):
+        return None
+    if resolved_identity.request_digest != request.request_digest():
+        return None
+    if store_dir.resolve() != _store_dir(cache_root, resolved_identity.digest).resolve():
+        return None
+    return WOfSCacheHandle(
+        path=store_dir,
+        identity=resolved_identity.digest,
+        request_digest=request.request_digest(),
+    )
+
+
+def resolve_cached_request(
+    cache_root: Path, request: WOfSCacheRequest, *, offline: bool
+) -> WOfSCacheHandle | None:
+    """Look up a completed cache for ``request`` using only the local index.
+
+    Reads ``cache_root / "index" / f"{request_digest}.json"`` and, if
+    present, validates it against the store's own manifest (see
+    :func:`_validate_hit`) before returning a handle. Never touches the
+    network regardless of ``offline`` -- the flag is accepted (and required
+    ``True`` by every current caller in this module) so that call sites
+    stay self-documenting about which lookups are network-free; a future
+    ``offline=False`` mode that also checks a remote catalog is out of
+    scope for this task.
+
+    Returns ``None`` on any miss: no index entry, an entry that fails
+    validation, or a store manifest that cannot be read.
+    """
+    cache_root = Path(cache_root)
+    index_entry = _read_json(_index_path(cache_root, request.request_digest()))
+    if index_entry is None:
+        return None
+    return _validate_hit(cache_root, index_entry, request)
+
+
+def require_cached_request(
+    cache_root: Path, request: WOfSCacheRequest, *, offline: bool
+) -> WOfSCacheHandle:
+    """Like :func:`resolve_cached_request`, but raise on a miss.
+
+    Raises ``FileNotFoundError`` naming the full requested date range, so an
+    offline run that hits a missing/incomplete cache fails with an
+    actionable message instead of a bare ``None`` a caller might not check.
+    """
+    handle = resolve_cached_request(cache_root, request, offline=offline)
+    if handle is None:
+        raise FileNotFoundError(
+            "no cached WOfS store found for request "
+            f"{request.request_digest()} covering {request.start_date} to "
+            f"{request.end_date} (cache_root={Path(cache_root)!s}, offline={offline})"
+        )
+    return handle
+
+
+def preflight_cache_space(
+    path: Path, *, shape: tuple[int, int], months: int, headroom: float = 1.5
+) -> int:
+    """Require enough free disk space at ``path`` for a projected cache write.
+
+    Projects ``height * width * months`` single-byte (``int8``) mask pixels
+    -- the on-disk footprint of the canonical WOfS mask array before any
+    Zarr compression -- and requires ``ceil(projected_bytes * headroom)``
+    bytes free, via ``shutil.disk_usage``. This is deliberately conservative
+    (pre-compression, whole-grid) and deliberately cheap (no filesystem scan
+    beyond ``disk_usage``): callers run it before any network/read work so
+    an undersized disk fails immediately rather than mid-write.
+
+    Raises ``OSError`` if free space is insufficient. Returns the required
+    byte count on success.
+    """
+    height, width = shape
+    projected_bytes = int(height) * int(width) * int(months) * np.dtype("int8").itemsize
+    required_bytes = math.ceil(projected_bytes * headroom)
+    usage = shutil.disk_usage(path)
+    if usage.free < required_bytes:
+        raise OSError(
+            f"insufficient disk space at {Path(path)!s}: cache requires "
+            f"{required_bytes:,} bytes ({headroom:g}x headroom over a projected "
+            f"{projected_bytes:,} bytes) but only {usage.free:,} bytes are free"
+        )
+    return required_bytes
+
+
+def preflight_request_space(
+    path: Path,
+    aoi,
+    *,
+    crs: str,
+    resolution: float,
+    months: int,
+    headroom: float = 1.5,
+) -> int:
+    """Conservative pre-STAC disk-space check from the AOI's bounding box alone.
+
+    Loads/reprojects ``aoi`` locally to ``crs`` (via
+    :func:`hydroseason._io_geo.load_aoi`) and estimates a *conservative*
+    pixel shape from its bounding box: ``ceil(span / resolution)`` pixels
+    per axis, which is always at least as large as whatever exact geometry
+    STAC/the planner eventually resolve to (a bbox strictly contains its
+    geometry). That shape is then passed to :func:`preflight_cache_space`.
+
+    Purely local geometry math: this function never queries STAC or opens a
+    COG, so it can run before :func:`hydroseason._io_geo._query_wofs_items`
+    and fail fast on an obviously-undersized disk. A second, exact check
+    against the planner's actual de-duplicated windows happens later (after
+    STAC resolution), in a subsequent task -- not implemented here.
+    """
+    from hydroseason._io_geo import load_aoi
+
+    aoi_gdf = load_aoi(aoi, to_crs=crs)
+    minx, miny, maxx, maxy = (float(v) for v in aoi_gdf.total_bounds)
+    width = math.ceil((maxx - minx) / resolution)
+    height = math.ceil((maxy - miny) / resolution)
+    return preflight_cache_space(path, shape=(height, width), months=months, headroom=headroom)
+
+
+@dataclasses.dataclass(frozen=True)
+class AnnualWriteStats:
+    """What :func:`write_annual_group` actually did for one calendar year.
+
+    ``chunks_considered`` is every de-duplicated ``(time, y_start, x_start)``
+    storage-grid cell the planner windows touch for this year;
+    ``chunks_written`` is the subset that was not wholly ``-2`` (outside AOI)
+    and so was actually assigned into the Zarr array -- Zarr's
+    ``write_empty_chunks: False`` encoding then means an unwritten chunk has
+    no on-disk chunk file at all. ``loaded_pixels`` sums the pixel count of
+    every computed block (considered, not just written), so it reflects real
+    Dask compute volume rather than an AOI polygon-area estimate.
+    ``item_digest`` is a stable hash over the STAC ``item_ids`` this year's
+    write claims to be built from, recorded for later provenance/validation
+    (see :func:`validate_annual_group`).
+    """
+
+    year: int
+    task_count: int
+    chunks_considered: int
+    chunks_written: int
+    loaded_pixels: int
+    item_digest: str
+    compute_seconds: float = 0.0
+    encode_write_seconds: float = 0.0
+    validation_seconds: float = 0.0
+
+
+
+def _item_digest(item_ids: tuple[str, ...]) -> str:
+    return _sha256_digest({"item_ids": list(item_ids)})
+
+
+def _years_dir(store_path: Path) -> Path:
+    return Path(store_path) / _YEARS_DIRNAME
+
+
+def _year_dir(store_path: Path, year: int) -> Path:
+    return _years_dir(store_path) / str(int(year))
+
+
+_WINDOWS_EXTENDED_PATH_PREFIX = "\\\\?\\"
+
+
+def _long_path(path: Path) -> str:
+    """A Windows path string safe from the legacy 260-character ``MAX_PATH`` limit.
+
+    ``cache_root / "stores" / <64-char sha256 digest> / "years" / ...`` can
+    exceed ``MAX_PATH`` on Windows once a caller's own ``cache_root`` is
+    itself nested a few directories deep (this is common in tests, whose
+    ``tmp_path`` fixtures add their own long, nested prefix) -- and most
+    Windows installs do not have the opt-in ``LongPathsEnabled`` registry
+    value set, so plain long paths simply fail with ``FileNotFoundError``.
+    Prefixing an *absolute* path with ``\\\\?\\`` asks Win32 to bypass
+    ``MAX_PATH`` for that call, without requiring any system-level opt-in.
+    A no-op on non-Windows platforms and on already-prefixed paths.
+    """
+    absolute = os.path.abspath(str(path))
+    if os.name != "nt" or absolute.startswith(_WINDOWS_EXTENDED_PATH_PREFIX):
+        return absolute
+    return _WINDOWS_EXTENDED_PATH_PREFIX + absolute
+
+
+class _LongPathDirectoryStore:
+    """A Zarr v2 ``DirectoryStore`` usable past Windows' ``MAX_PATH`` limit.
+
+    Delegates to ``zarr.storage.DirectoryStore`` rooted at a
+    :func:`_long_path`-prefixed path, and normalises every storage key
+    (Zarr uses ``/``-separated keys like ``"water_mask/.zarray"`` for
+    nested arrays) to the native separator before delegating. This second
+    part matters specifically because of the first: an ordinary (non
+    ``\\\\?\\``-prefixed) Windows path lets the OS silently accept a mixed
+    ``\\``/``/`` path, but the ``\\\\?\\`` extended-length form is passed to
+    Win32 verbatim and rejects any forward slash with ``WinError 123``.
+    """
+
+    def __init__(self, path):
+        import zarr
+
+        self._store = zarr.storage.DirectoryStore(_long_path(Path(path)))
+
+    @staticmethod
+    def _native_key(key):
+        return key.replace("/", os.sep) if key else key
+
+    def __getattr__(self, name):
+        return getattr(self._store, name)
+
+    def __getitem__(self, key):
+        return self._store[self._native_key(key)]
+
+    def __setitem__(self, key, value):
+        self._store[self._native_key(key)] = value
+
+    def __delitem__(self, key):
+        del self._store[self._native_key(key)]
+
+    def __contains__(self, key):
+        return self._native_key(key) in self._store
+
+    def __iter__(self):
+        return iter(self._store)
+
+    def __len__(self):
+        return len(self._store)
+
+    def listdir(self, path=None):
+        return self._store.listdir(self._native_key(path) if path else path)
+
+    def rmdir(self, path=None):
+        return self._store.rmdir(self._native_key(path) if path else path)
+
+
+def _zarr_store(path: Path):
+    """A Zarr store for ``path`` that works past Windows' ``MAX_PATH`` limit.
+
+    Every call site in this module that opens or writes a Zarr *directory*
+    (as opposed to JSON sidecar files, which go through
+    :func:`_write_json_atomic`/plain ``Path`` I/O) should route through this
+    rather than passing a bare path/string to ``zarr``/``xarray`` directly,
+    so long cache-root paths keep working uniformly. A no-op wrapper on
+    non-Windows platforms (:class:`_LongPathDirectoryStore` degrades to a
+    plain, unprefixed ``DirectoryStore`` there).
+    """
+    return _LongPathDirectoryStore(path)
+
+
+def _storage_chunk_starts(start: int, stop: int, chunk: int = _STORAGE_CHUNK) -> list[int]:
+    """Storage-grid chunk starts (multiples of ``chunk``) covering ``[start, stop)``."""
+    first = (start // chunk) * chunk
+    return list(range(first, stop, chunk))
+
+
+def _mask_template(mask, year: int) -> "object":
+    """An eager-coords, lazy-data ``xr.Dataset`` describing one year's annual group.
+
+    ``mask`` already carries the full (possibly multi-year) time axis; this
+    template narrows to ``year`` only, keeps ``time``/``y``/``x`` coordinates
+    eager (so ``to_zarr(..., compute=False)`` can write real metadata without
+    computing any pixels), and replaces the data variable with a Dask
+    ``empty`` array of the same shape/dtype/chunking so the call only
+    initialises the store layout.
+    """
+    import dask.array as da
+    import xarray as xr
+
+    year_mask = mask.sel(time=slice(f"{year}-01-01", f"{year}-12-31"))
+    height = year_mask.sizes["y"]
+    width = year_mask.sizes["x"]
+    time_len = year_mask.sizes["time"]
+    empty = da.empty((time_len, height, width), dtype=np.int8, chunks=MASK_CHUNKS)
+    template = xr.DataArray(
+        empty,
+        dims=("time", "y", "x"),
+        coords={
+            "time": year_mask.time.values,
+            "y": year_mask.y.values,
+            "x": year_mask.x.values,
+        },
+        name="water_mask",
+    )
+    crs = year_mask.rio.crs
+    if crs is not None:
+        template = template.rio.write_crs(crs)
+    template = template.rio.write_transform(year_mask.rio.transform())
+    return xr.Dataset({"water_mask": template}), year_mask
+
+
+def _compute_with_remote_read_retries(
+    compute_fn, *args, retries: int = 3, retry_delay: float = 1.0, **kwargs
+):
+    last_exc = None
+    for attempt in range(retries + 1):
+        try:
+            return compute_fn(*args, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(retry_delay)
+            else:
+                raise last_exc
+
+
+def write_annual_group(
+    handle: WOfSCacheHandle,
+    year: int,
+    mask,
+    *,
+    windows: tuple,
+    item_ids: tuple[str, ...],
+    overwrite: bool = False,
+    compute_batch_size: int = 16,
+    read_workers: int | None = None,
+) -> AnnualWriteStats:
+    """Materialise one calendar year of ``mask`` into a completed annual Zarr group."""
+    if compute_batch_size < 1:
+        raise ValueError("compute_batch_size must be at least 1")
+    if read_workers is not None and read_workers < 1:
+        raise ValueError("read_workers must be positive or None")
+
+    import shutil as _shutil
+
+    import zarr
+    from numcodecs import Blosc
+
+    store_path = Path(handle.path)
+    years_dir = _years_dir(store_path)
+    Path(_long_path(years_dir)).mkdir(parents=True, exist_ok=True)
+    final_year_path = _year_dir(store_path, year)
+    if Path(_long_path(final_year_path)).exists() and not overwrite:
+        raise FileExistsError(
+            f"annual group for year {year} already exists at {final_year_path} "
+            "(pass overwrite=True to replace it)"
+        )
+
+    temp_path = years_dir / f".{int(year)}.incomplete-{uuid.uuid4().hex}"
+    Path(_long_path(temp_path)).mkdir(parents=True, exist_ok=True)
+
+    try:
+        dataset, year_mask = _mask_template(mask, year)
+
+        compressor = Blosc(cname="zstd", clevel=1, shuffle=Blosc.BITSHUFFLE)
+        encoding = {
+            "water_mask": {
+                "dtype": "int8",
+                "chunks": MASK_CHUNKS,
+                "compressor": compressor,
+                "_FillValue": -2,
+                "write_empty_chunks": False,
+            }
+        }
+        dataset.to_zarr(
+            _zarr_store(temp_path), mode="w", compute=False, consolidated=False, encoding=encoding
+        )
+
+        height = year_mask.sizes["y"]
+        width = year_mask.sizes["x"]
+        time_len = year_mask.sizes["time"]
+
+        group = zarr.open_group(_zarr_store(temp_path), mode="r+")
+        mask_array = group["water_mask"]
+
+        # wet_count/clear_count are local derived arrays (not public source
+        # data). Keep them chunked in Zarr, not full-grid in memory.
+        derived_arrays = {}
+        for derived_name in ("wet_count", "clear_count"):
+            derived_array = group.create_dataset(
+                derived_name,
+                shape=(height, width),
+                dtype=np.uint16,
+                chunks=(_STORAGE_CHUNK, _STORAGE_CHUNK),
+                fill_value=0,
+                overwrite=True,
+            )
+            derived_array.attrs["_ARRAY_DIMENSIONS"] = ["y", "x"]
+            derived_arrays[derived_name] = derived_array
+
+        spatial_keys: set[tuple[int, int]] = set()
+        for window in windows:
+            y_start = max(0, window.y_start)
+            y_stop = min(height, window.y_stop)
+            x_start = max(0, window.x_start)
+            x_stop = min(width, window.x_stop)
+            if y_start >= y_stop or x_start >= x_stop:
+                continue
+            y_starts = _storage_chunk_starts(y_start, y_stop)
+            x_starts = _storage_chunk_starts(x_start, x_stop)
+            for cy in y_starts:
+                for cx in x_starts:
+                    spatial_keys.add((cy, cx))
+
+        task_count = 0
+        chunks_considered = len(spatial_keys) * time_len
+        chunks_written = 0
+        loaded_pixels = 0
+        compute_seconds = 0.0
+        encode_write_seconds = 0.0
+        validation_seconds = 0.0
+        n_aoi_cnt = np.zeros(time_len, dtype=np.int64)
+        n_valid_cnt = np.zeros(time_len, dtype=np.int64)
+        n_water_cnt = np.zeros(time_len, dtype=np.int64)
+        n_invalid_cnt = np.zeros(time_len, dtype=np.int64)
+        written_chunk_keys_set: set[tuple[int, int, int]] = set()
+
+        content_hasher = _content_hasher()
+        content_hasher.update(
+            _canonical_json_bytes(
+                {
+                    "dtype": "int8",
+                    "shape": [time_len, height, width],
+                    "spatial_chunks": [list(key) for key in sorted(spatial_keys)],
+                }
+            )
+        )
+
+        import dask
+
+        keys_list = sorted(spatial_keys)
+        compute_kwargs = {}
+        if read_workers is not None:
+            compute_kwargs = {"scheduler": "threads", "num_workers": read_workers}
+
+        for i in range(0, len(keys_list), compute_batch_size):
+            batch_keys = keys_list[i : i + compute_batch_size]
+            blocks_to_compute = []
+            block_metadata = []
+            for cy, cx in batch_keys:
+                cy_stop = min(cy + _STORAGE_CHUNK, height)
+                cx_stop = min(cx + _STORAGE_CHUNK, width)
+                block = year_mask.isel(
+                    time=slice(0, time_len), y=slice(cy, cy_stop), x=slice(cx, cx_stop)
+                ).data
+                if hasattr(block, "__dask_graph__"):
+                    task_count += len(block.__dask_graph__())
+                blocks_to_compute.append(block)
+                block_metadata.append((cy, cx, cy_stop, cx_stop))
+
+            compute_started = time.perf_counter()
+            computed_blocks = _compute_with_remote_read_retries(
+                dask.compute,
+                *blocks_to_compute,
+                **compute_kwargs,
+            )
+            compute_seconds += time.perf_counter() - compute_started
+
+            write_started = time.perf_counter()
+            for (cy, cx, cy_stop, cx_stop), raw_val in zip(block_metadata, computed_blocks):
+                values = np.asarray(raw_val)
+                loaded_pixels += int(values.size)
+                content_hasher.update(
+                    _canonical_json_bytes(
+                        {"y_start": cy, "x_start": cx, "shape": list(values.shape)}
+                    )
+                )
+                # dask.compute already returns C-contiguous arrays here, so
+                # ascontiguousarray was allocating a full second copy of every
+                # block. Assert-and-use instead of copy-always; the fallback
+                # covers any future non-contiguous producer.
+                content_hasher.update(
+                    values.tobytes() if values.flags["C_CONTIGUOUS"]
+                    else np.ascontiguousarray(values).tobytes()
+                )
+
+                invalid_domain = ~np.isin(values, CANONICAL_VALUES)
+                if invalid_domain.any():
+                    bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
+                    raise ValueError(
+                        f"mask contains values outside the canonical domain {CANONICAL_VALUES}: {bad}"
+                    )
+
+                block_water = (values == 1).sum(axis=(1, 2), dtype=np.int64)
+                block_dry = (values == 0).sum(axis=(1, 2), dtype=np.int64)
+                block_aoi = (values != -2).sum(axis=(1, 2), dtype=np.int64)
+                n_water_cnt += block_water
+                n_valid_cnt += block_water + block_dry
+                n_aoi_cnt += block_aoi
+                n_invalid_cnt += block_aoi - block_water - block_dry
+
+                if bool((values == -2).all()):
+                    continue
+
+                for t in range(time_len):
+                    plane = values[t]
+                    if bool((plane == -2).all()):
+                        continue
+                    mask_array[t, cy:cy_stop, cx:cx_stop] = plane
+                    chunks_written += 1
+                    written_chunk_keys_set.add((t, cy // _STORAGE_CHUNK, cx // _STORAGE_CHUNK))
+
+                wet_values = (values == 1).sum(axis=0).astype(np.uint16)
+                clear_values = ((values == 0) | (values == 1)).sum(axis=0).astype(np.uint16)
+                if bool(wet_values.any()):
+                    derived_arrays["wet_count"][cy:cy_stop, cx:cx_stop] = wet_values
+                if bool(clear_values.any()):
+                    derived_arrays["clear_count"][cy:cy_stop, cx:cx_stop] = clear_values
+            encode_write_seconds += time.perf_counter() - write_started
+
+        digest = _item_digest(tuple(item_ids))
+        time_values = pd.DatetimeIndex(np.asarray(year_mask.time.values))
+        written_chunk_keys = [list(k) for k in sorted(written_chunk_keys_set)]
+
+        extent_counts_payload = {
+            "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+            "year": int(year),
+            "dates": [d.strftime("%Y-%m-%d") for d in time_values],
+            "n_aoi": n_aoi_cnt.tolist(),
+            "n_valid": n_valid_cnt.tolist(),
+            "n_water": n_water_cnt.tolist(),
+            "n_invalid": n_invalid_cnt.tolist(),
+        }
+        extent_counts_payload["content_digest"] = _sha256_digest(extent_counts_payload)
+        _write_json_atomic(temp_path / "extent_counts.json", extent_counts_payload)
+
+        complete_payload = {
+            "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+            "year": int(year),
+            "start_date": time_values[0].strftime("%Y-%m-%d"),
+            "end_date": time_values[-1].strftime("%Y-%m-%d"),
+            "month_count": int(len(time_values)),
+            "item_ids": list(item_ids),
+            "item_digest": digest,
+            "content_digest": content_hasher.hexdigest(),
+            "chunks_considered": chunks_considered,
+            "chunks_written": chunks_written,
+            "loaded_pixels": loaded_pixels,
+            "written_chunk_keys": written_chunk_keys,
+        }
+        _write_json_atomic(temp_path / _COMPLETE_FILENAME, complete_payload)
+
+        expected_shape = (time_len, height, width)
+        expected_transform = tuple(year_mask.rio.transform())[:6]
+        validation_started = time.perf_counter()
+        validate_annual_group(
+            temp_path,
+            expected_year=year,
+            expected_shape=expected_shape,
+            expected_transform=expected_transform,
+        )
+        validation_seconds = time.perf_counter() - validation_started
+
+        del mask_array, group, derived_arrays
+        import gc
+
+        gc.collect()
+        if Path(_long_path(final_year_path)).exists():
+            _shutil.rmtree(_long_path(final_year_path))
+        os.rename(_long_path(temp_path), _long_path(final_year_path))
+    except BaseException:
+        _shutil.rmtree(_long_path(temp_path), ignore_errors=True)
+        raise
+
+    _record_completed_year(store_path, year)
+
+    return AnnualWriteStats(
+        year=int(year),
+        task_count=task_count,
+        chunks_considered=chunks_considered,
+        chunks_written=chunks_written,
+        loaded_pixels=loaded_pixels,
+        item_digest=digest,
+        compute_seconds=compute_seconds,
+        encode_write_seconds=encode_write_seconds,
+        validation_seconds=validation_seconds,
+    )
+
+
+def write_empty_annual_group(
+    handle: WOfSCacheHandle,
+    year: int,
+    mask,
+    *,
+    overwrite: bool = False,
+) -> AnnualWriteStats:
+    """Write a completed annual group for a year with no source observations.
+
+    When STAC returned no items for ``year``, every pixel of every month is
+    ``-2`` (outside/no-data) by construction. ``write_annual_group`` would
+    still compute and hash every 512px block to discover that, then write
+    none of them -- pure waste proportional to AOI area. This produces the
+    identical on-disk group directly: the same Zarr layout, the same
+    all-zero ``wet_count``/``clear_count``, the same zeroed
+    ``extent_counts.json``, and a ``complete.json`` carrying an empty
+    ``item_ids``. ``validate_annual_group`` accepts the result unchanged.
+    """
+    import shutil as _shutil
+
+    import zarr
+    from numcodecs import Blosc
+
+    store_path = Path(handle.path)
+    years_dir = _years_dir(store_path)
+    Path(_long_path(years_dir)).mkdir(parents=True, exist_ok=True)
+    final_year_path = _year_dir(store_path, year)
+    if Path(_long_path(final_year_path)).exists() and not overwrite:
+        raise FileExistsError(
+            f"annual group for year {year} already exists at {final_year_path} "
+            "(pass overwrite=True to replace it)"
+        )
+
+    temp_path = years_dir / f".{int(year)}.incomplete-{uuid.uuid4().hex}"
+    Path(_long_path(temp_path)).mkdir(parents=True, exist_ok=True)
+
+    try:
+        dataset, year_mask = _mask_template(mask, year)
+
+        compressor = Blosc(cname="zstd", clevel=1, shuffle=Blosc.BITSHUFFLE)
+        encoding = {
+            "water_mask": {
+                "dtype": "int8",
+                "chunks": MASK_CHUNKS,
+                "compressor": compressor,
+                "_FillValue": -2,
+                "write_empty_chunks": False,
+            }
+        }
+        dataset.to_zarr(
+            _zarr_store(temp_path), mode="w", compute=False, consolidated=False, encoding=encoding
+        )
+
+        height = year_mask.sizes["y"]
+        width = year_mask.sizes["x"]
+        time_len = year_mask.sizes["time"]
+
+        group = zarr.open_group(_zarr_store(temp_path), mode="r+")
+        # No data to write into water_mask: every chunk stays unwritten, which
+        # with write_empty_chunks=False and _FillValue=-2 reads back as -2
+        # everywhere -- exactly what the general path would have produced.
+        for derived_name in ("wet_count", "clear_count"):
+            derived_array = group.create_dataset(
+                derived_name,
+                shape=(height, width),
+                dtype=np.uint16,
+                chunks=(_STORAGE_CHUNK, _STORAGE_CHUNK),
+                fill_value=0,
+                overwrite=True,
+            )
+            derived_array.attrs["_ARRAY_DIMENSIONS"] = ["y", "x"]
+
+        digest = _item_digest(())
+        time_values = pd.DatetimeIndex(np.asarray(year_mask.time.values))
+        zeros = [0] * time_len
+
+        content_hasher = _content_hasher()
+        content_hasher.update(
+            _canonical_json_bytes(
+                {
+                    "dtype": "int8",
+                    "shape": [time_len, height, width],
+                    "spatial_chunks": [],
+                }
+            )
+        )
+
+        extent_counts_payload = {
+            "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+            "year": int(year),
+            "dates": [d.strftime("%Y-%m-%d") for d in time_values],
+            "n_aoi": list(zeros),
+            "n_valid": list(zeros),
+            "n_water": list(zeros),
+            "n_invalid": list(zeros),
+        }
+        extent_counts_payload["content_digest"] = _sha256_digest(extent_counts_payload)
+        _write_json_atomic(temp_path / "extent_counts.json", extent_counts_payload)
+
+        complete_payload = {
+            "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+            "year": int(year),
+            "start_date": time_values[0].strftime("%Y-%m-%d"),
+            "end_date": time_values[-1].strftime("%Y-%m-%d"),
+            "month_count": int(len(time_values)),
+            "item_ids": [],
+            "item_digest": digest,
+            "content_digest": content_hasher.hexdigest(),
+            "chunks_considered": 0,
+            "chunks_written": 0,
+            "loaded_pixels": 0,
+            "written_chunk_keys": [],
+        }
+        _write_json_atomic(temp_path / _COMPLETE_FILENAME, complete_payload)
+
+        validate_annual_group(
+            temp_path,
+            expected_year=year,
+            expected_shape=(time_len, height, width),
+            expected_transform=tuple(year_mask.rio.transform())[:6],
+        )
+
+        del group
+        import gc
+
+        gc.collect()
+        if Path(_long_path(final_year_path)).exists():
+            _shutil.rmtree(_long_path(final_year_path))
+        os.rename(_long_path(temp_path), _long_path(final_year_path))
+    except BaseException:
+        _shutil.rmtree(_long_path(temp_path), ignore_errors=True)
+        raise
+
+    _record_completed_year(store_path, year)
+
+    return AnnualWriteStats(
+        year=int(year),
+        task_count=0,
+        chunks_considered=0,
+        chunks_written=0,
+        loaded_pixels=0,
+        item_digest=digest,
+        compute_seconds=0.0,
+        encode_write_seconds=0.0,
+        validation_seconds=0.0,
+    )
+
+
+def _record_completed_year(store_path: Path, year: int) -> None:
+    """Add ``year`` to the store's root manifest, preserving every other key.
+
+    Read-modify-write via :func:`_write_json_atomic`: the manifest written
+    by :func:`create_cache_handle` already exists (identity/request_digest),
+    so this only appends to (or creates) its ``completed_years`` list --
+    never touches the fields :func:`_validate_hit` depends on.
+    """
+    manifest_path = store_path / _MANIFEST_FILENAME
+    manifest = _read_json(manifest_path) or {}
+    completed = sorted(set(manifest.get("completed_years", [])) | {int(year)})
+    manifest["completed_years"] = completed
+    _write_json_atomic(manifest_path, manifest)
+
+
+def _read_georef(dataset) -> tuple["object", object, tuple[float, ...]]:
+    """Recover ``water_mask``'s CRS/transform from a freshly-``xr.open_zarr``'d dataset.
+
+    ``rio.write_crs`` records the CRS/transform link (``grid_mapping`` ->
+    the ``spatial_ref`` scalar variable, plus that variable's
+    ``GeoTransform`` attribute) on the in-memory ``.encoding``, which is not
+    guaranteed to round-trip back onto the ``water_mask`` array's on-disk
+    *attrs* through a bare ``to_zarr``/``open_zarr`` cycle (unlike
+    ``rioxarray.open_rasterio``, plain ``xr.open_zarr`` does not run
+    rioxarray's own CRS-detection machinery). The ``spatial_ref`` sibling
+    variable's ``crs_wkt`` attribute is written by
+    :func:`_mask_template`/``rio.write_crs`` regardless and is always
+    present on a group this module wrote, so re-attaching it explicitly
+    here is what makes CRS validation possible at all after a real
+    Zarr round-trip.
+    """
+    import rioxarray  # noqa: F401
+
+    mask_da = dataset["water_mask"]
+    crs = mask_da.rio.crs
+    if crs is None and "spatial_ref" in dataset:
+        crs_wkt = dataset["spatial_ref"].attrs.get("crs_wkt")
+        if crs_wkt:
+            mask_da = mask_da.rio.write_crs(crs_wkt)
+            crs = mask_da.rio.crs
+    transform = tuple(mask_da.rio.transform())[:6]
+    return mask_da, crs, transform
+
+
+def _stored_chunk_count(array_path: Path) -> int:
+    """Count physical Zarr v2 chunk files below an array directory."""
+    root = Path(_long_path(array_path))
+    if not root.exists():
+        return 0
+    count = 0
+    for entry in root.rglob("*"):
+        if not entry.is_file():
+            continue
+        name = entry.name
+        if name.startswith("."):
+            continue
+        try:
+            tuple(int(part) for part in name.split("."))
+        except ValueError:
+            continue
+        count += 1
+    return count
+
+
+def validate_annual_group(
+    path: Path,
+    *,
+    expected_year: int,
+    expected_shape: tuple[int, int, int],
+    expected_transform: tuple[float, float, float, float, float, float],
+) -> dict:
+    """Validate a (possibly still-temporary) annual Zarr group before publishing it.
+
+    Checks, in order: the path is a real Zarr group (``.zgroup`` present);
+    the ``water_mask`` variable exists with ``int8`` dtype; every stored
+    chunk's values lie in the canonical domain ``{-2, -1, 0, 1}``; the time
+    axis has exactly 12 (or the year's requested partial-year count of)
+    calendar-month timestamps, all within ``expected_year``, strictly
+    increasing and unique; ``water_mask.shape == expected_shape`` and its
+    chunk shape matches :data:`MASK_CHUNKS`; the group's CRS and affine
+    transform match ``expected_transform``; and a ``complete.json`` item
+    digest is present. Raises ``ValueError`` (or ``FileNotFoundError`` for a
+    genuinely missing/corrupt group) describing the first failure found;
+    returns the parsed ``complete.json`` payload on success.
+    """
+    import zarr
+
+    path = Path(path)
+    if not Path(_long_path(path / ".zgroup")).exists():
+        raise FileNotFoundError(f"{path} is not a Zarr group (missing .zgroup)")
+
+    try:
+        group = zarr.open_group(_zarr_store(path), mode="r")
+    except Exception as exc:
+        raise ValueError(f"{path} could not be opened as a Zarr group: {exc}") from exc
+
+    if "water_mask" not in group:
+        raise ValueError(f"{path} is missing the 'water_mask' variable")
+    mask_array = group["water_mask"]
+
+    if mask_array.dtype != np.dtype("int8"):
+        raise ValueError(
+            f"water_mask dtype must be int8, got {mask_array.dtype} at {path}"
+        )
+
+    expected_time, expected_height, expected_width = expected_shape
+    if tuple(mask_array.shape) != (expected_time, expected_height, expected_width):
+        raise ValueError(
+            f"water_mask shape {tuple(mask_array.shape)} does not match "
+            f"expected {(expected_time, expected_height, expected_width)} at {path}"
+        )
+    if tuple(mask_array.chunks) != tuple(MASK_CHUNKS):
+        raise ValueError(
+            f"water_mask chunks {tuple(mask_array.chunks)} do not match "
+            f"expected {tuple(MASK_CHUNKS)} at {path}"
+        )
+
+    complete_path = path / _COMPLETE_FILENAME
+    complete_payload = _read_json(complete_path)
+    if complete_payload is None:
+        raise ValueError(f"{path} is missing a valid {_COMPLETE_FILENAME}")
+    if not complete_payload.get("item_digest"):
+        raise ValueError(f"{path} {_COMPLETE_FILENAME} is missing an item_digest")
+    if int(complete_payload.get("year", -1)) != int(expected_year):
+        raise ValueError(
+            f"{path} {_COMPLETE_FILENAME} year {complete_payload.get('year')} "
+            f"does not match expected {expected_year}"
+        )
+    expected_chunks_written = complete_payload.get("chunks_written")
+    if expected_chunks_written is not None:
+        actual_chunks_written = _stored_chunk_count(path / "water_mask")
+        if actual_chunks_written != int(expected_chunks_written):
+            raise ValueError(
+                f"water_mask has {actual_chunks_written} stored chunks, expected "
+                f"{expected_chunks_written} at {path}"
+            )
+
+    written_chunk_keys = complete_payload.get("written_chunk_keys")
+    if written_chunk_keys is not None:
+        for key in written_chunk_keys:
+            t, cy_idx, cx_idx = key
+            t0 = t * mask_array.chunks[0]
+            y0 = cy_idx * mask_array.chunks[1]
+            x0 = cx_idx * mask_array.chunks[2]
+            values = mask_array[
+                t0 : min(t0 + mask_array.chunks[0], expected_time),
+                y0 : min(y0 + mask_array.chunks[1], expected_height),
+                x0 : min(x0 + mask_array.chunks[2], expected_width),
+            ]
+            invalid_domain = ~np.isin(values, CANONICAL_VALUES)
+            if invalid_domain.any():
+                bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
+                raise ValueError(
+                    f"water_mask contains values outside {CANONICAL_VALUES}: {bad} at {path}"
+                )
+    else:
+        for t0 in range(0, expected_time, mask_array.chunks[0]):
+            for y0 in range(0, expected_height, mask_array.chunks[1]):
+                for x0 in range(0, expected_width, mask_array.chunks[2]):
+                    values = mask_array[
+                        t0 : min(t0 + mask_array.chunks[0], expected_time),
+                        y0 : min(y0 + mask_array.chunks[1], expected_height),
+                        x0 : min(x0 + mask_array.chunks[2], expected_width),
+                    ]
+                    invalid_domain = ~np.isin(values, CANONICAL_VALUES)
+                    if invalid_domain.any():
+                        bad = sorted({int(v) for v in np.unique(values[invalid_domain])})
+                        raise ValueError(
+                            f"water_mask contains values outside {CANONICAL_VALUES}: {bad} at {path}"
+                        )
+
+    if "time" not in group:
+        raise ValueError(f"{path} is missing the 'time' coordinate")
+    import pandas as pd
+
+    opened = None
+    try:
+        import xarray as xr
+
+        # Zarr stores time CF-encoded (e.g. "days since ..."); only xarray's
+        # decoder (not a raw zarr array read) recovers real timestamps.
+        opened = xr.open_zarr(_zarr_store(path), consolidated=False, mask_and_scale=False)
+        mask_da, actual_crs, actual_transform = _read_georef(opened)
+        time_values = pd.DatetimeIndex(np.asarray(mask_da.time.values))
+    except Exception as exc:
+        raise ValueError(f"{path} georeferencing could not be read: {exc}") from exc
+    finally:
+        if opened is not None:
+            opened.close()
+
+    if len(time_values) == 0:
+        raise ValueError(f"{path} has an empty time axis")
+    if not time_values.is_unique:
+        raise ValueError(f"{path} time axis contains duplicate timestamps")
+    if not time_values.is_monotonic_increasing:
+        raise ValueError(f"{path} time axis is not in strict monthly order")
+    if any(ts.year != int(expected_year) for ts in time_values):
+        raise ValueError(
+            f"{path} time axis contains timestamps outside year {expected_year}"
+        )
+    if any((ts.day != 1) for ts in time_values):
+        raise ValueError(f"{path} time axis contains non-month-start timestamps")
+    max_months = 12
+    if len(time_values) > max_months:
+        raise ValueError(
+            f"{path} time axis has {len(time_values)} entries, more than {max_months} months"
+        )
+    expected_axis = pd.date_range(time_values[0], periods=len(time_values), freq="MS")
+    if not time_values.equals(expected_axis):
+        raise ValueError(f"{path} time axis is not a contiguous run of calendar months")
+
+    if actual_crs is None:
+        raise ValueError(f"{path} water_mask is missing a CRS")
+    if any(
+        not math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9)
+        for a, b in zip(actual_transform, expected_transform)
+    ):
+        raise ValueError(
+            f"{path} transform {actual_transform} does not match expected {expected_transform}"
+        )
+
+    return complete_payload
+
+
+def _completed_group_metadata(
+    path: Path,
+    *,
+    expected_year: int,
+    expected_grid_shape: tuple[int, int],
+    expected_time_axis: "object",
+) -> dict:
+    """Validate completion and array metadata without reading raster chunks."""
+    import pandas as pd
+    import zarr
+    from xarray.coding.times import decode_cf_datetime
+
+    path = Path(path)
+    if not Path(_long_path(path / ".zgroup")).exists():
+        raise FileNotFoundError(f"{path} is not a Zarr group (missing .zgroup)")
+    complete = _read_json(path / _COMPLETE_FILENAME)
+    if complete is None:
+        raise ValueError(f"{path} is missing a valid {_COMPLETE_FILENAME}")
+    if int(complete.get("schema_version", -1)) != WOFS_CACHE_SCHEMA_VERSION:
+        raise ValueError(f"{path} has an incompatible annual schema version")
+    if int(complete.get("year", -1)) != int(expected_year):
+        raise ValueError(f"{path} completion year does not match {expected_year}")
+    if not complete.get("item_digest") or not complete.get("content_digest"):
+        raise ValueError(f"{path} completion metadata is missing provenance digests")
+
+    group = zarr.open_group(_zarr_store(path), mode="r")
+    required = {"water_mask", "wet_count", "clear_count", "time", "y", "x", "spatial_ref"}
+    missing = sorted(required - set(group.array_keys()))
+    if missing:
+        raise ValueError(f"{path} is missing required arrays: {missing}")
+
+    height, width = (int(expected_grid_shape[0]), int(expected_grid_shape[1]))
+    mask_array = group["water_mask"]
+    if mask_array.dtype != np.dtype("int8"):
+        raise ValueError(f"{path} water_mask dtype is not int8")
+    if tuple(mask_array.shape[1:]) != (height, width) or not 1 <= int(mask_array.shape[0]) <= 12:
+        raise ValueError(f"{path} water_mask shape is incompatible with the store grid")
+    if tuple(mask_array.chunks) != tuple(MASK_CHUNKS):
+        raise ValueError(f"{path} water_mask chunks do not match {MASK_CHUNKS}")
+
+    for name in ("wet_count", "clear_count"):
+        array = group[name]
+        if array.dtype != np.dtype("uint16") or tuple(array.shape) != (height, width):
+            raise ValueError(f"{path} {name} metadata is incompatible with the store grid")
+        if tuple(array.chunks) != (_STORAGE_CHUNK, _STORAGE_CHUNK):
+            raise ValueError(f"{path} {name} chunks are invalid")
+
+    if tuple(group["y"].shape) != (height,) or tuple(group["x"].shape) != (width,):
+        raise ValueError(f"{path} coordinate shapes are incompatible with the store grid")
+    time_array = group["time"]
+    units = time_array.attrs.get("units")
+    if not units:
+        raise ValueError(f"{path} time coordinate is missing CF units")
+    decoded = decode_cf_datetime(
+        np.asarray(time_array[:]), units, time_array.attrs.get("calendar", "standard")
+    )
+    time_values = pd.DatetimeIndex(np.asarray(decoded))
+    expected_time_axis = pd.DatetimeIndex(expected_time_axis)
+    if not time_values.is_unique:
+        raise ValueError(f"{path} time axis contains duplicate timestamps")
+    if not time_values.is_monotonic_increasing:
+        raise ValueError(f"{path} time axis is not in strict monthly order")
+    if any(ts.year != int(expected_year) or ts.day != 1 for ts in time_values):
+        raise ValueError(f"{path} time axis is outside year {expected_year} or not month-start")
+    expected_axis = pd.date_range(time_values[0], periods=len(time_values), freq="MS")
+    if not time_values.equals(expected_axis):
+        raise ValueError(f"{path} time axis is not a contiguous run of calendar months")
+    if not time_values.equals(expected_time_axis):
+        raise ValueError(f"{path} time axis does not match the cache request for {expected_year}")
+    if complete.get("start_date") != expected_time_axis[0].strftime("%Y-%m-%d"):
+        raise ValueError(f"{path} completion start_date does not match the cache request")
+    if complete.get("end_date") != expected_time_axis[-1].strftime("%Y-%m-%d"):
+        raise ValueError(f"{path} completion end_date does not match the cache request")
+    if int(complete.get("month_count", -1)) != len(expected_time_axis):
+        raise ValueError(f"{path} completion month_count does not match the cache request")
+
+    expected_chunks = int(complete.get("chunks_written", -1))
+    if expected_chunks < 0 or _stored_chunk_count(path / "water_mask") != expected_chunks:
+        raise ValueError(f"{path} stored chunk count does not match completion metadata")
+    return complete
+
+
+def _store_grid_shape(handle: WOfSCacheHandle) -> tuple[int, int]:
+    manifest = _read_json(Path(handle.path) / _MANIFEST_FILENAME) or {}
+    identity = manifest.get("identity") or {}
+    if identity.get("digest") != handle.identity:
+        raise ValueError(f"cache manifest identity does not match handle at {handle.path}")
+    shape = tuple(identity.get("shape") or ())
+    if len(shape) != 2:
+        raise ValueError(f"cache manifest is missing a two-dimensional grid shape at {handle.path}")
+    return int(shape[0]), int(shape[1])
+
+
+def _store_year_time_axis(handle: WOfSCacheHandle, year: int):
+    manifest = _read_json(Path(handle.path) / _MANIFEST_FILENAME) or {}
+    identity = manifest.get("identity") or {}
+    request = identity.get("request") or {}
+    start = pd.Timestamp(request.get("start_date")).to_period("M").to_timestamp()
+    end = pd.Timestamp(request.get("end_date")).to_period("M").to_timestamp()
+    year_start = max(pd.Timestamp(f"{int(year)}-01-01"), start)
+    year_end = min(pd.Timestamp(f"{int(year)}-12-01"), end)
+    if year_end < year_start:
+        raise ValueError(f"year {year} is outside cache request range at {handle.path}")
+    return pd.date_range(year_start, year_end, freq="MS")
+
+
+def completed_years(handle: WOfSCacheHandle) -> set[int]:
+    """Every calendar year with a genuinely completed annual group.
+
+    A year counts as completed only if ``years/<year>`` exists, is a real
+    Zarr group, and contains a readable ``complete.json`` -- a directory
+    that merely exists (e.g. a stale/interrupted
+    ``years/.<year>.incomplete-<uuid>`` temp directory, or a corrupt
+    ``years/<year>``) is silently excluded rather than raising, so callers
+    can use this to decide what still needs (re)building. Directory names
+    starting with ``.`` (the temp-write naming convention) are always
+    ignored without even checking their contents.
+    """
+    store_path = Path(handle.path)
+    years_dir = _years_dir(store_path)
+    if not Path(_long_path(years_dir)).is_dir():
+        return set()
+    try:
+        expected_grid_shape = _store_grid_shape(handle)
+    except ValueError:
+        return set()
+    result: set[int] = set()
+    for entry in Path(_long_path(years_dir)).iterdir():
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        try:
+            year = int(entry.name)
+        except ValueError:
+            continue
+        try:
+            _completed_group_metadata(
+                entry,
+                expected_year=year,
+                expected_grid_shape=expected_grid_shape,
+                expected_time_axis=_store_year_time_axis(handle, year),
+            )
+        except Exception:
+            continue
+        result.add(year)
+    return result
+
+
+def open_completed_mask_cache(
+    handle: WOfSCacheHandle,
+    start_date: str,
+    end_date: str,
+    *,
+    chunk_x: int = 512,
+    chunk_y: int = 512,
+    time_chunk: int = 12,
+):
+    """Lazily open the canonical water-mask cube for ``[start_date, end_date]``.
+
+    Opens every completed annual group (:func:`completed_years`) that
+    overlaps the requested range with ``xr.open_zarr(...,
+    mask_and_scale=False)``, concatenates them in year order, slices to the
+    exact requested dates, and fills any still-missing months via
+    :func:`hydroseason._io_extent.complete_monthly_axis` (the same
+    missing-month policy ``_io_geo.load_monthly_masks_zarr`` already uses:
+    gaps become ``-1`` invalid, not ``-2`` outside).
+
+    Raises ``ValueError`` if a completed year's stored time axis is not
+    strictly increasing and duplicate-free (a corrupted store -- see
+    :func:`validate_annual_group`, which every *newly written* group
+    already passed, but an on-disk group can still be hand-edited or
+    corrupted after the fact), or if any requested calendar month falls in
+    a year that has no completed annual group.
+    """
+    import pandas as pd
+    import xarray as xr
+
+    store_path = Path(handle.path)
+    start = pd.Timestamp(start_date).to_period("M").to_timestamp()
+    end = pd.Timestamp(end_date).to_period("M").to_timestamp()
+    requested_years = set(range(start.year, end.year + 1))
+
+    available = completed_years(handle)
+    missing = sorted(requested_years - available)
+    if missing:
+        try:
+            expected_grid_shape = _store_grid_shape(handle)
+        except ValueError:
+            expected_grid_shape = None
+        if expected_grid_shape is not None:
+            for year in missing:
+                year_path = _year_dir(store_path, year)
+                if Path(_long_path(year_path)).is_dir():
+                    _completed_group_metadata(
+                        year_path,
+                        expected_year=year,
+                        expected_grid_shape=expected_grid_shape,
+                        expected_time_axis=_store_year_time_axis(handle, year),
+                    )
+        raise FileNotFoundError(
+            f"no completed WOfS annual group for year(s) {missing} at {store_path} "
+            f"(requested range {start_date} to {end_date})"
+        )
+
+    arrays = []
+    for year in sorted(requested_years):
+        year_path = _year_dir(store_path, year)
+        opened_ds = xr.open_zarr(
+            _zarr_store(year_path),
+            consolidated=False,
+            mask_and_scale=False,
+            chunks={"time": time_chunk, "y": chunk_y, "x": chunk_x},
+        )
+        mask_da, _crs, _transform = _read_georef(opened_ds)
+        time_index = pd.DatetimeIndex(np.asarray(mask_da.time.values))
+        if not time_index.is_unique or not time_index.is_monotonic_increasing:
+            raise ValueError(
+                f"annual group for year {year} at {year_path} does not have a "
+                "strict monthly order time axis"
+            )
+        arrays.append(mask_da)
+
+    combined = xr.concat(arrays, dim="time") if len(arrays) > 1 else arrays[0]
+    combined = combined.sel(time=slice(start, end))
+
+    from hydroseason._io_extent import complete_monthly_axis
+
+    return complete_monthly_axis(combined, start_date, end_date)
+
+
+def _backfill_extent_counts_json(year_path: Path, year: int) -> dict | None:
+    try:
+        import xarray as xr
+        opened_ds = xr.open_zarr(_zarr_store(year_path), consolidated=False, mask_and_scale=False)
+        try:
+            mask_da, _crs, _transform = _read_georef(opened_ds)
+            values = np.asarray(mask_da.values)
+            time_index = pd.DatetimeIndex(np.asarray(mask_da.time.values))
+            dates = [d.strftime("%Y-%m-%d") for d in time_index]
+
+            water = (values == 1).sum(axis=(1, 2), dtype=np.int64)
+            dry = (values == 0).sum(axis=(1, 2), dtype=np.int64)
+            aoi = (values != -2).sum(axis=(1, 2), dtype=np.int64)
+            valid = water + dry
+            invalid = aoi - valid
+
+            payload = {
+                "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+                "year": int(year),
+                "dates": dates,
+                "n_aoi": aoi.tolist(),
+                "n_valid": valid.tolist(),
+                "n_water": water.tolist(),
+                "n_invalid": invalid.tolist(),
+            }
+            payload["content_digest"] = _sha256_digest(payload)
+            _write_json_atomic(year_path / "extent_counts.json", payload)
+            return payload
+        finally:
+            opened_ds.close()
+    except Exception:
+        return None
+
+
+def open_completed_extent_counts(
+    handle: WOfSCacheHandle,
+    start_date: str,
+    end_date: str,
+    *,
+    read_workers: int | None = None,
+) -> pd.DataFrame | None:
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+    requested_years = list(range(start.year, end.year + 1))
+    done = completed_years(handle)
+    if not set(requested_years).issubset(done):
+        return None
+
+    all_dates = []
+    all_n_aoi = []
+    all_n_valid = []
+    all_n_water = []
+    all_n_invalid = []
+
+    for year in requested_years:
+        year_path = Path(handle.path) / "years" / str(int(year))
+        path = year_path / "extent_counts.json"
+        payload = _read_json(path)
+        if payload is None:
+            payload = _backfill_extent_counts_json(year_path, year)
+        if payload is None:
+            return None
+        content_digest = payload.get("content_digest")
+        check_payload = {k: v for k, v in payload.items() if k != "content_digest"}
+        if _sha256_digest(check_payload) != content_digest:
+            return None
+
+        dates = payload.get("dates", [])
+        n_aoi = payload.get("n_aoi", [])
+        n_valid = payload.get("n_valid", [])
+        n_water = payload.get("n_water", [])
+        n_invalid = payload.get("n_invalid", [])
+        if not (len(dates) == len(n_aoi) == len(n_valid) == len(n_water) == len(n_invalid)):
+            return None
+
+        for aoi, val, wat, inv in zip(n_aoi, n_valid, n_water, n_invalid):
+            if aoi < 0 or val < 0 or wat < 0 or inv < 0:
+                return None
+            if not (wat <= val <= aoi):
+                return None
+            if inv != aoi - val:
+                return None
+
+        all_dates.extend(dates)
+        all_n_aoi.extend(n_aoi)
+        all_n_valid.extend(n_valid)
+        all_n_water.extend(n_water)
+        all_n_invalid.extend(n_invalid)
+
+    df = pd.DataFrame(
+        {
+            "n_water": np.array(all_n_water, dtype=np.int64),
+            "n_aoi": np.array(all_n_aoi, dtype=np.int64),
+            "n_valid": np.array(all_n_valid, dtype=np.int64),
+            "n_invalid": np.array(all_n_invalid, dtype=np.int64),
+        },
+        index=pd.DatetimeIndex(all_dates),
+    )
+    mask_in_range = (df.index >= start) & (df.index <= end)
+    df = df.loc[mask_in_range].copy()
+    if df.empty:
+        return None
+
+    n_valid = df["n_valid"].to_numpy(dtype=np.float64)
+    n_water = df["n_water"].to_numpy(dtype=np.float64)
+    n_aoi = df["n_aoi"].to_numpy(dtype=np.float64)
+    n_invalid = df["n_invalid"].to_numpy(dtype=np.float64)
+
+    extent_pct = np.full_like(n_valid, np.nan)
+    np.divide(n_water * 100.0, n_valid, out=extent_pct, where=n_valid > 0)
+
+    invalid_pct = np.full_like(n_aoi, np.nan)
+    np.divide(n_invalid * 100.0, n_aoi, out=invalid_pct, where=n_aoi > 0)
+
+    df["extent_pct"] = extent_pct
+    df["invalid_pct"] = invalid_pct
+    df["n_wet_aoi"] = df["n_valid"]
+    df["wet_fill_pct"] = extent_pct
+
+    return df[["n_water", "n_aoi", "n_valid", "n_invalid", "n_wet_aoi", "extent_pct", "invalid_pct", "wet_fill_pct"]]
+
+
+__all__ = [
+    "WOFS_CACHE_SCHEMA_VERSION",
+    "WOFS_CLASSIFIER_VERSION",
+    "WOFS_PLANNER_VERSION",
+    "CANONICAL_VALUES",
+    "MASK_CHUNKS",
+    "WOfSCacheRequest",
+    "WOfSCacheIdentity",
+    "WOfSCacheHandle",
+    "cache_writer_lock",
+    "create_cache_handle",
+    "resolve_cached_request",
+    "require_cached_request",
+    "preflight_cache_space",
+    "preflight_request_space",
+    "AnnualWriteStats",
+    "write_annual_group",
+    "write_empty_annual_group",
+    "validate_annual_group",
+    "completed_years",
+    "open_completed_mask_cache",
+    "open_completed_extent_counts",
+]
+
