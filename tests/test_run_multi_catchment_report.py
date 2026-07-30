@@ -20,6 +20,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+pytest.importorskip("dask")
+pytest.importorskip("affine")
+
 from hydroseason.io import _DEFAULT_CANDIDATE_RES_M
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

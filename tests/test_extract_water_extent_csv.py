@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("affine")
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "extract_water_extent_csv.py"
 

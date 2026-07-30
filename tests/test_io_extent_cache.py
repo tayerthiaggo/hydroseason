@@ -894,6 +894,8 @@ def test_read_workers_threads_into_reduction_and_leaves_result_unchanged(monkeyp
 
 
 def test_wet_aoi_disk_cache_sidecar_persistence(tmp_path):
+    pytest.importorskip("geopandas")
+    pytest.importorskip("shapely")
     import geopandas as gpd
     from shapely.geometry import box
     from hydroseason._io_extent_cache import _aoi_digest

@@ -147,7 +147,7 @@ def test_load_aoi_validates_geometry_and_reprojects():
 
 def test_query_wofs_items_uses_polygon_intersects(monkeypatch):
     from unittest.mock import Mock
-    import pystac_client
+    pystac_client = pytest.importorskip("pystac_client")
     import hydroseason._io_geo as geo
 
     mock_client = Mock()
@@ -182,6 +182,8 @@ def test_query_wofs_items_uses_polygon_intersects(monkeypatch):
 def test_native_grid_alignment(
     source_epsg, source_resolution, x_shift, y_shift, expected
 ):
+    pytest.importorskip("affine")
+    pytest.importorskip("odc.geo")
     from affine import Affine
     from odc.geo.geobox import GeoBox
     from odc.geo.crs import CRS
