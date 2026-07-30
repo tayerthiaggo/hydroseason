@@ -7,6 +7,10 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import pytest
+
+pytest.importorskip("xarray")
+pytest.importorskip("affine")
+
 import xarray as xr
 from affine import Affine
 

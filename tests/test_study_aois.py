@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-import geopandas as gpd
 import pytest
+
+pytest.importorskip("geopandas")
+pytest.importorskip("shapely")
+
+import geopandas as gpd
 from shapely.geometry import LineString, box
 
 from hydroseason._study_aois import (

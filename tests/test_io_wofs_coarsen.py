@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
+pytest.importorskip("xarray")
+pytest.importorskip("affine")
+
 import xarray as xr
 from affine import Affine
 

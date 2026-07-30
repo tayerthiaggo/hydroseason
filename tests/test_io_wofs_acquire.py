@@ -2,20 +2,26 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import dask
-import dask.array as da
-import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
+
+pytest.importorskip("dask")
+pytest.importorskip("geopandas")
+pytest.importorskip("xarray")
+pytest.importorskip("affine")
+pytest.importorskip("shapely")
+pytest.importorskip("rioxarray")
+
+import dask
+import dask.array as da
+import geopandas as gpd
 import xarray as xr
 from affine import Affine
 from shapely.geometry import box
 
 from hydroseason._io_wofs_acquire import acquire_wofs_cache, load_or_build_cached_wet_aoi
 import hydroseason._io_geo as geo
-
-pytest.importorskip("rioxarray")
 
 
 def _item(date: str, item_id: str):

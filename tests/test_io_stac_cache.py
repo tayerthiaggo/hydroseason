@@ -1,7 +1,10 @@
 import dataclasses
 import json
-import pystac
 import pytest
+
+pytest.importorskip("pystac")
+
+import pystac
 
 from hydroseason._io_stac_cache import (
     STACItemCacheKey,

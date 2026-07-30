@@ -3,6 +3,10 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
+
+pytest.importorskip("xarray")
+
 import xarray as xr
 
 

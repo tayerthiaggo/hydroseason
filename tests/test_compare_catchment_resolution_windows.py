@@ -6,9 +6,13 @@ import importlib.util
 import sys
 from pathlib import Path
 
-import geopandas as gpd
 import pandas as pd
 import pytest
+
+pytest.importorskip("geopandas")
+pytest.importorskip("shapely")
+
+import geopandas as gpd
 from shapely.geometry import LineString, box
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

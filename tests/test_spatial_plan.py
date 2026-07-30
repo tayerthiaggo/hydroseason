@@ -1,3 +1,8 @@
+import pytest
+
+pytest.importorskip("affine")
+pytest.importorskip("shapely")
+
 from affine import Affine
 from shapely.geometry import box
 
