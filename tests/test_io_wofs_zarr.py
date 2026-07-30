@@ -22,6 +22,7 @@ from hydroseason._io_wofs_zarr import (
     cache_writer_lock,
     completed_years,
     create_cache_handle,
+    open_completed_dual_extent_counts,
     open_completed_extent_counts,
     open_completed_mask_cache,
     preflight_cache_space,
@@ -654,6 +655,275 @@ def test_annual_writer_persists_exact_monthly_extent_counts(tmp_path):
     assert extent["n_invalid"].tolist() == [1, 1]
     assert extent["extent_pct"].tolist() == [50.0, 50.0]
     assert extent["invalid_pct"].tolist() == [20.0, 20.0]
+
+
+def test_write_annual_group_persists_dual_extent_counts_when_given(tmp_path):
+    """Step 3 (W2.2): write_annual_group must persist a parallel
+    dual_extent_counts.json when handed already-reduced secondary
+    (max_water) counts, without touching extent_counts.json (the primary
+    composite's own artifact) at all.
+
+    Same 2x3 grid/fixture as
+    test_annual_writer_persists_exact_monthly_extent_counts, but with a
+    secondary (max_water) composite whose per-pixel counts genuinely
+    diverge from the primary at one cell (mirrors the hand-traced pixel in
+    test_io.py's test_hydrofragments_v1_dual_counts_diverge_from_majority...):
+    the primary (majority) mask marks (0, 0) as dry (0) in month 1, but the
+    hand-supplied secondary wet_count at that same cell/month is 1 (some
+    day observed it wet) -- proving dual_extent_counts really is a SEPARATE
+    reduction, not a relabelling of the primary mask's own counts.
+    """
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    from hydroseason._io_wofs_zarr import _sha256_digest, record_cache_footprints
+
+    mask = _canonical_cube(shape=(2, 2, 3), fill=-2)
+    mask.values[0] = [[0, 0, -1], [-2, 1, 0]]
+    mask.values[1] = [[0, 0, -1], [-2, 1, 1]]
+    handle = _handle_for_cube(tmp_path, mask)
+
+    # A full-AOI/analysis-footprint manifest block must already exist by the
+    # time write_annual_group runs (acquire_wofs_cache always calls
+    # record_cache_footprints before any year is written -- see
+    # _io_wofs_acquire.py); reproduce that ordering here rather than
+    # fabricating the fixed denominators.
+    full_aoi = gpd.GeoDataFrame(
+        {"geometry": [box(1000.0, 1940.0, 1090.0, 2000.0)]}, crs="EPSG:3577"
+    )
+    footprints = record_cache_footprints(
+        handle,
+        full_aoi_gdf=full_aoi,
+        analysis_footprint_gdf=full_aoi,
+        shape=(2, 3),
+        transform=(30.0, 0.0, 1000.0, 0.0, -30.0, 2000.0),
+        crs="EPSG:3577",
+    )
+
+    # Secondary (max_water) per-month wet/clear counts: at (0, 0), month 1,
+    # the primary composite says dry (0) but the secondary composite (some
+    # day in the month observed water there) says wet -- 1 -- the
+    # divergence this test exists to prove is really persisted.
+    wet_count = np.zeros((2, 2, 3), dtype=np.uint16)
+    wet_count[0] = [[1, 0, 0], [0, 1, 0]]
+    wet_count[1] = [[0, 0, 0], [0, 1, 1]]
+    clear_count = np.zeros((2, 2, 3), dtype=np.uint16)
+    clear_count[0] = [[3, 3, 0], [0, 3, 3]]
+    clear_count[1] = [[3, 3, 0], [0, 3, 3]]
+    dual_counts = xr.Dataset(
+        {
+            "wet_count": (("time", "y", "x"), wet_count),
+            "clear_count": (("time", "y", "x"), clear_count),
+        },
+        coords={"time": mask.time.values, "y": mask.y.values, "x": mask.x.values},
+    )
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+        dual_counts=dual_counts,
+    )
+
+    # extent_counts.json (the PRIMARY composite's artifact) is unaffected.
+    primary = open_completed_extent_counts(handle, "2015-01-01", "2015-02-01")
+    assert primary["n_water"].tolist() == [1, 2]
+
+    sidecar_path = handle.path / "years" / "2015" / "dual_extent_counts.json"
+    assert sidecar_path.exists()
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+
+    assert payload["schema_version"] == WOFS_CACHE_SCHEMA_VERSION
+    assert payload["year"] == 2015
+    assert payload["dates"] == ["2015-01-01", "2015-02-01"]
+    assert payload["aoi_pixel_count"] == footprints.aoi_pixel_count
+    assert payload["analysis_mask_pixel_count"] == footprints.analysis_pixel_count
+    # n_max_water: sum of wet_count per month = month1: 1+0+0+0+1+0=2, month2: 0+0+0+0+1+1=2
+    assert payload["n_max_water"] == [2, 2]
+    # n_median_water (primary, for cross-check): matches extent_counts.json's n_water.
+    assert payload["n_median_water"] == [1, 2]
+    # n_valid_analysis: sum of clear_count per month.
+    assert payload["n_valid_analysis"] == [12, 12]
+
+    check_payload = {k: v for k, v in payload.items() if k != "content_digest"}
+    assert _sha256_digest(check_payload) == payload["content_digest"]
+
+
+def test_write_annual_group_omits_dual_extent_counts_by_default(tmp_path):
+    """composite_bundle='legacy' (dual_counts=None, the default) must write
+    no dual_extent_counts.json at all -- a hard requirement (Step 5), not
+    merely an empty/zeroed file."""
+    mask = _canonical_cube(shape=(2, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, 0]]
+    mask.values[1] = [[0, 0, -1], [-2, 1, 1]]
+    handle = _handle_for_cube(tmp_path, mask)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+
+    assert not (handle.path / "years" / "2015" / "dual_extent_counts.json").exists()
+
+
+def test_open_completed_dual_extent_counts_round_trips_persisted_values(tmp_path):
+    """Step 4 (W2.2): open_completed_dual_extent_counts must read back
+    exactly what write_annual_group persisted, over a real completed store,
+    with the fixed aoi/analysis-mask pixel-count denominators broadcast per
+    row (one fixed value per row, not per-month-varying)."""
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    from hydroseason._io_wofs_zarr import record_cache_footprints
+
+    mask = _canonical_cube(shape=(2, 2, 3), fill=-2)
+    mask.values[0] = [[0, 0, -1], [-2, 1, 0]]
+    mask.values[1] = [[0, 0, -1], [-2, 1, 1]]
+    handle = _handle_for_cube(tmp_path, mask)
+
+    full_aoi = gpd.GeoDataFrame(
+        {"geometry": [box(1000.0, 1940.0, 1090.0, 2000.0)]}, crs="EPSG:3577"
+    )
+    footprints = record_cache_footprints(
+        handle,
+        full_aoi_gdf=full_aoi,
+        analysis_footprint_gdf=full_aoi,
+        shape=(2, 3),
+        transform=(30.0, 0.0, 1000.0, 0.0, -30.0, 2000.0),
+        crs="EPSG:3577",
+    )
+
+    wet_count = np.zeros((2, 2, 3), dtype=np.uint16)
+    wet_count[0] = [[1, 0, 0], [0, 1, 0]]
+    wet_count[1] = [[0, 0, 0], [0, 1, 1]]
+    clear_count = np.zeros((2, 2, 3), dtype=np.uint16)
+    clear_count[0] = [[3, 3, 0], [0, 3, 3]]
+    clear_count[1] = [[3, 3, 0], [0, 3, 3]]
+    dual_counts = xr.Dataset(
+        {
+            "wet_count": (("time", "y", "x"), wet_count),
+            "clear_count": (("time", "y", "x"), clear_count),
+        },
+        coords={"time": mask.time.values, "y": mask.y.values, "x": mask.x.values},
+    )
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+        dual_counts=dual_counts,
+    )
+
+    result = open_completed_dual_extent_counts(handle, "2015-01-01", "2015-02-01")
+
+    assert result is not None
+    assert result["n_max_water"].tolist() == [2, 2]
+    assert result["n_median_water"].tolist() == [1, 2]
+    assert result["n_valid_analysis"].tolist() == [12, 12]
+    assert result["aoi_pixel_count"].tolist() == [footprints.aoi_pixel_count] * 2
+    assert result["analysis_mask_pixel_count"].tolist() == [footprints.analysis_pixel_count] * 2
+
+
+def test_open_completed_dual_extent_counts_returns_none_for_legacy_store(tmp_path):
+    """A store acquired with composite_bundle='legacy' (dual_counts=None)
+    never writes dual_extent_counts.json, so the reader must fail closed
+    (return None), never fabricate/approximate one from the primary mask."""
+    mask = _canonical_cube(shape=(2, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, 0]]
+    mask.values[1] = [[0, 0, -1], [-2, 1, 1]]
+    handle = _handle_for_cube(tmp_path, mask)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+
+    assert open_completed_dual_extent_counts(handle, "2015-01-01", "2015-12-01") is None
+
+
+def test_legacy_write_annual_group_output_is_byte_identical_to_pre_w22(tmp_path):
+    """Step 5 (W2.2): a REAL regression proof, not just "the code looks
+    unchanged" -- these exact digests were captured by running this same
+    fixture through write_annual_group on the pre-W2.2 commit (b6816da,
+    before dual_counts/composite_bundle threading existed in this module),
+    then hand-confirmed identical after this task's changes landed (a
+    git-stash A/B diff of the full JSON summary below was byte-for-byte
+    equal). Hardcoding them here means any FUTURE change that perturbs
+    legacy's compute path, content digest, or extent_counts.json values
+    fails this test immediately, rather than relying on a one-time manual
+    comparison that itself isn't re-checked by CI.
+    """
+    rng = np.random.default_rng(1234)
+    shape = (12, 64, 96)
+    time_len, height, width = shape
+    values = rng.choice(
+        [1, 0, -1, -2], size=shape, p=[0.4, 0.4, 0.1, 0.1]
+    ).astype(np.int8)
+    transform = Affine(30, 0, 1000, 0, -30, 2000)
+    mask = xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.date_range("2015-01-01", periods=time_len, freq="MS"),
+            "y": transform.f + (np.arange(height) + 0.5) * transform.e,
+            "x": transform.c + (np.arange(width) + 0.5) * transform.a,
+        },
+        name="water_mask",
+    ).rio.write_crs(3577).rio.write_transform(transform)
+    handle = _handle_for_cube(tmp_path, mask)
+
+    stats = write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 32, "x": 32}),
+        windows=(GridWindow("parent", 0, 64, 0, 96),),
+        item_ids=("a", "b", "c"),
+    )
+
+    complete_payload = json.loads(
+        (handle.path / "years" / "2015" / "complete.json").read_text(encoding="utf-8")
+    )
+    extent_payload = json.loads(
+        (handle.path / "years" / "2015" / "extent_counts.json").read_text(encoding="utf-8")
+    )
+
+    assert not (handle.path / "years" / "2015" / "dual_extent_counts.json").exists()
+    assert stats.task_count == 72
+    assert stats.chunks_considered == 12
+    assert stats.chunks_written == 12
+    assert stats.loaded_pixels == 73728
+    assert complete_payload["item_digest"] == (
+        "19731455d65161bc54c73f8d1a12737058cf5715b7505453bc036c50a0dcb181"
+    )
+    assert complete_payload["content_digest"] == (
+        "53e92bac984e3b3269a4cb849147eff3ec0c4e877cdbb273bb718704984b6994"
+        "707b28f2d85eb4e35bc62b0fef617df92177a8d37ad129549e5ac4c7b0f938eb"
+    )
+    assert extent_payload["content_digest"] == (
+        "aa90cbc60c3038268341b0d8708a66f4661e9e23e7d0e963b9d383ad469897cd"
+    )
+    assert extent_payload["n_aoi"] == [
+        5530, 5509, 5576, 5562, 5535, 5516, 5521, 5518, 5540, 5492, 5554, 5541,
+    ]
+    assert extent_payload["n_valid"] == [
+        4963, 4895, 5016, 4956, 4927, 4900, 4904, 4923, 4878, 4882, 4949, 4932,
+    ]
+    assert extent_payload["n_water"] == [
+        2438, 2473, 2516, 2420, 2422, 2478, 2477, 2420, 2421, 2428, 2533, 2478,
+    ]
+    assert extent_payload["n_invalid"] == [
+        567, 614, 560, 606, 608, 616, 617, 595, 662, 610, 605, 609,
+    ]
 
 
 def test_extent_counts_backfills_legacy_group_from_stored_chunks(tmp_path):

@@ -1044,6 +1044,83 @@ def test_planning_footprint_and_composite_bundle_are_recorded_in_manifest(monkey
     assert acq["planning_footprint"]["covered_years"] == [2015]
 
 
+def test_hydrofragments_v1_threads_dual_counts_from_graph_to_writer(monkeypatch, tmp_path):
+    """Step 3 (W2.2) wiring: build_wofs_year_graph's
+    ``.attrs["hydrofragments_dual_counts"]`` side-channel must reach
+    write_annual_group's ``dual_counts`` keyword unchanged, and must be
+    popped off the mask (never left sitting on the object passed to
+    write_annual_group as `mask`, which only expects the primary
+    composite)."""
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+
+    sentinel_dual_counts = object()
+
+    def fake_graph(*_args, **_kwargs):
+        cube = _cube(2015)
+        cube.attrs["hydrofragments_dual_counts"] = sentinel_dual_counts
+        return cube
+
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", fake_graph)
+    writer = Mock(return_value=_stats())
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", writer)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        composite_bundle="hydrofragments_v1",
+    )
+
+    writer.assert_called_once()
+    assert writer.call_args.kwargs["dual_counts"] is sentinel_dual_counts
+    written_mask = writer.call_args.args[2]
+    assert "hydrofragments_dual_counts" not in written_mask.attrs
+
+
+def test_hydrofragments_v1_writes_zeroed_dual_counts_for_an_empty_year(monkeypatch, tmp_path):
+    """An empty year (no STAC items at all) must still get
+    dual_extent_counts.json when the dual bundle is requested -- both
+    composites are legitimately all-zero, not simply absent, keeping the
+    artifact's presence consistent across empty and non-empty years."""
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=([], _aoi())),
+    )
+    empty_writer = Mock(return_value=_stats())
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_empty_annual_group", empty_writer)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        composite_bundle="hydrofragments_v1",
+    )
+
+    empty_writer.assert_called_once()
+    assert empty_writer.call_args.kwargs["dual_extent_counts"] is True
+
+
+def test_legacy_composite_bundle_never_requests_dual_extent_counts_for_empty_year(monkeypatch, tmp_path):
+    """The default 'legacy' bundle must pass dual_extent_counts=False for an
+    empty year, matching its 'no new file, ever' guarantee."""
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=([], _aoi())),
+    )
+    empty_writer = Mock(return_value=_stats())
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_empty_annual_group", empty_writer)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+    )
+
+    empty_writer.assert_called_once()
+    assert empty_writer.call_args.kwargs["dual_extent_counts"] is False
+
+
 def test_default_composite_bundle_is_legacy_with_no_footprint_recorded(monkeypatch, tmp_path):
     """A caller that never mentions composite_bundle or planning_footprint
     must get the byte-identical legacy manifest shape (composite_bundle

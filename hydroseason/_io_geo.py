@@ -361,11 +361,32 @@ def _load_wofs_items(
     groupby="solar_day",
     resampling=None,
     wet_aoi=None,
+    composite_bundle: Literal["legacy", "hydrofragments_v1"] = "legacy",
 ):
     """Load WOfS items, classify, compose monthly, and clip to AOI.
 
     Items are processed in annual batches with monthly composition,
     returning a lazy xarray.DataArray.
+
+    ``composite_bundle="hydrofragments_v1"`` additionally computes a SECOND
+    composite -- the any-day-wet ``max_water`` rule (``majority=False``'s
+    semantics: ``series.max("time")``) -- from the SAME resident per-day
+    ``observations`` this function already classifies for the PRIMARY
+    (``majority``-selected) composite, in the same place
+    (:func:`_combine_observations` already runs once per month below). No
+    second STAC query or :func:`_classify` call ever happens: the secondary
+    composite is derived purely from the daily ``observations`` slice
+    already sitting in memory for that month. It is reduced immediately to
+    small per-month ``(y, x)`` wet/clear pixel COUNTS (never a second full
+    ``(time, y, x)`` raster) and attached to the returned primary mask's
+    ``.attrs["hydrofragments_dual_counts"]`` as a lazy ``(time, y, x)``
+    ``xr.Dataset`` with ``wet_count``/``clear_count`` variables, parallel to
+    (and matching the dtype convention of) the ``wet_count``/``clear_count``
+    arrays :func:`hydroseason._io_wofs_zarr.write_annual_group` already
+    derives for the primary composite. ``composite_bundle="legacy"`` (the
+    default) performs none of this: zero extra computation, and the return
+    value carries no such attribute, matching every caller's pre-existing
+    behaviour byte-for-byte.
 
     ``groupby`` controls how ``odc.stac.stac_load`` places items onto pixel
     planes before this function classifies and monthly-composites them:
@@ -425,8 +446,10 @@ def _load_wofs_items(
     for month, month_items in sorted(groups.items()):
         annual_groups.setdefault(month.year, []).append((month, month_items))
 
+    dual_composite = composite_bundle == "hydrofragments_v1"
     target = aoi_gdf.to_crs(_crs_value(crs)) if crs is not None else aoi_gdf
     masks, dates, reference = [], [], None
+    secondary_masks: list = []
     for year, year_groups in sorted(annual_groups.items()):
         try:
             year_items = [item for _month, month_items in year_groups for item in month_items]
@@ -464,6 +487,16 @@ def _load_wofs_items(
                     raise ValueError(f"loaded STAC batch has no observations for {month:%Y-%m}")
                 observations = classified.isel(time=indices)
                 mask = _combine_observations(observations, majority)
+                if dual_composite:
+                    # Secondary (max_water, majority=False) composite from the
+                    # SAME resident `observations` slice -- no second STAC
+                    # load, no second _classify() call. Kept as a full
+                    # (y, x) plane for now (parallel to `mask`) so it can
+                    # ride through the SAME single AOI clip pass below,
+                    # avoiding a second AOI rasterization; it never survives
+                    # past this function as a raster, only as counts (see
+                    # the reduction after the clip, further down).
+                    secondary_masks.append(_combine_observations(observations, False))
             except AOIRasterizationError:
                 raise
             except Exception as exc:
@@ -486,17 +519,71 @@ def _load_wofs_items(
             "AOI clip failed; refusing to process an unclipped raster."
         ) from exc
 
+    dual_counts = None
+    if dual_composite:
+        try:
+            secondary_stacked = xr.concat(secondary_masks, dim="time").assign_coords(
+                time=("time", dates)
+            )
+            secondary_stacked = secondary_stacked.rio.set_spatial_dims(x_dim="x", y_dim="y")
+            # A SECOND AOI rasterization here (never performed for the
+            # "legacy" bundle -- this whole branch is gated on
+            # dual_composite) so the primary composite's existing
+            # `_clip_to_aoi` call above stays byte-for-byte the original
+            # single call/call-signature legacy callers and tests rely on;
+            # only hydrofragments_v1 pays this second rasterization cost, in
+            # exchange for never re-reading STAC or re-running _classify().
+            inside = _io._resolve_aoi_inside_mask(secondary_stacked, target, wet_aoi=wet_aoi)
+            clipped_secondary = _io._apply_aoi_inside_mask(secondary_stacked, inside)
+        except AOIRasterizationError:
+            raise
+        except Exception as exc:
+            raise AOIRasterizationError(
+                "AOI clip failed; refusing to process an unclipped raster."
+            ) from exc
+
+        # Reduce immediately to small per-month (time, y, x) uint16 pixel
+        # COUNTS -- never a second full-resolution raster survives past this
+        # point. Matches write_annual_group's own wet_count/clear_count
+        # convention (uint16, wet = value==1, clear = value in {0, 1}).
+        secondary_wet_count = (clipped_secondary == 1).astype(np.uint16)
+        secondary_clear_count = ((clipped_secondary == 0) | (clipped_secondary == 1)).astype(np.uint16)
+        dual_counts = xr.Dataset(
+            {
+                "wet_count": secondary_wet_count,
+                "clear_count": secondary_clear_count,
+            }
+        )
+        del secondary_stacked, clipped_secondary
+
     completed = complete_monthly_axis(
         clipped_cube,
         start_date,
         end_date,
         duplicate_month_policy=duplicate_month_policy,
     )
-    return completed.chunk({
+    result = completed.chunk({
         "time": min(time_chunk, completed.sizes["time"]),
         "x": chunk_x,
         "y": chunk_y,
     })
+    if dual_counts is not None:
+        # complete_monthly_axis may insert missing months (all-invalid, so
+        # wet_count/clear_count are legitimately 0 there); align the dual
+        # counts onto the SAME completed monthly axis via the same
+        # reindex-with-zero-fill convention, then attach as a side-channel
+        # attribute so downstream code (write_annual_group, by way of
+        # _io_wofs_acquire) can pull it out without changing this function's
+        # return TYPE for any existing caller.
+        dual_counts = dual_counts.reindex(
+            time=result["time"].values, fill_value=0
+        ).chunk({
+            "time": min(time_chunk, result.sizes["time"]),
+            "x": chunk_x,
+            "y": chunk_y,
+        })
+        result.attrs["hydrofragments_dual_counts"] = dual_counts
+    return result
 
 
 def load_wofs_from_stac(
@@ -627,6 +714,7 @@ def build_wofs_year_graph(
     groupby: str = "solar_day",
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
     wet_aoi=None,
+    composite_bundle: Literal["legacy", "hydrofragments_v1"] = "legacy",
 ):
     """Build one shared lazy WOfS cube for a single calendar year onto a fixed grid.
 
@@ -660,6 +748,13 @@ def build_wofs_year_graph(
     ``wet_aoi``, when given, is intersected with the AOI during the final
     clip so pixels outside the ever-wet region become ``-2``. It must be a
     superset of ever-wet -- see :func:`_clip_to_aoi`.
+
+    ``composite_bundle`` is threaded straight through to
+    :func:`_load_wofs_items` (see its docstring): ``"hydrofragments_v1"``
+    attaches a second, any-day-wet composite's per-month pixel counts as
+    ``.attrs["hydrofragments_dual_counts"]`` on the returned mask, computed
+    from the exact same per-day observations this call already loads and
+    classifies. ``"legacy"`` (the default) performs no extra computation.
     """
     if geobox is None:
         raise ValueError("build_wofs_year_graph requires a parent geobox.")
@@ -700,6 +795,7 @@ def build_wofs_year_graph(
         groupby=groupby,
         resampling=resampling,
         wet_aoi=wet_aoi,
+        composite_bundle=composite_bundle,
     )
 
 
@@ -968,10 +1064,22 @@ def _clip_to_aoi(mask, aoi_gdf, *, wet_aoi=None):
     permanently outside, indistinguishable from genuinely dry. ``None``
     disables pruning entirely and preserves the original behaviour exactly.
     """
-    outside_value = np.int8(-2)
-    invalid_value = np.int8(-1)
+    mask = mask.rio.set_spatial_dims(x_dim="x", y_dim="y")
+    inside = _resolve_aoi_inside_mask(mask, aoi_gdf, wet_aoi=wet_aoi)
+    return _apply_aoi_inside_mask(mask, inside)
+
+
+def _resolve_aoi_inside_mask(mask, aoi_gdf, *, wet_aoi=None):
+    """The boolean ``(y, x)`` "inside the AOI (and wet_aoi, if given)" mask for ``mask``.
+
+    Factored out of :func:`_clip_to_aoi` so a caller that needs to clip a
+    SECOND cube sharing ``mask``'s exact grid (e.g. :func:`_load_wofs_items`'s
+    ``hydrofragments_v1`` secondary composite) can rasterize the AOI once and
+    reuse the same ``inside`` mask for both cubes via
+    :func:`_apply_aoi_inside_mask`, instead of rasterizing the identical AOI
+    geometry a second time.
+    """
     try:
-        mask = mask.rio.set_spatial_dims(x_dim="x", y_dim="y")
         crs = _resolve_raster_crs(mask)
         if crs is None:
             raise GeoreferencingError("raster is missing CRS")
@@ -979,18 +1087,29 @@ def _clip_to_aoi(mask, aoi_gdf, *, wet_aoi=None):
         if wet_aoi is not None and len(wet_aoi) and not bool(wet_aoi.geometry.is_empty.all()):
             wet_inside = _inside_aoi_mask_like(mask, wet_aoi.to_crs(crs))
             inside = inside & wet_inside
+        return inside
     except Exception as exc:
         if isinstance(exc, (AOIRasterizationError, GeoreferencingError)):
             raise
         raise AOIRasterizationError("AOI clip failed; refusing to process an unclipped raster.") from exc
 
+
+def _apply_aoi_inside_mask(mask, inside):
+    """Apply a precomputed ``inside`` boolean mask (see :func:`_resolve_aoi_inside_mask`) to ``mask``."""
+    outside_value = np.int8(-2)
+    invalid_value = np.int8(-1)
     import xarray as xr
 
-    res = (
-        xr.where(inside, xr.where(mask == outside_value, invalid_value, mask), outside_value)
-        .astype(np.int8)
-        .transpose(*mask.dims)
-    )
+    try:
+        res = (
+            xr.where(inside, xr.where(mask == outside_value, invalid_value, mask), outside_value)
+            .astype(np.int8)
+            .transpose(*mask.dims)
+        )
+    except Exception as exc:
+        if isinstance(exc, (AOIRasterizationError, GeoreferencingError)):
+            raise
+        raise AOIRasterizationError("AOI clip failed; refusing to process an unclipped raster.") from exc
     return _preserve_georef(res, mask)
 
 

@@ -790,8 +790,31 @@ def write_annual_group(
     overwrite: bool = False,
     compute_batch_size: int = 16,
     read_workers: int | None = None,
+    dual_counts=None,
 ) -> AnnualWriteStats:
-    """Materialise one calendar year of ``mask`` into a completed annual Zarr group."""
+    """Materialise one calendar year of ``mask`` into a completed annual Zarr group.
+
+    ``dual_counts``, when given (only ever passed for
+    ``composite_bundle="hydrofragments_v1"`` -- see
+    :func:`hydroseason._io_geo._load_wofs_items`'s
+    ``hydrofragments_dual_counts`` attribute), is an already-reduced lazy
+    ``(time, y, x)`` ``xr.Dataset`` with ``wet_count``/``clear_count``
+    ``uint16`` variables for the SECONDARY (any-day-wet ``max_water``)
+    composite, one plane per month, aligned to ``mask``'s own time axis.
+    This function performs NO further spatial reduction of its own beyond
+    summing each already-reduced count plane over ``(y, x)`` into one
+    per-month scalar (mirroring exactly how ``n_water``/``n_valid``/etc. are
+    already derived from the PRIMARY composite's written blocks below) --
+    the caller (:mod:`hydroseason._io_geo`) already did the pixel-level
+    reduction. When given, the per-month scalars are written to a parallel
+    ``years/<year>/dual_extent_counts.json`` sidecar (see
+    :data:`WOFS_CACHE_SCHEMA_VERSION`/:func:`_sha256_digest`, same
+    conventions as ``extent_counts.json``). ``dual_counts=None`` (the
+    default, and the ONLY value ever passed for
+    ``composite_bundle="legacy"``) performs zero extra computation and
+    writes no such file -- this function's every other output stays
+    byte-for-byte identical to before ``dual_counts`` existed.
+    """
     if compute_batch_size < 1:
         raise ValueError("compute_batch_size must be at least 1")
     if read_workers is not None and read_workers < 1:
@@ -881,6 +904,12 @@ def write_annual_group(
         n_invalid_cnt = np.zeros(time_len, dtype=np.int64)
         written_chunk_keys_set: set[tuple[int, int, int]] = set()
 
+        dual_year_counts = None
+        if dual_counts is not None:
+            dual_year_counts = dual_counts.sel(time=slice(f"{year}-01-01", f"{year}-12-31"))
+            n_max_water_cnt = np.zeros(time_len, dtype=np.int64)
+            n_max_clear_cnt = np.zeros(time_len, dtype=np.int64)
+
         content_hasher = _content_hasher()
         content_hasher.update(
             _canonical_json_bytes(
@@ -903,6 +932,7 @@ def write_annual_group(
             batch_keys = keys_list[i : i + compute_batch_size]
             blocks_to_compute = []
             block_metadata = []
+            dual_blocks_to_compute = []
             for cy, cx in batch_keys:
                 cy_stop = min(cy + _STORAGE_CHUNK, height)
                 cx_stop = min(cx + _STORAGE_CHUNK, width)
@@ -913,17 +943,31 @@ def write_annual_group(
                     task_count += len(block.__dask_graph__())
                 blocks_to_compute.append(block)
                 block_metadata.append((cy, cx, cy_stop, cx_stop))
+                if dual_year_counts is not None:
+                    # Ride the secondary composite's counts through the SAME
+                    # dask.compute call as the primary blocks below, rather
+                    # than triggering a second, independent Dask execution.
+                    dual_slice = dual_year_counts.isel(
+                        time=slice(0, time_len), y=slice(cy, cy_stop), x=slice(cx, cx_stop)
+                    )
+                    dual_blocks_to_compute.append(dual_slice["wet_count"].data)
+                    dual_blocks_to_compute.append(dual_slice["clear_count"].data)
 
             compute_started = time.perf_counter()
-            computed_blocks = _compute_with_remote_read_retries(
+            computed_all = _compute_with_remote_read_retries(
                 dask.compute,
                 *blocks_to_compute,
+                *dual_blocks_to_compute,
                 **compute_kwargs,
             )
             compute_seconds += time.perf_counter() - compute_started
+            computed_blocks = computed_all[: len(blocks_to_compute)]
+            computed_dual_blocks = computed_all[len(blocks_to_compute):]
 
             write_started = time.perf_counter()
-            for (cy, cx, cy_stop, cx_stop), raw_val in zip(block_metadata, computed_blocks):
+            for block_idx, ((cy, cx, cy_stop, cx_stop), raw_val) in enumerate(
+                zip(block_metadata, computed_blocks)
+            ):
                 values = np.asarray(raw_val)
                 loaded_pixels += int(values.size)
                 content_hasher.update(
@@ -954,6 +998,12 @@ def write_annual_group(
                 n_valid_cnt += block_water + block_dry
                 n_aoi_cnt += block_aoi
                 n_invalid_cnt += block_aoi - block_water - block_dry
+
+                if dual_year_counts is not None:
+                    dual_wet_raw = np.asarray(computed_dual_blocks[2 * block_idx])
+                    dual_clear_raw = np.asarray(computed_dual_blocks[2 * block_idx + 1])
+                    n_max_water_cnt += dual_wet_raw.sum(axis=(1, 2), dtype=np.int64)
+                    n_max_clear_cnt += dual_clear_raw.sum(axis=(1, 2), dtype=np.int64)
 
                 if bool((values == -2).all()):
                     continue
@@ -989,6 +1039,32 @@ def write_annual_group(
         }
         extent_counts_payload["content_digest"] = _sha256_digest(extent_counts_payload)
         _write_json_atomic(temp_path / "extent_counts.json", extent_counts_payload)
+
+        if dual_year_counts is not None:
+            # Fixed, per-store reference-area denominators (task W2.3):
+            # full-AOI pixel count is the entire requested catchment,
+            # constant regardless of pruning; analysis-mask pixel count is
+            # the (possibly pruned) footprint that actually gated reads for
+            # THIS store. Both are already persisted in the store's root
+            # manifest by record_cache_footprints (called by
+            # acquire_wofs_cache before any year is written), so they are
+            # read back here rather than re-derived -- never conflated with
+            # the per-month n_aoi count above, which is a *content* count
+            # over the actually-written pixels, not this fixed geometry
+            # denominator.
+            footprints = read_cache_footprints(handle)
+            dual_extent_counts_payload = {
+                "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+                "year": int(year),
+                "dates": [d.strftime("%Y-%m-%d") for d in time_values],
+                "aoi_pixel_count": int(footprints.aoi_pixel_count),
+                "analysis_mask_pixel_count": int(footprints.analysis_pixel_count),
+                "n_max_water": n_max_water_cnt.tolist(),
+                "n_median_water": n_water_cnt.tolist(),
+                "n_valid_analysis": n_max_clear_cnt.tolist(),
+            }
+            dual_extent_counts_payload["content_digest"] = _sha256_digest(dual_extent_counts_payload)
+            _write_json_atomic(temp_path / "dual_extent_counts.json", dual_extent_counts_payload)
 
         complete_payload = {
             "schema_version": WOFS_CACHE_SCHEMA_VERSION,
@@ -1049,6 +1125,7 @@ def write_empty_annual_group(
     mask,
     *,
     overwrite: bool = False,
+    dual_extent_counts: bool = False,
 ) -> AnnualWriteStats:
     """Write a completed annual group for a year with no source observations.
 
@@ -1060,6 +1137,15 @@ def write_empty_annual_group(
     all-zero ``wet_count``/``clear_count``, the same zeroed
     ``extent_counts.json``, and a ``complete.json`` carrying an empty
     ``item_ids``. ``validate_annual_group`` accepts the result unchanged.
+
+    ``dual_extent_counts=True`` (only ever passed for
+    ``composite_bundle="hydrofragments_v1"``) additionally writes a zeroed
+    ``years/<year>/dual_extent_counts.json`` sidecar -- an empty year has no
+    observations for EITHER composite, so both are legitimately all-zero,
+    keeping the artifact's presence consistent whether or not a given year
+    actually had source items. ``dual_extent_counts=False`` (the default,
+    and the only value ever passed for ``composite_bundle="legacy"``) writes
+    no such file.
     """
     import shutil as _shutil
 
@@ -1141,6 +1227,21 @@ def write_empty_annual_group(
         }
         extent_counts_payload["content_digest"] = _sha256_digest(extent_counts_payload)
         _write_json_atomic(temp_path / "extent_counts.json", extent_counts_payload)
+
+        if dual_extent_counts:
+            footprints = read_cache_footprints(handle)
+            dual_extent_counts_payload = {
+                "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+                "year": int(year),
+                "dates": [d.strftime("%Y-%m-%d") for d in time_values],
+                "aoi_pixel_count": int(footprints.aoi_pixel_count),
+                "analysis_mask_pixel_count": int(footprints.analysis_pixel_count),
+                "n_max_water": list(zeros),
+                "n_median_water": list(zeros),
+                "n_valid_analysis": list(zeros),
+            }
+            dual_extent_counts_payload["content_digest"] = _sha256_digest(dual_extent_counts_payload)
+            _write_json_atomic(temp_path / "dual_extent_counts.json", dual_extent_counts_payload)
 
         complete_payload = {
             "schema_version": WOFS_CACHE_SCHEMA_VERSION,
@@ -2057,6 +2158,99 @@ def open_completed_extent_counts(
     return df[["n_water", "n_aoi", "n_valid", "n_invalid", "n_wet_aoi", "extent_pct", "invalid_pct", "wet_fill_pct"]]
 
 
+def open_completed_dual_extent_counts(
+    handle: WOfSCacheHandle,
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame | None:
+    """Read back the ``years/<year>/dual_extent_counts.json`` sidecars task
+    W2.2's ``composite_bundle="hydrofragments_v1"`` acquisition writes.
+
+    Public reader counterpart to :func:`open_completed_extent_counts`, but
+    for the SECOND (any-day-wet ``max_water``) composite's per-month pixel
+    counts alongside the fixed full-AOI/analysis-mask pixel-count
+    denominators (see :class:`CacheFootprints`) -- never conflating a
+    per-month content count with those fixed geometry denominators.
+
+    Unlike :func:`open_completed_extent_counts`, there is no backfill path:
+    the secondary composite only ever exists as this sidecar (task W2.2
+    deliberately never persists a second full-resolution raster to
+    reconstruct it from), so a missing or tampered ``dual_extent_counts.json``
+    for any requested year returns ``None`` rather than approximating one.
+    Returns ``None`` if any requested year is not completed, the sidecar is
+    missing/malformed for any requested year (e.g. the cache was acquired
+    with ``composite_bundle="legacy"``, which never writes this file), the
+    per-year ``content_digest`` does not match, or the resulting range has
+    no rows.
+    """
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+    requested_years = list(range(start.year, end.year + 1))
+    done = completed_years(handle)
+    if not set(requested_years).issubset(done):
+        return None
+
+    all_dates: list[str] = []
+    all_aoi_pixel_count: list[int] = []
+    all_analysis_mask_pixel_count: list[int] = []
+    all_n_max_water: list[int] = []
+    all_n_median_water: list[int] = []
+    all_n_valid_analysis: list[int] = []
+
+    for year in requested_years:
+        year_path = Path(handle.path) / "years" / str(int(year))
+        payload = _read_json(year_path / "dual_extent_counts.json")
+        if payload is None:
+            return None
+        content_digest = payload.get("content_digest")
+        check_payload = {k: v for k, v in payload.items() if k != "content_digest"}
+        if _sha256_digest(check_payload) != content_digest:
+            return None
+
+        dates = payload.get("dates", [])
+        n_max_water = payload.get("n_max_water", [])
+        n_median_water = payload.get("n_median_water", [])
+        n_valid_analysis = payload.get("n_valid_analysis", [])
+        if not (len(dates) == len(n_max_water) == len(n_median_water) == len(n_valid_analysis)):
+            return None
+        if any(v < 0 for v in n_max_water) or any(v < 0 for v in n_median_water) or any(
+            v < 0 for v in n_valid_analysis
+        ):
+            return None
+
+        aoi_pixel_count = payload.get("aoi_pixel_count")
+        analysis_mask_pixel_count = payload.get("analysis_mask_pixel_count")
+        if aoi_pixel_count is None or analysis_mask_pixel_count is None:
+            return None
+
+        all_dates.extend(dates)
+        all_aoi_pixel_count.extend([int(aoi_pixel_count)] * len(dates))
+        all_analysis_mask_pixel_count.extend([int(analysis_mask_pixel_count)] * len(dates))
+        all_n_max_water.extend(n_max_water)
+        all_n_median_water.extend(n_median_water)
+        all_n_valid_analysis.extend(n_valid_analysis)
+
+    df = pd.DataFrame(
+        {
+            "aoi_pixel_count": np.array(all_aoi_pixel_count, dtype=np.int64),
+            "analysis_mask_pixel_count": np.array(all_analysis_mask_pixel_count, dtype=np.int64),
+            "n_max_water": np.array(all_n_max_water, dtype=np.int64),
+            "n_median_water": np.array(all_n_median_water, dtype=np.int64),
+            "n_valid_analysis": np.array(all_n_valid_analysis, dtype=np.int64),
+        },
+        index=pd.DatetimeIndex(all_dates),
+    )
+    mask_in_range = (df.index >= start) & (df.index <= end)
+    df = df.loc[mask_in_range].copy()
+    if df.empty:
+        return None
+
+    return df[[
+        "aoi_pixel_count", "analysis_mask_pixel_count",
+        "n_max_water", "n_median_water", "n_valid_analysis",
+    ]]
+
+
 __all__ = [
     "WOFS_CACHE_SCHEMA_VERSION",
     "WOFS_CLASSIFIER_VERSION",
@@ -2079,6 +2273,7 @@ __all__ = [
     "completed_years",
     "open_completed_mask_cache",
     "open_completed_extent_counts",
+    "open_completed_dual_extent_counts",
     "CacheFootprints",
     "record_cache_footprints",
     "read_cache_footprints",

@@ -35,6 +35,8 @@ from hydroseason._io_geo import (  # noqa: F401
     _preserve_georef,
     _output_geobox_for_aoi,
     _query_wofs_items,
+    _apply_aoi_inside_mask,
+    _resolve_aoi_inside_mask,
     _resolve_raster_crs,
     _resolve_raster_transform,
     _spatial_transform_from_xy,
@@ -112,5 +114,29 @@ def verify_cache_footprints(*args, **kwargs):
     return _verify_cache_footprints(*args, **kwargs)
 
 
-__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_mask_cache", "open_completed_extent_counts", "WOfSCacheHandle", "open_wo_statistics", "verify_cache_footprints"]
+def open_completed_dual_extent_counts(*args, **kwargs):
+    """Read back the second (any-day-wet ``max_water``) composite's per-month pixel counts.
+
+    Public reader counterpart to :func:`acquire_wofs_cache` when it was
+    called with ``composite_bundle="hydrofragments_v1"`` (Task W2.2): given
+    a :class:`WOfSCacheHandle` and a ``[start_date, end_date]`` range,
+    returns a ``pandas.DataFrame`` combining every completed year's
+    ``years/<year>/dual_extent_counts.json`` sidecar -- the SECONDARY
+    composite's per-month wet/valid pixel counts alongside the fixed
+    full-AOI/analysis-mask pixel-count denominators -- or ``None`` if any
+    requested year is incomplete, the sidecar is missing/malformed for any
+    requested year (including a store acquired with the default
+    ``composite_bundle="legacy"``, which never writes this file), or the
+    resulting range has no rows. See
+    :func:`hydroseason._io_wofs_zarr.open_completed_dual_extent_counts` for
+    the full contract.
+    """
+    from hydroseason._io_wofs_zarr import (
+        open_completed_dual_extent_counts as _open_completed_dual_extent_counts,
+    )
+
+    return _open_completed_dual_extent_counts(*args, **kwargs)
+
+
+__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_mask_cache", "open_completed_extent_counts", "open_completed_dual_extent_counts", "WOfSCacheHandle", "open_wo_statistics", "verify_cache_footprints"]
 
