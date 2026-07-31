@@ -178,7 +178,7 @@ def secondary_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict
         }
     else:
         # Aseasonal: Event duration histogram / summary
-        events = analysis.events
+        events = analysis.events.events
         if not events.empty and "duration_months" in events.columns:
             durations = _clean_list(events["duration_months"])
             data.append({

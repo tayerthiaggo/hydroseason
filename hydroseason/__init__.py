@@ -36,7 +36,7 @@ from .io import (
     load_wofs_from_stac,
     load_wofs_monthly_extent,
 )
-from .report import generate_html_report
+from .report import CatchmentReportPaths, generate_catchment_report, generate_html_report
 
 try:
     __version__ = _pkg_version("hydroseason")
@@ -49,7 +49,8 @@ __all__ = [
     "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
     "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
     "acquire_wofs_cache", "WOfSCacheHandle",
-    "generate_html_report", "DynamicHydroYearConfig", "HydrologicalStateResult",
+    "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
+    "DynamicHydroYearConfig", "HydrologicalStateResult",
     "SeasonalPatternResult", "aggregate_basin_monthly_extent",
     "analyze_hydrological_state", "classify_annual_surface_water_condition",
     "classify_seasonal_pattern", "compute_monthly_surface_water_condition",

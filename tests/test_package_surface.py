@@ -1,4 +1,5 @@
 import importlib
+from importlib import resources
 from pathlib import Path
 
 
@@ -12,7 +13,8 @@ def test_package_import_exposes_only_migration_safe_surface():
         "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
         "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
         "acquire_wofs_cache", "WOfSCacheHandle",
-        "generate_html_report", "DynamicHydroYearConfig", "HydrologicalStateResult",
+        "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
+        "DynamicHydroYearConfig", "HydrologicalStateResult",
         "SeasonalPatternResult", "aggregate_basin_monthly_extent",
         "analyze_hydrological_state", "classify_annual_surface_water_condition",
         "classify_seasonal_pattern", "compute_monthly_surface_water_condition",
@@ -29,6 +31,7 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert callable(hydroseason.assess_water_regime)
     assert callable(hydroseason.extract_water_events)
     assert callable(hydroseason.analyze_catchment)
+    assert callable(hydroseason.generate_catchment_report)
     assert "ValidationSeasonConfig" not in vars(hydroseason)
 
     stripped_names = {
@@ -74,3 +77,12 @@ def test_robust_extrema_and_semi_markov_internals_stay_unexported():
     }
     assert internal_names.isdisjoint(vars(hydroseason))
     assert internal_names.isdisjoint(hydroseason.__all__)
+
+
+def test_report_assets_resolve_from_source_package():
+    root = resources.files("hydroseason").joinpath("_assets")
+
+    assert root.joinpath("plotly-basic-3.6.0.min.js").read_text(encoding="utf-8").startswith(
+        "/**"
+    )
+    assert "MIT License" in root.joinpath("PLOTLY-LICENSE.txt").read_text(encoding="utf-8")

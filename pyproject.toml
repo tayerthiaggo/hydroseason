@@ -87,6 +87,9 @@ Changelog = "https://github.com/tayerthiaggo/hydroseason/blob/main/CHANGELOG.md"
 [tool.setuptools]
 include-package-data = true
 
+[tool.setuptools.package-data]
+hydroseason = ["_assets/*.js", "_assets/*.txt"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["hydroseason*"]

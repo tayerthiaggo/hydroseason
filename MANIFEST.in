@@ -3,6 +3,7 @@ include README.md
 include CHANGELOG.md
 include CITATION.cff
 include pyproject.toml
+recursive-include hydroseason/_assets *.js *.txt
 prune hydroseason.egg-info
 
 exclude .gitignore
