@@ -28,6 +28,13 @@ All notable changes to HydroSeason are documented here. This project follows
   **not** promoted to default: its own promotion gate
   (`tests/test_detector_comparison.py::test_semi_markov_promotion_gate`) did
   not pass on available fixtures.
+- Opt-in robust-anchored monthly phases with `phase_model="rule_based"`.
+  The labels are descriptive (`recovery`, `wet`, `recession`, `dry`), use the
+  existing robust extrema annual cycles as fixed anchors, and do not change
+  annual hydrological-year outputs. `monthly_phase` is kept separate from
+  `monthly_condition`; its confidence values are quality grades, not
+  calibrated probabilities. Constrained semi-Markov phase labeling remains
+  post-release research and is not a hidden released mode.
 
 ### Deprecated
 - `DynamicHydroYearConfig.sustained_rise_months`,

@@ -12,6 +12,7 @@ result.pattern          # advisory seasonal shape
 result.config           # inspect the suggested phase and tolerance
 result.hydro_years      # peak, temporal mid-dry, half-loss, trough, condition
 result.monthly_condition
+result.monthly_phase    # disabled by default; opt in with phase_model="rule_based"
 ```
 
 Pass `DynamicHydroYearConfig(expected_trough_month=...)` when local knowledge should override the advisory phase. The configured month centres the annual search; it is not a fixed hydrological-year boundary.
@@ -24,6 +25,47 @@ Pass `DynamicHydroYearConfig(expected_trough_month=...)` when local knowledge sh
 - `trough_extent_pct`: ending low-water extent selected from that year's search opportunity.
 - Recharge condition ranks annual peaks; refuge condition independently ranks annual troughs.
 - Continuous percentiles are primary. Public labels are compact interpretation aids.
+
+## Monthly phases
+
+Monthly phases are descriptive labels attached after annual cycle detection.
+They never alter `hydro_years`, annual condition baselines, peaks, troughs, or
+cycle boundaries. The default `phase_model="none"` returns the stable
+`monthly_phase` schema with `phase="unspecified"` and
+`phase_status="disabled"` for every prepared month.
+
+Set `phase_model="rule_based"` on `DynamicHydroYearConfig` to label months
+inside complete robust-extrema cycles as `recovery`, `wet`, `recession`, then
+`dry`. Labels are anchored to the selected robust trough boundaries,
+`peak_month`, and `half_loss_month`; months outside complete cycles remain
+`unspecified` with `phase_status="outside_cycle"`, and months in partial cycles
+are marked `phase_status="unresolved_cycle"`. Unusable months keep their
+positional phase label for continuity, but use `phase_status="unusable"` with
+lower confidence.
+
+The stable columns are `hy_year`, `phase`, `phase_status`,
+`phase_confidence`, `phase_method`, `boundary_basis`, `p_wet`,
+`p_recession`, `p_dry`, `p_recovery`, `extent_pct`, and
+`candidate_usable`. For `rule_based`, `phase_confidence` is a quality grade
+from 0 to 1, not a calibrated probability, and the `p_*` posterior columns are
+left nullable. `monthly_condition` and `monthly_phase` are separate products:
+condition ranks historical wet/dry extremeness, while phase describes within
+cycle timing.
+
+```python
+from hydroseason import DynamicHydroYearConfig, analyze_hydrological_state
+
+config = DynamicHydroYearConfig(
+    expected_trough_month=11,
+    phase_model="rule_based",
+)
+result = analyze_hydrological_state(monthly, config=config)
+result.monthly_phase[["hy_year", "phase", "phase_status", "phase_confidence"]]
+```
+
+Constrained semi-Markov monthly phase labeling is post-release research, not a
+hidden released mode. Released `phase_model` values are exactly `"none"` and
+`"rule_based"`, and `rule_based` requires `detector="robust_extrema"`.
 
 ## Regime behaviour
 
