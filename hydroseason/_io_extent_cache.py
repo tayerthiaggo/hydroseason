@@ -653,6 +653,14 @@ def load_wofs_monthly_extent(
                     wet_mask=wet_mask,
                 )
                 return fast_extent
+            from hydroseason._io_wofs_zarr import cache_request_uses_pruning
+
+            if cache_request_uses_pruning(handle):
+                raise ValueError(
+                    "pruned WOfS cache does not contain exact full-AOI "
+                    "monthly extent counts; refusing to infer denominators "
+                    "from pruned masks"
+                )
         masks = _io.open_completed_mask_cache(
             handle, start_date, end_date,
             chunk_x=chunk_x, chunk_y=chunk_y, time_chunk=time_block,

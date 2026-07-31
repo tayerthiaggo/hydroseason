@@ -330,10 +330,16 @@ def _canonical_cube(*, shape: tuple[int, int, int], fill: int) -> xr.DataArray:
     ).rio.write_crs(3577).rio.write_transform(transform)
 
 
-def _handle_for_cube(tmp_path: Path, cube: xr.DataArray) -> WOfSCacheHandle:
+def _handle_for_cube(
+    tmp_path: Path,
+    cube: xr.DataArray,
+    *,
+    request: WOfSCacheRequest | None = None,
+) -> WOfSCacheHandle:
     time_index = pd.DatetimeIndex(np.asarray(cube.time.values))
+    base_request = _request() if request is None else request
     request = dataclasses.replace(
-        _request(),
+        base_request,
         start_date=time_index[0].strftime("%Y-%m-%d"),
         end_date=time_index[-1].strftime("%Y-%m-%d"),
     )
@@ -663,9 +669,9 @@ def test_annual_writer_persists_exact_monthly_extent_counts(tmp_path):
     assert extent["invalid_pct"].tolist() == [20.0, 20.0]
 
 
-def test_pruned_extent_counts_use_full_aoi_denominator_from_footprints(tmp_path):
-    """A pruned store's cached fast path must report the full requested AOI
-    denominator; analysis-only counts inflate extent_pct."""
+def test_pruned_extent_counts_do_not_infer_full_aoi_denominator_from_footprints(tmp_path):
+    """A pruned store cannot reconstruct monthly full-AOI valid/invalid counts
+    from fixed geometry footprints, so the fast reader must fail closed."""
     import geopandas as gpd
     from shapely.geometry import box
 
@@ -676,7 +682,11 @@ def test_pruned_extent_counts_use_full_aoi_denominator_from_footprints(tmp_path)
         [[1, 0, -2, -2], [1, 0, -2, -2]],
         [[1, 0, -2, -2], [1, 0, -2, -2]],
     ]
-    handle = _handle_for_cube(tmp_path, mask)
+    handle = _handle_for_cube(
+        tmp_path,
+        mask,
+        request=dataclasses.replace(_request(), wet_mask_sha256="b" * 64),
+    )
     full_aoi = gpd.GeoDataFrame(
         {"geometry": [box(999.0, 1941.0, 1119.0, 1999.0)]}, crs="EPSG:3577"
     )
@@ -702,14 +712,64 @@ def test_pruned_extent_counts_use_full_aoi_denominator_from_footprints(tmp_path)
         item_ids=("a",),
     )
 
-    extent = open_completed_extent_counts(handle, "2015-01-01", "2015-01-01")
+    assert open_completed_extent_counts(handle, "2015-01-01", "2015-01-01") is None
 
-    assert extent is not None
-    assert extent["n_water"].tolist() == [2]
-    assert extent["n_aoi"].tolist() == [8]
-    assert extent["n_valid"].tolist() == [8]
-    assert extent["n_invalid"].tolist() == [0]
-    assert extent["extent_pct"].tolist() == [25.0]
+
+def test_pruned_extent_counts_fail_closed_when_footprints_are_missing(tmp_path):
+    mask = _canonical_cube(shape=(2, 2, 4), fill=-2)
+    mask.values[:, :, :] = [
+        [[1, 0, -2, -2], [1, 0, -2, -2]],
+        [[1, 0, -2, -2], [1, 0, -2, -2]],
+    ]
+    handle = _handle_for_cube(
+        tmp_path,
+        mask,
+        request=dataclasses.replace(_request(), wet_mask_sha256="b" * 64),
+    )
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 4}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 4),),
+        item_ids=("a",),
+    )
+
+    assert open_completed_extent_counts(handle, "2015-01-01", "2015-01-01") is None
+
+
+def test_load_wofs_monthly_extent_rejects_pruned_zarr_without_exact_counts(monkeypatch, tmp_path):
+    """The legacy extent facade must not fall through to monthly reduction over
+    pruned masks after the exact-count fast path fails closed."""
+    from hydroseason._io_extent_cache import load_wofs_monthly_extent
+
+    mask = _canonical_cube(shape=(2, 2, 4), fill=-2)
+    mask.values[:, :, :] = [
+        [[1, 0, -2, -2], [1, 0, -2, -2]],
+        [[1, 0, -2, -2], [1, 0, -2, -2]],
+    ]
+    handle = _handle_for_cube(
+        tmp_path,
+        mask,
+        request=dataclasses.replace(_request(), wet_mask_sha256="b" * 64),
+    )
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 4}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 4),),
+        item_ids=("a",),
+    )
+    monkeypatch.setattr("hydroseason.io.acquire_wofs_cache", Mock(return_value=handle))
+
+    with pytest.raises(ValueError, match="exact full-AOI monthly extent counts"):
+        load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            object(),
+            "2015-01-01",
+            "2015-01-01",
+            mask_cache_dir=tmp_path,
+        )
 
 
 def test_write_annual_group_persists_dual_extent_counts_when_given(tmp_path):

@@ -449,6 +449,22 @@ def create_cache_handle(cache_root: Path, identity: Any) -> WOfSCacheHandle:
     return WOfSCacheHandle(path=store_dir, identity=identity.digest, request_digest=request_digest)
 
 
+def cache_request_uses_pruning(handle: WOfSCacheHandle) -> bool:
+    """True when the store request identity records a pruning source."""
+    manifest = _read_json(Path(handle.path) / _MANIFEST_FILENAME)
+    identity = manifest.get("identity") if isinstance(manifest, dict) else None
+    request = identity.get("request") if isinstance(identity, dict) else None
+    if not isinstance(request, dict):
+        return False
+    return bool(
+        request.get("wet_mask_sha256")
+        or request.get("footprint_digest")
+        or request.get("footprint_factor")
+        or request.get("footprint_safety_cells")
+        or request.get("footprint_covered_years")
+    )
+
+
 def _validate_hit(cache_root: Path, index_entry: dict, request: WOfSCacheRequest) -> WOfSCacheHandle | None:
     """Confirm an index entry's store manifest still matches both digests.
 
@@ -2085,13 +2101,18 @@ def open_completed_extent_counts(
     if not set(requested_years).issubset(done):
         return None
 
-    denominator_pixel_count: int | None = None
-    try:
-        footprints = read_cache_footprints(handle)
-    except (FileNotFoundError, ValueError):
-        footprints = None
-    if footprints is not None and footprints.analysis_pixel_count < footprints.aoi_pixel_count:
-        denominator_pixel_count = int(footprints.aoi_pixel_count)
+    request_uses_pruning = cache_request_uses_pruning(handle)
+    if request_uses_pruning:
+        try:
+            footprints = verify_cache_footprints(handle)
+        except (FileNotFoundError, ValueError):
+            return None
+        if footprints.analysis_pixel_count < footprints.aoi_pixel_count:
+            # The per-year sidecar only contains counts over pixels that were
+            # actually loaded. Fixed geometry metadata cannot reconstruct the
+            # omitted pixels' monthly valid/invalid state, so returning
+            # extent_pct here would be an inferred scientific denominator.
+            return None
 
     all_dates = []
     all_n_aoi = []
@@ -2127,18 +2148,6 @@ def open_completed_extent_counts(
                 return None
             if inv != aoi - val:
                 return None
-
-        if denominator_pixel_count is not None:
-            corrected_n_aoi = []
-            corrected_n_valid = []
-            for aoi, val in zip(n_aoi, n_valid):
-                omitted = denominator_pixel_count - int(aoi)
-                if omitted < 0:
-                    return None
-                corrected_n_aoi.append(denominator_pixel_count)
-                corrected_n_valid.append(int(val) + omitted)
-            n_aoi = corrected_n_aoi
-            n_valid = corrected_n_valid
 
         all_dates.extend(dates)
         all_n_aoi.extend(n_aoi)
@@ -2281,6 +2290,7 @@ __all__ = [
     "WOfSCacheRequest",
     "WOfSCacheIdentity",
     "WOfSCacheHandle",
+    "cache_request_uses_pruning",
     "cache_writer_lock",
     "create_cache_handle",
     "resolve_cached_request",
