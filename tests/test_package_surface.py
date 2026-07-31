@@ -47,11 +47,8 @@ def test_package_metadata_has_no_removed_cli_entry_point():
     assert "rainfall" not in pyproject_text.lower()
 
 
-def test_conda_recipe_has_no_removed_cli_entry_point():
-    recipe = Path("conda/meta.yaml").read_text(encoding="utf-8")
-
-    assert "hydroseason.cli:main" not in recipe
-    assert "hydroseason --version" not in recipe
+def test_invalid_conda_recipe_is_not_shipped():
+    assert not Path("conda/meta.yaml").exists()
 
 
 def test_robust_extrema_and_semi_markov_internals_stay_unexported():

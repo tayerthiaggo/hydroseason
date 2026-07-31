@@ -52,14 +52,14 @@ All notable changes to HydroSeason are documented here. This project follows
   dependencies moved to the `raster`/`stac`/`all` extras.
 
 ### Removed
-- All rainfall-based modules, CLI, pandas accessor, HTML report, and rainfall
-  fetchers (CHIRPS/SILO/ERA5/BoM) were removed from `main`. The previous
-  rainfall implementation is preserved, unmodified, on the `legacy/rainfall`
-  branch (tag `v0-rainfall-legacy`).
+- Rainfall-first public APIs removed; ancillary rainfall comparison remains
+  internal and never sets boundaries. The previous rainfall implementation is
+  preserved, unmodified, on the `legacy/rainfall` branch (tag
+  [`v0-rainfall-legacy`]).
 
-## [0.1.0] — 2026-06-02
+## Pre-release rainfall prototype
 
-First public release.
+Legacy rainfall prototype, preserved at [`v0-rainfall-legacy`].
 
 ### Added
 - Rainfall-based Wet/Dry season and hydrological-year delineation
@@ -98,4 +98,4 @@ First public release.
   - `PLOTLY_CONFIG` → `hydroseason.plot`
 - Removed the unused `matplotlib` runtime dependency.
 
-[0.1.0]: https://github.com/tayerthiaggo/hydroseason/releases/tag/v0.1.0
+[`v0-rainfall-legacy`]: https://github.com/tayerthiaggo/hydroseason/releases/tag/v0-rainfall-legacy

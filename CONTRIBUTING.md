@@ -34,7 +34,9 @@ python -m mkdocs build --strict   # docs build
 
 ## Release process
 
-HydroSeason publishes to **PyPI** (automated) and **conda-forge** (manual PR).
+HydroSeason publishes `0.1.0` to **PyPI** and archives the release on GitHub
+and Zenodo. A conda-forge submission starts only after the PyPI project exists
+and is outside the `0.1.0` PyPI/Zenodo release gate.
 
 1. Update the version in [`pyproject.toml`](pyproject.toml).
 2. Move the relevant notes in [`CHANGELOG.md`](CHANGELOG.md) under the new
@@ -54,8 +56,7 @@ HydroSeason publishes to **PyPI** (automated) and **conda-forge** (manual PR).
 5. **conda-forge**: after the PyPI release is live, open a PR against the
    project's conda-forge feedstock (or
    [staged-recipes](https://github.com/conda-forge/staged-recipes) for the
-   first submission) updating the version and `sha256`. The recipe in
-   [`conda/meta.yaml`](conda/meta.yaml) is the starting point.
+   first submission) using the published PyPI sdist URL and real `sha256`.
 
 ### Verifying a build locally
 
