@@ -26,8 +26,10 @@ from .hydrological_state import (
     suggest_dynamic_hydro_year_config,
 )
 from .io import (
+    WetPlanningFootprint,
     WOfSCacheHandle,
     acquire_wofs_cache,
+    build_wet_planning_footprint,
     complete_monthly_axis,
     load_aoi,
     load_extent_csv,
@@ -54,6 +56,7 @@ __all__ = [
     "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
     "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
     "verify_cache_footprints", "open_completed_dual_extent_counts",
+    "build_wet_planning_footprint", "WetPlanningFootprint",
     "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
     "DynamicHydroYearConfig", "HydrologicalStateResult",
     "SeasonalPatternResult", "aggregate_basin_monthly_extent",

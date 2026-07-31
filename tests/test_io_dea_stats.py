@@ -3,6 +3,7 @@
 Fully offline: the STAC client and the raster loader are both injected, so
 these tests never touch the network.
 """
+import time
 from unittest.mock import Mock
 
 import numpy as np
@@ -366,6 +367,57 @@ def test_open_wo_statistics_passes_chunks_through(monkeypatch):
     assert calls["load_kwargs"]["chunks"] == {"x": 512, "y": 512}
 
 
+def test_open_wo_statistics_stops_waiting_after_search_deadline(monkeypatch):
+    """A blocking STAC item iterator must return control at the deadline, not
+    only raise after the slow search eventually finishes."""
+    import hydroseason._io_dea_stats as mod
+
+    monkeypatch.setattr(mod, "STAC_SEARCH_DEADLINE_S", 0.01)
+
+    class Search:
+        def items(self):
+            time.sleep(0.5)
+            return []
+
+    class FakeClient:
+        def search(self, **_kwargs):
+            return Search()
+
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=FakeClient()))
+
+    started = time.monotonic()
+    with pytest.raises(mod.WoStatisticsUnavailable, match="deadline"):
+        open_wo_statistics(_aoi())
+    assert time.monotonic() - started < 0.35
+
+
+def test_open_wo_statistics_sets_pystac_and_lazy_rio_timeouts(monkeypatch):
+    """STAC search timeout constants must be wired to pystac_client, and COG
+    read configuration must be installed on odc-stac for later lazy reads."""
+    import hydroseason._io_dea_stats as mod
+
+    items = [_FakeItem("item-1", "2020-06-01T00:00:00Z")]
+    calls = _install_stac_fakes(monkeypatch, items, _dask_dataset, module=mod)
+    configure_rio = Mock()
+    monkeypatch.setattr("odc.stac.configure_rio", configure_rio)
+
+    result = open_wo_statistics(_aoi())
+
+    assert calls["search_count"] == 1
+    import pystac_client
+
+    pystac_client.Client.open.assert_called_once_with(
+        mod.DEFAULT_WO_STATISTICS_STAC_URL,
+        timeout=(mod.STAC_CONNECT_TIMEOUT_S, mod.STAC_READ_TIMEOUT_S),
+    )
+    configure_rio.assert_called_once_with(
+        cloud_defaults=True,
+        aws={"aws_unsigned": True},
+    )
+    assert hasattr(result["count_wet"].data, "compute")
+    assert result["count_wet"].isel(x=0, y=1).compute().item() >= 0
+
+
 # --------------------------------------------------------------------------
 # build_wet_planning_footprint: a SEPARATE, performance-only artifact built
 # on top of open_wo_statistics's output. It is a pruning/planning aid only
@@ -697,3 +749,32 @@ def test_footprint_active_windows_are_grid_windows():
             w.y_start <= y < w.y_stop and w.x_start <= x < w.x_stop
             for w in footprint.active_windows
         )
+
+
+@pytest.mark.parametrize(
+    "shape_name, grid",
+    [
+        ("isolated pixel", np.pad(np.array([[1]], dtype=np.int32), ((3, 12), (11, 4)))),
+        ("thin diagonal", np.eye(16, dtype=np.int32)),
+        ("thin orthogonal channel", np.pad(np.ones((1, 20), dtype=np.int32), ((9, 10), (0, 0)))),
+        ("partial coarse block", np.pad(np.array([[1]], dtype=np.int32), ((9, 0), (9, 0)))),
+    ],
+)
+def test_footprint_vector_clip_keeps_every_native_wet_pixel(shape_name, grid):
+    """The polygon used for fine clipping must rasterize back over every native
+    wet pixel; coarse-window coverage alone would not catch clip shrinkage."""
+    from hydroseason._io_geo import _inside_aoi_mask_like
+    from hydroseason._io_wofs_acquire import _wet_aoi_from_planning_footprint
+
+    stats = _stats_dataset(grid)
+    footprint = build_wet_planning_footprint(
+        stats, factor=4, safety_cells=0, requested_years=[1988],
+    )
+
+    wet_aoi = _wet_aoi_from_planning_footprint(footprint)
+    clipped_inside = np.asarray(
+        _inside_aoi_mask_like(footprint.native_mask, wet_aoi).values, dtype=bool
+    )
+    native = np.asarray(footprint.native_mask.values, dtype=bool)
+
+    assert np.all(~native | clipped_inside), shape_name

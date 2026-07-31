@@ -8,9 +8,9 @@ from affine import Affine
 from shapely.geometry import box
 
 from hydroseason._spatial_plan import (
+    active_windows_from_mask,
     plan_spatial_slices,
     plan_storage_aligned_slices,
-    active_windows_from_mask,
 )
 
 
@@ -167,4 +167,15 @@ def test_active_windows_from_mask_merges_adjacent_true_cells_to_storage_chunk():
     # storage_chunk=4 block spanning native cols 0:4.
     assert len(windows) == 1
     assert (windows[0].y_start, windows[0].y_stop, windows[0].x_start, windows[0].x_stop) == (0, 2, 0, 4)
+
+
+def test_active_windows_from_mask_rejects_unaligned_storage_chunk():
+    """A coarse cell that straddles a storage boundary would otherwise drop
+    native pixels outside the chunk selected by the cell's start coordinate."""
+    coarse = np.array([[False, True, False]])
+
+    with pytest.raises(ValueError, match="multiple of factor"):
+        active_windows_from_mask(
+            coarse, factor=3, native_shape=(3, 9), storage_chunk=4,
+        )
 

@@ -22,9 +22,9 @@ gpd = pytest.importorskip("geopandas")
 pytest.importorskip("rioxarray")
 pytest.importorskip("shapely")
 
-from shapely.geometry import box
+from shapely.geometry import box  # noqa: E402
 
-from hydroseason._io_wofs_zarr import (
+from hydroseason._io_wofs_zarr import (  # noqa: E402
     WOfSCacheIdentity,
     WOfSCacheRequest,
     _read_json,

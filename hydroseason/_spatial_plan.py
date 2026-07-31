@@ -341,6 +341,11 @@ def active_windows_from_mask(
         raise ValueError(f"factor must be at least 1, got {factor!r}")
     if storage_chunk < 1:
         raise ValueError(f"storage_chunk must be at least 1, got {storage_chunk!r}")
+    if storage_chunk % factor != 0:
+        raise ValueError(
+            f"storage_chunk must be a positive multiple of factor, got "
+            f"storage_chunk={storage_chunk!r}, factor={factor!r}"
+        )
     height, width = native_shape
     if height < 1 or width < 1:
         raise ValueError(f"native_shape must have positive dimensions, got {native_shape!r}")

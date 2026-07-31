@@ -14,6 +14,7 @@ def test_package_import_exposes_only_migration_safe_surface():
         "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
         "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
         "verify_cache_footprints", "open_completed_dual_extent_counts",
+        "build_wet_planning_footprint", "WetPlanningFootprint",
         "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
         "DynamicHydroYearConfig", "HydrologicalStateResult",
         "SeasonalPatternResult", "aggregate_basin_monthly_extent",
@@ -46,6 +47,8 @@ def test_package_import_exposes_only_migration_safe_surface():
     # the top-level package surface, not just via the private
     # hydroseason._io_wofs_zarr module.
     assert callable(hydroseason.open_completed_dual_extent_counts)
+    assert callable(hydroseason.build_wet_planning_footprint)
+    assert hydroseason.WetPlanningFootprint.__name__ == "WetPlanningFootprint"
     assert callable(hydroseason.assess_water_regime)
     assert callable(hydroseason.extract_water_events)
     assert callable(hydroseason.analyze_catchment)

@@ -177,13 +177,12 @@ class WOfSCacheRequest:
     footprint_safety_cells: int | None = None
     footprint_covered_years: tuple[int, ...] | None = None
     # "legacy" (the default) preserves every existing hydroseason result and
-    # cache identity byte-for-byte -- see test_legacy_composite_bundle_is_the_
-    # default_and_preserves_request_digest. "hydrofragments_v1" is new
+    # cache identity byte-for-byte, so it is omitted from the digest payload
+    # like other absent/default provenance fields. "hydrofragments_v1" is new
     # behaviour (task W2.2's dual-composite extent counts, not implemented by
     # this field alone) that must never share a store with a "legacy" run of
-    # otherwise-identical parameters, so unlike the fields above this one IS
-    # always included in the digest payload -- there is no meaningful
-    # "absent" composite bundle to omit.
+    # otherwise-identical parameters, so non-legacy values remain digest
+    # inputs.
     composite_bundle: str = "legacy"
 
     def _digest_payload(self) -> dict:
@@ -203,6 +202,8 @@ class WOfSCacheRequest:
             # JSON encoding needs a list -- keep the payload JSON-serialisable
             # like every other field.
             payload["footprint_covered_years"] = list(payload["footprint_covered_years"])
+        if payload.get("composite_bundle") == "legacy":
+            payload.pop("composite_bundle", None)
         return payload
 
     def request_digest(self) -> str:
@@ -2084,6 +2085,14 @@ def open_completed_extent_counts(
     if not set(requested_years).issubset(done):
         return None
 
+    denominator_pixel_count: int | None = None
+    try:
+        footprints = read_cache_footprints(handle)
+    except (FileNotFoundError, ValueError):
+        footprints = None
+    if footprints is not None and footprints.analysis_pixel_count < footprints.aoi_pixel_count:
+        denominator_pixel_count = int(footprints.aoi_pixel_count)
+
     all_dates = []
     all_n_aoi = []
     all_n_valid = []
@@ -2118,6 +2127,18 @@ def open_completed_extent_counts(
                 return None
             if inv != aoi - val:
                 return None
+
+        if denominator_pixel_count is not None:
+            corrected_n_aoi = []
+            corrected_n_valid = []
+            for aoi, val in zip(n_aoi, n_valid):
+                omitted = denominator_pixel_count - int(aoi)
+                if omitted < 0:
+                    return None
+                corrected_n_aoi.append(denominator_pixel_count)
+                corrected_n_valid.append(int(val) + omitted)
+            n_aoi = corrected_n_aoi
+            n_valid = corrected_n_valid
 
         all_dates.extend(dates)
         all_n_aoi.extend(n_aoi)

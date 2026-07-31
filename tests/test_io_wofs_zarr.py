@@ -166,6 +166,7 @@ def test_legacy_composite_bundle_is_the_default_and_preserves_request_digest():
     stay reachable byte-for-byte."""
     request = _base_request()
     assert request.composite_bundle == "legacy"
+    assert "composite_bundle" not in request._digest_payload()
     explicit_legacy = _base_request(composite_bundle="legacy")
     assert explicit_legacy.request_digest() == request.request_digest()
 
@@ -660,6 +661,55 @@ def test_annual_writer_persists_exact_monthly_extent_counts(tmp_path):
     assert extent["n_invalid"].tolist() == [1, 1]
     assert extent["extent_pct"].tolist() == [50.0, 50.0]
     assert extent["invalid_pct"].tolist() == [20.0, 20.0]
+
+
+def test_pruned_extent_counts_use_full_aoi_denominator_from_footprints(tmp_path):
+    """A pruned store's cached fast path must report the full requested AOI
+    denominator; analysis-only counts inflate extent_pct."""
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    from hydroseason._io_wofs_zarr import record_cache_footprints
+
+    mask = _canonical_cube(shape=(2, 2, 4), fill=-2)
+    mask.values[:, :, :] = [
+        [[1, 0, -2, -2], [1, 0, -2, -2]],
+        [[1, 0, -2, -2], [1, 0, -2, -2]],
+    ]
+    handle = _handle_for_cube(tmp_path, mask)
+    full_aoi = gpd.GeoDataFrame(
+        {"geometry": [box(999.0, 1941.0, 1119.0, 1999.0)]}, crs="EPSG:3577"
+    )
+    analysis_footprint = gpd.GeoDataFrame(
+        {"geometry": [box(999.0, 1941.0, 1059.0, 1999.0)]}, crs="EPSG:3577"
+    )
+    footprints = record_cache_footprints(
+        handle,
+        full_aoi_gdf=full_aoi,
+        analysis_footprint_gdf=analysis_footprint,
+        shape=(2, 4),
+        transform=(30.0, 0.0, 1000.0, 0.0, -30.0, 2000.0),
+        crs="EPSG:3577",
+    )
+    assert footprints.aoi_pixel_count == 8
+    assert footprints.analysis_pixel_count == 4
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 4}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 4),),
+        item_ids=("a",),
+    )
+
+    extent = open_completed_extent_counts(handle, "2015-01-01", "2015-01-01")
+
+    assert extent is not None
+    assert extent["n_water"].tolist() == [2]
+    assert extent["n_aoi"].tolist() == [8]
+    assert extent["n_valid"].tolist() == [8]
+    assert extent["n_invalid"].tolist() == [0]
+    assert extent["extent_pct"].tolist() == [25.0]
 
 
 def test_write_annual_group_persists_dual_extent_counts_when_given(tmp_path):

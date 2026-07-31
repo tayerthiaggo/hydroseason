@@ -1,5 +1,6 @@
-import tomllib
 from pathlib import Path
+
+import tomllib
 
 from scripts.check_release_metadata import validate_release_metadata
 

@@ -192,10 +192,10 @@ def test_hydrofragments_v1_builds_one_source_graph_not_one_per_composite(monkeyp
     pytest.importorskip("dask")
     pytest.importorskip("rioxarray")
     pytest.importorskip("odc.geo")
-    from unittest.mock import Mock
+
+    from odc.geo.geobox import GeoBox
 
     from hydroseason._io_geo import build_wofs_year_graph
-    from odc.geo.geobox import GeoBox
 
     geobox = GeoBox.from_bbox((0, 0, 2, 2), crs="EPSG:3577", shape=(2, 2))
     dates = pd.to_datetime(["2020-01-05", "2020-01-15", "2020-01-25"])

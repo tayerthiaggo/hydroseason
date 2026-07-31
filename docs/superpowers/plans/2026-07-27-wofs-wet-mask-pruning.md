@@ -1,5 +1,14 @@
 # WOfS Wet-Mask Pruning and Write-Path Performance Implementation Plan
 
+> **Superseded pruning route (2026-07-31):** polygon pruning in this plan is
+> compatibility history for `wet_mask="dea_stats"`. New callers should use the
+> conservative max-pooled `WetPlanningFootprint` /
+> `planning_footprint` route, which proves native wet pixels remain inside
+> the analysis footprint through both coarse windows and fine clipping. The
+> default remains unpruned. Independent write-path wins from this plan remain
+> authoritative, including blake2b content hashing, per-year STAC cache
+> identity, empty-year fast path, and other Zarr write-path improvements.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Cut WOfS acquisition wall-clock time by pruning reads to a pre-computed ever-wet mask derived from DEA Water Observation Statistics, and by removing three independent hot-spots in the Zarr write path.

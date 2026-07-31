@@ -1223,8 +1223,8 @@ def test_planning_footprint_derived_wet_aoi_clips_pixels_outside_it_via_clip_to_
     applies (matching the sibling wet_aoi-producing functions' convention),
     so the buffered polygon still leaves a clearly-outside region."""
     from hydroseason._io_dea_stats import WetPlanningFootprint
-    from hydroseason._io_wofs_acquire import _wet_aoi_from_planning_footprint
     from hydroseason._io_geo import _clip_to_aoi
+    from hydroseason._io_wofs_acquire import _wet_aoi_from_planning_footprint
     from hydroseason._spatial_plan import GridWindow
 
     # AOI is box(0, 0, 1200, 1200) in EPSG:3577 at 30 m -> a 40x40 native

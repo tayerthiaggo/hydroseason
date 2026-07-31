@@ -230,7 +230,11 @@ def _wet_aoi_from_planning_footprint(footprint: WetPlanningFootprint):
     """
     from hydroseason._wet_aoi import wet_aoi_polygon
 
-    return wet_aoi_polygon(footprint.native_mask, close_m=150.0, buffer_m=300.0)
+    close_m = 150.0
+    buffer_m = 300.0
+    if buffer_m < close_m:
+        raise ValueError("planning footprint buffer_m must be at least close_m")
+    return wet_aoi_polygon(footprint.native_mask, close_m=close_m, buffer_m=buffer_m)
 
 
 def _resolve_wet_aoi(

@@ -24,7 +24,6 @@ All geospatial imports stay inside function bodies, per the package rule.
 from __future__ import annotations
 
 import hashlib
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Collection, Mapping, Sequence
@@ -151,7 +150,14 @@ def _load_count_wet(stac_url: str, collection: str, year: int | None, geobox):
 
     # (connect, read) timeout -- a hung STAC connection otherwise blocks
     # forever, since pystac_client's default is None (no bound).
-    client = pystac_client.Client.open(stac_url, timeout=(15, 30))
+    odc.stac.configure_rio(
+        cloud_defaults=True,
+        aws={"aws_unsigned": True},
+    )
+    client = pystac_client.Client.open(
+        stac_url,
+        timeout=(STAC_CONNECT_TIMEOUT_S, STAC_READ_TIMEOUT_S),
+    )
     items = list(client.search(**search_kwargs).items())
     if not items:
         raise DEAStatsUnavailable(
@@ -244,45 +250,31 @@ def open_wo_statistics(
     before = {key: os.environ.get(key) for key in env_keys}
     try:
         _configure_cog_read_env()
-        # Explicit per-request STAC connect/read timeouts (the brief's
-        # "set explicit STAC connect/read timeouts"): pystac_client forwards
-        # unknown kwargs to the underlying requests session via
-        # stac_io, but the simplest, dependency-light way to bound this is
-        # the same GDAL_HTTP_* timeouts _configure_cog_read_env already sets
-        # for the COG reads themselves (STAC_CONNECT_TIMEOUT_S /
-        # STAC_READ_TIMEOUT_S document the intended bounds; GDAL_HTTP_TIMEOUT
-        # /GDAL_HTTP_CONNECTTIMEOUT are the enforcement mechanism already
-        # wired by _configure_cog_read_env).
-        client = pystac_client.Client.open(stac_url)
+        client = pystac_client.Client.open(
+            stac_url,
+            timeout=(STAC_CONNECT_TIMEOUT_S, STAC_READ_TIMEOUT_S),
+        )
 
-        # This measures elapsed time around the search rather than
-        # interrupting an in-flight request (hydroseason has no established
-        # pattern for hard-cancelling a blocking network call, and the
-        # per-request GDAL_HTTP_TIMEOUT/CONNECTTIMEOUT above already bound
-        # each individual COG read). What this guarantees is the promised
-        # contract: a slow or hanging zoning source still resolves to a
-        # raised WoStatisticsUnavailable rather than blocking forever, so
-        # the caller can always fall back to its local-cube zoning path.
-        started = time.monotonic()
         try:
             search = client.search(
                 collections=[product],
                 bbox=bbox,
                 limit=1000,
             )
-            items = list(search.items())
+            items = _run_with_timeout(
+                lambda: list(search.items()),
+                STAC_SEARCH_DEADLINE_S,
+            )
+        except TimeoutError as exc:
+            raise WoStatisticsUnavailable(
+                f"DEA Water Observation Statistics search exceeded the "
+                f"{STAC_SEARCH_DEADLINE_S:g}s deadline"
+            ) from exc
         except Exception as exc:
             raise WoStatisticsUnavailable(
                 f"DEA Water Observation Statistics STAC search failed for "
                 f"product '{product}': {type(exc).__name__}: {exc}"
             ) from exc
-        elapsed = time.monotonic() - started
-        if elapsed > STAC_SEARCH_DEADLINE_S:
-            raise WoStatisticsUnavailable(
-                f"DEA Water Observation Statistics STAC search for product "
-                f"'{product}' took {elapsed:.1f}s, exceeding the "
-                f"{STAC_SEARCH_DEADLINE_S}s load deadline"
-            )
 
         if not items:
             raise WoStatisticsUnavailable(
@@ -303,6 +295,14 @@ def open_wo_statistics(
         else:
             load_kwargs["chunks"] = {"x": 2048, "y": 2048}
 
+        # configure_rio installs odc-stac's Rasterio environment for lazy
+        # COG reads that happen after this function has returned. The worker
+        # thread used to enforce STAC search deadlines cannot be killed by
+        # Python; timeout returns control while that orphaned request finishes.
+        odc.stac.configure_rio(
+            cloud_defaults=True,
+            aws={"aws_unsigned": True},
+        )
         dataset = odc.stac.load(items, **load_kwargs)
     finally:
         for key, value in before.items():
