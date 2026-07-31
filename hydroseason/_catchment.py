@@ -29,14 +29,17 @@ that never presumes a cycle exists.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from typing import Literal
 
 import pandas as pd
 
+from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
 from ._regime import WaterRegimeAssessment, assess_water_regime
-from ._state_input import QualityPolicy
+from ._state_input import QualityPolicy, prepare_monthly_extent
 from .hydro_year import HydroYearConfig, detect_hydrological_years
+from .hydrological_state import HydrologicalStateResult, analyze_hydrological_state
 
 Route = str
 
@@ -54,6 +57,7 @@ class CatchmentAnalysis:
     climatological_peak_month: int | None = None
     climatological_trough_month: int | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    state: HydrologicalStateResult | None = None
 
     def summary_row(self, *, name: str) -> dict:
         """Flat one-row-per-catchment record for a cross-catchment table."""
@@ -129,6 +133,9 @@ def analyze_catchment(
     min_months_per_year: int = 9,
     max_invalid_pct: float = 20.0,
     quality_policy: QualityPolicy = "exclude",
+    phase_model: Literal["none", "rule_based"] = "none",
+    n_bootstrap: int = 200,
+    random_state: int = 0,
 ) -> CatchmentAnalysis:
     """Assess regime, then run the analysis that regime supports.
 
@@ -137,6 +144,9 @@ def analyze_catchment(
     detectors directly, which makes the override explicit in their own code
     rather than hidden in a flag here.
     """
+    if phase_model not in {"none", "rule_based"}:
+        raise ValueError("phase_model must be 'none' or 'rule_based'")
+
     regime = assess_water_regime(
         extent,
         value_col=value_col,
@@ -167,6 +177,7 @@ def analyze_catchment(
             hydro_years=empty_years,
             events=events,
             monthly=pd.DataFrame(),
+            state=None,
             warnings=tuple(warnings),
         )
 
@@ -182,8 +193,53 @@ def analyze_catchment(
             hydro_years=empty_years,
             events=events,
             monthly=pd.DataFrame(),
+            state=None,
             climatological_peak_month=None,
             climatological_trough_month=None,
+            warnings=tuple(warnings),
+        )
+
+    if regime.regime == "seasonal":
+        config = DynamicHydroYearConfig(
+            expected_trough_month=int(regime.climatological_trough_month),
+            expected_peak_month=int(regime.climatological_peak_month),
+            max_invalid_pct=max_invalid_pct,
+            quality_policy=quality_policy,
+            detector="robust_extrema",
+            phase_model=phase_model,
+        )
+        state_extent = prepare_monthly_extent(
+            extent,
+            value_col=value_col,
+            date_col=date_col,
+            max_invalid_pct=max_invalid_pct,
+            quality_policy=quality_policy,
+        )
+        state = analyze_hydrological_state(
+            state_extent,
+            config=config,
+            n_bootstrap=n_bootstrap,
+            random_state=random_state,
+            quality_policy=quality_policy,
+        )
+        years = state.hydro_years.copy()
+        if not years.empty:
+            years["boundary_basis"] = "detected_per_year"
+        state = replace(state, hydro_years=years)
+        return CatchmentAnalysis(
+            regime=regime,
+            route="per_year_detection",
+            route_reason=(
+                f"seasonal record (SNR {regime.amplitude_snr:.2f}, per-year peak spread "
+                f"{regime.peak_phase_iqr_months:.1f} months): per-year boundaries are "
+                "reproducible"
+            ),
+            hydro_years=years,
+            events=events,
+            monthly=pd.DataFrame(),
+            state=state,
+            climatological_peak_month=regime.climatological_peak_month,
+            climatological_trough_month=regime.climatological_trough_month,
             warnings=tuple(warnings),
         )
 
@@ -206,6 +262,7 @@ def analyze_catchment(
             hydro_years=empty_years,
             events=events,
             monthly=pd.DataFrame(),
+            state=None,
             climatological_peak_month=regime.climatological_peak_month,
             climatological_trough_month=regime.climatological_trough_month,
             warnings=tuple(warnings),
@@ -228,25 +285,17 @@ def analyze_catchment(
             hydro_years=empty_years,
             events=events,
             monthly=pd.DataFrame(),
+            state=None,
             warnings=tuple(warnings),
         )
 
-    if regime.regime == "seasonal":
-        route = "per_year_detection"
-        basis = "detected_per_year"
-        reason = (
-            f"seasonal record (SNR {regime.amplitude_snr:.2f}, per-year peak spread "
-            f"{regime.peak_phase_iqr_months:.1f} months): per-year boundaries are "
-            "reproducible"
-        )
-    else:
-        route = "fixed_climatological_window"
-        basis = "imposed_fixed_window"
-        reason = (
-            f"marginal record (SNR {regime.amplitude_snr:.2f}, per-year peak spread "
-            f"{regime.peak_phase_iqr_months:.1f} months): per-year timing is not "
-            "reproducible, so one fixed climatological window is imposed on every year"
-        )
+    route = "fixed_climatological_window"
+    basis = "imposed_fixed_window"
+    reason = (
+        f"marginal record (SNR {regime.amplitude_snr:.2f}, per-year peak spread "
+        f"{regime.peak_phase_iqr_months:.1f} months): per-year timing is not "
+        "reproducible, so one fixed climatological window is imposed on every year"
+    )
     if not years.empty:
         years = years.copy()
         years["boundary_basis"] = basis
@@ -258,6 +307,7 @@ def analyze_catchment(
         hydro_years=years,
         events=events,
         monthly=pd.DataFrame(),
+        state=None,
         climatological_peak_month=regime.climatological_peak_month,
         climatological_trough_month=regime.climatological_trough_month,
         warnings=tuple(warnings),

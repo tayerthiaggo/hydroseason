@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from hydroseason._catchment import analyze_catchment
+from hydroseason.hydrological_state import HydrologicalStateResult
 
 
 def _seasonal(years=30, noise=0.02, seed=0):
@@ -94,6 +95,33 @@ def test_fixed_window_years_are_marked_as_imposed_not_detected():
 def test_seasonal_years_are_marked_as_detected():
     result = analyze_catchment(_seasonal())
     assert (result.hydro_years["boundary_basis"] == "detected_per_year").all()
+
+
+def test_seasonal_route_uses_robust_dynamic_state():
+    result = analyze_catchment(_seasonal(), phase_model="rule_based", n_bootstrap=40)
+
+    assert result.route == "per_year_detection"
+    assert isinstance(result.state, HydrologicalStateResult)
+    assert result.state.config.detector == "robust_extrema"
+    pd.testing.assert_frame_equal(result.hydro_years, result.state.hydro_years)
+    assert result.hydro_years["boundary_basis"].eq("detected_per_year").all()
+    assert result.state.monthly_phase["phase_method"].eq("rule_based").any()
+
+
+def test_aseasonal_route_never_constructs_state_or_years():
+    result = analyze_catchment(_aseasonal(), phase_model="rule_based", n_bootstrap=40)
+
+    assert result.route == "event_characterisation"
+    assert result.state is None
+    assert result.hydro_years.empty
+
+
+def test_marginal_route_keeps_imposed_windows_separate_from_robust_state():
+    result = analyze_catchment(_marginal(), phase_model="rule_based", n_bootstrap=40)
+
+    assert result.route == "fixed_climatological_window"
+    assert result.state is None
+    assert result.hydro_years["boundary_basis"].eq("imposed_fixed_window").all()
 
 
 def test_peak_and_trough_withheld_for_aseasonal():
