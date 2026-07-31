@@ -15,6 +15,7 @@ HydroSeason commit created:
 
 - `dc344c0 fix: harden DEA planning and cache contracts`
 - `809b61f fix: fail closed on pruned extent denominators`
+- `af20e95 fix: reject pruned mask extent fallbacks`
 
 HydroFragments commit created:
 
@@ -68,14 +69,14 @@ Compatibility-only path: `wet_mask="dea_stats"` polygon pruning. `docs/superpowe
 
 ## Verification
 
-- Red tests first: six new regressions failed on old behavior; final-review denominator tests then failed because the reader returned inferred pruned counts and the facade did not raise.
-- New regression set after fixes: 11 passed before final review; final-review denominator regressions: 3 passed.
+- Red tests first: six new regressions failed on old behavior; final-review denominator tests then failed because the reader returned inferred pruned counts and the facade did not raise for every pruned fallback path.
+- New regression set after fixes: 11 passed before final review; final-review denominator regressions: 4 passed.
 - Task 3 gate: `python -m pytest tests\test_io_dea_stats.py tests\test_io.py tests\test_package_surface.py -q` -> 105 passed.
-- Task 4 gate: `python -m pytest tests\test_io_dea_stats.py tests\test_spatial_plan.py tests\test_io_wofs_acquire.py tests\test_io_wofs_zarr.py tests\test_io_cache_footprints.py -q` -> 144 passed.
+- Task 4/final-review gate: `python -m pytest tests\test_io_wofs_zarr.py tests\test_io.py tests\test_io_dea_stats.py tests\test_spatial_plan.py tests\test_io_wofs_acquire.py tests\test_io_cache_footprints.py -q` -> 209 passed.
 - Metadata: `python scripts\check_release_metadata.py` -> exit 0.
 - Ruff: `python -m ruff check hydroseason tests scripts` -> all checks passed.
 - Lock: `uv lock --check` -> resolved 159 packages, exit 0.
-- Offline full tests: `python -m pytest -q -m "not experimental and not network and not performance"` -> 579 passed, 2 deselected, 15 warnings.
+- Offline full tests: `python -m pytest -q -m "not experimental and not network and not performance"` -> 580 passed, 2 deselected, 15 warnings.
 - Case study data: `python scripts\prepare_case_study_data.py --check` -> all 20 files and hashes intact.
 - Docs: `python -m mkdocs build --strict` -> exit 0.
 - Build: `python -m build` -> built `hydroseason-0.1.0.tar.gz` and `hydroseason-0.1.0-py3-none-any.whl`.
