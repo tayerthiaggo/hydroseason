@@ -45,7 +45,7 @@ from .report import CatchmentReportPaths, generate_catchment_report, generate_ht
 try:
     __version__ = _pkg_version("hydroseason")
 except PackageNotFoundError:  # running from a source tree without install
-    __version__ = "0.1.1"
+    __version__ = "0.1.0"
 
 __all__ = [
     "__version__", "HydroYearConfig", "detect_hydrological_years",

@@ -1,6 +1,14 @@
+import tomllib
 from pathlib import Path
 
 from scripts.check_release_metadata import validate_release_metadata
+
+
+def test_first_remote_sensing_release_version_is_0_1_0():
+    root = Path.cwd()
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    assert project["project"]["version"] == "0.1.0"
+    assert 'version: "0.1.0"' in (root / "CITATION.cff").read_text(encoding="utf-8")
 
 
 def test_repository_metadata_is_consistent_before_release():
