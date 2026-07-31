@@ -10,6 +10,7 @@ Execute Tasks 3-5 of `docs/superpowers/plans/2026-07-31-dea-merge-reconciliation
 - Exported `build_wet_planning_footprint` and `WetPlanningFootprint` publicly for the recommended HydroFragments route.
 - Kept legacy polygon pruning compatibility-only and added supersession banner to the old pruning plan.
 - Created HydroSeason commit `dc344c0`.
+- Created HydroSeason final-review fix commit `809b61f`.
 - Created HydroFragments commit `e20cf58`.
 - Wrote `docs/superpowers/audits/2026-07-31-dea-merge-audit.md`.
 
@@ -18,7 +19,7 @@ Execute Tasks 3-5 of `docs/superpowers/plans/2026-07-31-dea-merge-reconciliation
 - Focused Task 3: 105 passed.
 - Focused Task 4: 144 passed.
 - Metadata, Ruff, lock, offline pytest, case-study data check, strict MkDocs, build, Twine, wheel contents, and sdist listing all passed.
-- Full offline pytest: 577 passed, 2 deselected, 15 warnings.
+- Full offline pytest: 579 passed, 2 deselected, 15 warnings.
 - Exact built wheel: `hydroseason-0.1.0-py3-none-any.whl`.
 - HydroFragments exact-wheel integration: installed wheel reported `hydroseason.__version__ == "0.1.0"` from temp venv `site-packages`; required tests passed, 47 passed.
 

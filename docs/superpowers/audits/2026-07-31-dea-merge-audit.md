@@ -14,6 +14,7 @@ HydroSeason baseline before this stage: `2c925ac`.
 HydroSeason commit created:
 
 - `dc344c0 fix: harden DEA planning and cache contracts`
+- `809b61f fix: fail closed on pruned extent denominators`
 
 HydroFragments commit created:
 
@@ -28,7 +29,7 @@ HydroFragments still has unrelated untracked docs:
 
 ## Accepted Findings Fixed
 
-- P0-1: pruned Zarr extent fast path now uses persisted `CacheFootprints.aoi_pixel_count` as the full-AOI denominator when `analysis_pixel_count < aoi_pixel_count`. Regression: `tests/test_io_wofs_zarr.py::test_pruned_extent_counts_use_full_aoi_denominator_from_footprints`.
+- P0-1: pruned Zarr extent fast path no longer publishes analysis-footprint or inferred full-AOI denominators. When a store records pruning and the analysis footprint is smaller than the full AOI, `open_completed_extent_counts` returns `None`; `load_wofs_monthly_extent` then raises rather than reducing pruned masks into scientific extent percentages. Regressions: `tests/test_io_wofs_zarr.py::test_pruned_extent_counts_do_not_infer_full_aoi_denominator_from_footprints`, `tests/test_io_wofs_zarr.py::test_pruned_extent_counts_fail_closed_when_footprints_are_missing`, and `tests/test_io_wofs_zarr.py::test_load_wofs_monthly_extent_rejects_pruned_zarr_without_exact_counts`.
 - P0-2: `open_wo_statistics` now passes `timeout=(STAC_CONNECT_TIMEOUT_S, STAC_READ_TIMEOUT_S)` to `pystac_client.Client.open` and wraps `list(search.items())` in `_run_with_timeout`. Regression: `tests/test_io_dea_stats.py::test_open_wo_statistics_stops_waiting_after_search_deadline`.
 - P1-1: `active_windows_from_mask` now rejects `storage_chunk` values that are not multiples of `factor`, avoiding silent dropped native pixels. Regression: `tests/test_spatial_plan.py::test_active_windows_from_mask_rejects_unaligned_storage_chunk`.
 - P1-2: fine clipping now has an end-to-end proof over isolated, diagonal, orthogonal, and partial-block wet shapes. `_wet_aoi_from_planning_footprint` also makes the `buffer_m >= close_m` margin explicit.
@@ -43,7 +44,7 @@ Stage 1 priorities marked PASS were not changed:
 - Cache identity separation: retained and rechecked by focused suites; full, legacy-pruned, planning-footprint, and dual requests remain distinct.
 - Tamper detection: retained in `verify_cache_footprints`; focused cache-footprint tests pass.
 - One-graph dual composite: retained; `tests/test_io.py::test_hydrofragments_v1_builds_one_source_graph_not_one_per_composite` passed during the 105-test Task 3 gate.
-- Full-AOI footprint recording: retained through `record_cache_footprints`; denominator fix consumes that metadata.
+- Full-AOI footprint recording: retained through `record_cache_footprints`; exact extent readers verify that metadata for pruned stores and fail closed when it proves analysis pixels are smaller than the full AOI.
 - Core-only import isolation and no HydroFragments imports in HydroSeason: package-surface/focused suites pass; no HydroFragments import was added.
 - Legacy `wet_mask="off"` default and fail-open pruning discipline: existing focused acquisition suites pass.
 - `frequency = 100 * count_wet / count_clear`, zero-clear NaN, and provenance: existing DEA stats tests pass.
@@ -67,14 +68,14 @@ Compatibility-only path: `wet_mask="dea_stats"` polygon pruning. `docs/superpowe
 
 ## Verification
 
-- Red tests first: six new regressions failed on old behavior; adjusted denominator fixture then failed on `n_aoi [4] != [8]`.
-- New regression set after fixes: 11 passed.
+- Red tests first: six new regressions failed on old behavior; final-review denominator tests then failed because the reader returned inferred pruned counts and the facade did not raise.
+- New regression set after fixes: 11 passed before final review; final-review denominator regressions: 3 passed.
 - Task 3 gate: `python -m pytest tests\test_io_dea_stats.py tests\test_io.py tests\test_package_surface.py -q` -> 105 passed.
 - Task 4 gate: `python -m pytest tests\test_io_dea_stats.py tests\test_spatial_plan.py tests\test_io_wofs_acquire.py tests\test_io_wofs_zarr.py tests\test_io_cache_footprints.py -q` -> 144 passed.
 - Metadata: `python scripts\check_release_metadata.py` -> exit 0.
 - Ruff: `python -m ruff check hydroseason tests scripts` -> all checks passed.
 - Lock: `uv lock --check` -> resolved 159 packages, exit 0.
-- Offline full tests: `python -m pytest -q -m "not experimental and not network and not performance"` -> 577 passed, 2 deselected, 15 warnings.
+- Offline full tests: `python -m pytest -q -m "not experimental and not network and not performance"` -> 579 passed, 2 deselected, 15 warnings.
 - Case study data: `python scripts\prepare_case_study_data.py --check` -> all 20 files and hashes intact.
 - Docs: `python -m mkdocs build --strict` -> exit 0.
 - Build: `python -m build` -> built `hydroseason-0.1.0.tar.gz` and `hydroseason-0.1.0-py3-none-any.whl`.
