@@ -70,6 +70,267 @@ def test_combine_observations_exhaustive_parity():
             assert res.values[col_idx] == expected_val, f"Mismatch for combo {col_vals} with majority={maj}"
 
 
+def test_hydrofragments_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pixel(monkeypatch):
+    """Step 1 (W2.2): a hand-traceable fixture where max-water (any-day-wet)
+    and the existing majority-vote composite genuinely disagree at one pixel,
+    proving ``composite_bundle="hydrofragments_v1"`` must carry a SECOND,
+    independently-computed composite's counts through ``_load_wofs_items``
+    rather than just relabelling the primary composite.
+
+    Fixture: one month, 3 daily WOfS observations, 2x2 grid (raw WOfS
+    encoding: 0=dry, 128=wet, 1=invalid/nodata -- see ``_classify``'s
+    ``"wofs"`` branch). Per pixel, across the 3 days:
+
+    * (0, 0): wet, dry, dry -> majority vote score = 1 - 1 - 1 = -1 (not >
+      0) so the existing majority composite falls back to "dry" (0); the
+      any-day-wet (``max_water``) composite is 1 (wet) because day 1 alone
+      observed water. This is the exact pixel the plan's "max-water and
+      median genuinely differ" fixture requirement calls for.
+    * (0, 1): wet, wet, dry -> majority score = 1 > 0 -> wet (1); max_water
+      -> wet (1). Same result on both composites (a control cell).
+    * (1, 0): dry, dry, dry -> both composites agree: dry (0).
+    * (1, 1): invalid, invalid, wet -> majority score = 1 > 0 -> wet (1);
+      max_water -> wet (1). Same result on both (another control cell).
+
+    So exactly one of the four pixels (0, 0) diverges between the two
+    composites, and the aggregate wet-pixel COUNT for the month must
+    therefore differ: primary (majority) wet count = 2 ((0,1) and (1,1));
+    secondary (max_water) wet count = 3 ((0,0), (0,1), (1,1)).
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
+    from hydroseason._io_geo import _load_wofs_items
+
+    dates = pd.to_datetime(["2020-01-05", "2020-01-15", "2020-01-25"])
+    # raw[day, y, x]
+    raw = np.array(
+        [
+            [[128, 128], [0, 1]],
+            [[0, 128], [0, 1]],
+            [[0, 0], [0, 128]],
+        ],
+        dtype=np.uint16,
+    )
+    items = []
+    for date in dates:
+        item = type("Item", (), {})()
+        item.properties = {"datetime": date.isoformat()}
+        items.append(item)
+
+    def fake_stac_load(batch_items, **kwargs):
+        batch_dates = pd.to_datetime([item.properties["datetime"] for item in batch_items])
+        return xr.Dataset(
+            {"water": (("time", "y", "x"), raw[: len(batch_dates)])},
+            coords={"time": batch_dates, "y": [0, 1], "x": [0, 1]},
+        )
+
+    monkeypatch.setattr("odc.stac.stac_load", fake_stac_load)
+    # Identity clip: this fixture is not testing AOI rasterization, only the
+    # dual-composite reduction, matching the mocking altitude other
+    # _load_wofs_items-adjacent tests in this file already use.
+    # _load_wofs_items calls these via `hydroseason.io as _io` (module-attribute
+    # lookup at call time), so the patch target must be hydroseason.io, not
+    # hydroseason._io_geo, to actually intercept the call. The primary
+    # composite still goes through the ordinary _clip_to_aoi call (identity
+    # here, same as every other _load_wofs_items test in this file); the
+    # secondary composite goes through the new split
+    # _resolve_aoi_inside_mask/_apply_aoi_inside_mask pair, also identity
+    # here ("inside" everywhere True so nothing is marked outside-AOI).
+    monkeypatch.setattr(
+        "hydroseason.io._clip_to_aoi", lambda mask, target, wet_aoi=None: mask
+    )
+    monkeypatch.setattr(
+        "hydroseason.io._resolve_aoi_inside_mask",
+        lambda mask, target, wet_aoi=None: xr.ones_like(mask.isel(time=0), dtype=bool),
+    )
+    monkeypatch.setattr(
+        "hydroseason.io._apply_aoi_inside_mask", lambda mask, inside: mask
+    )
+
+    result = _load_wofs_items(
+        items,
+        _aoi(),
+        "2020-01-01",
+        "2020-01-31",
+        crs=None,
+        resolution=None,
+        geobox=None,
+        majority=True,
+        composite_bundle="hydrofragments_v1",
+    )
+
+    # The primary (majority) composite must be completely unaffected by
+    # requesting the dual bundle -- same values legacy would have produced.
+    primary = result.compute() if hasattr(result, "compute") else result
+    expected_primary = np.array([[0, 1], [0, 1]], dtype=np.int8)
+    np.testing.assert_array_equal(primary.isel(time=0).values, expected_primary)
+
+    dual = result.attrs.get("hydrofragments_dual_counts")
+    assert dual is not None, (
+        "composite_bundle='hydrofragments_v1' must attach the secondary "
+        "(max_water) composite's per-month pixel counts to the returned "
+        "mask; found none."
+    )
+    secondary_wet = np.asarray(dual["wet_count"].isel(time=0).values)
+    primary_wet_count = int((expected_primary == 1).sum())
+    assert primary_wet_count == 2
+    assert int(secondary_wet.sum()) == 3
+    assert int(secondary_wet.sum()) != primary_wet_count
+
+
+def test_hydrofragments_v1_builds_one_source_graph_not_one_per_composite(monkeypatch):
+    """Step 2 (W2.2): requesting the dual bundle must not cost a second STAC
+    load or a second classification pass -- both composites come from ONE
+    ``odc.stac.stac_load`` call per year and ONE set of classified daily
+    observations. Exercised through ``build_wofs_year_graph`` (the real
+    production call site ``_process_one_year`` uses), not just
+    ``_load_wofs_items`` directly, so the geobox-driven cache-acquisition
+    path is what is actually proven.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
+    pytest.importorskip("odc.geo")
+    from unittest.mock import Mock
+
+    from hydroseason._io_geo import build_wofs_year_graph
+    from odc.geo.geobox import GeoBox
+
+    geobox = GeoBox.from_bbox((0, 0, 2, 2), crs="EPSG:3577", shape=(2, 2))
+    dates = pd.to_datetime(["2020-01-05", "2020-01-15", "2020-01-25"])
+    raw = np.array(
+        [
+            [[128, 128], [0, 1]],
+            [[0, 128], [0, 1]],
+            [[0, 0], [0, 128]],
+        ],
+        dtype=np.uint16,
+    )
+    items = []
+    for date in dates:
+        item = type("Item", (), {})()
+        item.properties = {"datetime": date.isoformat()}
+        items.append(item)
+
+    classify_calls = {"n": 0}
+    stac_load_calls = {"n": 0}
+
+    def fake_stac_load(batch_items, **kwargs):
+        stac_load_calls["n"] += 1
+        batch_dates = pd.to_datetime([item.properties["datetime"] for item in batch_items])
+        return xr.Dataset(
+            {"water": (("time", "y", "x"), raw[: len(batch_dates)])},
+            coords={"time": batch_dates, "y": [0, 1], "x": [0, 1]},
+        )
+
+    import hydroseason._io_geo as geo
+
+    real_classify = geo._classify
+
+    def counting_classify(*args, **kwargs):
+        classify_calls["n"] += 1
+        return real_classify(*args, **kwargs)
+
+    monkeypatch.setattr("odc.stac.stac_load", fake_stac_load)
+    monkeypatch.setattr(geo, "_classify", counting_classify)
+    monkeypatch.setattr(
+        "hydroseason.io._clip_to_aoi", lambda mask, target, wet_aoi=None: mask
+    )
+    monkeypatch.setattr(
+        "hydroseason.io._resolve_aoi_inside_mask",
+        lambda mask, target, wet_aoi=None: xr.ones_like(mask.isel(time=0), dtype=bool),
+    )
+    monkeypatch.setattr(
+        "hydroseason.io._apply_aoi_inside_mask", lambda mask, inside: mask
+    )
+
+    result = build_wofs_year_graph(
+        items,
+        _aoi(),
+        "2020-01-01",
+        "2020-12-31",
+        geobox=geobox,
+        majority=True,
+        composite_bundle="hydrofragments_v1",
+    )
+
+    assert stac_load_calls["n"] == 1, "dual bundle must not re-query STAC a second time"
+    assert classify_calls["n"] == 1, "dual bundle must not re-run _classify() a second time"
+    assert result.attrs.get("hydrofragments_dual_counts") is not None
+
+
+def test_hydrofragments_v1_dual_counts_zero_fill_a_missing_month(monkeypatch):
+    """Edge case: a requested range wider than the available STAC items
+    forces complete_monthly_axis to insert a missing (all-invalid) month.
+    The dual-composite counts side-channel must be reindexed onto that SAME
+    completed monthly axis (zero-filled at the inserted month), not merely
+    sized to whatever months actually had observations -- otherwise
+    write_annual_group would receive a dual_counts cube whose time axis
+    doesn't line up with the primary mask's.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
+    from hydroseason._io_geo import _load_wofs_items
+
+    # Only January has observations; February (still inside the requested
+    # range) has none, so complete_monthly_axis must insert it.
+    dates = pd.to_datetime(["2020-01-05", "2020-01-15", "2020-01-25"])
+    raw = np.array(
+        [
+            [[128, 128], [0, 1]],
+            [[0, 128], [0, 1]],
+            [[0, 0], [0, 128]],
+        ],
+        dtype=np.uint16,
+    )
+    items = []
+    for date in dates:
+        item = type("Item", (), {})()
+        item.properties = {"datetime": date.isoformat()}
+        items.append(item)
+
+    def fake_stac_load(batch_items, **kwargs):
+        batch_dates = pd.to_datetime([item.properties["datetime"] for item in batch_items])
+        return xr.Dataset(
+            {"water": (("time", "y", "x"), raw[: len(batch_dates)])},
+            coords={"time": batch_dates, "y": [0, 1], "x": [0, 1]},
+        )
+
+    monkeypatch.setattr("odc.stac.stac_load", fake_stac_load)
+    monkeypatch.setattr(
+        "hydroseason.io._clip_to_aoi", lambda mask, target, wet_aoi=None: mask
+    )
+    monkeypatch.setattr(
+        "hydroseason.io._resolve_aoi_inside_mask",
+        lambda mask, target, wet_aoi=None: xr.ones_like(mask.isel(time=0), dtype=bool),
+    )
+    monkeypatch.setattr(
+        "hydroseason.io._apply_aoi_inside_mask", lambda mask, inside: mask
+    )
+
+    result = _load_wofs_items(
+        items,
+        _aoi(),
+        "2020-01-01",
+        "2020-02-29",
+        crs=None,
+        resolution=None,
+        geobox=None,
+        majority=True,
+        composite_bundle="hydrofragments_v1",
+    )
+
+    assert result.sizes["time"] == 2
+    dual = result.attrs["hydrofragments_dual_counts"]
+    assert dual.sizes["time"] == 2
+    february_wet = dual["wet_count"].isel(time=1).compute().values
+    february_clear = dual["clear_count"].isel(time=1).compute().values
+    assert int(np.asarray(february_wet).sum()) == 0
+    assert int(np.asarray(february_clear).sum()) == 0
+
+
 @pytest.mark.parametrize(
     "transform, expected",
     [

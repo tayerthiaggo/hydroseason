@@ -24,6 +24,44 @@ import hydroseason._io_geo as geo
 from hydroseason._io_wofs_acquire import acquire_wofs_cache, load_or_build_cached_wet_aoi
 
 
+def _planning_footprint(*, factor=4, safety_cells=1, covered_years=(2015,), digest="f" * 64):
+    """A minimal, hand-built stand-in for build_wet_planning_footprint's output.
+
+    Only the fields _io_wofs_acquire actually needs to thread through
+    (native_mask for the vectorised wet_aoi pixel-clip, digest/factor/
+    safety_cells/covered_years for cache identity) are populated with real,
+    properly georeferenced values -- native_mask is a 4x4, all-wet, 30 m
+    EPSG:3577 grid covering the same box(0, 0, 120, 120) footprint _aoi()
+    uses, so tests can exercise the real wet_aoi_polygon()/plan_storage_
+    aligned_slices() path rather than mocking it away.
+    """
+    from hydroseason._io_dea_stats import WetPlanningFootprint
+    from hydroseason._spatial_plan import GridWindow
+
+    transform = Affine(30.0, 0.0, 0.0, 0.0, -30.0, 120.0)
+    native_mask = xr.DataArray(
+        np.ones((4, 4), dtype=bool), dims=("y", "x"),
+        coords={
+            "y": transform.f + (np.arange(4) + 0.5) * transform.e,
+            "x": transform.c + (np.arange(4) + 0.5) * transform.a,
+        },
+    ).rio.write_crs("EPSG:3577").rio.write_transform(transform)
+    coarse_mask = xr.DataArray(np.ones((1, 1), dtype=bool), dims=("y", "x"))
+    return WetPlanningFootprint(
+        native_mask=native_mask,
+        coarse_mask=coarse_mask,
+        active_windows=(GridWindow("r0c0", 0, 4, 0, 4),),
+        factor=factor,
+        safety_cells=safety_cells,
+        digest=digest,
+        covered_years=tuple(covered_years),
+        source_collection="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_lineage="ga_ls_wo_fq_myear_3:item-1",
+        geometry=None,
+    )
+
+
 def _item(date: str, item_id: str):
     return SimpleNamespace(id=item_id, properties={"datetime": date})
 
@@ -817,3 +855,465 @@ def test_resolve_wet_aoi_off_refuses_pruning_even_with_a_working_local_handle(tm
     assert digest is None
 
 
+# ---------------------------------------------------------------------------
+# W2.1: planning_footprint threading -- query-count / pruning tests (Step 1)
+# ---------------------------------------------------------------------------
+
+
+def test_passing_a_prepared_planning_footprint_never_queries_dea_stats(monkeypatch, tmp_path):
+    """The whole point of accepting a prepared WetPlanningFootprint: a caller
+    (later, HydroFragments' orchestrator) that already built one via
+    build_wet_planning_footprint must never trigger a second DEA-statistics
+    STAC query when it hands the footprint to acquire_wofs_cache."""
+    import hydroseason._io_wofs_acquire as acquire
+
+    footprint = _planning_footprint()
+    items = [_item("2015-01-15", "a")]
+
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError("DEA statistics must not be queried when a prepared "
+                              "planning_footprint is supplied")
+
+    monkeypatch.setattr(acquire, "fetch_dea_stats_wet_aoi", _must_not_be_called)
+    monkeypatch.setattr("hydroseason._io_dea_stats.open_wo_statistics", _must_not_be_called)
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        planning_footprint=footprint,
+    )
+
+
+def test_planning_footprint_and_wet_aoi_together_is_rejected(tmp_path):
+    """Keep explicit legacy wet_aoi compatibility, but the two pruning
+    sources must never both be supplied -- ambiguous precedence."""
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    footprint = _planning_footprint()
+    wet_aoi = gpd.GeoDataFrame({"geometry": [box(0.0, 0.0, 100.0, 100.0)]}, crs="EPSG:3577")
+
+    with pytest.raises(ValueError, match="wet_aoi.*planning_footprint|planning_footprint.*wet_aoi"):
+        acquire_wofs_cache(
+            "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+            "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+            wet_aoi=wet_aoi, planning_footprint=footprint,
+        )
+
+
+def test_planning_footprint_queries_stac_items_exactly_once(monkeypatch, tmp_path):
+    """One STAC item query per uncached request, even when a planning
+    footprint is supplied -- the footprint prunes space, not the item query."""
+    footprint = _planning_footprint()
+    items = [_item("2015-01-15", "a")]
+    query = Mock(return_value=(items, _aoi()))
+    monkeypatch.setattr("hydroseason._io_wofs_acquire._query_wofs_items", query)
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        planning_footprint=footprint,
+    )
+
+    query.assert_called_once()
+
+
+def test_planning_footprint_shares_one_graph_per_year(monkeypatch, tmp_path):
+    """One shared load graph per year, same as the wet_aoi/dea_stats paths --
+    a planning_footprint must not fan a year out into multiple graphs."""
+    footprint = _planning_footprint(covered_years=(2015, 2016))
+    items = [_item("2015-01-15", "a"), _item("2016-02-15", "b")]
+    graph = Mock(side_effect=[_cube(2015), _cube(2016)])
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", graph)
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2016-12-31", cache_root=tmp_path, resolution=30,
+        planning_footprint=footprint,
+    )
+
+    assert graph.call_count == 2
+
+
+def test_planning_footprint_active_windows_are_the_only_windows_passed_to_writer(monkeypatch, tmp_path):
+    """Only active storage windows reach the writer -- windows planned from
+    the footprint's own (vectorised, native-grid) wet region, storage-aligned
+    on the acquisition's own parent geobox, exactly mirroring how an explicit
+    wet_aoi already prunes ``plan_storage_aligned_slices`` today. Windows are
+    NOT the footprint's raw ``active_windows`` byte-for-byte -- those are
+    indexed against the DEA-statistics native grid, which is not guaranteed
+    pixel-aligned with the acquisition's own parent geobox."""
+    # A footprint covering the whole test AOI (box(0, 0, 120, 120) at 30 m
+    # native resolution, i.e. a 4x4 native pixel grid) so the resulting
+    # storage-aligned plan is non-empty and covers the single 512px block.
+    footprint = _planning_footprint()
+    items = [_item("2015-01-15", "a")]
+    writer = Mock(return_value=_stats())
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", writer)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        planning_footprint=footprint,
+    )
+
+    writer.assert_called_once()
+    windows = writer.call_args.kwargs["windows"]
+    assert len(windows) >= 1
+    for w in windows:
+        assert w.y_start % 512 == 0
+        assert w.x_start % 512 == 0
+
+
+def test_planning_footprint_is_passed_through_to_year_graph(monkeypatch, tmp_path):
+    """build_wofs_year_graph must receive the planning footprint's pruning
+    intent (via wet_aoi/native_mask) so the fine-grain pixel clip applies it,
+    matching how the existing explicit wet_aoi is threaded."""
+    footprint = _planning_footprint()
+    items = [_item("2015-01-15", "a")]
+    graph = Mock(return_value=_cube(2015))
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", graph)
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        planning_footprint=footprint,
+    )
+
+    graph.assert_called_once()
+    assert graph.call_args.kwargs.get("wet_aoi") is not None
+
+
+def test_planning_footprint_and_composite_bundle_are_recorded_in_manifest(monkeypatch, tmp_path):
+    """Threading step 4 names 'manifest' explicitly: the footprint's
+    provenance and the composite_bundle mode must both be recorded, purely
+    for visibility -- cache identity itself is governed independently by
+    WOfSCacheRequest's footprint_*/composite_bundle fields."""
+    import json
+
+    footprint = _planning_footprint(factor=4, safety_cells=1, covered_years=(2015,))
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        planning_footprint=footprint, composite_bundle="hydrofragments_v1",
+    )
+
+    manifest = json.loads((handle.path / "manifest.json").read_text(encoding="utf-8"))
+    acq = manifest["acquisition"]
+    assert acq["composite_bundle"] == "hydrofragments_v1"
+    assert acq["planning_footprint"]["digest"] == footprint.digest
+    assert acq["planning_footprint"]["factor"] == 4
+    assert acq["planning_footprint"]["safety_cells"] == 1
+    assert acq["planning_footprint"]["covered_years"] == [2015]
+
+
+def test_hydrofragments_v1_threads_dual_counts_from_graph_to_writer(monkeypatch, tmp_path):
+    """Step 3 (W2.2) wiring: build_wofs_year_graph's
+    ``.attrs["hydrofragments_dual_counts"]`` side-channel must reach
+    write_annual_group's ``dual_counts`` keyword unchanged, and must be
+    popped off the mask (never left sitting on the object passed to
+    write_annual_group as `mask`, which only expects the primary
+    composite)."""
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+
+    sentinel_dual_counts = object()
+
+    def fake_graph(*_args, **_kwargs):
+        cube = _cube(2015)
+        cube.attrs["hydrofragments_dual_counts"] = sentinel_dual_counts
+        return cube
+
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", fake_graph)
+    writer = Mock(return_value=_stats())
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", writer)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        composite_bundle="hydrofragments_v1",
+    )
+
+    writer.assert_called_once()
+    assert writer.call_args.kwargs["dual_counts"] is sentinel_dual_counts
+    written_mask = writer.call_args.args[2]
+    assert "hydrofragments_dual_counts" not in written_mask.attrs
+
+
+def test_hydrofragments_v1_writes_zeroed_dual_counts_for_an_empty_year(monkeypatch, tmp_path):
+    """An empty year (no STAC items at all) must still get
+    dual_extent_counts.json when the dual bundle is requested -- both
+    composites are legitimately all-zero, not simply absent, keeping the
+    artifact's presence consistent across empty and non-empty years."""
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=([], _aoi())),
+    )
+    empty_writer = Mock(return_value=_stats())
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_empty_annual_group", empty_writer)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        composite_bundle="hydrofragments_v1",
+    )
+
+    empty_writer.assert_called_once()
+    assert empty_writer.call_args.kwargs["dual_extent_counts"] is True
+
+
+def test_legacy_composite_bundle_never_requests_dual_extent_counts_for_empty_year(monkeypatch, tmp_path):
+    """The default 'legacy' bundle must pass dual_extent_counts=False for an
+    empty year, matching its 'no new file, ever' guarantee."""
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=([], _aoi())),
+    )
+    empty_writer = Mock(return_value=_stats())
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_empty_annual_group", empty_writer)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+    )
+
+    empty_writer.assert_called_once()
+    assert empty_writer.call_args.kwargs["dual_extent_counts"] is False
+
+
+def test_default_composite_bundle_is_legacy_with_no_footprint_recorded(monkeypatch, tmp_path):
+    """A caller that never mentions composite_bundle or planning_footprint
+    must get the byte-identical legacy manifest shape (composite_bundle
+    recorded as "legacy", planning_footprint recorded as None)."""
+    import json
+
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+    )
+
+    manifest = json.loads((handle.path / "manifest.json").read_text(encoding="utf-8"))
+    acq = manifest["acquisition"]
+    assert acq["composite_bundle"] == "legacy"
+    assert acq["planning_footprint"] is None
+
+
+def test_offline_lookup_with_planning_footprint_resolves_the_same_store_built_online(monkeypatch, tmp_path):
+    """A caller that acquires online with a planning_footprint, then looks
+    the same request up offline with the identical footprint, must resolve
+    to the exact same store -- offline mode must never touch the network,
+    but its request_digest still needs to route through the footprint's
+    identity fields the same way the online path does."""
+    footprint = _planning_footprint()
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    online_handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        planning_footprint=footprint,
+    )
+
+    offline_handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        planning_footprint=footprint, offline=True,
+    )
+
+    assert offline_handle.path == online_handle.path
+    assert offline_handle.identity == online_handle.identity
+
+
+def test_planning_footprint_native_mask_produces_a_valid_wet_aoi_polygon():
+    """Not-mocked integration check for _wet_aoi_from_planning_footprint: a
+    real (small) footprint's native_mask must vectorise into a non-empty,
+    valid GeoDataFrame usable by the existing wet_aoi pixel-clip path."""
+    from hydroseason._io_wofs_acquire import _wet_aoi_from_planning_footprint
+
+    footprint = _planning_footprint()
+
+    wet_aoi = _wet_aoi_from_planning_footprint(footprint)
+
+    assert len(wet_aoi) > 0
+    assert not bool(wet_aoi.geometry.is_empty.all())
+    assert wet_aoi.crs is not None
+    # native_mask is entirely wet (all-ones 4x4 grid, see _planning_footprint).
+    # _wet_aoi_from_planning_footprint uses wet_aoi_polygon's default
+    # close_m=150.0/buffer_m=300.0 (the same margin convention as the sibling
+    # wet_aoi-producing functions), so the vectorised polygon covers the
+    # whole native grid extent PLUS the 300 m outward safety buffer.
+    minx, miny, maxx, maxy = wet_aoi.total_bounds
+    assert (minx, miny, maxx, maxy) == pytest.approx((-300.0, -300.0, 420.0, 420.0))
+
+
+def test_planning_footprint_derived_wet_aoi_clips_pixels_outside_it_via_clip_to_aoi():
+    """Real (non-mocked) hydroseason._io_geo._clip_to_aoi check that the
+    wet_aoi _wet_aoi_from_planning_footprint derives actually narrows the
+    written mask: a footprint wet only near the left edge of a large AOI must
+    leave pixels far to the right -2 (outside) after the real clip, not
+    water/dry/invalid -- this is the fine-grain pixel-clip half of spatial
+    pruning that build_wofs_year_graph applies via its existing wet_aoi
+    parameter. The grid is deliberately much larger than the 300 m
+    buffer_m/150 m close_m margin _wet_aoi_from_planning_footprint now
+    applies (matching the sibling wet_aoi-producing functions' convention),
+    so the buffered polygon still leaves a clearly-outside region."""
+    from hydroseason._io_dea_stats import WetPlanningFootprint
+    from hydroseason._io_wofs_acquire import _wet_aoi_from_planning_footprint
+    from hydroseason._io_geo import _clip_to_aoi
+    from hydroseason._spatial_plan import GridWindow
+
+    # AOI is box(0, 0, 1200, 1200) in EPSG:3577 at 30 m -> a 40x40 native
+    # pixel grid. A footprint wet only in columns 0-9 (0-300 m) buffers out
+    # to ~600 m (300 m buffer + up to ~150 m close-related growth), so
+    # columns from x=900 m (col 30) onward -- 300 m clear of the buffered
+    # edge -- must still clip to -2, while the wet columns themselves must
+    # not be clipped.
+    size = 40
+    transform = Affine(30.0, 0.0, 0.0, 0.0, -30.0, size * 30.0)
+    left_wet = np.zeros((size, size), dtype=bool)
+    left_wet[:, :10] = True
+    native_mask = xr.DataArray(
+        left_wet, dims=("y", "x"),
+        coords={
+            "y": transform.f + (np.arange(size) + 0.5) * transform.e,
+            "x": transform.c + (np.arange(size) + 0.5) * transform.a,
+        },
+    ).rio.write_crs("EPSG:3577").rio.write_transform(transform)
+    footprint = WetPlanningFootprint(
+        native_mask=native_mask,
+        coarse_mask=xr.DataArray(np.array([[True]]), dims=("y", "x")),
+        active_windows=(GridWindow("r0c0", 0, size, 0, size),),
+        factor=size, safety_cells=0, digest="a" * 64, covered_years=(2015,),
+        source_collection="ga_ls_wo_fq_myear_3", source_version="3",
+        source_lineage="ga_ls_wo_fq_myear_3:item-1", geometry=None,
+    )
+    footprint_wet_aoi = _wet_aoi_from_planning_footprint(footprint)
+
+    all_water_cube = xr.DataArray(
+        np.ones((1, size, size), dtype=np.int8), dims=("time", "y", "x"),
+        coords={
+            "time": pd.date_range("2015-06-01", periods=1, freq="MS"),
+            "y": transform.f + (np.arange(size) + 0.5) * transform.e,
+            "x": transform.c + (np.arange(size) + 0.5) * transform.a,
+        },
+    ).rio.write_crs("EPSG:3577").rio.write_transform(transform)
+
+    aoi = gpd.GeoDataFrame(geometry=[box(0, 0, size * 30.0, size * 30.0)], crs="EPSG:3577")
+    clipped = _clip_to_aoi(all_water_cube, aoi, wet_aoi=footprint_wet_aoi)
+    values = clipped.isel(time=0).values
+
+    assert np.all(values[:, :10] != -2)  # footprint-covered columns: not clipped
+    assert np.all(values[:, 30:] == -2)  # far outside the buffered footprint: clipped
+
+
+def test_acquire_wofs_cache_persists_identical_aoi_pixel_count_across_pruned_and_unpruned_runs(
+    monkeypatch, tmp_path
+):
+    """End-to-end proof of task W2.3's central correctness property, exercised
+    through the real acquire_wofs_cache entry point (not the standalone
+    record_cache_footprints unit tests in test_io_cache_footprints.py): a
+    pruned acquisition (explicit wet_aoi, a strict subset of the full AOI)
+    and an unpruned acquisition of the SAME catchment must persist the SAME
+    aoi_pixel_count, while analysis_pixel_count legitimately differs."""
+    from hydroseason._io_wofs_zarr import read_cache_footprints
+
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    # _aoi() is a 120x120 m box at 30 m resolution -> 4x4 = 16 pixels.
+    unpruned_handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path / "unpruned", resolution=30,
+    )
+
+    # A strict half-AOI wet mask: the left half of the same 120x120 m box.
+    half_wet_aoi = gpd.GeoDataFrame(geometry=[box(0, 0, 60, 120)], crs="EPSG:3577")
+    pruned_handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path / "pruned", resolution=30,
+        wet_aoi=half_wet_aoi,
+    )
+
+    unpruned_footprints = read_cache_footprints(unpruned_handle)
+    pruned_footprints = read_cache_footprints(pruned_handle)
+
+    assert unpruned_footprints.aoi_pixel_count == 16
+    assert pruned_footprints.aoi_pixel_count == 16
+    assert unpruned_footprints.aoi_pixel_count == pruned_footprints.aoi_pixel_count
+
+    assert unpruned_footprints.analysis_pixel_count == 16
+    assert pruned_footprints.analysis_pixel_count == 8
+    assert pruned_footprints.analysis_pixel_count != unpruned_footprints.analysis_pixel_count

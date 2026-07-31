@@ -33,6 +33,7 @@ import pandas as pd
 
 from hydroseason._io_dea_stats import (
     DEAStatsUnavailable,
+    WetPlanningFootprint,
     fetch_dea_stats_wet_aoi,
     wet_mask_digest,
 )
@@ -59,6 +60,7 @@ from hydroseason._io_wofs_zarr import (
     completed_years,
     create_cache_handle,
     preflight_request_space,
+    record_cache_footprints,
     require_cached_request,
     resolve_cached_request,
     write_annual_group,
@@ -187,6 +189,48 @@ def _empty_year_mask(geobox, start_date: str, end_date: str, aoi_gdf):
     from hydroseason._io_geo import _clip_to_aoi
 
     return _clip_to_aoi(template, aoi_gdf)
+
+
+def _wet_aoi_from_planning_footprint(footprint: WetPlanningFootprint):
+    """Vectorize a prepared :class:`WetPlanningFootprint`'s native mask into
+    a ``wet_aoi``-shaped GeoDataFrame, for reuse by :func:`build_wofs_year_graph`'s
+    existing ``wet_aoi`` pixel-clip path (see :func:`hydroseason._io_geo._clip_to_aoi`).
+
+    ``footprint.native_mask`` is ``count_wet > 0`` at the statistics' native
+    grid, built in :func:`hydroseason._io_dea_stats.build_wet_planning_footprint`
+    *before* that function's ``safety_cells`` dilation is applied -- the
+    dilation only ever touches ``coarse_mask`` (which feeds
+    ``active_windows``), never ``native_mask``. So ``native_mask`` alone
+    already covers 100% of native wet pixels exactly (no lossy
+    coarsening), but it carries NO grid-alignment safety margin of its own.
+
+    This function therefore calls :func:`hydroseason._wet_aoi.wet_aoi_polygon`
+    with its default ``close_m=150.0, buffer_m=300.0`` -- the SAME margin
+    convention used by the two sibling functions that already produce a
+    ``wet_aoi``-shaped polygon for this identical downstream
+    :func:`hydroseason._io_geo._clip_to_aoi` pixel-clip path:
+    :func:`hydroseason._io_dea_stats.fetch_dea_stats_wet_aoi` and
+    :func:`load_or_build_cached_wet_aoi`. The 300 m outward buffer is what
+    supplies the grid-alignment safety margin here: the acquisition's own
+    ``parent_geobox`` (derived via ``_output_geobox_for_aoi``) is not
+    guaranteed to align exactly with the DEA-statistics grid the footprint
+    was built from, and this vectorised polygon is what drives
+    :func:`hydroseason._spatial_plan.plan_storage_aligned_slices` for the
+    storage-window plan -- the same misalignment risk
+    ``build_wet_planning_footprint``'s own ``safety_cells`` dilation exists
+    to guard against for ``active_windows``, just applied here in vector
+    space instead of on the coarse raster grid.
+
+    Distinct from the coarse ``active_windows``, which prune WHICH storage
+    windows are read at all (the coarse half of spatial pruning, replacing
+    :func:`hydroseason._spatial_plan.plan_storage_aligned_slices`'s
+    default whole-AOI scan) -- this vectorised polygon prunes individual
+    pixels WITHIN a read window (the fine-grain half), mirroring exactly how
+    an explicit ``wet_aoi`` combines with the coarse plan today.
+    """
+    from hydroseason._wet_aoi import wet_aoi_polygon
+
+    return wet_aoi_polygon(footprint.native_mask, close_m=150.0, buffer_m=300.0)
 
 
 def _resolve_wet_aoi(
@@ -337,6 +381,8 @@ def acquire_wofs_cache(
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
     wet_aoi: Any = None,
     wet_mask: Literal["off", "dea_stats"] = "off",
+    planning_footprint: WetPlanningFootprint | None = None,
+    composite_bundle: Literal["legacy", "hydrofragments_v1"] = "legacy",
     compute_batch_size: int = 16,
     read_workers: int | None = None,
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
@@ -364,7 +410,43 @@ def acquire_wofs_cache(
     then retried once after the first pass. Successfully published years stay
     resumable even if a deferred year fails again; the final error lists only
     years still incomplete after that retry.
+
+    ``planning_footprint`` accepts an already-built
+    :class:`hydroseason._io_dea_stats.WetPlanningFootprint` (see
+    :func:`hydroseason._io_dea_stats.build_wet_planning_footprint`), reusing
+    ONE planning footprint across both acquisition (here) and later analysis
+    -- the caller builds it once (a single DEA-statistics STAC query) and
+    hands it to every acquisition call, instead of each acquisition
+    independently re-deriving its own mask. Passing a prepared
+    ``planning_footprint`` never queries DEA statistics itself; it plugs
+    directly into the same pruning machinery ``wet_aoi``/``wet_mask="dea_stats"``
+    already drive (a vectorised wet region for the fine-grain pixel clip, and
+    storage-aligned windows for the coarse read-planning half -- see
+    :func:`_wet_aoi_from_planning_footprint`). ``wet_aoi`` and
+    ``planning_footprint`` are mutually exclusive pruning sources: supplying
+    both raises ``ValueError`` (ambiguous precedence), matching this
+    function's existing single-source-of-pruning contract.
+
+    ``composite_bundle`` selects the acquisition's output semantics.
+    ``"legacy"`` (the default) preserves every existing hydroseason result
+    and cache identity byte-for-byte: no extra computation, no new file.
+    ``"hydrofragments_v1"`` additionally computes a SECOND (any-day-wet
+    ``max_water``) composite's per-month pixel counts from the exact same
+    per-day classified observations the primary composite is already built
+    from (never a second STAC query or a second classification pass -- see
+    :func:`hydroseason._io_geo._load_wofs_items`), and persists them into a
+    parallel ``years/<year>/dual_extent_counts.json`` artifact (see
+    :func:`hydroseason._io_wofs_zarr.write_annual_group`), alongside the
+    existing ``extent_counts.json``. It is also recorded in cache identity
+    here so a ``"legacy"`` and a ``"hydrofragments_v1"`` run of
+    otherwise-identical parameters never share a store.
     """
+    if wet_aoi is not None and planning_footprint is not None:
+        raise ValueError(
+            "acquire_wofs_cache received both wet_aoi and planning_footprint; "
+            "these are mutually exclusive pruning sources (ambiguous "
+            "precedence) -- pass only one."
+        )
     cache_root = Path(cache_root)
     aoi_name = "aoi"
     if isinstance(aoi, (str, Path)):
@@ -399,6 +481,24 @@ def acquire_wofs_cache(
         majority=bool(majority),
         planner_version=WOFS_PLANNER_VERSION,
         schema_version=WOFS_CACHE_SCHEMA_VERSION,
+        composite_bundle=composite_bundle,
+    )
+
+    # A prepared planning_footprint carries its own cache-identity fields
+    # (digest/factor/safety_cells/covered_years) regardless of offline mode --
+    # unlike wet_mask_sha256 (only computable from an explicit wet_aoi, or by
+    # resolving one over the network), every one of these is already sitting
+    # on the footprint object the caller handed in, so offline lookups get
+    # them too without touching the network.
+    footprint_request_kwargs = (
+        dict(
+            footprint_digest=planning_footprint.digest,
+            footprint_factor=int(planning_footprint.factor),
+            footprint_safety_cells=int(planning_footprint.safety_cells),
+            footprint_covered_years=tuple(sorted(planning_footprint.covered_years)),
+        )
+        if planning_footprint is not None
+        else {}
     )
 
     # Resolve the wet mask BEFORE building the request: its digest is part of
@@ -411,44 +511,73 @@ def acquire_wofs_cache(
     # caller-supplied wet_aoi) -- matching the pre-existing offline contract
     # byte-for-byte when the caller passes neither ``wet_aoi`` nor ``wet_mask``.
     if offline:
+        offline_wet_mask_sha256 = (
+            planning_footprint.digest
+            if planning_footprint is not None
+            else (wet_mask_digest(wet_aoi) if wet_aoi is not None else None)
+        )
         request = WOfSCacheRequest(
             **base_request_kwargs,
-            wet_mask_sha256=wet_mask_digest(wet_aoi) if wet_aoi is not None else None,
+            **footprint_request_kwargs,
+            wet_mask_sha256=offline_wet_mask_sha256,
         )
         handle = require_cached_request(cache_root, request, offline=True)
         if diagnostics_callback is not None:
             diagnostics_callback(_diagnostics_payload(0, 0))
         return handle
 
-    # Probe for an already-completed full-coverage (unpruned) store for this
-    # same request. If one exists and its completed years cover the request,
-    # its wet_count/clear_count arrays are a free, network-free, exact
-    # superset mask -- ranked above dea_stats (see _resolve_wet_aoi).
-    #
-    # Only attempted when the caller has opted into pruning at all
-    # (wet_aoi explicit, or wet_mask != "off"): wet_mask="off" with no
-    # explicit wet_aoi is the default, no-pruning path, and must stay
-    # byte-identical to acquisition before pruning existed -- including
-    # never resolving to a *different* (pruned) store digest than before
-    # even when a completed full-coverage store already happens to exist.
-    local_wet_aoi_handle = _probe_local_wet_aoi_handle(
-        cache_root, base_request_kwargs, wet_aoi=wet_aoi, wet_mask=wet_mask
-    )
+    # A prepared planning_footprint is a caller-supplied, already-resolved
+    # pruning source: skip _resolve_wet_aoi (and its local-cache/dea_stats
+    # network fallbacks) entirely -- consuming a prepared footprint must
+    # never trigger another DEA-statistics query. Vectorise it into the same
+    # wet_aoi shape build_wofs_year_graph's existing pixel-clip path expects
+    # (see _wet_aoi_from_planning_footprint), so the fine-grain clip and the
+    # coarse storage-aligned window plan below both reuse it exactly like an
+    # explicit wet_aoi would.
+    if planning_footprint is not None:
+        wet_aoi = _wet_aoi_from_planning_footprint(planning_footprint)
+        wet_mask_sha256 = planning_footprint.digest
+        if progress:
+            print(
+                f"[{aoi_name}] Pruning reads to a prepared DEA planning footprint "
+                f"(factor={planning_footprint.factor}, "
+                f"safety_cells={planning_footprint.safety_cells}, "
+                f"years={sorted(planning_footprint.covered_years)}); "
+                "no additional DEA-statistics query issued.",
+                flush=True,
+            )
+    else:
+        # Probe for an already-completed full-coverage (unpruned) store for
+        # this same request. If one exists and its completed years cover the
+        # request, its wet_count/clear_count arrays are a free, network-free,
+        # exact superset mask -- ranked above dea_stats (see _resolve_wet_aoi).
+        #
+        # Only attempted when the caller has opted into pruning at all
+        # (wet_aoi explicit, or wet_mask != "off"): wet_mask="off" with no
+        # explicit wet_aoi is the default, no-pruning path, and must stay
+        # byte-identical to acquisition before pruning existed -- including
+        # never resolving to a *different* (pruned) store digest than before
+        # even when a completed full-coverage store already happens to exist.
+        local_wet_aoi_handle = _probe_local_wet_aoi_handle(
+            cache_root, base_request_kwargs, wet_aoi=wet_aoi, wet_mask=wet_mask
+        )
 
-    wet_aoi, wet_mask_sha256 = _resolve_wet_aoi(
-        stac_url,
-        aoi_gdf,
-        requested_years,
-        wet_aoi=wet_aoi,
-        wet_mask=wet_mask,
-        crs=crs,
-        resolution=float(resolution),
-        progress=progress,
-        aoi_name=aoi_name,
-        local_wet_aoi_handle=local_wet_aoi_handle,
-    )
+        wet_aoi, wet_mask_sha256 = _resolve_wet_aoi(
+            stac_url,
+            aoi_gdf,
+            requested_years,
+            wet_aoi=wet_aoi,
+            wet_mask=wet_mask,
+            crs=crs,
+            resolution=float(resolution),
+            progress=progress,
+            aoi_name=aoi_name,
+            local_wet_aoi_handle=local_wet_aoi_handle,
+        )
 
-    request = WOfSCacheRequest(**base_request_kwargs, wet_mask_sha256=wet_mask_sha256)
+    request = WOfSCacheRequest(
+        **base_request_kwargs, **footprint_request_kwargs, wet_mask_sha256=wet_mask_sha256
+    )
 
     requested_years = set(requested_years)
 
@@ -481,6 +610,25 @@ def acquire_wofs_cache(
 
     with cache_writer_lock(cache_root, identity.request_digest):
         handle = create_cache_handle(cache_root, identity)
+
+        # Persist full-AOI vs analysis-footprint geometry/counts/digests
+        # (task W2.3) every time a handle is created/reused, not only when
+        # new years are written: this call is idempotent (re-writing the
+        # same geometry produces the same manifest block) and self-heals a
+        # cache whose store predates this task. `target` is the full
+        # requested catchment (the fixed aoi_pixel_count reference area);
+        # `wet_aoi` is the (possibly None, meaning unpruned) footprint that
+        # actually gated reads -- falling back to `target` itself when no
+        # pruning applied, so an unpruned cache's analysis footprint is
+        # identical to its full AOI (same geometry, same pixel count).
+        record_cache_footprints(
+            handle,
+            full_aoi_gdf=target,
+            analysis_footprint_gdf=wet_aoi if wet_aoi is not None else target,
+            shape=tuple(int(v) for v in parent_geobox.shape),
+            transform=tuple(parent_geobox.affine)[:6],
+            crs=str(crs_value),
+        )
 
         already_done = set() if force else completed_years(handle)
         missing_years = sorted(requested_years - already_done)
@@ -565,9 +713,19 @@ def acquire_wofs_cache(
                     groupby="solar_day",
                     resampling_policy=resampling_policy,
                     wet_aoi=wet_aoi,
+                    composite_bundle=composite_bundle,
                 )
             else:
                 mask = _empty_year_mask(parent_geobox, year_start, year_end, target)
+            # hydrofragments_v1's secondary (max_water) composite counts ride
+            # as a side-channel attribute on `mask` (see
+            # hydroseason._io_geo._load_wofs_items) rather than changing this
+            # function's return type -- so build_wofs_year_graph's return
+            # value stays a plain DataArray for every existing caller/mock
+            # that never requests the dual bundle. Popped off here (not left
+            # on `mask.attrs`) so it survives independently of whatever
+            # write_annual_group/write_empty_annual_group later do to `mask`.
+            dual_counts = mask.attrs.pop("hydrofragments_dual_counts", None)
 
             p_diag = {
                 "year": year,
@@ -600,16 +758,18 @@ def acquire_wofs_cache(
                         overwrite=overwrite,
                         compute_batch_size=compute_batch_size,
                         read_workers=read_workers,
+                        dual_counts=dual_counts,
                     )
                 else:
                     # No source observations: every pixel is -2 by
                     # construction, so skip computing and hashing every block
                     # only to write none of them.
                     stats = write_empty_annual_group(
-                        handle, year, mask, overwrite=overwrite
+                        handle, year, mask, overwrite=overwrite,
+                        dual_extent_counts=(composite_bundle == "hydrofragments_v1"),
                     )
             finally:
-                del mask
+                del mask, dual_counts
                 gc.collect()
             y_diag = {
                 "year": int(year),
@@ -694,6 +854,8 @@ def acquire_wofs_cache(
             write_stats=write_stats,
             elapsed_phases={"query_seconds": query_elapsed, "total_seconds": elapsed},
             year_diagnostics=year_diagnostics,
+            planning_footprint=planning_footprint,
+            composite_bundle=composite_bundle,
         )
         if diagnostics_callback is not None:
             diagnostics_callback(_diagnostics_payload(1, graph_count, write_stats))
@@ -979,6 +1141,8 @@ def _write_acquisition_manifest(
     write_stats: list[Any],
     elapsed_phases: dict[str, float],
     year_diagnostics: list[dict[str, Any]] = (),
+    planning_footprint: "WetPlanningFootprint | None" = None,
+    composite_bundle: str = "legacy",
 ) -> None:
     """Record acquisition provenance into the store's root manifest.json.
 
@@ -986,6 +1150,15 @@ def _write_acquisition_manifest(
     :func:`hydroseason._io_wofs_zarr.create_cache_handle`/``_validate_hit``
     already depend on (``identity``/``request_digest``), mirroring
     :func:`hydroseason._io_wofs_zarr._record_completed_year`'s pattern.
+
+    ``planning_footprint``/``composite_bundle`` are recorded as a small
+    ``planning_footprint`` diagnostics block (source collection/version,
+    factor, safety halo, covered years, digest, and the composite bundle
+    mode) purely for human/tooling visibility -- they already independently
+    determine cache identity via :class:`WOfSCacheRequest`'s
+    ``footprint_*``/``composite_bundle`` fields (see
+    :mod:`hydroseason._io_wofs_zarr`); this block does not itself gate
+    anything.
     """
     import hashlib
     import json
@@ -1012,6 +1185,19 @@ def _write_acquisition_manifest(
         "package_versions": _package_versions(),
         "elapsed_phases": elapsed_phases,
         "year_diagnostics": [existing_diags[y] for y in sorted(existing_diags)],
+        "composite_bundle": composite_bundle,
+        "planning_footprint": (
+            {
+                "digest": planning_footprint.digest,
+                "factor": int(planning_footprint.factor),
+                "safety_cells": int(planning_footprint.safety_cells),
+                "covered_years": list(sorted(planning_footprint.covered_years)),
+                "source_collection": planning_footprint.source_collection,
+                "source_version": planning_footprint.source_version,
+            }
+            if planning_footprint is not None
+            else None
+        ),
     }
     _write_json_atomic(manifest_path, manifest)
 

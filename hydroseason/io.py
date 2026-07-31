@@ -29,6 +29,8 @@ from hydroseason._io_geo import (  # noqa: F401
     _parse_date_from_name,
     _preserve_georef,
     _query_wofs_items,
+    _apply_aoi_inside_mask,
+    _resolve_aoi_inside_mask,
     _resolve_raster_crs,
     _resolve_raster_transform,
     _spatial_transform_from_xy,
@@ -52,6 +54,7 @@ from hydroseason._io_resolution import (  # noqa: F401
 )
 from hydroseason._io_wofs_zarr import WOfSCacheHandle  # noqa: F401
 from hydroseason._wet_aoi import compute_wet_aoi, tile_intersects_wet_aoi  # noqa: F401
+from hydroseason._io_dea_stats import open_wo_statistics  # noqa: F401
 
 
 def acquire_wofs_cache(*args, **kwargs):
@@ -62,7 +65,17 @@ def acquire_wofs_cache(*args, **kwargs):
 
 
 def open_completed_mask_cache(*args, **kwargs):
-    """Internal facade for the canonical cache reader."""
+    """Lazily open the canonical WOfS water-mask cube for a completed cache store.
+
+    Public reader counterpart to :func:`acquire_wofs_cache`: given a
+    :class:`WOfSCacheHandle` (as returned by ``acquire_wofs_cache``) and a
+    ``[start_date, end_date]`` range, opens every completed annual Zarr
+    group that overlaps the range, concatenates them in year order, and
+    fills any still-missing months with the package's standard missing-month
+    convention (``-1`` invalid, never fabricated). See
+    :func:`hydroseason._io_wofs_zarr.open_completed_mask_cache` for the full
+    contract, including its ``FileNotFoundError``/``ValueError`` cases.
+    """
     from hydroseason._io_wofs_zarr import open_completed_mask_cache as _open_completed_mask_cache
 
     return _open_completed_mask_cache(*args, **kwargs)
@@ -86,5 +99,48 @@ def open_completed_extent_counts(*args, **kwargs):
     return _open_completed_extent_counts(*args, **kwargs)
 
 
-__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_extent_counts", "WOfSCacheHandle"]
+def verify_cache_footprints(*args, **kwargs):
+    """Read, independently re-rasterize, and verify a cache's persisted AOI/analysis footprints.
+
+    Public reader/verifier counterpart to :func:`acquire_wofs_cache` (Task
+    W2.3): given a :class:`WOfSCacheHandle`, reads the full-AOI and
+    analysis-footprint geometry/counts/digests persisted in the store's root
+    manifest, re-rasterizes each geometry from its persisted canonical WKB,
+    and cross-checks both the digest and the pixel count against what was
+    persisted -- never trusting either alone. Raises ``ValueError`` on any
+    tamper/corruption mismatch, or ``FileNotFoundError``/``ValueError`` if no
+    manifest or no footprints metadata exists yet. See
+    :func:`hydroseason._io_wofs_zarr.verify_cache_footprints` for the full
+    contract.
+    """
+    from hydroseason._io_wofs_zarr import verify_cache_footprints as _verify_cache_footprints
+
+    return _verify_cache_footprints(*args, **kwargs)
+
+
+def open_completed_dual_extent_counts(*args, **kwargs):
+    """Read back the second (any-day-wet ``max_water``) composite's per-month pixel counts.
+
+    Public reader counterpart to :func:`acquire_wofs_cache` when it was
+    called with ``composite_bundle="hydrofragments_v1"`` (Task W2.2): given
+    a :class:`WOfSCacheHandle` and a ``[start_date, end_date]`` range,
+    returns a ``pandas.DataFrame`` combining every completed year's
+    ``years/<year>/dual_extent_counts.json`` sidecar -- the SECONDARY
+    composite's per-month wet/valid pixel counts alongside the fixed
+    full-AOI/analysis-mask pixel-count denominators -- or ``None`` if any
+    requested year is incomplete, the sidecar is missing/malformed for any
+    requested year (including a store acquired with the default
+    ``composite_bundle="legacy"``, which never writes this file), or the
+    resulting range has no rows. See
+    :func:`hydroseason._io_wofs_zarr.open_completed_dual_extent_counts` for
+    the full contract.
+    """
+    from hydroseason._io_wofs_zarr import (
+        open_completed_dual_extent_counts as _open_completed_dual_extent_counts,
+    )
+
+    return _open_completed_dual_extent_counts(*args, **kwargs)
+
+
+__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_mask_cache", "open_completed_extent_counts", "open_completed_dual_extent_counts", "WOfSCacheHandle", "open_wo_statistics", "verify_cache_footprints"]
 

@@ -162,6 +162,29 @@ class WOfSCacheRequest:
     # payload entirely when None, so every cache written before this field
     # existed keeps its original request_digest and stays reachable.
     wet_mask_sha256: str | None = None
+    # A prepared hydroseason._io_dea_stats.WetPlanningFootprint's identity,
+    # threaded independently of wet_mask_sha256 (a planning_footprint and an
+    # explicit wet_aoi are mutually exclusive at the acquire_wofs_cache call
+    # site, but the cache identity still needs its own dedicated fields --
+    # reusing wet_mask_sha256 would conflate two different provenance
+    # stories). All four are None together or set together (see
+    # _io_wofs_acquire.acquire_wofs_cache); omitted from the digest payload
+    # entirely when None, exactly like wet_mask_sha256, so every cache
+    # written before planning-footprint support existed keeps its original
+    # request_digest and stays reachable.
+    footprint_digest: str | None = None
+    footprint_factor: int | None = None
+    footprint_safety_cells: int | None = None
+    footprint_covered_years: tuple[int, ...] | None = None
+    # "legacy" (the default) preserves every existing hydroseason result and
+    # cache identity byte-for-byte -- see test_legacy_composite_bundle_is_the_
+    # default_and_preserves_request_digest. "hydrofragments_v1" is new
+    # behaviour (task W2.2's dual-composite extent counts, not implemented by
+    # this field alone) that must never share a store with a "legacy" run of
+    # otherwise-identical parameters, so unlike the fields above this one IS
+    # always included in the digest payload -- there is no meaningful
+    # "absent" composite bundle to omit.
+    composite_bundle: str = "legacy"
 
     def _digest_payload(self) -> dict:
         payload = dataclasses.asdict(self)
@@ -169,6 +192,17 @@ class WOfSCacheRequest:
             # Absent, not null: keeps pre-existing full-coverage caches at
             # their original digest.
             payload.pop("wet_mask_sha256", None)
+        for footprint_field in (
+            "footprint_digest", "footprint_factor", "footprint_safety_cells",
+            "footprint_covered_years",
+        ):
+            if payload.get(footprint_field) is None:
+                payload.pop(footprint_field, None)
+        if payload.get("footprint_covered_years") is not None:
+            # Tuples survive dataclasses.asdict() as tuples, but canonical
+            # JSON encoding needs a list -- keep the payload JSON-serialisable
+            # like every other field.
+            payload["footprint_covered_years"] = list(payload["footprint_covered_years"])
         return payload
 
     def request_digest(self) -> str:
@@ -756,8 +790,31 @@ def write_annual_group(
     overwrite: bool = False,
     compute_batch_size: int = 16,
     read_workers: int | None = None,
+    dual_counts=None,
 ) -> AnnualWriteStats:
-    """Materialise one calendar year of ``mask`` into a completed annual Zarr group."""
+    """Materialise one calendar year of ``mask`` into a completed annual Zarr group.
+
+    ``dual_counts``, when given (only ever passed for
+    ``composite_bundle="hydrofragments_v1"`` -- see
+    :func:`hydroseason._io_geo._load_wofs_items`'s
+    ``hydrofragments_dual_counts`` attribute), is an already-reduced lazy
+    ``(time, y, x)`` ``xr.Dataset`` with ``wet_count``/``clear_count``
+    ``uint16`` variables for the SECONDARY (any-day-wet ``max_water``)
+    composite, one plane per month, aligned to ``mask``'s own time axis.
+    This function performs NO further spatial reduction of its own beyond
+    summing each already-reduced count plane over ``(y, x)`` into one
+    per-month scalar (mirroring exactly how ``n_water``/``n_valid``/etc. are
+    already derived from the PRIMARY composite's written blocks below) --
+    the caller (:mod:`hydroseason._io_geo`) already did the pixel-level
+    reduction. When given, the per-month scalars are written to a parallel
+    ``years/<year>/dual_extent_counts.json`` sidecar (see
+    :data:`WOFS_CACHE_SCHEMA_VERSION`/:func:`_sha256_digest`, same
+    conventions as ``extent_counts.json``). ``dual_counts=None`` (the
+    default, and the ONLY value ever passed for
+    ``composite_bundle="legacy"``) performs zero extra computation and
+    writes no such file -- this function's every other output stays
+    byte-for-byte identical to before ``dual_counts`` existed.
+    """
     if compute_batch_size < 1:
         raise ValueError("compute_batch_size must be at least 1")
     if read_workers is not None and read_workers < 1:
@@ -847,6 +904,12 @@ def write_annual_group(
         n_invalid_cnt = np.zeros(time_len, dtype=np.int64)
         written_chunk_keys_set: set[tuple[int, int, int]] = set()
 
+        dual_year_counts = None
+        if dual_counts is not None:
+            dual_year_counts = dual_counts.sel(time=slice(f"{year}-01-01", f"{year}-12-31"))
+            n_max_water_cnt = np.zeros(time_len, dtype=np.int64)
+            n_max_clear_cnt = np.zeros(time_len, dtype=np.int64)
+
         content_hasher = _content_hasher()
         content_hasher.update(
             _canonical_json_bytes(
@@ -869,6 +932,7 @@ def write_annual_group(
             batch_keys = keys_list[i : i + compute_batch_size]
             blocks_to_compute = []
             block_metadata = []
+            dual_blocks_to_compute = []
             for cy, cx in batch_keys:
                 cy_stop = min(cy + _STORAGE_CHUNK, height)
                 cx_stop = min(cx + _STORAGE_CHUNK, width)
@@ -879,17 +943,31 @@ def write_annual_group(
                     task_count += len(block.__dask_graph__())
                 blocks_to_compute.append(block)
                 block_metadata.append((cy, cx, cy_stop, cx_stop))
+                if dual_year_counts is not None:
+                    # Ride the secondary composite's counts through the SAME
+                    # dask.compute call as the primary blocks below, rather
+                    # than triggering a second, independent Dask execution.
+                    dual_slice = dual_year_counts.isel(
+                        time=slice(0, time_len), y=slice(cy, cy_stop), x=slice(cx, cx_stop)
+                    )
+                    dual_blocks_to_compute.append(dual_slice["wet_count"].data)
+                    dual_blocks_to_compute.append(dual_slice["clear_count"].data)
 
             compute_started = time.perf_counter()
-            computed_blocks = _compute_with_remote_read_retries(
+            computed_all = _compute_with_remote_read_retries(
                 dask.compute,
                 *blocks_to_compute,
+                *dual_blocks_to_compute,
                 **compute_kwargs,
             )
             compute_seconds += time.perf_counter() - compute_started
+            computed_blocks = computed_all[: len(blocks_to_compute)]
+            computed_dual_blocks = computed_all[len(blocks_to_compute):]
 
             write_started = time.perf_counter()
-            for (cy, cx, cy_stop, cx_stop), raw_val in zip(block_metadata, computed_blocks):
+            for block_idx, ((cy, cx, cy_stop, cx_stop), raw_val) in enumerate(
+                zip(block_metadata, computed_blocks)
+            ):
                 values = np.asarray(raw_val)
                 loaded_pixels += int(values.size)
                 content_hasher.update(
@@ -920,6 +998,12 @@ def write_annual_group(
                 n_valid_cnt += block_water + block_dry
                 n_aoi_cnt += block_aoi
                 n_invalid_cnt += block_aoi - block_water - block_dry
+
+                if dual_year_counts is not None:
+                    dual_wet_raw = np.asarray(computed_dual_blocks[2 * block_idx])
+                    dual_clear_raw = np.asarray(computed_dual_blocks[2 * block_idx + 1])
+                    n_max_water_cnt += dual_wet_raw.sum(axis=(1, 2), dtype=np.int64)
+                    n_max_clear_cnt += dual_clear_raw.sum(axis=(1, 2), dtype=np.int64)
 
                 if bool((values == -2).all()):
                     continue
@@ -955,6 +1039,32 @@ def write_annual_group(
         }
         extent_counts_payload["content_digest"] = _sha256_digest(extent_counts_payload)
         _write_json_atomic(temp_path / "extent_counts.json", extent_counts_payload)
+
+        if dual_year_counts is not None:
+            # Fixed, per-store reference-area denominators (task W2.3):
+            # full-AOI pixel count is the entire requested catchment,
+            # constant regardless of pruning; analysis-mask pixel count is
+            # the (possibly pruned) footprint that actually gated reads for
+            # THIS store. Both are already persisted in the store's root
+            # manifest by record_cache_footprints (called by
+            # acquire_wofs_cache before any year is written), so they are
+            # read back here rather than re-derived -- never conflated with
+            # the per-month n_aoi count above, which is a *content* count
+            # over the actually-written pixels, not this fixed geometry
+            # denominator.
+            footprints = read_cache_footprints(handle)
+            dual_extent_counts_payload = {
+                "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+                "year": int(year),
+                "dates": [d.strftime("%Y-%m-%d") for d in time_values],
+                "aoi_pixel_count": int(footprints.aoi_pixel_count),
+                "analysis_mask_pixel_count": int(footprints.analysis_pixel_count),
+                "n_max_water": n_max_water_cnt.tolist(),
+                "n_median_water": n_water_cnt.tolist(),
+                "n_valid_analysis": n_max_clear_cnt.tolist(),
+            }
+            dual_extent_counts_payload["content_digest"] = _sha256_digest(dual_extent_counts_payload)
+            _write_json_atomic(temp_path / "dual_extent_counts.json", dual_extent_counts_payload)
 
         complete_payload = {
             "schema_version": WOFS_CACHE_SCHEMA_VERSION,
@@ -1015,6 +1125,7 @@ def write_empty_annual_group(
     mask,
     *,
     overwrite: bool = False,
+    dual_extent_counts: bool = False,
 ) -> AnnualWriteStats:
     """Write a completed annual group for a year with no source observations.
 
@@ -1026,6 +1137,15 @@ def write_empty_annual_group(
     all-zero ``wet_count``/``clear_count``, the same zeroed
     ``extent_counts.json``, and a ``complete.json`` carrying an empty
     ``item_ids``. ``validate_annual_group`` accepts the result unchanged.
+
+    ``dual_extent_counts=True`` (only ever passed for
+    ``composite_bundle="hydrofragments_v1"``) additionally writes a zeroed
+    ``years/<year>/dual_extent_counts.json`` sidecar -- an empty year has no
+    observations for EITHER composite, so both are legitimately all-zero,
+    keeping the artifact's presence consistent whether or not a given year
+    actually had source items. ``dual_extent_counts=False`` (the default,
+    and the only value ever passed for ``composite_bundle="legacy"``) writes
+    no such file.
     """
     import shutil as _shutil
 
@@ -1108,6 +1228,21 @@ def write_empty_annual_group(
         extent_counts_payload["content_digest"] = _sha256_digest(extent_counts_payload)
         _write_json_atomic(temp_path / "extent_counts.json", extent_counts_payload)
 
+        if dual_extent_counts:
+            footprints = read_cache_footprints(handle)
+            dual_extent_counts_payload = {
+                "schema_version": WOFS_CACHE_SCHEMA_VERSION,
+                "year": int(year),
+                "dates": [d.strftime("%Y-%m-%d") for d in time_values],
+                "aoi_pixel_count": int(footprints.aoi_pixel_count),
+                "analysis_mask_pixel_count": int(footprints.analysis_pixel_count),
+                "n_max_water": list(zeros),
+                "n_median_water": list(zeros),
+                "n_valid_analysis": list(zeros),
+            }
+            dual_extent_counts_payload["content_digest"] = _sha256_digest(dual_extent_counts_payload)
+            _write_json_atomic(temp_path / "dual_extent_counts.json", dual_extent_counts_payload)
+
         complete_payload = {
             "schema_version": WOFS_CACHE_SCHEMA_VERSION,
             "year": int(year),
@@ -1170,6 +1305,297 @@ def _record_completed_year(store_path: Path, year: int) -> None:
     completed = sorted(set(manifest.get("completed_years", [])) | {int(year)})
     manifest["completed_years"] = completed
     _write_json_atomic(manifest_path, manifest)
+
+
+_FOOTPRINTS_KEY = "footprints"
+_FOOTPRINTS_SCHEMA_VERSION = 1
+# Fixed precision grid for canonical WKB serialisation, matching
+# hydroseason._io_dea_stats.wet_mask_digest's convention exactly, so a
+# geometry that round-trips through this module and through that one digests
+# identically.
+_GEOMETRY_PRECISION_GRID_SIZE = 0.001
+
+
+@dataclasses.dataclass(frozen=True)
+class CacheFootprints:
+    """Persisted full-AOI and analysis-footprint geometry/counts/digests.
+
+    ``aoi_geometry_wkb_hex``/``analysis_geometry_wkb_hex`` are canonical WKB
+    (fixed 1e-3 precision, matching
+    :func:`hydroseason._io_dea_stats.wet_mask_digest`'s convention) for the
+    full user AOI and the (possibly identical, when no pruning applied)
+    analysis footprint actually used to gate reads/writes. ``shape``/
+    ``transform``/``crs`` describe the cache's grid these geometries were
+    rasterized against. ``aoi_pixel_count``/``analysis_pixel_count`` are the
+    exact pixel counts of each geometry rasterized onto that grid.
+    ``aoi_digest``/``analysis_digest`` are SHA-256 digests over
+    ``(crs, wkb)``, independent of anything else in the manifest, so a
+    consumer (e.g. HydroFragments) can re-rasterize from the persisted WKB
+    and cross-check both the digest and the pixel count without trusting
+    either alone.
+
+    ``aoi_pixel_count`` is the fixed reference-area denominator (APSEC/LPI
+    per the plan's global constraints) and must be identical between a
+    pruned and an unpruned cache covering the same catchment.
+    ``analysis_pixel_count`` is the conservative potential-water footprint
+    denominator (monthly coverage) and MAY legitimately differ between them.
+    """
+
+    aoi_geometry_wkb_hex: str
+    analysis_geometry_wkb_hex: str
+    crs: str
+    shape: tuple[int, int]
+    transform: tuple[float, float, float, float, float, float]
+    aoi_pixel_count: int
+    analysis_pixel_count: int
+    aoi_digest: str
+    analysis_digest: str
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_version": _FOOTPRINTS_SCHEMA_VERSION,
+            "aoi_geometry_wkb_hex": self.aoi_geometry_wkb_hex,
+            "analysis_geometry_wkb_hex": self.analysis_geometry_wkb_hex,
+            "crs": self.crs,
+            "shape": list(self.shape),
+            "transform": list(self.transform),
+            "aoi_pixel_count": int(self.aoi_pixel_count),
+            "analysis_pixel_count": int(self.analysis_pixel_count),
+            "aoi_digest": self.aoi_digest,
+            "analysis_digest": self.analysis_digest,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "CacheFootprints":
+        return cls(
+            aoi_geometry_wkb_hex=payload["aoi_geometry_wkb_hex"],
+            analysis_geometry_wkb_hex=payload["analysis_geometry_wkb_hex"],
+            crs=payload["crs"],
+            shape=(int(payload["shape"][0]), int(payload["shape"][1])),
+            transform=tuple(float(v) for v in payload["transform"]),
+            aoi_pixel_count=int(payload["aoi_pixel_count"]),
+            analysis_pixel_count=int(payload["analysis_pixel_count"]),
+            aoi_digest=payload["aoi_digest"],
+            analysis_digest=payload["analysis_digest"],
+        )
+
+
+def _canonical_geometry_wkb_hex(gdf) -> str:
+    """Canonical (fixed-precision, dissolved) WKB hex for one geometry column.
+
+    Mirrors :func:`hydroseason._io_dea_stats.wet_mask_digest`'s geometry
+    handling exactly (union to a single geometry, snap to a fixed 1e-3
+    precision grid before serialising) so the same geometry always produces
+    the same bytes regardless of shapely/geopandas version or how many rows
+    the caller's GeoDataFrame happens to have.
+    """
+    import shapely
+    from shapely import wkb
+
+    geometry = (
+        gdf.geometry.union_all()
+        if hasattr(gdf.geometry, "union_all")
+        else gdf.geometry.unary_union
+    )
+    geometry = shapely.set_precision(geometry, grid_size=_GEOMETRY_PRECISION_GRID_SIZE)
+    return wkb.dumps(geometry).hex()
+
+
+def _geometry_digest(crs: str, wkb_hex: str) -> str:
+    """A stable SHA-256 over ``(crs, wkb_hex)``, independent of pixel counts.
+
+    Kept separate from :data:`_sha256_digest`'s canonical-JSON convention
+    (which is fine for plain JSON payloads) because the digest here must
+    stay stable however the caller chooses to name/order surrounding
+    manifest keys -- it only ever covers the geometry identity itself.
+    """
+    hasher = hashlib.sha256()
+    hasher.update(str(crs).encode("utf-8"))
+    hasher.update(bytes.fromhex(wkb_hex))
+    return hasher.hexdigest()
+
+
+def _rasterize_pixel_count(
+    wkb_hex: str, *, shape: tuple[int, int], transform: tuple[float, ...]
+) -> int:
+    """Re-rasterize a canonical WKB geometry onto ``shape``/``transform`` and count True pixels.
+
+    Uses ``rasterio.features.geometry_mask`` with ``invert=True`` (True
+    inside the geometry) and ``all_touched=True`` -- the same rasterization
+    primitive and touch convention :mod:`hydroseason._io_geo`'s own
+    ``_inside_aoi_mask_like`` uses for AOI clipping, so a geometry
+    round-tripped through this module counts pixels exactly the same way
+    the acquisition path itself would have clipped them.
+    """
+    from affine import Affine
+    from rasterio.features import geometry_mask
+    from shapely import wkb
+
+    geometry = wkb.loads(bytes.fromhex(wkb_hex))
+    height, width = int(shape[0]), int(shape[1])
+    affine_transform = Affine(*transform)
+    inside = geometry_mask(
+        [geometry],
+        out_shape=(height, width),
+        transform=affine_transform,
+        invert=True,
+        all_touched=True,
+    )
+    return int(np.count_nonzero(inside))
+
+
+def record_cache_footprints(
+    handle: WOfSCacheHandle,
+    *,
+    full_aoi_gdf,
+    analysis_footprint_gdf,
+    shape: tuple[int, int],
+    transform: tuple[float, float, float, float, float, float],
+    crs: str,
+) -> CacheFootprints:
+    """Persist full-AOI and analysis-footprint geometry/counts/digests atomically.
+
+    ``full_aoi_gdf`` is the caller's full requested catchment (the fixed
+    reference area APSEC/LPI denominators use per the plan's global
+    constraints). ``analysis_footprint_gdf`` is the (possibly pruned, or --
+    when no pruning was applied -- identical to ``full_aoi_gdf``) footprint
+    actually used to gate which storage windows were read/written; it feeds
+    the conservative potential-water ``analysis_mask`` denominator.
+
+    Both geometries are canonicalised to fixed-precision WKB (see
+    :func:`_canonical_geometry_wkb_hex`), rasterized onto ``shape``/
+    ``transform`` to derive exact pixel counts (see
+    :func:`_rasterize_pixel_count`), and digested independently of those
+    counts (see :func:`_geometry_digest`) -- so a later reader
+    (:func:`verify_cache_footprints`) can re-rasterize from the persisted
+    WKB and cross-check both the digest and the pixel count, never trusting
+    either alone.
+
+    Written into the store's root ``manifest.json`` under a ``footprints``
+    key via read-modify-write + :func:`_write_json_atomic`, mirroring
+    :func:`_record_completed_year`'s pattern exactly: every other manifest
+    key (``identity``/``request_digest``/``completed_years``/...) is
+    preserved untouched.
+
+    Because ``full_aoi_gdf`` is the SAME requested catchment for a pruned
+    and an unpruned acquisition of that catchment, ``aoi_pixel_count`` is
+    identical between the two regardless of pruning; ``analysis_pixel_count``
+    reflects whichever footprint was actually used and so may legitimately
+    differ.
+    """
+    aoi_wkb_hex = _canonical_geometry_wkb_hex(full_aoi_gdf)
+    analysis_wkb_hex = _canonical_geometry_wkb_hex(analysis_footprint_gdf)
+    crs_text = str(crs)
+    shape_tuple = (int(shape[0]), int(shape[1]))
+    transform_tuple = tuple(float(v) for v in transform)
+
+    footprints = CacheFootprints(
+        aoi_geometry_wkb_hex=aoi_wkb_hex,
+        analysis_geometry_wkb_hex=analysis_wkb_hex,
+        crs=crs_text,
+        shape=shape_tuple,
+        transform=transform_tuple,
+        aoi_pixel_count=_rasterize_pixel_count(
+            aoi_wkb_hex, shape=shape_tuple, transform=transform_tuple
+        ),
+        analysis_pixel_count=_rasterize_pixel_count(
+            analysis_wkb_hex, shape=shape_tuple, transform=transform_tuple
+        ),
+        aoi_digest=_geometry_digest(crs_text, aoi_wkb_hex),
+        analysis_digest=_geometry_digest(crs_text, analysis_wkb_hex),
+    )
+
+    manifest_path = Path(handle.path) / _MANIFEST_FILENAME
+    manifest = _read_json(manifest_path) or {}
+    manifest[_FOOTPRINTS_KEY] = footprints.to_dict()
+    _write_json_atomic(manifest_path, manifest)
+
+    return footprints
+
+
+def read_cache_footprints(handle: WOfSCacheHandle) -> CacheFootprints:
+    """Read back the :class:`CacheFootprints` persisted by :func:`record_cache_footprints`.
+
+    Raises ``FileNotFoundError`` if the store has no manifest, or ``ValueError``
+    if the manifest exists but carries no ``footprints`` block (e.g. a cache
+    written before this task existed) or the block is malformed.
+    """
+    manifest_path = Path(handle.path) / _MANIFEST_FILENAME
+    manifest = _read_json(manifest_path)
+    if manifest is None:
+        raise FileNotFoundError(f"no manifest found at {manifest_path}")
+    payload = manifest.get(_FOOTPRINTS_KEY)
+    if payload is None:
+        raise ValueError(
+            f"manifest at {manifest_path} has no '{_FOOTPRINTS_KEY}' metadata "
+            "(cache was written before task W2.3, or record_cache_footprints "
+            "was never called for it)"
+        )
+    try:
+        return CacheFootprints.from_dict(payload)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"manifest at {manifest_path} has malformed '{_FOOTPRINTS_KEY}' metadata: {exc}"
+        ) from exc
+
+
+def verify_cache_footprints(handle: WOfSCacheHandle) -> CacheFootprints:
+    """Read, independently re-rasterize, and verify persisted cache footprints.
+
+    This is the tamper-detection entry point: it reads the persisted
+    :class:`CacheFootprints` (:func:`read_cache_footprints`), then
+    independently:
+
+    1. Recomputes each geometry's digest from its persisted WKB and
+       compares it against the persisted digest.
+    2. Re-rasterizes each geometry from its persisted WKB onto the
+       persisted ``shape``/``transform`` and compares the resulting pixel
+       count against the persisted pixel count.
+
+    Raises ``ValueError`` describing the first mismatch found -- a
+    corrupted/hand-edited WKB string, a digest that no longer matches its
+    geometry, or a pixel count that no longer matches what re-rasterizing
+    the (otherwise valid) geometry actually produces. Never silently
+    accepts a mismatch: this is what makes persisted geometry tamper-evident
+    rather than merely informative.
+    """
+    footprints = read_cache_footprints(handle)
+
+    for label, wkb_hex, expected_digest, expected_count in (
+        ("aoi", footprints.aoi_geometry_wkb_hex, footprints.aoi_digest, footprints.aoi_pixel_count),
+        (
+            "analysis",
+            footprints.analysis_geometry_wkb_hex,
+            footprints.analysis_digest,
+            footprints.analysis_pixel_count,
+        ),
+    ):
+        try:
+            recomputed_digest = _geometry_digest(footprints.crs, wkb_hex)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"cache footprint '{label}' geometry at {handle.path} is not valid WKB hex "
+                f"(tampered or corrupted): {exc}"
+            ) from exc
+        if recomputed_digest != expected_digest:
+            raise ValueError(
+                f"cache footprint '{label}' digest mismatch at {handle.path}: "
+                f"persisted digest {expected_digest!r} does not match the digest "
+                f"recomputed from its persisted geometry {recomputed_digest!r} "
+                "(tampered or corrupted manifest)"
+            )
+        recomputed_count = _rasterize_pixel_count(
+            wkb_hex, shape=footprints.shape, transform=footprints.transform
+        )
+        if recomputed_count != expected_count:
+            raise ValueError(
+                f"cache footprint '{label}' pixel count mismatch at {handle.path}: "
+                f"persisted count {expected_count} does not match the count "
+                f"{recomputed_count} obtained by re-rasterizing its persisted "
+                "geometry (tampered or corrupted manifest)"
+            )
+
+    return footprints
 
 
 def _read_georef(dataset) -> tuple["object", object, tuple[float, ...]]:
@@ -1732,6 +2158,99 @@ def open_completed_extent_counts(
     return df[["n_water", "n_aoi", "n_valid", "n_invalid", "n_wet_aoi", "extent_pct", "invalid_pct", "wet_fill_pct"]]
 
 
+def open_completed_dual_extent_counts(
+    handle: WOfSCacheHandle,
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame | None:
+    """Read back the ``years/<year>/dual_extent_counts.json`` sidecars task
+    W2.2's ``composite_bundle="hydrofragments_v1"`` acquisition writes.
+
+    Public reader counterpart to :func:`open_completed_extent_counts`, but
+    for the SECOND (any-day-wet ``max_water``) composite's per-month pixel
+    counts alongside the fixed full-AOI/analysis-mask pixel-count
+    denominators (see :class:`CacheFootprints`) -- never conflating a
+    per-month content count with those fixed geometry denominators.
+
+    Unlike :func:`open_completed_extent_counts`, there is no backfill path:
+    the secondary composite only ever exists as this sidecar (task W2.2
+    deliberately never persists a second full-resolution raster to
+    reconstruct it from), so a missing or tampered ``dual_extent_counts.json``
+    for any requested year returns ``None`` rather than approximating one.
+    Returns ``None`` if any requested year is not completed, the sidecar is
+    missing/malformed for any requested year (e.g. the cache was acquired
+    with ``composite_bundle="legacy"``, which never writes this file), the
+    per-year ``content_digest`` does not match, or the resulting range has
+    no rows.
+    """
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+    requested_years = list(range(start.year, end.year + 1))
+    done = completed_years(handle)
+    if not set(requested_years).issubset(done):
+        return None
+
+    all_dates: list[str] = []
+    all_aoi_pixel_count: list[int] = []
+    all_analysis_mask_pixel_count: list[int] = []
+    all_n_max_water: list[int] = []
+    all_n_median_water: list[int] = []
+    all_n_valid_analysis: list[int] = []
+
+    for year in requested_years:
+        year_path = Path(handle.path) / "years" / str(int(year))
+        payload = _read_json(year_path / "dual_extent_counts.json")
+        if payload is None:
+            return None
+        content_digest = payload.get("content_digest")
+        check_payload = {k: v for k, v in payload.items() if k != "content_digest"}
+        if _sha256_digest(check_payload) != content_digest:
+            return None
+
+        dates = payload.get("dates", [])
+        n_max_water = payload.get("n_max_water", [])
+        n_median_water = payload.get("n_median_water", [])
+        n_valid_analysis = payload.get("n_valid_analysis", [])
+        if not (len(dates) == len(n_max_water) == len(n_median_water) == len(n_valid_analysis)):
+            return None
+        if any(v < 0 for v in n_max_water) or any(v < 0 for v in n_median_water) or any(
+            v < 0 for v in n_valid_analysis
+        ):
+            return None
+
+        aoi_pixel_count = payload.get("aoi_pixel_count")
+        analysis_mask_pixel_count = payload.get("analysis_mask_pixel_count")
+        if aoi_pixel_count is None or analysis_mask_pixel_count is None:
+            return None
+
+        all_dates.extend(dates)
+        all_aoi_pixel_count.extend([int(aoi_pixel_count)] * len(dates))
+        all_analysis_mask_pixel_count.extend([int(analysis_mask_pixel_count)] * len(dates))
+        all_n_max_water.extend(n_max_water)
+        all_n_median_water.extend(n_median_water)
+        all_n_valid_analysis.extend(n_valid_analysis)
+
+    df = pd.DataFrame(
+        {
+            "aoi_pixel_count": np.array(all_aoi_pixel_count, dtype=np.int64),
+            "analysis_mask_pixel_count": np.array(all_analysis_mask_pixel_count, dtype=np.int64),
+            "n_max_water": np.array(all_n_max_water, dtype=np.int64),
+            "n_median_water": np.array(all_n_median_water, dtype=np.int64),
+            "n_valid_analysis": np.array(all_n_valid_analysis, dtype=np.int64),
+        },
+        index=pd.DatetimeIndex(all_dates),
+    )
+    mask_in_range = (df.index >= start) & (df.index <= end)
+    df = df.loc[mask_in_range].copy()
+    if df.empty:
+        return None
+
+    return df[[
+        "aoi_pixel_count", "analysis_mask_pixel_count",
+        "n_max_water", "n_median_water", "n_valid_analysis",
+    ]]
+
+
 __all__ = [
     "WOFS_CACHE_SCHEMA_VERSION",
     "WOFS_CLASSIFIER_VERSION",
@@ -1754,5 +2273,10 @@ __all__ = [
     "completed_years",
     "open_completed_mask_cache",
     "open_completed_extent_counts",
+    "open_completed_dual_extent_counts",
+    "CacheFootprints",
+    "record_cache_footprints",
+    "read_cache_footprints",
+    "verify_cache_footprints",
 ]
 

@@ -35,20 +35,25 @@ from .io import (
     load_monthly_masks_zarr,
     load_wofs_from_stac,
     load_wofs_monthly_extent,
+    open_completed_dual_extent_counts,
+    open_completed_mask_cache,
+    open_wo_statistics,
+    verify_cache_footprints,
 )
 from .report import CatchmentReportPaths, generate_catchment_report, generate_html_report
 
 try:
     __version__ = _pkg_version("hydroseason")
 except PackageNotFoundError:  # running from a source tree without install
-    __version__ = "0.1.0"
+    __version__ = "0.1.1"
 
 __all__ = [
     "__version__", "HydroYearConfig", "detect_hydrological_years",
     "label_hydrological_months", "monthly_water_extent", "suggest_hydro_year_config",
     "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
     "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
-    "acquire_wofs_cache", "WOfSCacheHandle",
+    "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
+    "verify_cache_footprints", "open_completed_dual_extent_counts",
     "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
     "DynamicHydroYearConfig", "HydrologicalStateResult",
     "SeasonalPatternResult", "aggregate_basin_monthly_extent",
