@@ -19,6 +19,8 @@ def test_orchestrator_returns_all_public_products():
     assert isinstance(result, HydrologicalStateResult)
     assert not result.hydro_years.empty
     assert len(result.monthly_condition) == 15 * 12
+    assert len(result.monthly_phase) == 15 * 12
+    assert result.monthly_phase["phase_status"].eq("disabled").all()
     assert result.data_quality["n_usable"] == 15 * 12
 
 

@@ -279,6 +279,17 @@ def test_detector_field_accepts_semi_markov():
     assert config.detector == "semi_markov"
 
 
+def test_phase_model_does_not_change_annual_hydrological_years():
+    raw = _candidate_frame(start="2017-01-01", periods=84)
+    without_phases = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, phase_model="none")
+    )
+    with_rule_based_axis = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, phase_model="rule_based")
+    )
+    pd.testing.assert_frame_equal(with_rule_based_axis, without_phases)
+
+
 def test_explicit_zero_pulse_rejection_window_still_rejected():
     with pytest.raises(ValueError):
         DynamicHydroYearConfig(expected_trough_month=9, pulse_rejection_window_months=0)

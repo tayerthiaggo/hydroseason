@@ -45,6 +45,7 @@ class DynamicHydroYearConfig:
     high_percentile: float = 80.0
     measurement_tolerance_pct: float = 1.0
     detector: Literal["robust_extrema", "semi_markov"] = "robust_extrema"
+    phase_model: Literal["none", "rule_based"] = "none"
 
     def __post_init__(self) -> None:
         if self.expected_trough_month not in range(1, 13):
@@ -67,6 +68,13 @@ class DynamicHydroYearConfig:
             raise ValueError("measurement_tolerance_pct must be non-negative.")
         if self.detector not in {"robust_extrema", "semi_markov"}:
             raise ValueError("detector must be 'robust_extrema' or 'semi_markov'")
+        if self.phase_model not in {"none", "rule_based"}:
+            raise ValueError("phase_model must be 'none' or 'rule_based'")
+        if self.phase_model != "none" and self.detector != "robust_extrema":
+            raise ValueError(
+                "phase_model requires detector='robust_extrema' "
+                "(phases are anchored to robust trough/peak cycles)"
+            )
         if self.sustained_rise_months is not None or self.pulse_rejection_window_months is not None:
             warnings.warn(
                 "recovery-window fields (sustained_rise_months, pulse_rejection_window_months) "

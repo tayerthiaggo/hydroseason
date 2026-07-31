@@ -15,6 +15,7 @@ from ._dynamic_year import (
     detect_dynamic_hydrological_years,
     suggest_dynamic_hydro_year_config,
 )
+from ._phase import assign_monthly_phases
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
@@ -25,6 +26,7 @@ class HydrologicalStateResult:
     config: DynamicHydroYearConfig
     hydro_years: pd.DataFrame
     monthly_condition: pd.DataFrame
+    monthly_phase: pd.DataFrame
     data_quality: dict
 
 
@@ -74,10 +76,23 @@ def analyze_hydrological_state(
         allow_unknown_quality=selected.allow_unknown_quality,
         quality_policy=selected.quality_policy,
     )
+    monthly_phase = assign_monthly_phases(
+        prepared,
+        annual,
+        selected,
+        noise_pp=noise_pp,
+    )
     quality = prepared["quality_state"].value_counts().to_dict()
     quality["n_usable"] = int(prepared["candidate_usable"].sum())
     quality["n_months"] = int(len(prepared))
-    return HydrologicalStateResult(pattern, selected, annual, monthly, quality)
+    return HydrologicalStateResult(
+        pattern=pattern,
+        config=selected,
+        hydro_years=annual,
+        monthly_condition=monthly,
+        monthly_phase=monthly_phase,
+        data_quality=quality,
+    )
 
 
 __all__ = [
