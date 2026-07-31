@@ -92,6 +92,9 @@ def test_robust_extrema_and_semi_markov_internals_stay_unexported():
         "select_cycle_peak", "select_boundary_sequence", "robust_scale",
         "SemiMarkovConfig", "fit_semi_markov_boundaries",
         "WindowStatus", "SelectionStatus",
+        # Task 6 review: experimental detector entry points stay internal.
+        "_detect_dynamic_hydrological_years_experimental",
+        "_find_semi_markov_trough_opportunities",
     }
     assert internal_names.isdisjoint(vars(hydroseason))
     assert internal_names.isdisjoint(hydroseason.__all__)
