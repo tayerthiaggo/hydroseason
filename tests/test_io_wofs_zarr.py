@@ -772,6 +772,42 @@ def test_load_wofs_monthly_extent_rejects_pruned_zarr_without_exact_counts(monke
         )
 
 
+def test_load_wofs_monthly_extent_rejects_explicit_wet_aoi_pruned_zarr(monkeypatch, tmp_path):
+    """Explicit wet_aoi callers also create pruned stores, so they must hit the
+    same fail-closed path before monthly reduction over pruned masks."""
+    from hydroseason._io_extent_cache import load_wofs_monthly_extent
+
+    mask = _canonical_cube(shape=(2, 2, 4), fill=-2)
+    mask.values[:, :, :] = [
+        [[1, 0, -2, -2], [1, 0, -2, -2]],
+        [[1, 0, -2, -2], [1, 0, -2, -2]],
+    ]
+    handle = _handle_for_cube(
+        tmp_path,
+        mask,
+        request=dataclasses.replace(_request(), wet_mask_sha256="b" * 64),
+    )
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 4}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 4),),
+        item_ids=("a",),
+    )
+    monkeypatch.setattr("hydroseason.io.acquire_wofs_cache", Mock(return_value=handle))
+
+    with pytest.raises(ValueError, match="exact full-AOI monthly extent counts"):
+        load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            object(),
+            "2015-01-01",
+            "2015-01-01",
+            mask_cache_dir=tmp_path,
+            wet_aoi=object(),
+        )
+
+
 def test_write_annual_group_persists_dual_extent_counts_when_given(tmp_path):
     """Step 3 (W2.2): write_annual_group must persist a parallel
     dual_extent_counts.json when handed already-reduced secondary
