@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+
 import numpy as np
 import pandas as pd
 

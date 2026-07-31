@@ -22,7 +22,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-
 SILO_S3_BUCKET = "silo-open-data"
 SILO_MONTHLY_RAIN_PREFIX = "Official/annual/monthly_rain"
 

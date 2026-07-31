@@ -20,8 +20,8 @@ import xarray as xr
 from affine import Affine
 from shapely.geometry import box
 
-from hydroseason._io_wofs_acquire import acquire_wofs_cache, load_or_build_cached_wet_aoi
 import hydroseason._io_geo as geo
+from hydroseason._io_wofs_acquire import acquire_wofs_cache, load_or_build_cached_wet_aoi
 
 
 def _item(date: str, item_id: str):
@@ -692,6 +692,7 @@ def test_resolve_wet_aoi_falls_through_to_dea_stats_when_local_handle_has_no_com
     import geopandas as gpd
     from shapely.geometry import box
 
+    import hydroseason._io_wofs_acquire as acquire
     from hydroseason._io_wofs_zarr import (
         WOFS_CACHE_SCHEMA_VERSION,
         WOFS_CLASSIFIER_VERSION,
@@ -700,7 +701,6 @@ def test_resolve_wet_aoi_falls_through_to_dea_stats_when_local_handle_has_no_com
         WOfSCacheRequest,
         create_cache_handle,
     )
-    import hydroseason._io_wofs_acquire as acquire
 
     request = WOfSCacheRequest(
         stac_url="https://example.test/stac", collection="ga_ls_wo_3",

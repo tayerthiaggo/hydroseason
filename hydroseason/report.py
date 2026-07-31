@@ -12,9 +12,14 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path
+
 import pandas as pd
 
-from hydroseason._report_metrics import build_monthly_records, build_year_cards_data, compute_report_kpis
+from hydroseason._report_metrics import (
+    build_monthly_records,
+    build_year_cards_data,
+    compute_report_kpis,
+)
 from hydroseason._report_svg import generate_seasonal_context_svg, generate_svg_chart
 
 

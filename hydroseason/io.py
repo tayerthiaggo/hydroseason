@@ -12,17 +12,11 @@ from __future__ import annotations
 
 from hydroseason._io_extent import complete_monthly_axis, load_extent_csv  # noqa: F401
 from hydroseason._io_extent_cache import load_wofs_monthly_extent  # noqa: F401
-from hydroseason._io_wofs_zarr import WOfSCacheHandle  # noqa: F401
 from hydroseason._io_geo import (  # noqa: F401
     AOIRasterizationError,
     GeoreferencingError,
     IrregularGridError,
     MaskEncoding,
-    load_aoi,
-    load_monthly_masks,
-    load_monthly_masks_zarr,
-    load_wofs_from_stac,
-    mark_in_aoi_nodata_as_invalid,
     _assert_compatible_georef,
     _classify,
     _clip_to_aoi,
@@ -31,9 +25,9 @@ from hydroseason._io_geo import (  # noqa: F401
     _inside_aoi_mask_like,
     _is_identity_transform,
     _load_wofs_items,
+    _output_geobox_for_aoi,
     _parse_date_from_name,
     _preserve_georef,
-    _output_geobox_for_aoi,
     _query_wofs_items,
     _resolve_raster_crs,
     _resolve_raster_transform,
@@ -42,6 +36,11 @@ from hydroseason._io_geo import (  # noqa: F401
     _tile_slices,
     _validate_classifier,
     iter_wofs_tiles_from_stac,
+    load_aoi,
+    load_monthly_masks,
+    load_monthly_masks_zarr,
+    load_wofs_from_stac,
+    mark_in_aoi_nodata_as_invalid,
 )
 from hydroseason._io_resolution import (  # noqa: F401
     _DEFAULT_CANDIDATE_RES_M,
@@ -51,6 +50,7 @@ from hydroseason._io_resolution import (  # noqa: F401
     plan_resolution,
     probe_amplitude,
 )
+from hydroseason._io_wofs_zarr import WOfSCacheHandle  # noqa: F401
 from hydroseason._wet_aoi import compute_wet_aoi, tile_intersects_wet_aoi  # noqa: F401
 
 
@@ -70,14 +70,18 @@ def open_completed_mask_cache(*args, **kwargs):
 
 def load_or_build_cached_wet_aoi(*args, **kwargs):
     """Internal facade for locally derived wet-AOI sidecars."""
-    from hydroseason._io_wofs_acquire import load_or_build_cached_wet_aoi as _load_or_build_cached_wet_aoi
+    from hydroseason._io_wofs_acquire import (
+        load_or_build_cached_wet_aoi as _load_or_build_cached_wet_aoi,
+    )
 
     return _load_or_build_cached_wet_aoi(*args, **kwargs)
 
 
 def open_completed_extent_counts(*args, **kwargs):
     """Internal facade for the extent counts reader."""
-    from hydroseason._io_wofs_zarr import open_completed_extent_counts as _open_completed_extent_counts
+    from hydroseason._io_wofs_zarr import (
+        open_completed_extent_counts as _open_completed_extent_counts,
+    )
 
     return _open_completed_extent_counts(*args, **kwargs)
 

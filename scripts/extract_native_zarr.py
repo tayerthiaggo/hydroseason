@@ -5,22 +5,22 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pandas as pd
 import xarray as xr
 
-from hydroseason.io import load_wofs_from_stac
+from hydroseason._io_geo import _resolve_raster_transform
 from hydroseason._io_wofs_zarr import (
-    WOfSCacheIdentity,
-    WOfSCacheRequest,
-    create_cache_handle,
     WOFS_CACHE_SCHEMA_VERSION,
     WOFS_CLASSIFIER_VERSION,
     WOFS_PLANNER_VERSION,
+    WOfSCacheIdentity,
+    WOfSCacheRequest,
+    create_cache_handle,
 )
-from hydroseason._io_geo import _resolve_raster_transform
+from hydroseason.io import load_wofs_from_stac
 
 
 def extract_native_zarr(
@@ -94,7 +94,7 @@ def extract_native_zarr(
         ds_year.to_zarr(handle.path, group=str(year), mode="a")
         print(f" - Wrote year {year}")
         
-    print(f"Extraction complete.")
+    print("Extraction complete.")
     return handle.path
 
 

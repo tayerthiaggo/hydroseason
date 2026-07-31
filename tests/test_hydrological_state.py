@@ -32,6 +32,7 @@ def test_user_configuration_is_authoritative_over_advisory_pattern():
 def test_analyze_threads_noise_pp_and_rolling_columns():
     import numpy as np
     import pandas as pd
+
     from hydroseason import analyze_hydrological_state
 
     # 15 years of monthly monsoonal extent so the detector yields several HYs.

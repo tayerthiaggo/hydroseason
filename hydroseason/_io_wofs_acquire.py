@@ -42,14 +42,14 @@ from hydroseason._io_geo import (
     build_wofs_year_graph,
 )
 from hydroseason._io_wofs_zarr import (
+    _COMPLETE_FILENAME,
+    MASK_CHUNKS,
     WOFS_CACHE_SCHEMA_VERSION,
     WOFS_CLASSIFIER_VERSION,
     WOFS_PLANNER_VERSION,
-    MASK_CHUNKS,
     WOfSCacheHandle,
     WOfSCacheIdentity,
     WOfSCacheRequest,
-    _COMPLETE_FILENAME,
     _long_path,
     _read_json,
     _sha256_digest,
@@ -64,7 +64,7 @@ from hydroseason._io_wofs_zarr import (
     write_annual_group,
     write_empty_annual_group,
 )
-from hydroseason._spatial_plan import plan_spatial_slices, plan_storage_aligned_slices
+from hydroseason._spatial_plan import plan_storage_aligned_slices
 
 
 def partition_items_by_year(items) -> dict[int, tuple]:
@@ -376,7 +376,7 @@ def acquire_wofs_cache(
     if resolution is None or resolution <= 0:
         raise ValueError(f"resolution must be a positive number, got {resolution!r}.")
 
-    from hydroseason._io_geo import load_aoi, _crs_value
+    from hydroseason._io_geo import _crs_value, load_aoi
 
     aoi_gdf = load_aoi(aoi)
     aoi_hash = _aoi_digest(aoi_gdf)
@@ -544,6 +544,7 @@ def acquire_wofs_cache(
             year_iter = tqdm(missing_years, **tqdm_kwargs)
 
         import gc
+
         from hydroseason._io_wofs_zarr import preflight_cache_space
 
         def _process_one_year(year: int):

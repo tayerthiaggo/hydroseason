@@ -898,6 +898,7 @@ def test_wet_aoi_disk_cache_sidecar_persistence(tmp_path):
     pytest.importorskip("shapely")
     import geopandas as gpd
     from shapely.geometry import box
+
     from hydroseason._io_extent_cache import _aoi_digest
 
     wet_gdf = gpd.GeoDataFrame({"geometry": [box(0, 0, 10, 10)]}, crs="EPSG:3577")

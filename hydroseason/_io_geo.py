@@ -516,10 +516,10 @@ def load_wofs_from_stac(
     if aoi is None:
         raise ValueError("AOI is required for WOfS/STAC loading.")
     try:
-        import odc.stac
-        import pystac_client
+        import odc.stac  # noqa: F401
+        import pystac_client  # noqa: F401
         import rioxarray  # noqa: F401  (registers the .rio accessor used by _clip_to_aoi)
-        import xarray as xr
+        import xarray as xr  # noqa: F401
     except ImportError as exc:  # pragma: no cover
         raise ImportError("load_wofs_from_stac requires the stac extra.") from exc
     # Tune GDAL/rasterio for fast concurrent unsigned S3 COG reads (this also

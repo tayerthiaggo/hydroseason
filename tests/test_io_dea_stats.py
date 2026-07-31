@@ -10,9 +10,9 @@ xr = pytest.importorskip("xarray")
 pytest.importorskip("rioxarray")
 gpd = pytest.importorskip("geopandas")
 
-from shapely.geometry import box
+from shapely.geometry import box  # noqa: E402
 
-from hydroseason._io_dea_stats import (
+from hydroseason._io_dea_stats import (  # noqa: E402
     DEA_STATS_ALLTIME_COLLECTION,
     DEA_STATS_ANNUAL_COLLECTION,
     DEAStatsUnavailable,

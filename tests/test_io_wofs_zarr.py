@@ -16,13 +16,13 @@ import dask
 import xarray as xr
 from affine import Affine
 
-from hydroseason._spatial_plan import GridWindow
 from hydroseason._io_wofs_zarr import (
     CONTENT_DIGEST_ALGORITHM,
     WOFS_CACHE_SCHEMA_VERSION,
     WOfSCacheHandle,
     WOfSCacheIdentity,
     WOfSCacheRequest,
+    _compute_with_remote_read_retries,
     _content_hasher,
     cache_writer_lock,
     completed_years,
@@ -32,10 +32,10 @@ from hydroseason._io_wofs_zarr import (
     preflight_cache_space,
     require_cached_request,
     resolve_cached_request,
-    _compute_with_remote_read_retries,
     validate_annual_group,
     write_annual_group,
 )
+from hydroseason._spatial_plan import GridWindow
 
 pytest.importorskip("rioxarray")
 
@@ -647,11 +647,11 @@ def test_write_empty_annual_group_matches_full_path_output(tmp_path):
     import xarray as xr
 
     from hydroseason._io_wofs_zarr import (
-        WOfSCacheIdentity,
-        WOfSCacheRequest,
         WOFS_CACHE_SCHEMA_VERSION,
         WOFS_CLASSIFIER_VERSION,
         WOFS_PLANNER_VERSION,
+        WOfSCacheIdentity,
+        WOfSCacheRequest,
         completed_years,
         create_cache_handle,
         validate_annual_group,

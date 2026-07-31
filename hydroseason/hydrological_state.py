@@ -6,8 +6,15 @@ import pandas as pd
 
 from ._aggregation import aggregate_basin_monthly_extent
 from ._boundary import robust_scale
-from ._condition import classify_annual_surface_water_condition, compute_monthly_surface_water_condition
-from ._dynamic_year import DynamicHydroYearConfig, detect_dynamic_hydrological_years, suggest_dynamic_hydro_year_config
+from ._condition import (
+    classify_annual_surface_water_condition,
+    compute_monthly_surface_water_condition,
+)
+from ._dynamic_year import (
+    DynamicHydroYearConfig,
+    detect_dynamic_hydrological_years,
+    suggest_dynamic_hydro_year_config,
+)
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._state_input import QualityPolicy, prepare_monthly_extent
 

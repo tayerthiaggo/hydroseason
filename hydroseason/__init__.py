@@ -1,6 +1,7 @@
 """HydroSeason: remote-sensing-first hydro-year and season detection from monthly surface-water extent."""
 
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import WaterEventResult, extract_water_events

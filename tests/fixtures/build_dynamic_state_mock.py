@@ -4,7 +4,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-
 ROOT = Path(__file__).parent
 YEARS = list(range(1990, 2020))
 SHIFTS = [-1, 0, 1, 0, -1, 1] * 5

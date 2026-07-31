@@ -18,6 +18,7 @@ def _aoi():
 def test_combine_observations_flat_selection():
     pytest.importorskip("xarray")
     import xarray as xr
+
     from hydroseason._io_geo import _combine_observations
 
     obs = xr.DataArray(
@@ -37,7 +38,9 @@ def test_combine_observations_flat_selection():
 def test_combine_observations_exhaustive_parity():
     pytest.importorskip("xarray")
     import itertools
+
     import xarray as xr
+
     from hydroseason._io_geo import _combine_observations
 
     values = [1, 0, -1, -2]
@@ -185,8 +188,9 @@ def test_native_grid_alignment(
     pytest.importorskip("affine")
     pytest.importorskip("odc.geo")
     from affine import Affine
-    from odc.geo.geobox import GeoBox
     from odc.geo.crs import CRS
+    from odc.geo.geobox import GeoBox
+
     from hydroseason._io_geo import _geobox_native_aligned
 
     destination = GeoBox(

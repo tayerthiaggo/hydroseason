@@ -26,7 +26,6 @@ import pandas as pd
 
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
-
 _DEFAULT_START_QUANTILE = 0.75
 _DEFAULT_END_QUANTILE = 0.50
 _DEFAULT_LOW_QUANTILE = 0.20

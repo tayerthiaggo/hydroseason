@@ -38,7 +38,6 @@ from ._regime import WaterRegimeAssessment, assess_water_regime
 from ._state_input import QualityPolicy
 from .hydro_year import HydroYearConfig, detect_hydrological_years
 
-
 Route = str
 
 

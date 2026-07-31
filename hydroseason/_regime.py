@@ -37,11 +37,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
-import pandas as pd
 
 from ._events import extract_water_events
 from ._state_input import QualityPolicy, prepare_monthly_extent
-
 
 Regime = Literal["seasonal", "marginal", "aseasonal", "insufficient_record"]
 

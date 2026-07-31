@@ -21,7 +21,6 @@ import html
 import json
 import os
 import sys
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable
@@ -32,25 +31,26 @@ import xarray as xr
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from hydroseason._study_aois import (
-    CATCHMENTS,
-    CatchmentSpec,
-    build_lower_reach_window,
+from hydroseason._boundary import robust_scale  # noqa: E402
+from hydroseason._io_wofs_coarsen import (  # noqa: E402
+    derive_resolution_cache,
 )
-from hydroseason._io_wofs_zarr import (
-    WOfSCacheRequest,
-    WOfSCacheIdentity,
-    WOfSCacheHandle,
-    resolve_cached_request,
+from hydroseason._io_wofs_compare import (  # noqa: E402
+    count_categorical_mismatches,
+)
+from hydroseason._io_wofs_zarr import (  # noqa: E402
     WOFS_CACHE_SCHEMA_VERSION,
     WOFS_CLASSIFIER_VERSION,
     WOFS_PLANNER_VERSION,
+    WOfSCacheHandle,
+    WOfSCacheRequest,
+    resolve_cached_request,
 )
-from hydroseason._io_wofs_coarsen import (
-    derive_resolution_cache,
-)
-from hydroseason._io_wofs_compare import (
-    count_categorical_mismatches,
+from hydroseason._study_aois import (  # noqa: E402
+    CATCHMENTS,
+    CatchmentSpec,
+    _import_geopandas,
+    build_lower_reach_window,
 )
 
 OUTPUT_CRS = 3577
@@ -65,17 +65,6 @@ REPORT_PATH = REPO_ROOT / "notebooks" / "hydroseason_resolution_window_compariso
 
 
 
-from hydroseason._study_aois import (
-    CATCHMENTS,
-    CatchmentSpec,
-    LowerReachWindow,
-    _candidate_streams,
-    _downstream_endpoint,
-    _geometry_union,
-    _longest_linestring,
-    build_lower_reach_window,
-    select_lower_reach,
-)
 
 
 def _read_catchment_inputs(key: str):

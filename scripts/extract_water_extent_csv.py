@@ -35,7 +35,6 @@ os.environ.pop("PROJ_DATA", None)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from hydroseason.io import acquire_wofs_cache, load_aoi, load_wofs_monthly_extent  # noqa: E402
 from hydroseason._io_geo import _crs_value  # noqa: E402
 from hydroseason._io_wofs_acquire import (  # noqa: E402
     _aoi_digest,
@@ -47,6 +46,7 @@ from hydroseason._io_wofs_zarr import (  # noqa: E402
     WOFS_CLASSIFIER_VERSION,
     WOFS_PLANNER_VERSION,
 )
+from hydroseason.io import acquire_wofs_cache, load_aoi, load_wofs_monthly_extent  # noqa: E402
 
 STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 COLLECTION = "ga_ls_wo_3"

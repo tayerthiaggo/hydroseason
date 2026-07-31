@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
 from typing import Literal
 
+import numpy as np
+import pandas as pd
 
 QualityPolicy = Literal["exclude", "flag"]
 
