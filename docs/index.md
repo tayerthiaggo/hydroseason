@@ -24,9 +24,9 @@ pip install "hydroseason[all]"       # Complete raster + STAC dependencies
 
 | Input Type | Entry Point | Required Extra |
 |---|---|---|
-| Monthly extent CSV | [`load_extent_csv`](guide.md#path-1-extent-csv) | Core only |
-| Generic water-mask rasters / Zarr | [`load_monthly_masks`, `load_monthly_masks_zarr`](guide.md#path-2-generic-water-mask-rasters) | `[raster]` |
-| Digital Earth Australia (DEA) STAC | [`open_wo_statistics`, `load_wofs_from_stac`, `load_wofs_monthly_extent`](guide.md#path-3-wofs-stac) | `[stac]` |
+| Monthly extent CSV | [`load_extent_csv`](guide.md#path-1-extent-csv-lightweight-core-only) | Core only |
+| Generic water-mask rasters / Zarr | [`load_monthly_masks`](guide.md#path-2-generic-rasters-or-local-zarr) | `[raster]` |
+| Digital Earth Australia (DEA) STAC | [`open_wo_statistics`](guide.md#path-3-wofs-stac-acquisition) | `[stac]` |
 
 ---
 
