@@ -38,6 +38,9 @@ def prepare_monthly_extent(
         return pd.DataFrame(columns=[value_col, "invalid_pct", "observed_fraction", "quality_state", "candidate_usable"])
     frame = frame.reindex(pd.date_range(frame.index.min(), frame.index.max(), freq="MS"))
 
+    if "n_invalid" not in frame.columns and "n_aoi" in frame.columns and "n_valid" in frame.columns:
+        frame["n_invalid"] = frame["n_aoi"] - frame["n_valid"]
+
     count_cols = ["n_water", "n_valid", "n_invalid", "n_aoi"]
     present = set(count_cols).intersection(frame.columns)
     if present and present != set(count_cols):
