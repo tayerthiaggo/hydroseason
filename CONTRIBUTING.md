@@ -34,33 +34,24 @@ python -m mkdocs build --strict   # docs build
 
 ## Release process
 
-HydroSeason publishes `0.1.0` to **PyPI** and archives the release on GitHub
-and Zenodo. A conda-forge submission starts only after the PyPI project exists
-and is outside the `0.1.0` PyPI/Zenodo release gate.
+HydroSeason publishes to **TestPyPI** first, then **PyPI**, and archives the
+release on GitHub and Zenodo. The full maintainer runbook — one-time trusted
+publisher and environment setup, the TestPyPI verification gate, tagging and
+publishing the GitHub Release, and the Zenodo DOI follow-up — lives in
+[`RELEASING.md`](RELEASING.md). Every publish, tag, and environment approval
+is a deliberate human action; no workflow in this repository dispatches,
+tags, or publishes on its own.
 
-1. Update the version in [`pyproject.toml`](pyproject.toml).
-2. Move the relevant notes in [`CHANGELOG.md`](CHANGELOG.md) under the new
-   version heading and set the date.
-3. Commit, then tag and push:
-   ```bash
-   git commit -am "Release vX.Y.Z"
-   git tag vX.Y.Z
-   git push origin main --tags
-   ```
-4. Create a GitHub Release for the tag. This triggers
-   [`.github/workflows/publish.yml`](.github/workflows/publish.yml), which
-   builds the sdist/wheel, runs `twine check`, and publishes to PyPI via
-   [trusted publishing](https://docs.pypi.org/trusted-publishers/) (configure
-   the PyPI publisher and the `pypi` environment once, before the first
-   release — no API token is stored).
-5. **conda-forge**: after the PyPI release is live, open a PR against the
-   project's conda-forge feedstock (or
-   [staged-recipes](https://github.com/conda-forge/staged-recipes) for the
-   first submission) using the published PyPI sdist URL and real `sha256`.
+A conda-forge submission starts only after the PyPI project exists and is
+outside the PyPI/Zenodo release gate: after a PyPI release is live, open a PR
+against the project's conda-forge feedstock (or
+[staged-recipes](https://github.com/conda-forge/staged-recipes) for the
+first submission) using the published PyPI sdist URL and real `sha256`.
 
 ### Verifying a build locally
 
 ```bash
 python -m build
 python -m twine check dist/*
+check-wheel-contents dist/*.whl
 ```

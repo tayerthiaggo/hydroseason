@@ -32,6 +32,9 @@ jobs:
       - name: Run ruff
         run: python -m ruff check hydroseason tests scripts
 
+      - name: Run actionlint
+        uses: reviewdog/action-actionlint@9fb38160fb27ba5d8ac0d96feeb7cec67f01e761 # v1.73.0
+
   lock:
     name: Lockfile check
     runs-on: ubuntu-latest
