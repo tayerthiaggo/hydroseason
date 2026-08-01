@@ -91,7 +91,10 @@ def _noise_scale(values: pd.Series) -> float:
         return 0.0
     centre = float(np.median(delta))
     scale = 1.4826 * float(np.median(np.abs(delta - centre))) / np.sqrt(2.0)
-    phi = float(pd.Series(clean.to_numpy(float)).autocorr(1) or 0.0)
+    if clean.std(ddof=0) == 0:
+        phi = 0.0
+    else:
+        phi = float(pd.Series(clean.to_numpy(float)).autocorr(1) or 0.0)
     phi = min(max(phi, 0.0), 0.9)
     return scale / np.sqrt(1.0 - phi)
 

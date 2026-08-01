@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -10,7 +9,6 @@ from scripts.run_resolution_case_study import (
     ACQUISITION_SPEEDUP_GROUP_KEYS,
     ResolutionMetrics,
     compare_resolution,
-    recommend_resolution,
     summarize_acquisition,
 )
 

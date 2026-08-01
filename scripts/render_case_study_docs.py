@@ -54,10 +54,6 @@ def render_resolution_results_table(decision_csv: Path) -> str:
         nmae_str = f"{row['median_normalized_mae']:.4f}"
         peak_str = f"{row['median_peak_within_one_month'] * 100:.1f}%"
         trough_str = f"{row['median_trough_within_one_month'] * 100:.1f}%"
-        ev_str = f"{row['max_abs_event_count_delta']:+d}" if row['max_abs_event_count_delta'] > 0 else "0"
-        low_str = f"{row['max_abs_longest_low_spell_delta']:+d}" if row['max_abs_longest_low_spell_delta'] > 0 else "0"
-        
-        # Format signs appropriately for table display
         rec_str = str(row['recommended'])
         lines.append(
             f"| {row['candidate_resolution_m']} m | {row['route_agreement_count']} | {corr_str} | {nmae_str} | "

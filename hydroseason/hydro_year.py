@@ -551,7 +551,10 @@ def _noise_floor_pp(series: pd.Series) -> float:
     # norm in dryland catchments) this under-reads the true spread -- and it
     # under-reads most on exactly the records whose apparent amplitude is
     # persistence rather than season. Rescale to the iid-equivalent spread.
-    phi = float(pd.Series(residual.to_numpy(float)).autocorr(1) or 0.0)
+    if residual.std(ddof=0) == 0:
+        phi = 0.0
+    else:
+        phi = float(pd.Series(residual.to_numpy(float)).autocorr(1) or 0.0)
     phi = min(max(phi, 0.0), 0.9)
     return scale / np.sqrt(1.0 - phi)
 
