@@ -1,57 +1,74 @@
 # HydroSeason
 
-Source-agnostic hydrological-year detection from **monthly surface-water extent**.
+Remote-sensing-first hydrological year detection and regime routing from **monthly surface-water extent**.
 
-HydroSeason was originally rainfall-first. Applied across several catchments,
-the rainfall approach did not work well in practice, so the package is now
-**remote-sensing (water-mask) first**: hydro-year boundaries are detected from
-monthly water-extent series (WOfS/STAC, other binary water-mask rasters, or a
-plain extent CSV), not rainfall. The detection engine is ported from
-WaterMask-TSFill.
+HydroSeason detects wet/dry timing, hydrological year boundaries, and inundation regimes in satellite-derived water-mask time series (such as Digital Earth Australia Water Observations).
 
-The previous rainfall implementation still exists, unchanged, on the
-`legacy/rainfall` branch (tag `v0-rainfall-legacy`) of this repository.
+> [!NOTE]
+> HydroSeason analyzes surface-water extent percentages. It does **not** estimate river discharge, channel depth, total water volume, or groundwater storage.
 
-## Install
+---
+
+## Installation
 
 ```bash
-pip install hydroseason              # core: CSV-only detection (pandas, numpy)
-pip install hydroseason[raster]      # + xarray/rioxarray/rasterio/geopandas/dask/zarr
-pip install hydroseason[stac]        # + pystac-client/odc-stac
-pip install hydroseason[all]         # raster + stac
+pip install hydroseason              # Core: CSV detection & reports (pandas, numpy)
+pip install "hydroseason[raster]"    # + xarray, rioxarray, rasterio, geopandas, dask, zarr
+pip install "hydroseason[stac]"      # + pystac-client, odc-stac (DEA STAC acquisition)
+pip install "hydroseason[all]"       # Complete raster + STAC dependencies
 ```
 
-## Three supported input paths
+---
 
-| Path | Loader | Requires |
+## Input Paths
+
+| Input Type | Entry Point | Required Extra |
 |---|---|---|
-| Monthly extent CSV (already computed) | [`load_extent_csv`](guide.md#path-1-extent-csv) | core only |
-| Generic binary/canonical water-mask rasters or Zarr cubes | [`load_monthly_masks`, `load_monthly_masks_zarr`](guide.md#path-2-generic-water-mask-rasters) | `[raster]` |
-| WOfS / STAC catalog | [`load_wofs_from_stac`](guide.md#path-3-wofs-stac) | `[stac]` |
+| Monthly extent CSV | [`load_extent_csv`](guide.md#path-1-extent-csv) | Core only |
+| Generic water-mask rasters / Zarr | [`load_monthly_masks`, `load_monthly_masks_zarr`](guide.md#path-2-generic-water-mask-rasters) | `[raster]` |
+| Digital Earth Australia (DEA) STAC | [`open_wo_statistics`, `load_wofs_from_stac`, `load_wofs_monthly_extent`](guide.md#path-3-wofs-stac) | `[stac]` |
 
-All three converge on the same canonical monthly water-extent representation
-before `detect_hydrological_years` ever runs — see the [usage guide](guide.md)
-for details, canonical mask values, and the AOI requirement.
-
-!!! warning "Gapfill before detecting"
-    Water-mask gaps, cloud/shadow contamination, and missing months can shift
-    detected wet/dry boundaries. Strongly run WaterMask-TSFill gapfilling on
-    raw/incomplete masks (or ensure a precomputed extent CSV was already
-    completed and quality-screened) before running hydro-year detection. See
-    the [gapfilling recommendation](guide.md#gapfill-before-detecting).
+---
 
 ## Quickstart
 
 ```python
-from hydroseason import load_extent_csv, detect_hydrological_years, label_hydrological_months
+from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv
 
-extent = load_extent_csv("monthly_extent.csv", date_col="date", value_col="extent_pct")
-hydro_years = detect_hydrological_years(extent)
-labels = label_hydrological_months(extent.index, hydro_years)
+# 1. Load monthly surface-water extent series (2005-2025)
+extent = load_extent_csv(
+    "monthly_extent.csv",
+    date_col="date",
+    value_col="extent_pct",
+)
+
+# 2. Automatic regime routing (seasonal vs aseasonal)
+analysis = analyze_catchment(extent, phase_model="rule_based")
+print(f"Regime: {analysis.regime.regime} | Route: {analysis.route}")
+
+# 3. Generate self-contained HTML report and CSV bundle
+paths = generate_catchment_report(
+    extent,
+    output_dir="output/report",
+    name="my_catchment",
+    analysis=analysis,
+    title="My Catchment",
+    subtitle="Monthly surface-water hydrological analysis",
+)
+print(f"HTML report written to: {paths.html}")
 ```
 
-See the [usage guide](guide.md) for the raster and WOfS/STAC paths.
+---
 
-## Citation
+## Navigation & Documentation
 
-See [Citation](citation.md).
+| Page | Contents |
+|---|---|
+| [User Guide](guide.md) | DEA acquisition options, pruning footprints, and reporting |
+| [Hydrological State](hydrological-state.md) | Dynamic years, trough diagnostics, and phase models |
+| [Case Studies Overview](case-studies/index.md) | Two reproducible studies across five catchments |
+| [Main Workflow Study](case-studies/main-workflow.md) | Case Study 1 — Route-aware analysis across 5 catchments |
+| [Resolution & Acquisition Evidence](case-studies/resolution-and-acquisition.md) | Case Study 2 — Resolution fidelity and pruning benchmarks |
+| [Report Export Columns](report-columns.md) | CSV column dictionary for generated report bundles |
+| [API Reference](api.md) | Public functions, classes, and exported entry points |
+| [Citation](citation.md) | Software and paper citation details |

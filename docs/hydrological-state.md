@@ -84,10 +84,11 @@ lengths stay coherent. It never shifts onto a materially higher or otherwise
 different month: the raw observed minimum is always reported and is never
 silently replaced.
 
-A second, opt-in engine (`detector="semi_markov"`, a four-state hidden
-semi-Markov model) is available for experimentation and produces the same
-output schema, but it is not the default — its own promotion gate has not yet
-passed on available fixtures.
+A second, internal-only experimental engine (a four-state hidden semi-Markov
+model) exists purely as an unreleased research comparison for the
+promotion-gate harness (`tests/test_detector_comparison.py`); it is not
+selectable through `DynamicHydroYearConfig` or any public API and produces no
+released output.
 
 Rewetting pulses are still counted: `n_rewetting_pulses` records rises,
 adjacent in whole months after the peak, that later recede. Pulse counting no
@@ -125,10 +126,11 @@ Each year's trough opportunity carries diagnostics that separate what was
   gate to decide whether a cycle may anchor a historical baseline — only
   `confirmed` cycles are eligible.
 - `detector` (a `DynamicHydroYearConfig` field, not an annual output column):
-  `"robust_extrema"` is the default, shipped and gated on real Fitzroy and
-  Gilbert River evidence; `"semi_markov"` is opt-in and experimental, and
-  should not be treated as ready to replace the default. Both choices produce
-  the same annual output schema.
+  `"robust_extrema"` is the only publicly supported value, gated on real
+  Fitzroy and Gilbert River evidence; any other value is rejected at
+  construction. An internal-only semi-Markov challenger exists solely for the
+  experimental promotion-gate comparison harness and is never reachable
+  through this public field.
 
 ```python
 config = DynamicHydroYearConfig(
