@@ -63,7 +63,7 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
     assert "Reference Median" in names
     assert "Invalid Coverage (%)" in names
     marker_names = {
-        trace.get("name") for trace in figure["data"] if "markers" in trace.get("mode", "")
+        trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
     assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
     assert {"phase:recovery", "phase:wet", "phase:recession", "phase:dry"} == {
@@ -75,7 +75,10 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
     assert figure["config"]["scrollZoom"] is True
 
     mid_dry = next(trace for trace in figure["data"] if trace.get("name") == "HY Mid Dry")
-    expected = [pd.Timestamp(value).strftime("%Y-%m-%d") for value in analysis.hydro_years["temporal_mid_dry_month"]]
+    expected = [
+        pd.Timestamp(value).strftime("%Y-%m-%d")
+        for value in analysis.hydro_years["temporal_mid_dry_month"].dropna()
+    ]
     assert mid_dry["x"] == expected
 
 
@@ -85,7 +88,7 @@ def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(season
 
     assert any(trace.get("name") == "Hydrological-year extent" for trace in figure["data"])
     marker_names = {
-        trace.get("name") for trace in figure["data"] if "markers" in trace.get("mode", "")
+        trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
     assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
     assert any(annotation.get("text", "").startswith("HY ") for annotation in figure["layout"]["annotations"])
@@ -94,6 +97,7 @@ def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(season
     expected_intervals = {
         (pd.Timestamp(row.hy_start).strftime("%Y-%m-%d"), pd.Timestamp(row.hy_end).strftime("%Y-%m-%d"))
         for row in analysis.hydro_years.itertuples()
+        if pd.notna(row.hy_start) and pd.notna(row.hy_end)
     }
     intervals = [shape for shape in figure["layout"]["shapes"] if shape.get("name", "").startswith("HY ")]
     assert all(shape.get("type") == "rect" for shape in intervals)
