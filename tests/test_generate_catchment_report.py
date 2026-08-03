@@ -41,6 +41,7 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert 'id="timeline-scale-log"' in html
     assert 'id="timeline"' in html
     assert 'id="hydro-year"' in html
+    assert html.count('class="plot plot-primary"') == 2
     assert html.index("Monthly Surface Water Extent") < html.index("Hydrological Year Extent")
     assert html.index("Hydrological Year Extent") < html.index("Supporting View")
     assert "plotly_relayout" in html
