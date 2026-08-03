@@ -39,3 +39,24 @@ after 63 seconds and then left sandbox-created pytest temporary directories with
 permissions that blocked in-sandbox retries. The focused suite was rerun
 successfully with normal host temporary-directory access. No product-code issue
 was observed.
+
+## Fix round 1
+
+- Preserved an immutable per-trace copy of left-axis y-values before any Plotly
+  restyle. Linear mode now restores non-positive reference values exactly after
+  a log-mode toggle.
+- Added a Node v24.16.0-backed test that renders the real report interaction
+  script, executes its scale controls, verifies yaxis2 remains linear, and
+  verifies both directional x-range synchronization without reentrant loops.
+
+### Verification output
+
+- Red regression: the reference series restored `[0.02, 2]` rather than
+  `[-1, 2]` before the fix.
+- `python -m pytest tests/test_generate_catchment_report.py tests/test_report.py -q`: 9 passed in 4.56s.
+- `python -m compileall -q hydroseason`: passed.
+- `git diff --check`: passed.
+- `node --version`: v24.16.0; the Node interaction regression is run by the
+  focused pytest command.
+
+Fix implementation commit: `4d5284c fix: preserve report chart scale values`.
