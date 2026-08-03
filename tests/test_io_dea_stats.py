@@ -30,6 +30,7 @@ from hydroseason._io_dea_stats import (  # noqa: E402
 from hydroseason._historical_water_mask import (  # noqa: E402
     HistoricalWaterMask,
     HistoricalWaterMaskRequest,
+    _zarr_store,
     build_historical_water_mask,
     load_or_build_historical_water_mask,
     read_historical_water_mask,
@@ -1194,10 +1195,14 @@ def test_read_historical_water_mask_rejects_tampered_mask_bytes(tmp_path):
 
     artifacts_dir = tmp_path / "historical-water-masks" / "artifacts"
     artifact_dir = next(artifacts_dir.iterdir())
-    array = zarr.open_array(str(artifact_dir / "mask.zarr"), mode="r+")
+    # Use the same long-path-aware store as production. A bare string path
+    # can raise FileNotFoundError while opening a chunk on Windows when the
+    # full-suite temp root crosses MAX_PATH.
+    array = zarr.open_array(_zarr_store(artifact_dir / "mask.zarr"), mode="r+")
     tampered = np.asarray(array[:], dtype=bool)
     tampered[0, 0] = not tampered[0, 0]
     array[:] = tampered
+    assert np.array_equal(np.asarray(array[:], dtype=bool), tampered)
 
     with pytest.raises(ValueError, match="historical water mask cache verification failed"):
         read_historical_water_mask(tmp_path, request, analysis_end="2020-01-01")
