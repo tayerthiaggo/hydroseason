@@ -40,6 +40,7 @@ YEAR_END = "2015-12-31"
 CRS = "EPSG:3577"
 RESOLUTION = 30.0
 TILE_PIXELS = 1024
+LEGACY_QUERIES_PER_RUN = 2
 CASES = {
     "gilbert": REPO_ROOT / "data" / "Gilbert_river_buffer.geojson",
     "fitzroy": REPO_ROOT / "data" / "fitzroy_kimberley_aoi.geojson",
@@ -388,6 +389,80 @@ def _assert_exact(reference: dict[str, Any], candidate: dict[str, Any]) -> bool:
     return True
 
 
+def _source_counts_ok(result: dict[str, Any], *, runs: int) -> bool:
+    """Enforce one cold acquisition and no warm acquisition per run.
+
+    Keep accepting the flat result shape emitted by the original benchmark
+    while also validating the current ``cases -> modes -> *_runs`` layout.
+    Missing or malformed diagnostics fail closed.
+    """
+    if runs <= 0:
+        return False
+
+    def diagnostic_count(run: Any, key: str) -> int | None:
+        if not isinstance(run, dict) or not isinstance(run.get("diagnostics"), list):
+            return None
+        total = 0
+        for diagnostic in run["diagnostics"]:
+            if not isinstance(diagnostic, dict):
+                return None
+            value = diagnostic.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            if value < 0 or int(value) != value:
+                return None
+            total += int(value)
+        return total
+
+    current_cases = result.get("cases")
+    if current_cases is not None:
+        selected_cases = result.get("selected_cases", tuple(current_cases))
+        if not isinstance(current_cases, dict) or not isinstance(selected_cases, (list, tuple)):
+            return False
+        for case in selected_cases:
+            case_result = current_cases.get(case)
+            if not isinstance(case_result, dict):
+                return False
+            modes = case_result.get("modes")
+            if not isinstance(modes, dict):
+                return False
+            for mode in BENCHMARK_MODES:
+                mode_result = modes.get(mode)
+                if not isinstance(mode_result, dict):
+                    return False
+                cold_runs = mode_result.get("cold_runs")
+                warm_runs = mode_result.get("warm_runs")
+                if not isinstance(cold_runs, list) or not isinstance(warm_runs, list):
+                    return False
+                if len(cold_runs) != runs or len(warm_runs) != runs:
+                    return False
+                for run in cold_runs:
+                    if diagnostic_count(run, "query_count") != 1 or diagnostic_count(
+                        run, "graph_count"
+                    ) != 1:
+                        return False
+                for run in warm_runs:
+                    if diagnostic_count(run, "query_count") != 0 or diagnostic_count(
+                        run, "graph_count"
+                    ) != 0:
+                        return False
+        return True
+
+    cases = result.get("selected_cases", tuple(name for name in CASES if name in result))
+    if not isinstance(cases, (list, tuple)):
+        return False
+    return all(
+        isinstance(result.get(case), dict)
+        and result[case].get("legacy_stac_calls") == LEGACY_QUERIES_PER_RUN * runs
+        and result[case].get("cold_stac_calls") == runs
+        and result[case].get("cold_graph_builds") == runs
+        for case in cases
+    ) and (
+        not {"gilbert", "cached_stac_calls", "cached_graph_builds"}.issubset(result)
+        or (result["gilbert"]["cached_stac_calls"] == 0 and result["gilbert"]["cached_graph_builds"] == 0)
+    )
+
+
 def _containment_mismatch_count(primary_masks, historical_mask) -> int:
     """Count bounded full-AOI primary-water pixels outside the exact mask.
 
@@ -500,8 +575,10 @@ def _run_benchmark(args: argparse.Namespace) -> int:
             "correct": all_correct,
             "package_versions": _package_versions(),
         }
+        source_counts_ok = _source_counts_ok(result, runs=args.runs)
+        result["source_counts_ok"] = source_counts_ok
         _write_json_atomic(Path(args.output), result)
-        return 0 if all_correct else 3
+        return 0 if all_correct and source_counts_ok else 3
     except Exception as exc:
         _write_json_atomic(Path(args.output), {"error": repr(exc), "package_versions": _package_versions()})
         return 1
