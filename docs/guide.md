@@ -23,7 +23,14 @@ Every raster loader converges on the same canonical values before detection sees
 
 ## Gapfilling Recommendation
 
-Water-mask gaps, cloud/shadow contamination, and missing months can shift wet/dry boundaries. **Strongly run gapfilling (e.g. WaterMask-TSFill) on raw/incomplete masks before running hydro-year detection.** `detect_hydrological_years` rejects any month with more than `max_invalid_pct=20.0`% invalid coverage by default.
+Water-mask gaps, cloud/shadow contamination, and missing months can shift wet/dry boundaries. **Strongly run gapfilling (e.g. WaterMask-TSFill) on raw/incomplete masks before running hydro-year detection.** The robust detector still reports an observed extremum when its month exceeds `max_invalid_pct=20.0`% invalid coverage, but marks that extremum `low_quality` and the annual cycle `provisional`; low-quality cycles cannot anchor historical condition baselines.
+
+For review-oriented mapping where every finite observation should contribute to
+the cycle search, pass `quality_policy="flag"` (the main case-study build uses
+this mode). Months with partial invalid coverage remain `usable_month=True`,
+while `invalid_pct`, `quality_state="low"`, support, and confidence expose the
+uncertainty. A month with 100% invalid coverage or no observed extent remains
+unusable.
 
 ---
 
@@ -134,9 +141,13 @@ analysis = analyze_catchment(extent, phase_model="rule_based")
 paths = generate_catchment_report(
     extent,
     output_dir="output/report",
-    name="fitzroy_river_wa",
+    name="fitzroy_river_wa",  # optional AOI label
     analysis=analysis,
     title="Fitzroy River (WA)",
     subtitle="Surface-water hydrological analysis",
 )
 ```
+
+`name` is optional and can be any AOI label (it does not need to be a named
+catchment). If omitted or blank, the report uses **HydroSeason results** and
+the files use the `hydroseason-results` stem.

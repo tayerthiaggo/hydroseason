@@ -46,7 +46,14 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
 
         try:
             extent = load_extent_csv(csv_path, date_col="date", value_col="extent_pct")
-            analysis = analyze_catchment(extent, phase_model="rule_based")
+            # Keep finite observations in the HY search.  Invalid-pixel
+            # coverage remains exported and drives low-confidence/provisional
+            # boundary flags rather than deleting the visible cycle.
+            analysis = analyze_catchment(
+                extent,
+                phase_model="rule_based",
+                quality_policy="flag",
+            )
             generate_catchment_report(
                 extent,
                 output_dir / key,
@@ -54,6 +61,11 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
                 analysis=analysis,
                 title=name,
                 subtitle="Whole-catchment monthly surface-water extent, 2005-2025",
+                quality_note=(
+                    "Finite monthly observations are retained for boundary mapping; "
+                    "invalid coverage is reported and low-quality boundaries are "
+                    "marked provisional/low confidence."
+                ),
             )
             rows.append(
                 {
@@ -70,7 +82,7 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
                         "longest_low_spell_months", 0
                     ),
                     "amplitude_snr": round(float(analysis.regime.amplitude_snr), 3),
-                    "climatological_peak_month": (
+                    "water_extent_peak_month": (
                         float(analysis.climatological_peak_month)
                         if analysis.climatological_peak_month is not None
                         else None

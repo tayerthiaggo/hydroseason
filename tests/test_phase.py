@@ -100,3 +100,16 @@ def test_rule_based_phases_follow_one_way_order(monsonal_extent):
         assert set(usable).issubset(set(PHASES))
         values = [rank[value] for value in usable]
         assert values == sorted(values)
+
+
+def test_monthly_phase_boundary_basis_matches_actual_annual_boundary_detector(monsonal_extent):
+    # Regression for the stage-06 review finding: monthly_phase.boundary_basis
+    # must report the detector that actually produced the annual boundaries,
+    # not a hard-coded "robust_extrema" string. Since the public
+    # DynamicHydroYearConfig.detector is robust_extrema-only, this must hold
+    # for both phase_model settings against the config actually used.
+    for phase_model in ("none", "rule_based"):
+        config = DynamicHydroYearConfig(expected_trough_month=9, phase_model=phase_model)
+        result = analyze_hydrological_state(monsonal_extent, config=config, n_bootstrap=40)
+        assert config.detector == "robust_extrema"
+        assert result.monthly_phase["boundary_basis"].eq(config.detector).all()

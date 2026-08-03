@@ -19,7 +19,7 @@ Pass `DynamicHydroYearConfig(expected_trough_month=...)` when local knowledge sh
 
 ## Annual interpretation
 
-- `peak_extent_pct`: maximum observed extent in the dynamic trough-to-trough cycle.
+- `peak_extent_pct`: maximum observed extent in the dynamic trough-to-trough cycle. The observed maximum is retained for review even when its `invalid_pct` exceeds the configured quality threshold; inspect `peak_selection_status` and `peak_invalid_pct` before treating it as trusted evidence.
 - `temporal_mid_dry_extent_pct`: observed extent nearest the temporal midpoint between peak and trough.
 - `half_loss_extent_pct`: first observed post-peak extent at or below half the peak-to-trough loss.
 - `trough_extent_pct`: ending low-water extent selected from that year's search opportunity.
@@ -78,11 +78,11 @@ expected trough window, the raw observed minimum (`raw_trough_month`,
 `raw_trough_extent_pct`) plus its contiguous "equivalent low run" — the
 adjacent months within measurement-noise tolerance of that minimum
 (`low_run_start_month`/`low_run_end_month`). A sequence-consistent optimizer
-(`select_boundary_sequence`) may then shift the reported `trough_month` onto
-another month *within that same equivalent run* so consecutive years' cycle
-lengths stay coherent. It never shifts onto a materially higher or otherwise
-different month: the raw observed minimum is always reported and is never
-silently replaced.
+(`select_boundary_sequence`) may resolve an exact-value tie within that same
+equivalent run so consecutive years' cycle lengths stay coherent. The released
+detector never shifts onto a materially higher month; any exact-tie shift is
+labelled `coherence_adjusted`, while the raw observed minimum remains
+separately auditable.
 
 A second, internal-only experimental engine (a four-state hidden semi-Markov
 model) exists purely as an unreleased research comparison for the
@@ -102,7 +102,7 @@ Each year's trough opportunity carries diagnostics that separate what was
 *observed* from what was *selected*, so the boundary choice stays auditable:
 
 - `raw_trough_month` / `raw_trough_extent_pct`: the true observed minimum in
-  the expected window. It is always reported, even in years where a different
+  the expected window. It is always reported, including when an exact-value tie
   month within the equivalent low run is ultimately chosen as `trough_month` —
   this value is never silently replaced.
 - `low_run_start_month` / `low_run_end_month`: the contiguous run of months
@@ -115,9 +115,12 @@ Each year's trough opportunity carries diagnostics that separate what was
   the window even though the window itself is not truncated.
 - `selection_status`: `raw` when the raw minimum itself was selected with no
   ambiguity; `ambiguous` when a singleton or anomalous low was retained but
-  flagged uncertain; `unresolved` when too few usable candidates existed to
-  select anything that year. `quality_adjusted` is reserved for future
-  quality-based reselection and is not currently produced by either detector.
+  flagged uncertain; `low_quality` when the observed extremum comes from a
+  month above the configured invalid-coverage threshold;
+  `coherence_adjusted` when an exact-value tie was chosen for cycle consistency;
+  `unresolved` when too few observed candidates existed to select anything that
+  year. `quality_adjusted` remains reserved for explicit quality-based
+  reselection.
 - `selection_support`: a 0-1 confidence-like value combining window coverage
   and ambiguity. It is a quality grade, not yet a calibrated probability.
 - `boundary_status`: `confirmed` when the window is full, the raw minimum was
@@ -125,6 +128,10 @@ Each year's trough opportunity carries diagnostics that separate what was
   Downstream condition-baseline logic (`hydroseason/_condition.py`) uses this
   gate to decide whether a cycle may anchor a historical baseline — only
   `confirmed` cycles are eligible.
+- `peak_selection_status` / `peak_selection_support`: the same quality
+  diagnostics for the observed within-cycle maximum. A `low_quality` peak is
+  retained, but forces the annual row to `status="partial"` and
+  `boundary_status="provisional"`.
 - `detector` (a `DynamicHydroYearConfig` field, not an annual output column):
   `"robust_extrema"` is the only publicly supported value, gated on real
   Fitzroy and Gilbert River evidence; any other value is rejected at
@@ -146,7 +153,15 @@ annual[[
 
 ## Quality and aggregation
 
-`invalid_pct` is a percentage: observed fraction is `1 - invalid_pct / 100`. Missing, low-quality, and unknown-quality months are not boundary candidates by default. Aggregate basins with summed `n_water` and `n_valid` counts, or explicit AOI area weights; unweighted percentage means are rejected.
+`invalid_pct` is a percentage: observed fraction is `1 - invalid_pct / 100`.
+Observed extrema from low-quality months remain visible for auditability, but
+they are flagged `low_quality`, reduce support, and cannot produce a confirmed
+annual boundary. Use `quality_policy="flag"` when finite observations with
+partial invalid coverage should remain `candidate_usable`/`usable_month` for
+cycle identification; their invalid counts still lower confidence. A 100%
+invalid month (or a month with no observed extent) remains ineligible. Aggregate
+basins with summed `n_water` and `n_valid` counts, or explicit AOI area weights;
+unweighted percentage means are rejected.
 
 ## Limitations
 

@@ -18,6 +18,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def render_main_results_table(summary_csv: Path) -> str:
     """Render main study Markdown table from summary.csv."""
     df = pd.read_csv(summary_csv)
+    peak_column = (
+        "water_extent_peak_month"
+        if "water_extent_peak_month" in df.columns
+        else "climatological_peak_month"
+    )
     lines = [
         "| Catchment | Regime | Route | SNR | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |",
         "|---|---|---|---|---|---|---|---|---|",
@@ -25,8 +30,8 @@ def render_main_results_table(summary_csv: Path) -> str:
     for _, row in df.iterrows():
         snr_str = f"{row['amplitude_snr']:.2f}"
         peak_str = (
-            pd.to_datetime(f"2020-{int(row['climatological_peak_month']):02d}-01").strftime("%b")
-            if pd.notna(row["climatological_peak_month"])
+            pd.to_datetime(f"2020-{int(row[peak_column]):02d}-01").strftime("%b")
+            if pd.notna(row[peak_column])
             else "N/A"
         )
         trough_str = (

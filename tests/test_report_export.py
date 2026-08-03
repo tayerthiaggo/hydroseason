@@ -8,6 +8,9 @@ from hydroseason._report_export import (
     build_hydro_years_export,
     build_monthly_export,
     build_summary_export,
+    build_user_events_export,
+    build_user_low_spells_export,
+    build_user_monthly_export,
     safe_stem,
     write_report_csvs,
 )
@@ -73,6 +76,22 @@ def test_monthly_export_preserves_every_source_month(seasonal_extent):
     } <= set(out.columns)
 
 
+def test_flagged_analysis_exports_partial_quality_months_as_usable():
+    dates = pd.date_range("2010-01-01", periods=24, freq="MS")
+    extent = pd.DataFrame(
+        {
+            "extent_pct": np.linspace(1.0, 12.0, len(dates)),
+            "invalid_pct": [0.0, 90.0] * (len(dates) // 2),
+        },
+        index=dates,
+    )
+    analysis = analyze_catchment(extent, quality_policy="flag")
+    out = build_monthly_export(extent, analysis=analysis)
+
+    assert out["usable_month"].all()
+    assert out.loc[out["invalid_pct"] == 90.0, "quality_state"].eq("low").all()
+
+
 def test_aseasonal_export_has_no_hy_or_phase_claims(aseasonal_extent):
     analysis = analyze_catchment(aseasonal_extent, phase_model="rule_based", n_bootstrap=40)
     monthly = build_monthly_export(aseasonal_extent, analysis=analysis)
@@ -110,13 +129,29 @@ def test_build_events_export(seasonal_extent):
     assert isinstance(low_spells_df, pd.DataFrame)
 
 
+def test_user_csv_exports_include_quality_threshold_and_event_baseline(seasonal_extent):
+    analysis = analyze_catchment(seasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    monthly = build_monthly_export(seasonal_extent, analysis=analysis)
+    events, low_spells = build_events_export(analysis)
+    baseline = analysis.events.summary["baseline_pct"]
+
+    user_monthly = build_user_monthly_export(monthly, analysis=analysis)
+    user_events = build_user_events_export(events, baseline_extent_pct=baseline)
+    user_low_spells = build_user_low_spells_export(
+        low_spells, baseline_extent_pct=baseline
+    )
+
+    assert user_monthly["max_invalid_pct"].eq(analysis.max_invalid_pct).all()
+    assert user_monthly["baseline_extent_pct"].eq(baseline).all()
+    assert user_events["baseline_extent_pct"].eq(baseline).all()
+    assert user_low_spells["baseline_extent_pct"].eq(baseline).all()
+
+
 def test_write_report_csvs(tmp_path, seasonal_extent):
     analysis = analyze_catchment(seasonal_extent, phase_model="rule_based", n_bootstrap=40)
     monthly = build_monthly_export(seasonal_extent, analysis=analysis)
     years = build_hydro_years_export(analysis, name="Test Catchment")
     events, low_spells = build_events_export(analysis)
-    summary = build_summary_export(analysis, name="Test Catchment", verdict="Verdict copy")
-
     paths = write_report_csvs(
         tmp_path,
         stem="test-catchment",
@@ -124,9 +159,9 @@ def test_write_report_csvs(tmp_path, seasonal_extent):
         hydro_years=years,
         events=events,
         low_spells=low_spells,
-        summary=summary,
     )
 
-    assert set(paths.keys()) == {"monthly", "hydro_years", "events", "low_spells", "summary"}
+    assert set(paths.keys()) == {"monthly", "hydro_years", "wet_event", "low_spells"}
+    assert paths["wet_event"].name == "test-catchment_wet_event.csv"
     for p in paths.values():
         assert p.exists()

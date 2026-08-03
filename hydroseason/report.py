@@ -18,6 +18,11 @@ from ._report_export import (
     build_hydro_years_export,
     build_monthly_export,
     build_summary_export,
+    build_user_events_export,
+    build_user_hydro_years_export,
+    build_user_low_spells_export,
+    build_user_monthly_export,
+    normalise_report_name,
     safe_stem,
     write_report_csvs,
 )
@@ -33,9 +38,13 @@ class CatchmentReportPaths:
     html: Path
     monthly_csv: Path
     hydro_years_csv: Path
-    events_csv: Path
+    wet_event_csv: Path
     low_spells_csv: Path
-    summary_csv: Path
+
+    @property
+    def events_csv(self) -> Path:
+        """Backward-compatible alias for :attr:`wet_event_csv`."""
+        return self.wet_event_csv
 
 
 def _write_text_atomic(path: Path, text: str) -> None:
@@ -49,7 +58,11 @@ def _write_text_atomic(path: Path, text: str) -> None:
 
 
 def _validate_analysis_for_extent(extent: Any, analysis: CatchmentAnalysis) -> None:
-    prepared = prepare_monthly_extent(extent)
+    prepared = prepare_monthly_extent(
+        extent,
+        max_invalid_pct=analysis.max_invalid_pct,
+        quality_policy=analysis.quality_policy,
+    )
     if int(analysis.regime.n_usable_months) != int(prepared["candidate_usable"].sum()):
         raise ValueError("analysis does not match extent usable-month count")
 
@@ -195,17 +208,23 @@ def generate_catchment_report(
     extent: Any,
     output_dir: str | Path,
     *,
-    name: str,
+    name: str | None = None,
     analysis: CatchmentAnalysis | None = None,
     rainfall: Any | None = None,
     title: str | None = None,
     subtitle: str | None = None,
     quality_note: str | None = None,
 ) -> CatchmentReportPaths:
-    """Write a self-contained HTML report plus complete route-aware CSV bundle."""
+    """Write HTML plus a compact, route-aware CSV bundle.
+
+    ``name`` is optional because an AOI may not correspond to a named
+    catchment.  Blank names are rendered as ``HydroSeason results`` and use a
+    safe ``hydroseason-results`` filename stem.
+    """
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    clean_stem = safe_stem(name)
+    display_name = normalise_report_name(name)
+    clean_stem = safe_stem(display_name)
 
     if analysis is None:
         analysis = analyze_catchment(extent, phase_model="rule_based")
@@ -213,24 +232,37 @@ def generate_catchment_report(
         _validate_analysis_for_extent(extent, analysis)
 
     monthly = build_monthly_export(extent, analysis=analysis, rainfall=rainfall)
-    hydro_years = build_hydro_years_export(analysis, name=name)
+    hydro_years = build_hydro_years_export(analysis, name=display_name)
     events, low_spells = build_events_export(analysis)
     verdict = verdict_sentence(analysis)
-    summary = build_summary_export(analysis, name=name, verdict=verdict)
+    summary = build_summary_export(analysis, name=display_name, verdict=verdict)
+
+    # Keep the rich frames for HTML.  The CSV bundle is intentionally a
+    # smaller, stable interface with explicit date names and only the fields a
+    # manager normally needs to interpret the result.
     csv_paths = write_report_csvs(
         output,
         stem=clean_stem,
-        monthly=monthly,
-        hydro_years=hydro_years,
-        events=events,
-        low_spells=low_spells,
-        summary=summary,
+        monthly=build_user_monthly_export(
+            monthly,
+            hydro_years=hydro_years,
+            analysis=analysis,
+        ),
+        hydro_years=build_user_hydro_years_export(hydro_years),
+        events=build_user_events_export(
+            events,
+            baseline_extent_pct=analysis.events.summary.get("baseline_pct"),
+        ),
+        low_spells=build_user_low_spells_export(
+            low_spells,
+            baseline_extent_pct=analysis.events.summary.get("baseline_pct"),
+        ),
     )
 
     html_path = output / f"{clean_stem}.html"
     html_text = render_report_html(
-        name=name,
-        title=title or name,
+        name=display_name,
+        title=title or display_name,
         subtitle=subtitle,
         quality_note=quality_note,
         verdict=verdict,
@@ -249,9 +281,8 @@ def generate_catchment_report(
         html=html_path.resolve(),
         monthly_csv=csv_paths["monthly"].resolve(),
         hydro_years_csv=csv_paths["hydro_years"].resolve(),
-        events_csv=csv_paths["events"].resolve(),
+        wet_event_csv=csv_paths["wet_event"].resolve(),
         low_spells_csv=csv_paths["low_spells"].resolve(),
-        summary_csv=csv_paths["summary"].resolve(),
     )
 
 

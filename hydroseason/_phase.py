@@ -21,15 +21,20 @@ PHASE_COLUMNS = [
 ]
 
 
-def empty_monthly_phase(prepared: pd.DataFrame, *, method: str = "none") -> pd.DataFrame:
-    """Return the stable monthly-phase schema with phase labelling disabled."""
+def empty_monthly_phase(prepared: pd.DataFrame, *, method: str = "none", boundary_basis: str = "robust_extrema") -> pd.DataFrame:
+    """Return the stable monthly-phase schema with phase labelling disabled.
+
+    ``boundary_basis`` must reflect the detector that actually produced the
+    annual boundaries this frame is anchored to; it is never hard-coded here
+    so it cannot silently claim ``robust_extrema`` for a different engine.
+    """
     frame = pd.DataFrame(index=pd.DatetimeIndex(prepared.index))
     frame["hy_year"] = pd.Series(pd.NA, index=frame.index, dtype="Int64")
     frame["phase"] = "unspecified"
     frame["phase_status"] = "disabled"
     frame["phase_confidence"] = np.nan
     frame["phase_method"] = method
-    frame["boundary_basis"] = "robust_extrema"
+    frame["boundary_basis"] = boundary_basis
     frame["p_wet"] = np.nan
     frame["p_recession"] = np.nan
     frame["p_dry"] = np.nan
@@ -109,9 +114,10 @@ def assign_rule_based_phases(
     hydro_years: pd.DataFrame,
     *,
     noise_pp: float,
+    boundary_basis: str = "robust_extrema",
 ) -> pd.DataFrame:
     """Assign deterministic descriptive phases anchored to robust annual cycles."""
-    out = empty_monthly_phase(prepared, method="rule_based")
+    out = empty_monthly_phase(prepared, method="rule_based", boundary_basis=boundary_basis)
     out["phase_status"] = "outside_cycle"
 
     for _, row in hydro_years.iterrows():
@@ -123,7 +129,12 @@ def assign_rule_based_phases(
         out.loc[months, "hy_year"] = int(row["hy_year"])
         out.loc[months, "phase_status"] = "unresolved_cycle"
 
-    for _, row in hydro_years.loc[hydro_years["status"].eq("complete")].iterrows():
+    # Partial cycles still contain useful observed structure.  Label them
+    # provisionally instead of discarding every phase and emitting a large
+    # ``unspecified`` block; the annual row's status remains the authority on
+    # boundary quality.
+    phaseable = hydro_years.loc[hydro_years["status"].isin(["complete", "partial"])]
+    for _, row in phaseable.iterrows():
         start = _as_month(row.get("hy_start"))
         end = _as_month(row.get("hy_end"))
         peak = _as_month(row.get("peak_month"))
@@ -168,7 +179,8 @@ def assign_rule_based_phases(
         out.loc[end, "phase"] = "dry"
         cycle_months = _months_in(prepared, start, end)
         usable = out.loc[cycle_months, "candidate_usable"].astype(bool)
-        status = np.where(usable, "ok", "unusable")
+        phase_status = "ok" if row.get("status") == "complete" else "provisional"
+        status = np.where(usable, phase_status, "unusable")
         confidence = [
             _confidence(row, has_half_loss=has_half_loss, unusable=not bool(is_usable))
             for is_usable in usable
@@ -186,9 +198,14 @@ def assign_monthly_phases(
     *,
     noise_pp: float,
 ) -> pd.DataFrame:
-    """Dispatch monthly phase labelling without mutating annual products."""
+    """Dispatch monthly phase labelling without mutating annual products.
+
+    ``boundary_basis`` is always taken from ``config.detector`` (the engine
+    that actually produced ``hydro_years``), never hard-coded, so provenance
+    cannot lie about which detector the annual boundaries came from.
+    """
     if config.phase_model == "none":
-        return empty_monthly_phase(prepared)
+        return empty_monthly_phase(prepared, boundary_basis=config.detector)
     if config.phase_model == "rule_based":
-        return assign_rule_based_phases(prepared, hydro_years, noise_pp=noise_pp)
+        return assign_rule_based_phases(prepared, hydro_years, noise_pp=noise_pp, boundary_basis=config.detector)
     raise ValueError(f"unknown phase_model {config.phase_model!r}")

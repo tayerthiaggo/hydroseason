@@ -41,12 +41,39 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert "prefers-color-scheme" not in html
     assert paths.monthly_csv.exists()
     assert paths.hydro_years_csv.exists()
-    assert paths.events_csv.exists()
+    assert paths.wet_event_csv.exists()
     assert paths.low_spells_csv.exists()
-    assert paths.summary_csv.exists()
+    assert not (tmp_path / "seasonal-test_summary.csv").exists()
     assert all(path.is_absolute() for path in paths.__dict__.values())
     assert paths.html.name == "seasonal-test.html"
     assert paths.monthly_csv.name == "seasonal-test_monthly.csv"
+
+    monthly = pd.read_csv(paths.monthly_csv)
+    hydro_years = pd.read_csv(paths.hydro_years_csv)
+    events = pd.read_csv(paths.wet_event_csv)
+    low_spells = pd.read_csv(paths.low_spells_csv)
+    assert "condition_percentile" not in monthly.columns
+    assert {
+        "max_invalid_pct",
+        "baseline_extent_pct",
+        "is_hy_peak",
+        "is_hy_mid_dry",
+        "is_hy_trough",
+        "phase_status",
+        "quality_state",
+    } <= set(monthly.columns)
+    assert {"start_date", "peak_date", "trough_date"} <= set(hydro_years.columns)
+    assert {"start_date", "end_date", "peak_date", "baseline_extent_pct"} <= set(events.columns)
+    assert {"low_spell_id", "start_date", "end_date", "baseline_extent_pct"} <= set(low_spells.columns)
+
+
+def test_generate_catchment_report_uses_default_name_for_blank_aoi(tmp_path, seasonal_extent):
+    paths = generate_catchment_report(seasonal_extent, tmp_path, name="  ")
+
+    assert paths.html.name == "hydroseason-results.html"
+    assert paths.wet_event_csv.name == "hydroseason-results_wet_event.csv"
+    assert not (tmp_path / "hydroseason-results_summary.csv").exists()
+    assert "HydroSeason results" in paths.html.read_text(encoding="utf-8")
 
 
 def test_generate_catchment_report_escapes_user_controlled_html(tmp_path, seasonal_extent):

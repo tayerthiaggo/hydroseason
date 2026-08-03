@@ -6,6 +6,7 @@ import pytest
 
 from hydroseason._dynamic_year import (
     DynamicHydroYearConfig,
+    _detect_dynamic_hydrological_years_experimental,
     _find_robust_trough_opportunities,
     _find_semi_markov_trough_opportunities,
     detect_dynamic_hydrological_years,
@@ -274,9 +275,13 @@ def test_detector_field_rejects_unknown_value():
         DynamicHydroYearConfig(expected_trough_month=9, detector="not_a_real_detector")
 
 
-def test_detector_field_accepts_semi_markov():
-    config = DynamicHydroYearConfig(expected_trough_month=9, detector="semi_markov")
-    assert config.detector == "semi_markov"
+def test_detector_field_rejects_semi_markov_as_a_public_choice():
+    # The semi-Markov challenger must never be selectable through the public
+    # DynamicHydroYearConfig contract; released dynamic hydrological years are
+    # robust-extrema only. The challenger stays reachable only through the
+    # internal _detect_dynamic_hydrological_years_experimental dispatcher.
+    with pytest.raises(ValueError, match="robust_extrema"):
+        DynamicHydroYearConfig(expected_trough_month=9, detector="semi_markov")
 
 
 def test_phase_model_does_not_change_annual_hydrological_years():
@@ -320,19 +325,34 @@ def test_peak_diagnostic_columns_populated_for_resolved_cycle():
     assert pd.notna(complete["raw_peak_month"])
     assert complete["raw_peak_month"] == complete["peak_month"]
     assert complete["raw_peak_extent_pct"] == pytest.approx(complete["peak_extent_pct"])
-    assert complete["peak_selection_status"] in {"raw", "ambiguous", "quality_adjusted"}
+    assert complete["peak_selection_status"] in {"raw", "ambiguous", "quality_adjusted", "low_quality"}
     assert pd.notna(complete["peak_selection_support"])
     assert 0.0 <= complete["peak_selection_support"] <= 1.0
 
 
+def test_observed_high_invalid_peak_is_reported_but_cycle_is_provisional():
+    raw = _post_trough_peak_frame()
+    raw.loc["2018-10-01", "invalid_pct"] = 60.0
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, max_invalid_pct=20.0)
+    )
+    row = result.loc[result["hy_year"] == 2019].iloc[0]
+    assert row["peak_month"] == pd.Timestamp("2018-10-01")
+    assert row["peak_invalid_pct"] == pytest.approx(60.0)
+    assert row["peak_selection_status"] == "low_quality"
+    assert row["boundary_status"] == "provisional"
+    assert row["status"] == "partial"
+    assert row["confidence"] != "high"
+
+
 def test_both_detectors_return_identical_columns():
+    # The public detect_dynamic_hydrological_years is robust-extrema only; the
+    # semi-Markov side of this comparison goes through the internal-only
+    # experimental dispatcher, never through DynamicHydroYearConfig.detector.
     raw = _candidate_frame(start="2017-01-01", periods=84)
-    robust = detect_dynamic_hydrological_years(
-        raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector="robust_extrema")
-    )
-    semi = detect_dynamic_hydrological_years(
-        raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector="semi_markov")
-    )
+    config = DynamicHydroYearConfig(expected_trough_month=9)
+    robust = detect_dynamic_hydrological_years(raw, config=config)
+    semi = _detect_dynamic_hydrological_years_experimental(raw, config=config, detector="semi_markov")
     assert list(semi.columns) == list(robust.columns)
     assert semi["trough_month"].notna().any()
 
@@ -364,10 +384,11 @@ def test_additive_diagnostic_columns_present_and_populated_for_both_detectors():
     # populated" check for that detector only.
     always_populated = [c for c in additive_columns if c not in {"low_run_start_month", "low_run_end_month", "window_n_expected", "window_n_usable"}]
 
+    # The public detect_dynamic_hydrological_years is robust-extrema only; the
+    # semi-Markov side goes through the internal-only experimental dispatcher.
+    config = DynamicHydroYearConfig(expected_trough_month=9)
     for detector in ("robust_extrema", "semi_markov"):
-        result = detect_dynamic_hydrological_years(
-            raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector=detector)
-        )
+        result = _detect_dynamic_hydrological_years_experimental(raw, config=config, detector=detector)
         assert list(result.columns) == ANNUAL_COLUMNS
         complete = result.loc[result["status"] == "complete"]
         assert not complete.empty, f"no resolved cycle for detector={detector}"
@@ -375,7 +396,10 @@ def test_additive_diagnostic_columns_present_and_populated_for_both_detectors():
         for column in always_populated:
             assert pd.notna(row[column]), f"{column} is NaN for detector={detector}"
         assert row["window_status"] in {"full", "left_truncated", "right_truncated", "internal_gap"}
-        assert row["selection_status"] in {"raw", "ambiguous", "quality_adjusted", "unresolved"}
+        assert row["selection_status"] in {
+            "raw", "ambiguous", "quality_adjusted", "low_quality",
+            "coherence_adjusted", "unresolved",
+        }
         assert 0.0 <= row["selection_support"] <= 1.0
         assert row["boundary_status"] in {"confirmed", "provisional"}
 
@@ -383,7 +407,7 @@ def test_additive_diagnostic_columns_present_and_populated_for_both_detectors():
     # column, including the window/run diagnostics the semi-Markov engine
     # cannot provide.
     robust_row = detect_dynamic_hydrological_years(
-        raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector="robust_extrema")
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9)
     ).pipe(lambda df: df.loc[df["status"] == "complete"]).iloc[0]
     for column in additive_columns:
         assert pd.notna(robust_row[column]), f"{column} is NaN for robust_extrema"

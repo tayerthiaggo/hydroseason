@@ -67,7 +67,7 @@ HydroSeason evaluates regime signal-to-noise ratio (SNR) and peak dispersion to 
 2. **`event_characterisation` (Aseasonal Regimes):**
    - Applies to dryland, ephemeral, or irregular systems where forcing annual boundaries creates arbitrary partitions (SNR ≤ 1.5).
    - Prevents artificial hydrological year boundaries.
-   - Characterizes discrete wet inundation events (`<stem>_events.csv`) and low-water spells (`<stem>_low_spells.csv`).
+   - Characterizes discrete wet inundation events (`<stem>_wet_event.csv`) and low-water spells (`<stem>_low_spells.csv`). Per-AOI summaries are presented in HTML rather than duplicated as CSVs.
 
 ---
 

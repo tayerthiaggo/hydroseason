@@ -1,8 +1,10 @@
-"""Complete route-aware report export frames and CSV writing.
+"""Route-aware report frames, user-facing CSV projections, and CSV writing.
 
-Preserves every source month, stable empty schemas, explicit closed-interval
-membership, nullable identifiers, route authority, and optional rainfall month alignment.
-Do not infer membership by row position.
+The internal ``build_*_export`` functions preserve every source month and
+diagnostic field.  ``build_user_*_export`` functions project those frames into
+the compact default CSV schemas. Both layers use stable empty schemas,
+explicit closed-interval membership, nullable identifiers, route authority,
+and optional rainfall month alignment. Do not infer membership by row position.
 """
 from __future__ import annotations
 
@@ -41,11 +43,91 @@ STABLE_HY_COLUMNS = [
     "route",
 ]
 
+# The generated CSV bundle is deliberately smaller and more literal than the
+# internal diagnostic frames used to render HTML.  These are the stable,
+# user-facing schemas; the full frames remain available through the build_*
+# helpers for analysts and for the HTML layer.
+DEFAULT_REPORT_NAME = "HydroSeason results"
+
+MONTHLY_CSV_COLUMNS = [
+    "date",
+    "extent_pct",
+    "invalid_pct",
+    "max_invalid_pct",
+    "baseline_extent_pct",
+    "usable_month",
+    "quality_state",
+    "hy_year",
+    "phase",
+    "phase_status",
+    "is_hy_peak",
+    "is_hy_mid_dry",
+    "is_hy_trough",
+    "in_wet_event",
+    "wet_event_id",
+    "in_low_spell",
+    "low_spell_id",
+    "regime",
+    "route",
+]
+
+HY_CSV_COLUMNS = [
+    "catchment",
+    "hy_year",
+    "start_date",
+    "end_date",
+    "peak_date",
+    "mid_dry_date",
+    "trough_date",
+    "peak_extent_pct",
+    "mid_dry_extent_pct",
+    "trough_extent_pct",
+    "peak_invalid_pct",
+    "mid_dry_invalid_pct",
+    "trough_invalid_pct",
+    "drawdown_pct",
+    "confidence",
+    "status",
+    "boundary_status",
+    "boundary_basis",
+    "regime",
+    "route",
+]
+
+EVENT_CSV_COLUMNS = [
+    "event_id",
+    "start_date",
+    "end_date",
+    "duration_months",
+    "baseline_extent_pct",
+    "peak_date",
+    "peak_extent_pct",
+    "mean_extent_pct",
+    "magnitude_pp_months",
+]
+
+LOW_SPELL_CSV_COLUMNS = [
+    "low_spell_id",
+    "start_date",
+    "end_date",
+    "duration_months",
+    "baseline_extent_pct",
+    "min_extent_pct",
+]
+
 
 def safe_stem(name: str) -> str:
     """Sanitize catchment name into safe filename stem."""
     stem = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
     return stem or "catchment"
+
+
+def normalise_report_name(name: str | None) -> str:
+    """Return the display name used in reports and metadata columns."""
+    if name is None:
+        return DEFAULT_REPORT_NAME
+    value = str(name).strip()
+    return value or DEFAULT_REPORT_NAME
 
 
 def build_monthly_export(
@@ -55,13 +137,21 @@ def build_monthly_export(
     rainfall: Any | None = None,
 ) -> pd.DataFrame:
     """Build a complete, monthly timeline export matching source length and alignment."""
-    prepared = prepare_monthly_extent(extent)
+    prepared = prepare_monthly_extent(
+        extent,
+        max_invalid_pct=analysis.max_invalid_pct,
+        quality_policy=analysis.quality_policy,
+    )
 
     if analysis.state is not None:
         cond_df = analysis.state.monthly_condition
         phase_df = analysis.state.monthly_phase
     else:
-        cond_df = compute_monthly_surface_water_condition(extent)
+        cond_df = compute_monthly_surface_water_condition(
+            extent,
+            max_invalid_pct=analysis.max_invalid_pct,
+            quality_policy=analysis.quality_policy,
+        )
         phase_df = empty_monthly_phase(prepared)
 
     out = pd.DataFrame(index=prepared.index)
@@ -206,6 +296,136 @@ def build_summary_export(
     return pd.DataFrame([row])
 
 
+def _first_column(frame: pd.DataFrame, *names: str) -> pd.Series:
+    """Return the first available column, or a correctly-sized NA series."""
+    for name in names:
+        if name in frame.columns:
+            return frame[name]
+    return pd.Series(pd.NA, index=frame.index)
+
+
+def _mark_monthly_mid_dry(
+    monthly: pd.DataFrame,
+    hydro_years: pd.DataFrame | None,
+) -> pd.Series:
+    """Mark the observed mid-dry month without adding it to the HTML frame."""
+    marker = pd.Series(False, index=monthly.index, dtype="boolean")
+    if hydro_years is None or hydro_years.empty or "date" not in monthly.columns:
+        return marker
+    dates = pd.to_datetime(monthly["date"], errors="coerce")
+    mid_dates = _first_column(
+        hydro_years,
+        "temporal_mid_dry_month",
+        "mid_dry_month",
+    )
+    for value in pd.to_datetime(mid_dates, errors="coerce").dropna():
+        marker |= dates.eq(value)
+    return marker
+
+
+def build_user_monthly_export(
+    monthly: pd.DataFrame,
+    *,
+    hydro_years: pd.DataFrame | None = None,
+    analysis: CatchmentAnalysis | None = None,
+) -> pd.DataFrame:
+    """Project the complete monthly frame into the stable user CSV schema."""
+    out = monthly.copy()
+    out["is_hy_mid_dry"] = _mark_monthly_mid_dry(out, hydro_years)
+
+    if analysis is not None:
+        out["max_invalid_pct"] = float(analysis.max_invalid_pct)
+        event_summary = analysis.events.summary if analysis.events is not None else {}
+        out["baseline_extent_pct"] = float(
+            event_summary.get("baseline_pct", np.nan)
+        )
+        if analysis.state is not None and "phase_status" in analysis.state.monthly_phase:
+            out["phase_status"] = analysis.state.monthly_phase["phase_status"].to_numpy()
+        else:
+            out["phase_status"] = "disabled"
+
+    # Keep optional rainfall context, but do not expose condition-model
+    # intermediates in the default bundle.
+    for col in MONTHLY_CSV_COLUMNS:
+        if col not in out.columns:
+            out[col] = pd.NA
+    columns = MONTHLY_CSV_COLUMNS + [
+        col for col in ("rainfall_mm", "rain_anomaly_mm") if col in out.columns
+    ]
+    return out.loc[:, columns].reset_index(drop=True)
+
+
+def build_user_hydro_years_export(hydro_years: pd.DataFrame) -> pd.DataFrame:
+    """Project dynamic and fixed HY detector rows into one readable schema."""
+    out = pd.DataFrame(index=hydro_years.index)
+    aliases = {
+        "catchment": ("catchment",),
+        "hy_year": ("hy_year",),
+        "start_date": ("hy_start", "start"),
+        "end_date": ("hy_end", "end"),
+        "peak_date": ("peak_month",),
+        "mid_dry_date": ("temporal_mid_dry_month", "mid_dry_month"),
+        "trough_date": ("trough_month", "end_dry_month"),
+        "peak_extent_pct": ("peak_extent_pct",),
+        "mid_dry_extent_pct": (
+            "temporal_mid_dry_extent_pct",
+            "mid_extent_pct",
+        ),
+        "trough_extent_pct": ("trough_extent_pct", "end_dry_extent_pct"),
+        "peak_invalid_pct": ("peak_invalid_pct",),
+        "mid_dry_invalid_pct": ("mid_dry_invalid_pct",),
+        "trough_invalid_pct": ("trough_invalid_pct",),
+        "drawdown_pct": ("drawdown_pct", "amplitude_pct"),
+        "confidence": ("confidence",),
+        "status": ("status",),
+        "boundary_status": ("boundary_status",),
+        "boundary_basis": ("boundary_basis",),
+        "regime": ("regime",),
+        "route": ("route",),
+    }
+    for target, source_names in aliases.items():
+        out[target] = _first_column(hydro_years, *source_names).to_numpy()
+
+    # Stable empty files still have the same header as populated files.
+    return out.reindex(columns=HY_CSV_COLUMNS).reset_index(drop=True)
+
+
+def build_user_events_export(
+    events: pd.DataFrame,
+    *,
+    baseline_extent_pct: float | None = None,
+) -> pd.DataFrame:
+    """Use explicit date names in the wet-event CSV."""
+    out = events.rename(
+        columns={"start": "start_date", "end": "end_date", "peak_month": "peak_date"}
+    ).copy()
+    out["baseline_extent_pct"] = baseline_extent_pct
+    for col in EVENT_CSV_COLUMNS:
+        if col not in out.columns:
+            out[col] = pd.NA
+    return out.loc[:, EVENT_CSV_COLUMNS].reset_index(drop=True)
+
+
+def build_user_low_spells_export(
+    low_spells: pd.DataFrame,
+    *,
+    baseline_extent_pct: float | None = None,
+) -> pd.DataFrame:
+    """Use explicit date names in the low-extent-spell CSV."""
+    out = low_spells.rename(
+        columns={
+            "spell_id": "low_spell_id",
+            "start": "start_date",
+            "end": "end_date",
+        }
+    ).copy()
+    out["baseline_extent_pct"] = baseline_extent_pct
+    for col in LOW_SPELL_CSV_COLUMNS:
+        if col not in out.columns:
+            out[col] = pd.NA
+    return out.loc[:, LOW_SPELL_CSV_COLUMNS].reset_index(drop=True)
+
+
 def write_report_csvs(
     output_dir: str | Path,
     *,
@@ -214,7 +434,6 @@ def write_report_csvs(
     hydro_years: pd.DataFrame,
     events: pd.DataFrame,
     low_spells: pd.DataFrame,
-    summary: pd.DataFrame,
 ) -> dict[str, Path]:
     """Atomically write CSV report files to output_dir."""
     out_path = Path(output_dir)
@@ -224,16 +443,14 @@ def write_report_csvs(
     targets = {
         "monthly": out_path / f"{clean_stem}_monthly.csv",
         "hydro_years": out_path / f"{clean_stem}_hydro_years.csv",
-        "events": out_path / f"{clean_stem}_events.csv",
+        "wet_event": out_path / f"{clean_stem}_wet_event.csv",
         "low_spells": out_path / f"{clean_stem}_low_spells.csv",
-        "summary": out_path / f"{clean_stem}_summary.csv",
     }
     frames = {
         "monthly": monthly,
         "hydro_years": hydro_years,
-        "events": events,
+        "wet_event": events,
         "low_spells": low_spells,
-        "summary": summary,
     }
 
     for key, target in targets.items():
@@ -249,11 +466,21 @@ def write_report_csvs(
 
 
 __all__ = [
+    "DEFAULT_REPORT_NAME",
+    "EVENT_CSV_COLUMNS",
+    "HY_CSV_COLUMNS",
+    "LOW_SPELL_CSV_COLUMNS",
+    "MONTHLY_CSV_COLUMNS",
     "STABLE_HY_COLUMNS",
     "build_events_export",
     "build_hydro_years_export",
     "build_monthly_export",
     "build_summary_export",
+    "build_user_events_export",
+    "build_user_hydro_years_export",
+    "build_user_low_spells_export",
+    "build_user_monthly_export",
+    "normalise_report_name",
     "safe_stem",
     "write_report_csvs",
 ]
