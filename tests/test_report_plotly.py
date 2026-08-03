@@ -62,8 +62,11 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
     assert "Water Extent (%)" in names
     assert "Reference Median" in names
     assert "Invalid Coverage (%)" in names
-    assert {"HY Peak", "HY Mid Dry", "HY End Dry"} <= names
-    assert {"phase:recovery", "phase:wet", "phase:recession", "phase:dry"} <= {
+    marker_names = {
+        trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
+    }
+    assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
+    assert {"phase:recovery", "phase:wet", "phase:recession", "phase:dry"} == {
         shape["name"] for shape in phase_shapes
     }
     assert figure["layout"]["yaxis"]["type"] == "linear"
@@ -81,19 +84,23 @@ def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(season
     figure = hydro_year_figure(monthly, analysis)
 
     assert any(trace.get("name") == "Hydrological-year extent" for trace in figure["data"])
-    assert {"HY Peak", "HY Mid Dry", "HY End Dry"} <= {
-        trace.get("name") for trace in figure["data"]
+    marker_names = {
+        trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
+    assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
     assert any(annotation.get("text", "").startswith("HY ") for annotation in figure["layout"]["annotations"])
     assert any(shape.get("name", "").startswith("HY ") for shape in figure["layout"]["shapes"])
     assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is False
 
-    intervals = [shape for shape in figure["layout"]["shapes"] if shape.get("name", "").startswith("HY ")]
     expected_intervals = {
         (pd.Timestamp(row.hy_start).strftime("%Y-%m-%d"), pd.Timestamp(row.hy_end).strftime("%Y-%m-%d"))
         for row in analysis.hydro_years.itertuples()
     }
-    assert {(shape["x0"], shape["x1"]) for shape in intervals} >= expected_intervals
+    intervals = [
+        shape for shape in figure["layout"]["shapes"]
+        if shape.get("type") == "rect" and shape.get("name", "").startswith("HY ")
+    ]
+    assert {(shape["x0"], shape["x1"]) for shape in intervals} == expected_intervals
 
 
 def test_timeline_adds_rainfall_only_when_supplied(seasonal_data, seasonal_data_with_rainfall):
