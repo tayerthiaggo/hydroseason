@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     import geopandas
     import xarray as xr
 
+    from hydroseason._historical_water_mask import HistoricalWaterMask
     from hydroseason._spatial_plan import GridWindow
 
 # The all-time summary: one small raster covering the full WOfS archive.
@@ -643,6 +644,104 @@ def _wet_planning_footprint_digest(
     return hasher.hexdigest()
 
 
+def build_planning_footprint_from_historical_mask(
+    historical_mask: "HistoricalWaterMask", *, factor: int = 4, safety_cells: int = 1,
+) -> WetPlanningFootprint:
+    """Derive a performance-only :class:`WetPlanningFootprint` from an exact
+    :class:`~hydroseason._historical_water_mask.HistoricalWaterMask`.
+
+    ``native_mask`` is set to ``historical_mask.mask`` EXACTLY -- the same
+    boolean array the scientific denominator uses, with no dilation applied.
+    Only ``coarse_mask`` (used solely to pick ``active_windows`` for pruning
+    remote reads) is max-pooled and, if ``safety_cells`` is nonzero,
+    dilated -- reusing :func:`_dilate_coarse_mask` and
+    :func:`hydroseason._spatial_plan.active_windows_from_mask`, the same
+    helpers :func:`build_wet_planning_footprint` uses. This guarantees the
+    planning derivative can never mutate, coarsen, or shrink the exact mask
+    it was built from: ``historical_mask.mask``/``pixel_count``/``mask_sha256``
+    are unaffected by any ``factor``/``safety_cells`` choice made here.
+
+    The historical mask is already known to have at least one wet pixel
+    (:func:`~hydroseason._historical_water_mask.build_historical_water_mask`
+    fails closed on an empty mask before returning), so this function does
+    not repeat that emptiness check.
+    """
+    import numpy as np
+    import xarray as xr
+
+    from hydroseason._spatial_plan import active_windows_from_mask
+
+    if factor < 1:
+        raise ValueError(f"factor must be at least 1, got {factor!r}")
+    if safety_cells < 0:
+        raise ValueError(f"safety_cells must be non-negative, got {safety_cells!r}")
+
+    exact_values = np.asarray(historical_mask.mask, dtype=bool)
+    native_mask = xr.DataArray(exact_values, dims=("y", "x"))
+    native_mask.name = "historical_native_mask"
+
+    coarse_mask = (
+        native_mask.coarsen(y=factor, x=factor, boundary="pad").max().astype(bool)
+    )
+    coarse_mask = _dilate_coarse_mask(coarse_mask, safety_cells)
+    coarse_mask.name = "historical_planning_coarse_mask"
+
+    native_shape = historical_mask.shape
+    coarse_values = np.asarray(_eager_values(coarse_mask), dtype=bool)
+    storage_chunk = _WOFS_STORAGE_CHUNK_PIXELS
+    if storage_chunk % factor != 0:
+        storage_chunk = factor
+    active_windows = active_windows_from_mask(
+        coarse_values, factor=factor, native_shape=native_shape,
+        storage_chunk=storage_chunk,
+    )
+
+    digest = _historical_planning_footprint_digest(
+        coarse_values, factor=factor, safety_cells=safety_cells,
+        historical_mask_sha256=historical_mask.mask_sha256,
+        source_collection=historical_mask.source_product,
+        source_version=historical_mask.source_version,
+    )
+
+    return WetPlanningFootprint(
+        native_mask=native_mask,
+        coarse_mask=coarse_mask,
+        active_windows=active_windows,
+        factor=factor,
+        safety_cells=safety_cells,
+        digest=digest,
+        covered_years=(),
+        source_collection=historical_mask.source_product,
+        source_version=historical_mask.source_version,
+        source_lineage=",".join(historical_mask.source_lineage),
+        geometry=None,
+    )
+
+
+def _historical_planning_footprint_digest(
+    coarse_values, *, factor: int, safety_cells: int, historical_mask_sha256: str,
+    source_collection: str, source_version: str,
+) -> str:
+    """A stable SHA-256 over the coarse mask, plan parameters, and the exact
+    historical-mask digest it was derived from.
+
+    Matches :func:`_wet_planning_footprint_digest`'s field-by-field style,
+    plus ``historical_mask_sha256`` so a planning footprint can never be
+    mistaken for one derived from a different exact mask (e.g. after a
+    Multi-Year Statistics source update) even if the coarsened/dilated
+    result happens to collide.
+    """
+    hasher = hashlib.sha256()
+    hasher.update(coarse_values.tobytes())
+    hasher.update(str(coarse_values.shape).encode("utf-8"))
+    hasher.update(str(factor).encode("utf-8"))
+    hasher.update(str(safety_cells).encode("utf-8"))
+    hasher.update(historical_mask_sha256.encode("utf-8"))
+    hasher.update(source_collection.encode("utf-8"))
+    hasher.update(source_version.encode("utf-8"))
+    return hasher.hexdigest()
+
+
 def fetch_dea_stats_wet_aoi(
     stac_url: str,
     aoi_gdf,
@@ -813,6 +912,7 @@ __all__ = [
     "DEAStatsUnavailable",
     "WetPlanningFootprint",
     "WoStatisticsUnavailable",
+    "build_planning_footprint_from_historical_mask",
     "build_wet_planning_footprint",
     "fetch_dea_stats_wet_aoi",
     "open_wo_statistics",

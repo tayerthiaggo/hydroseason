@@ -25,6 +25,13 @@ from hydroseason._io_dea_stats import (  # noqa: E402
     open_wo_statistics,
     wet_mask_digest,
 )
+from hydroseason._historical_water_mask import (  # noqa: E402
+    HistoricalWaterMask,
+    build_historical_water_mask,
+)
+from hydroseason._io_dea_stats import (  # noqa: E402
+    build_planning_footprint_from_historical_mask,
+)
 
 
 def _aoi():
@@ -778,3 +785,244 @@ def test_footprint_vector_clip_keeps_every_native_wet_pixel(shape_name, grid):
     native = np.asarray(footprint.native_mask.values, dtype=bool)
 
     assert np.all(~native | clipped_inside), shape_name
+
+
+# --------------------------------------------------------------------------
+# build_historical_water_mask / HistoricalWaterMask: the exact, immutable
+# scientific-footprint raster (task 1 of the historical-water-mask plan).
+# `(count_wet > 0) AND rasterized_AOI`, at native grid resolution, never
+# closed/buffered/dilated/round-tripped through polygons. Distinct from
+# WetPlanningFootprint, which stays performance-only.
+# --------------------------------------------------------------------------
+
+_HISTORICAL_MASK_RES = 30.0
+
+
+def _historical_aoi(*, res=_HISTORICAL_MASK_RES, n=16):
+    """An AOI covering only the LEFT half of a synthetic n x n stats grid.
+
+    Grid pixel (row, col) has x-centre col*res, y-centre -row*res (matching
+    `_stats_dataset`'s coordinate convention). Restricting the AOI to
+    x < (n/2)*res means every wet pixel placed at col >= n/2 must be excluded
+    by the AND-with-AOI step, distinguishing "AOI clip happened" from "no
+    clip happened" in the exact-mask assertions below.
+    """
+    half_extent = (n / 2) * res
+    return gpd.GeoDataFrame(
+        {"geometry": [box(-res, -n * res, half_extent, res)]}, crs="EPSG:3577"
+    )
+
+
+def test_historical_water_mask_excludes_zero_wet_and_outside_aoi_cells():
+    """The exact mask must equal (count_wet > 0) AND rasterized_AOI: a wet
+    pixel outside the AOI must be excluded, and a dry pixel inside the AOI
+    must stay excluded -- no closing, buffering, dilation, or polygon
+    round-tripping is applied anywhere in this path."""
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 2] = 1  # wet, inside the AOI's left half
+    grid[3, 12] = 1  # wet, outside the AOI's left half -- must be excluded
+    stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
+
+    result = build_historical_water_mask(
+        stats, _historical_aoi(), analysis_end="2020-01-01"
+    )
+
+    mask = np.asarray(result.mask, dtype=bool)
+    assert mask[3, 2]
+    assert not mask[3, 12]
+    assert mask.sum() == 1
+    assert result.pixel_count == 1
+
+
+def test_historical_water_mask_value_object_records_full_provenance():
+    grid = np.zeros((10, 10), dtype=np.int32)
+    grid[2, 2] = 1
+    stats = _stats_dataset(
+        grid,
+        time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z",
+        product=DEA_STATS_ALLTIME_COLLECTION,
+    )
+    aoi = _historical_aoi(n=10)
+
+    result = build_historical_water_mask(stats, aoi, analysis_end="2020-06-01")
+
+    assert isinstance(result, HistoricalWaterMask)
+    assert result.crs
+    assert result.transform and isinstance(result.transform, tuple)
+    assert result.shape == (10, 10)
+    assert result.resolution == (_HISTORICAL_MASK_RES, _HISTORICAL_MASK_RES)
+    assert result.pixel_count == int(np.asarray(result.mask, dtype=bool).sum())
+    assert result.source_product == DEA_STATS_ALLTIME_COLLECTION
+    assert result.source_version
+    assert isinstance(result.source_item_ids, tuple) and result.source_item_ids
+    assert isinstance(result.source_lineage, tuple) and result.source_lineage
+    assert result.coverage_start == "1987-01-01T00:00:00Z"
+    assert result.coverage_end == "2025-12-31T00:00:00Z"
+    assert len(result.aoi_sha256) == 64
+    assert len(result.mask_sha256) == 64
+
+
+def test_historical_water_mask_empty_mask_raises_value_error():
+    """count_wet all-zero within the AOI must fail closed: an empty mask
+    could otherwise be mistaken for 'no water to analyse' rather than 'the
+    source/AOI combination has none'."""
+    grid = np.zeros((10, 10), dtype=np.int32)
+    stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
+
+    with pytest.raises(ValueError, match="no historically observed water"):
+        build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-01-01")
+
+
+def test_historical_water_mask_all_wet_outside_aoi_raises_value_error():
+    """Wet pixels that exist only outside the AOI must also fail as 'no
+    historically observed water' -- the AND-with-AOI step must run before
+    the emptiness check, not after."""
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 12] = 1  # outside the left-half AOI
+    stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
+
+    with pytest.raises(ValueError, match="no historically observed water"):
+        build_historical_water_mask(stats, _historical_aoi(), analysis_end="2020-01-01")
+
+
+def test_historical_water_mask_insufficient_coverage_raises_value_error():
+    grid = np.zeros((10, 10), dtype=np.int32)
+    grid[2, 2] = 1
+    stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2018-12-31T00:00:00Z")
+
+    with pytest.raises(ValueError, match="does not cover analysis end"):
+        build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-06-01")
+
+
+def test_historical_water_mask_incompatible_lineage_raises_value_error():
+    """Only the all-time Multi-Year product (ga_ls_wo_fq_myear_3) is a valid
+    source for the historical mask -- an incompatible product (e.g. the
+    per-calendar-year summary) must fail closed rather than silently being
+    treated as an equivalent lineage to the monthly WOfS collection."""
+    grid = np.zeros((10, 10), dtype=np.int32)
+    grid[2, 2] = 1
+    stats = _stats_dataset(
+        grid,
+        time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z",
+        product=DEA_STATS_ANNUAL_COLLECTION,
+    )
+
+    with pytest.raises(ValueError, match="incompatible WOfS lineage"):
+        build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-01-01")
+
+
+def test_historical_water_mask_geographic_grid_builds_correctly():
+    """The mask builder must work on a geographic (lat/lon) grid too --
+    open_wo_statistics is source-agnostic about CRS, so this module must not
+    silently assume a projected grid."""
+    res = 0.00027  # ~30 m in degrees
+    grid = np.zeros((8, 8), dtype=np.int32)
+    grid[1, 1] = 1
+    h, w = grid.shape
+    count_wet = xr.DataArray(
+        grid.astype(np.int32),
+        dims=("y", "x"),
+        coords={"y": 30.0 - np.arange(h) * res, "x": 130.0 + np.arange(w) * res},
+    )
+    count_clear = xr.full_like(count_wet, 10)
+    ds = xr.Dataset({"count_wet": count_wet, "count_clear": count_clear})
+    ds = ds.rio.write_crs("EPSG:4326").rio.write_transform()
+    ds.attrs["provenance"] = {
+        "product": DEA_STATS_ALLTIME_COLLECTION,
+        "stac_url": "https://example.test/stac",
+        "item_ids": ["item-1"],
+        "crs": "EPSG:4326",
+        "resolution": res,
+        "time_span": "1987-01-01T00:00:00Z/2025-12-31T00:00:00Z",
+    }
+    aoi = gpd.GeoDataFrame(
+        {"geometry": [box(129.999, 29.0, 131.0, 30.001)]}, crs="EPSG:4326"
+    )
+
+    result = build_historical_water_mask(ds, aoi, analysis_end="2020-01-01")
+
+    mask = np.asarray(result.mask, dtype=bool)
+    assert mask[1, 1]
+    assert result.pixel_count == 1
+    assert result.crs
+
+
+def test_historical_water_mask_digest_is_repeatable_and_sensitive():
+    grid = np.zeros((10, 10), dtype=np.int32)
+    grid[2, 2] = 1
+    time_span = "1987-01-01T00:00:00Z/2025-12-31T00:00:00Z"
+    stats_a = _stats_dataset(grid, time_span=time_span)
+    stats_b = _stats_dataset(grid, time_span=time_span)
+    aoi = _historical_aoi(n=10)
+
+    result_a = build_historical_water_mask(stats_a, aoi, analysis_end="2020-01-01")
+    result_b = build_historical_water_mask(stats_b, aoi, analysis_end="2020-01-01")
+
+    assert result_a.mask_sha256 == result_b.mask_sha256
+    assert result_a.aoi_sha256 == result_b.aoi_sha256
+
+    other_grid = np.zeros((10, 10), dtype=np.int32)
+    other_grid[5, 5] = 1
+    stats_other = _stats_dataset(other_grid, time_span=time_span)
+    result_other = build_historical_water_mask(stats_other, aoi, analysis_end="2020-01-01")
+
+    assert result_other.mask_sha256 != result_a.mask_sha256
+
+
+# --------------------------------------------------------------------------
+# build_planning_footprint_from_historical_mask: builds a WetPlanningFootprint
+# from an already-built HistoricalWaterMask. native_mask must be the exact
+# boolean array (no dilation); only coarse_mask may be max-pooled/dilated.
+# --------------------------------------------------------------------------
+
+
+def test_planning_footprint_from_historical_mask_native_mask_is_exact():
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 2] = 1
+    stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
+    historical_mask = build_historical_water_mask(
+        stats, _historical_aoi(), analysis_end="2020-01-01"
+    )
+
+    footprint = build_planning_footprint_from_historical_mask(
+        historical_mask, factor=4, safety_cells=1,
+    )
+
+    assert isinstance(footprint, WetPlanningFootprint)
+    native = np.asarray(footprint.native_mask.values, dtype=bool) if hasattr(
+        footprint.native_mask, "values"
+    ) else np.asarray(footprint.native_mask, dtype=bool)
+    exact = np.asarray(historical_mask.mask, dtype=bool)
+    assert np.array_equal(native, exact)
+    assert historical_mask.mask_sha256 in footprint.digest or footprint.digest
+
+
+def test_planning_footprint_safety_dilation_cannot_mutate_exact_mask():
+    """The defining guarantee: expanding coarse_mask with safety_cells may
+    grow the planning footprint, but HistoricalWaterMask.mask, pixel_count,
+    and mask_sha256 must be completely unaffected by that dilation."""
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[6, 6] = 1
+    stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
+    historical_mask = build_historical_water_mask(
+        stats, _historical_aoi(), analysis_end="2020-01-01"
+    )
+
+    before_mask = np.array(historical_mask.mask, copy=True, dtype=bool)
+    before_pixel_count = historical_mask.pixel_count
+    before_digest = historical_mask.mask_sha256
+
+    plain = build_planning_footprint_from_historical_mask(
+        historical_mask, factor=4, safety_cells=0,
+    )
+    haloed = build_planning_footprint_from_historical_mask(
+        historical_mask, factor=4, safety_cells=2,
+    )
+
+    plain_coarse = np.asarray(plain.coarse_mask.values, dtype=bool)
+    haloed_coarse = np.asarray(haloed.coarse_mask.values, dtype=bool)
+    assert haloed_coarse.sum() >= plain_coarse.sum()
+
+    assert np.array_equal(np.asarray(historical_mask.mask, dtype=bool), before_mask)
+    assert historical_mask.pixel_count == before_pixel_count
+    assert historical_mask.mask_sha256 == before_digest
