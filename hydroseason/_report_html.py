@@ -194,8 +194,8 @@ def render_report_html(
       padding: 14px;
     }}
     .plot {{ margin-top: 16px; }}
-    .plot > div {{ width: 100%; min-height: 360px; }}
-    .plot-primary > div {{ min-height: 480px; }}
+    .plot > .plot-canvas {{ width: 100%; min-height: 360px; }}
+    .plot-primary > .plot-canvas {{ min-height: 480px; }}
     .plot-heading {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; }}
     .plot-heading h2 {{ margin-bottom: 0; }}
     .scale-controls {{ display: flex; gap: 6px; }}
@@ -212,7 +212,7 @@ def render_report_html(
     .empty {{ color: var(--muted); margin-top: 10px; }}
     @media (max-width: 899px) {{
       main {{ padding: 20px 12px 36px; }}
-      .plot-primary > div {{ min-height: 400px; }}
+      .plot-primary > .plot-canvas {{ min-height: 400px; }}
       .plot-heading {{ align-items: flex-start; flex-direction: column; }}
     }}
     @media print {{ body {{ background: #fff; }} .plot, details, .verdict, .kpi {{ box-shadow: none; }} }}
@@ -235,10 +235,10 @@ def render_report_html(
         <button id="timeline-scale-log" type="button" aria-pressed="false">Log scale</button>
       </div>
     </div>
-    <div id="timeline"></div>
+    <div id="timeline" class="plot-canvas"></div>
   </section>
-  <section class="plot plot-primary"><h2>Hydrological Year Extent</h2><div id="hydro-year"></div></section>
-  <section class="plot"><h2>Supporting View</h2><div id="secondary"></div></section>
+  <section class="plot plot-primary"><h2>Hydrological Year Extent</h2><div id="hydro-year" class="plot-canvas"></div></section>
+  <section class="plot"><h2>Supporting View</h2><div id="secondary" class="plot-canvas"></div></section>
   <details><summary>Hydrological years</summary>{tables["hydro_years"]}</details>
   <details><summary>Wet events</summary>{tables["events"]}</details>
   <details><summary>Low-extent spells</summary>{tables["low_spells"]}</details>
@@ -260,16 +260,10 @@ def render_report_html(
   const originalYByTrace = new WeakMap();
 
   function originalY(trace) {{
+    if (trace.meta && Array.isArray(trace.meta.original_y)) return trace.meta.original_y;
     const saved = originalYByTrace.get(trace);
     if (saved) return saved;
-    let values;
-    if (Array.isArray(trace.customdata) && Array.isArray(trace.customdata[0])) {{
-      values = trace.customdata.map((point, index) =>
-        Array.isArray(point) && point.length > 2 ? point[2] : trace.y[index]
-      );
-    }} else {{
-      values = Array.isArray(trace.customdata) ? trace.customdata : trace.y;
-    }}
+    const values = Array.isArray(trace.y) ? trace.y : [];
     const immutable = values.slice();
     originalYByTrace.set(trace, immutable);
     return immutable;
@@ -282,17 +276,15 @@ def render_report_html(
   }}
 
   function setScale(type) {{
-    [timeline, hydroYear].forEach(chart => {{
-      const updates = {{ y: [], indices: [] }};
-      chart.data.forEach((trace, index) => {{
-        if (!trace.yaxis || trace.yaxis === "y") {{
-          updates.y.push(type === "log" ? logY(trace) : originalY(trace));
-          updates.indices.push(index);
-        }}
-      }});
-      if (updates.indices.length) Plotly.restyle(chart, {{ y: updates.y }}, updates.indices);
-      Plotly.relayout(chart, {{ "yaxis.type": type }});
+    const updates = {{ y: [], indices: [] }};
+    timeline.data.forEach((trace, index) => {{
+      if (!trace.yaxis || trace.yaxis === "y") {{
+        updates.y.push(type === "log" ? logY(trace) : originalY(trace));
+        updates.indices.push(index);
+      }}
     }});
+    if (updates.indices.length) Plotly.restyle(timeline, {{ y: updates.y }}, updates.indices);
+    Plotly.relayout(timeline, {{ "yaxis.type": type }});
     linearButton.classList.toggle("active", type === "linear");
     logButton.classList.toggle("active", type === "log");
     linearButton.setAttribute("aria-pressed", String(type === "linear"));

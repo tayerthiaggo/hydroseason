@@ -13,6 +13,9 @@ pip install -e ".[dev,docs,all]"
 
 ## Running the tests
 
+The test suite requires Node.js 20 or newer for the real JavaScript interaction
+test used by the offline manager report.
+
 ```bash
 python -m pytest -q
 ```

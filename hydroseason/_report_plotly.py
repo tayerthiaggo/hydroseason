@@ -85,8 +85,24 @@ def _config() -> dict[str, Any]:
     }
 
 
-def _extent_trace(dates: list[str], values: list[Any], *, name: str) -> dict[str, Any]:
-    log_safe = [max(value, LOG_FLOOR) if value is not None else None for value in values]
+def _scale_meta(values: list[Any]) -> dict[str, Any]:
+    return {
+        "original_y": values,
+        "log_floor": LOG_FLOOR,
+        "log_safe_y": [
+            max(value, LOG_FLOOR) if value is not None else None for value in values
+        ],
+    }
+
+
+def _extent_trace(
+    dates: list[str | None],
+    values: list[Any],
+    *,
+    name: str,
+    customdata: list[Any] | None = None,
+    hovertemplate: str | None = None,
+) -> dict[str, Any]:
     return {
         "type": "scatter",
         "mode": "lines+markers",
@@ -95,11 +111,50 @@ def _extent_trace(dates: list[str], values: list[Any], *, name: str) -> dict[str
         "y": values,
         "line": {"color": "#0284c7", "width": 2},
         "marker": {"size": 4, "color": "#0284c7"},
-        "customdata": values,
-        "hovertemplate": "Date: %{x}<br>Water Extent: %{customdata}%<extra></extra>",
-        # The HTML mode toggle swaps y with log_safe_y; hover reads original customdata.
-        "meta": {"log_floor": LOG_FLOOR, "log_safe_y": log_safe},
+        "customdata": values if customdata is None else customdata,
+        "hovertemplate": hovertemplate
+        or "Date: %{x}<br>Water Extent: %{customdata}%<extra></extra>",
+        # Scale restoration is independent of the manager-facing hover payload.
+        "meta": _scale_meta(values),
     }
+
+
+def _marker_status_by_date(analysis: CatchmentAnalysis) -> dict[str, str]:
+    rows = analysis.hydro_years if analysis.hydro_years is not None else pd.DataFrame()
+    statuses: dict[str, list[str]] = {}
+    for name, (column, _, _) in MARKERS.items():
+        if column not in rows.columns:
+            continue
+        for value in rows[column]:
+            date = _iso_date(value)
+            if date is not None:
+                statuses.setdefault(date, []).append(name)
+    return {date: ", ".join(names) for date, names in statuses.items()}
+
+
+def _monthly_hover_data(
+    monthly: pd.DataFrame,
+    dates: list[str | None],
+    extent: list[Any],
+    analysis: CatchmentAnalysis,
+) -> list[list[Any]]:
+    def values(column: str) -> list[Any]:
+        if column not in monthly.columns:
+            return [None] * len(monthly)
+        return _clean_list(monthly[column])
+
+    marker_statuses = _marker_status_by_date(analysis)
+    return [
+        [extent_value, reference, invalid, phase, hy_year, marker_statuses.get(date, "None")]
+        for date, extent_value, reference, invalid, phase, hy_year in zip(
+            dates,
+            extent,
+            values("reference_median_pct"),
+            values("invalid_pct"),
+            values("phase"),
+            values("hy_year"),
+        )
+    ]
 
 
 def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
@@ -140,6 +195,7 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
                 "Confidence: %{customdata[4]}<br>Boundary: %{customdata[5]}<extra></extra>"
             ),
             "marker": {"size": 10, "color": color, "symbol": symbol},
+            "meta": _scale_meta(y),
         })
     return traces
 
@@ -174,9 +230,33 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
     if "reference_median_pct" in monthly.columns:
         reference = _clean_list(monthly["reference_median_pct"])
         if any(value is not None for value in reference):
-            data.append({"type": "scatter", "mode": "lines", "name": "Reference Median", "x": dates,
-                         "y": reference, "line": {"color": "#94a3b8", "dash": "dash", "width": 1.5}})
-    data.append(_extent_trace(dates, extent_vals, name="Water Extent (%)"))
+            data.append({
+                "type": "scatter",
+                "mode": "lines",
+                "name": "Reference Median",
+                "x": dates,
+                "y": reference,
+                "customdata": reference,
+                "hovertemplate": (
+                    "Date: %{x}<br>Reference Median: %{customdata}%<extra></extra>"
+                ),
+                "line": {"color": "#94a3b8", "dash": "dash", "width": 1.5},
+                "meta": _scale_meta(reference),
+            })
+    data.append(
+        _extent_trace(
+            dates,
+            extent_vals,
+            name="Water Extent (%)",
+            customdata=_monthly_hover_data(monthly, dates, extent_vals, analysis),
+            hovertemplate=(
+                "Date: %{x}<br>Water Extent: %{customdata[0]}%<br>"
+                "Reference Median: %{customdata[1]}%<br>"
+                "Invalid Coverage: %{customdata[2]}%<br>Phase: %{customdata[3]}<br>"
+                "HY Year: %{customdata[4]}<br>Marker Status: %{customdata[5]}<extra></extra>"
+            ),
+        )
+    )
 
     has_invalid = "invalid_pct" in monthly.columns and any(
         value is not None for value in _clean_list(monthly["invalid_pct"])
@@ -199,6 +279,11 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
     if has_rainfall:
         rainfall_axis = "yaxis3" if has_invalid else "yaxis2"
         layout[rainfall_axis] = {"title": "Rainfall (mm)", "type": "linear", "overlaying": "y", "side": "right", "showgrid": False, "zeroline": False}
+    if has_invalid and has_rainfall:
+        layout["xaxis"]["domain"] = [0.0, 0.82]
+        layout["yaxis2"].update({"anchor": "free", "position": 0.84})
+        layout["yaxis3"].update({"anchor": "free", "position": 1.0})
+        layout["margin"]["r"] = 130
     return {"data": data, "layout": layout, "config": _config()}
 
 

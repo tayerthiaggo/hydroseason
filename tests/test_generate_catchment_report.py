@@ -1,4 +1,5 @@
 import re
+import shutil
 import subprocess
 import textwrap
 
@@ -44,6 +45,13 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert 'id="timeline-scale-log"' in html
     assert 'id="timeline"' in html
     assert 'id="hydro-year"' in html
+    assert '<div id="timeline" class="plot-canvas"></div>' in html
+    assert '<div id="hydro-year" class="plot-canvas"></div>' in html
+    assert '<div id="secondary" class="plot-canvas"></div>' in html
+    assert ".plot > .plot-canvas {" in html
+    assert ".plot-primary > .plot-canvas {" in html
+    assert ".plot > div {" not in html
+    assert ".plot-primary > div {" not in html
     assert html.count('class="plot plot-primary"') == 2
     assert html.index("Monthly Surface Water Extent") < html.index("Hydrological Year Extent")
     assert html.index("Hydrological Year Extent") < html.index("Supporting View")
@@ -82,17 +90,26 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
 
 def test_report_interactions_restore_scale_and_synchronize_primary_ranges(tmp_path):
     """Execute the emitted browser interaction script against a minimal Plotly DOM."""
+    node = shutil.which("node")
+    assert node is not None, "Node.js 20+ is required for the report interaction test"
+    version = subprocess.run([node, "--version"], capture_output=True, text=True, check=False)
+    assert version.returncode == 0, version.stderr
+    assert int(version.stdout.strip().removeprefix("v").split(".", 1)[0]) >= 20
     primary_layout = {"xaxis": {"range": ["2019-01-01", "2019-12-01"]}, "yaxis": {"type": "linear"}, "yaxis2": {"type": "linear"}}
     timeline = {
         "data": [
-            {"name": "Reference Median", "x": ["2020-01-01", "2020-02-01"], "y": [-1, 2]},
-            {"name": "Extent", "x": ["2020-01-01", "2020-02-01"], "y": [0, 4], "customdata": [0, 4], "meta": {"log_floor": 0.02, "log_safe_y": [0.02, 4]}},
+            {"name": "Reference Median", "x": ["2020-01-01", "2020-02-01"], "y": [-1, 2], "customdata": [-1, 2], "hovertemplate": "Reference Median: %{customdata}%", "meta": {"original_y": [-1, 2], "log_floor": 0.02, "log_safe_y": [0.02, 2]}},
+            {"name": "Extent", "x": ["2020-01-01", "2020-02-01"], "y": [0, 4], "customdata": [[0, -1, 7, "dry", 2020, "HY End Dry"], [4, 2, 0, "recovery", 2021, "None"]], "meta": {"original_y": [0, 4], "log_floor": 0.02, "log_safe_y": [0.02, 4]}},
             {"name": "Invalid", "x": ["2020-01-01"], "y": [7], "yaxis": "y2"},
         ],
         "layout": primary_layout,
         "config": {"responsive": True},
     }
-    hydro_year = {"data": timeline["data"], "layout": primary_layout, "config": {"responsive": True}}
+    hydro_year = {
+        "data": [{"name": "Hydrological-year extent", "x": ["2020-01-01", "2020-02-01"], "y": [0, 4]}],
+        "layout": {"xaxis": {"range": ["2019-01-01", "2019-12-01"]}, "yaxis": {"type": "linear"}},
+        "config": {"responsive": True},
+    }
     html = render_report_html(
         name="Test",
         title="Test",
@@ -142,8 +159,14 @@ def test_report_interactions_restore_scale_and_synchronize_primary_ranges(tmp_pa
             (async () => {{
               await Promise.resolve(); await Promise.resolve();
               elements["timeline-scale-log"].listeners.click();
+              assert.deepEqual(elements.timeline.data[0].y, [0.02, 2]);
+              assert.deepEqual(elements.timeline.data[0].customdata, [-1, 2]);
+              assert.equal(elements.timeline.data[0].hovertemplate, "Reference Median: %{{customdata}}%");
+              assert.deepEqual(elements["hydro-year"].data[0].y, [0, 4]);
+              assert.equal(elements["hydro-year"].layout.yaxis.type, "linear");
               elements["timeline-scale-linear"].listeners.click();
               assert.deepEqual(elements.timeline.data[0].y, [-1, 2]);
+              assert.deepEqual(elements.timeline.data[1].y, [0, 4]);
               assert.equal(elements.timeline.layout.yaxis2.type, "linear");
               elements.timeline.emit("plotly_relayout", {{ "xaxis.range": ["2020-01-01", "2020-12-01"] }});
               await Promise.resolve();
@@ -158,7 +181,7 @@ def test_report_interactions_restore_scale_and_synchronize_primary_ranges(tmp_pa
         ),
         encoding="utf-8",
     )
-    result = subprocess.run(["node", str(script)], capture_output=True, text=True, check=False)
+    result = subprocess.run([node, str(script)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
 
 
