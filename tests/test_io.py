@@ -2161,18 +2161,25 @@ def test_probe_amplitude_guard_fires_on_disproportionate_thin_channel_collapse(m
     """
     xr = pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    import hydroseason.io as hio
+    from hydroseason.hydro_year import monthly_water_extent
     from hydroseason.io import probe_amplitude
 
     calls = {"n": 0}
 
-    def fake_load_wofs_from_stac(stac_url, collection, aoi, start, end, *, crs=None, resolution=None, **kwargs):
+    def fake_load_wofs_monthly_extent(
+        stac_url, collection, aoi, start, end, *, resolution=None, **kwargs
+    ):
         calls["n"] += 1
         fraction = 0.30 if calls["n"] == 1 else 0.05
-        return _synthetic_monthly_mask(
-            xr, np, pd, n_months=12, y=20, x=5, water_row_fraction=fraction
+        return monthly_water_extent(
+            _synthetic_monthly_mask(
+                xr, np, pd, n_months=12, y=20, x=5,
+                water_row_fraction=fraction,
+            )
         )
 
-    monkeypatch.setattr("hydroseason.io.load_wofs_from_stac", fake_load_wofs_from_stac)
+    monkeypatch.setattr(hio, "load_wofs_monthly_extent", fake_load_wofs_monthly_extent)
 
     result = probe_amplitude(
         "https://example.invalid/stac", "wofs", _aoi(), "2020-01-01", "2020-12-01",
@@ -2200,18 +2207,25 @@ def test_probe_amplitude_guard_silent_on_stable_water_fraction(monkeypatch):
     """
     xr = pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    import hydroseason.io as hio
+    from hydroseason.hydro_year import monthly_water_extent
     from hydroseason.io import probe_amplitude
 
     calls = {"n": 0}
 
-    def fake_load_wofs_from_stac(stac_url, collection, aoi, start, end, *, crs=None, resolution=None, **kwargs):
+    def fake_load_wofs_monthly_extent(
+        stac_url, collection, aoi, start, end, *, resolution=None, **kwargs
+    ):
         calls["n"] += 1
         fraction = 0.30 if calls["n"] == 1 else 0.29
-        return _synthetic_monthly_mask(
-            xr, np, pd, n_months=12, y=20, x=5, water_row_fraction=fraction
+        return monthly_water_extent(
+            _synthetic_monthly_mask(
+                xr, np, pd, n_months=12, y=20, x=5,
+                water_row_fraction=fraction,
+            )
         )
 
-    monkeypatch.setattr("hydroseason.io.load_wofs_from_stac", fake_load_wofs_from_stac)
+    monkeypatch.setattr(hio, "load_wofs_monthly_extent", fake_load_wofs_monthly_extent)
 
     result = probe_amplitude(
         "https://example.invalid/stac", "wofs", _aoi(), "2020-01-01", "2020-12-01",
