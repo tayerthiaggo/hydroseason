@@ -1,8 +1,10 @@
 """Run opt-in real-data WOfS cache regression and performance benchmarks.
 
 The parent process coordinates isolated child runs so every cold measurement
-starts with its own application cache directory. It writes JSON even when a
-performance or exactness gate fails; see ``--help`` for the public entry point.
+starts with its own application cache directory. It writes JSON before
+returning a nonzero status for either a correctness/containment gate failure
+or a deterministic execution error; performance measurements never set a
+failure status. See ``--help`` for the public entry point.
 """
 
 from __future__ import annotations
@@ -314,6 +316,11 @@ def _run_child(
     primary_mask_path: Path | None = None,
     historical_mask_path: Path | None = None,
 ) -> dict[str, Any]:
+    # This is the authoritative per-run timing boundary: it starts before the
+    # child process and stops only after its final result artifact is persisted
+    # and read back.  Child-side timing cannot include persistence of the JSON
+    # that carries its own timing value.
+    started = time.perf_counter()
     run_dir = Path(args.work_dir) / label
     run_dir.mkdir(parents=True, exist_ok=False)
     result_path = run_dir / "result.json"
@@ -360,6 +367,7 @@ def _run_child(
             f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
         )
     payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["total_seconds"] = time.perf_counter() - started
     payload["frame_path"] = str(frame_path)
     return payload
 

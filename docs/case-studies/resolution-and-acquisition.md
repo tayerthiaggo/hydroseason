@@ -41,8 +41,9 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 > **External Benchmark Gate:** Live Digital Earth Australia STAC acquisition
 > benchmarks are opt-in performance tests that run outside ordinary offline
 > CI. No historical-mask timing results have been recorded in this document.
-> The harness fails only for exact monthly `n_water` or containment mismatch;
-> performance is reported as measured evidence, never as a promised threshold.
+> The harness returns nonzero for exact monthly `n_water` or containment
+> mismatch, and also for deterministic execution errors. Performance is
+> reported as measured evidence, never as a promised threshold.
 
 ## Composite Bundle Validation
 

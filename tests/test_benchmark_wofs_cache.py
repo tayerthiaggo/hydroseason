@@ -199,3 +199,35 @@ def test_planning_only_warm_reuses_cold_identity_without_network(
     ]
     assert "total_seconds" in cold
     assert "total_seconds" in warm
+
+
+def test_parent_total_seconds_includes_child_result_artifact_persistence(
+    tmp_path, monkeypatch, benchmark_module
+):
+    args = SimpleNamespace(
+        work_dir=tmp_path,
+        compute_batch_size=16,
+        read_workers=0,
+        resampling_policy="categorical_safe",
+    )
+
+    def run_child(command, **_kwargs):
+        result_path = Path(command[command.index("--result") + 1])
+        benchmark_module._write_json_atomic(result_path, {"total_seconds": 0.25})
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    ticks = iter((10.0, 15.5))
+    monkeypatch.setattr(benchmark_module.subprocess, "run", run_child)
+    monkeypatch.setattr(benchmark_module.time, "perf_counter", lambda: next(ticks))
+
+    result = benchmark_module._run_child(
+        args,
+        case="fitzroy",
+        mode="full_aoi",
+        run_kind="cold",
+        label="timed-child",
+        cache_root=tmp_path / "cache",
+        historical_mask_cache=tmp_path / "historical",
+    )
+
+    assert result["total_seconds"] == 5.5
