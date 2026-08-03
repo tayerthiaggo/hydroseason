@@ -138,11 +138,14 @@ def test_hydrofragments_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pi
     # _resolve_aoi_inside_mask/_apply_aoi_inside_mask pair, also identity
     # here ("inside" everywhere True so nothing is marked outside-AOI).
     monkeypatch.setattr(
-        "hydroseason.io._clip_to_aoi", lambda mask, target, wet_aoi=None: mask
+        "hydroseason.io._clip_to_aoi",
+        lambda mask, target, wet_aoi=None, historical_water_mask=None: mask,
     )
     monkeypatch.setattr(
         "hydroseason.io._resolve_aoi_inside_mask",
-        lambda mask, target, wet_aoi=None: xr.ones_like(mask.isel(time=0), dtype=bool),
+        lambda mask, target, wet_aoi=None, historical_water_mask=None: xr.ones_like(
+            mask.isel(time=0), dtype=bool
+        ),
     )
     monkeypatch.setattr(
         "hydroseason.io._apply_aoi_inside_mask", lambda mask, inside: mask
@@ -235,11 +238,14 @@ def test_hydrofragments_v1_builds_one_source_graph_not_one_per_composite(monkeyp
     monkeypatch.setattr("odc.stac.stac_load", fake_stac_load)
     monkeypatch.setattr(geo, "_classify", counting_classify)
     monkeypatch.setattr(
-        "hydroseason.io._clip_to_aoi", lambda mask, target, wet_aoi=None: mask
+        "hydroseason.io._clip_to_aoi",
+        lambda mask, target, wet_aoi=None, historical_water_mask=None: mask,
     )
     monkeypatch.setattr(
         "hydroseason.io._resolve_aoi_inside_mask",
-        lambda mask, target, wet_aoi=None: xr.ones_like(mask.isel(time=0), dtype=bool),
+        lambda mask, target, wet_aoi=None, historical_water_mask=None: xr.ones_like(
+            mask.isel(time=0), dtype=bool
+        ),
     )
     monkeypatch.setattr(
         "hydroseason.io._apply_aoi_inside_mask", lambda mask, inside: mask
@@ -300,11 +306,14 @@ def test_hydrofragments_v1_dual_counts_zero_fill_a_missing_month(monkeypatch):
 
     monkeypatch.setattr("odc.stac.stac_load", fake_stac_load)
     monkeypatch.setattr(
-        "hydroseason.io._clip_to_aoi", lambda mask, target, wet_aoi=None: mask
+        "hydroseason.io._clip_to_aoi",
+        lambda mask, target, wet_aoi=None, historical_water_mask=None: mask,
     )
     monkeypatch.setattr(
         "hydroseason.io._resolve_aoi_inside_mask",
-        lambda mask, target, wet_aoi=None: xr.ones_like(mask.isel(time=0), dtype=bool),
+        lambda mask, target, wet_aoi=None, historical_water_mask=None: xr.ones_like(
+            mask.isel(time=0), dtype=bool
+        ),
     )
     monkeypatch.setattr(
         "hydroseason.io._apply_aoi_inside_mask", lambda mask, inside: mask
@@ -695,6 +704,151 @@ def test_clip_without_wet_aoi_is_unchanged():
     assert (baseline == 0).all()
 
 
+def _historical_mask_for_grid(
+    *, values, crs="EPSG:3577", transform=None, shape=None, resolution=(30.0, 30.0),
+):
+    """A minimal, real HistoricalWaterMask for a 30 m EPSG:3577 grid.
+
+    ``values`` is a 2D boolean array laid out row-major to match the grid
+    ``test_clip_to_aoi_applies_historical_water_mask`` builds below (origin
+    at (0, 120), 30 m pixels, north-up). Grid-parameter overrides let the
+    mismatch tests construct a HistoricalWaterMask that disagrees with that
+    grid on exactly one axis at a time.
+    """
+    from hydroseason._historical_water_mask import HistoricalWaterMask
+
+    values = np.asarray(values, dtype=bool)
+    if shape is None:
+        shape = tuple(values.shape)
+    if transform is None:
+        transform = (30.0, 0.0, 0.0, 0.0, -30.0, 120.0)
+    return HistoricalWaterMask(
+        mask=values,
+        crs=crs,
+        transform=tuple(transform),
+        shape=tuple(shape),
+        resolution=tuple(resolution),
+        pixel_count=int(values.sum()),
+        source_product="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_item_ids=("item-1",),
+        source_lineage=("ga_ls_wo_fq_myear_3",),
+        coverage_start="1987-01-01",
+        coverage_end="2024-12-31",
+        aoi_sha256="a" * 64,
+        mask_sha256="b" * 64,
+    )
+
+
+def _four_by_four_canonical_grid():
+    """A 4x4, 30 m EPSG:3577 grid (north-up, origin (0, 120)) with one of
+    each canonical value: water (1), dry (0), invalid (-1), and a fourth
+    cell (also water) so the historical mask can exclude exactly one
+    quadrant and leave a determinate outside cell to assert on."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    import rioxarray  # noqa: F401
+
+    transform = (30.0, 0.0, 0.0, 0.0, -30.0, 120.0)
+    values = np.array(
+        [
+            [1, 0, 1, 1],
+            [0, -1, 1, 1],
+            [1, 1, 1, 1],
+            [1, 1, 1, 1],
+        ],
+        dtype=np.int8,
+    )
+    arr = xr.DataArray(
+        values,
+        dims=("y", "x"),
+        coords={
+            "y": transform[5] + (np.arange(4) + 0.5) * transform[4],
+            "x": transform[2] + (np.arange(4) + 0.5) * transform[0],
+        },
+    )
+    arr = arr.rio.set_spatial_dims(x_dim="x", y_dim="y").rio.write_crs("EPSG:3577")
+    arr = arr.rio.write_transform()
+    return arr, transform
+
+
+def test_clip_to_aoi_applies_historical_water_mask():
+    """Cells inside the exact historical mask keep their classified value
+    (water/dry/invalid); every cell outside it becomes -2, unconditionally,
+    regardless of the AOI polygon (which here covers the whole grid)."""
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+
+    from hydroseason.io import _clip_to_aoi
+
+    arr, transform = _four_by_four_canonical_grid()
+    aoi = geopandas.GeoDataFrame(geometry=[box(0, 0, 120, 120)], crs="EPSG:3577")
+
+    # Historical mask excludes the bottom-right cell (row 1, col 3) --
+    # everywhere else is True.
+    mask_values = np.ones((4, 4), dtype=bool)
+    mask_values[1, 3] = False
+    historical_mask = _historical_mask_for_grid(values=mask_values, transform=transform)
+
+    clipped = _clip_to_aoi(arr, aoi, historical_water_mask=historical_mask)
+    values = np.asarray(clipped.values)
+
+    # Inside the historical mask: original classified values preserved.
+    assert values[0, 0] == 1  # water
+    assert values[0, 1] == 0  # dry
+    assert values[1, 1] == -1  # invalid
+    # Outside the historical mask: forced to -2 even though the source
+    # value there was water (1) and the AOI covers the whole grid.
+    assert values[1, 3] == -2
+
+
+def test_clip_to_aoi_historical_mask_none_preserves_legacy_behaviour():
+    """historical_water_mask=None must be byte-identical to not passing it
+    at all -- the legacy polygon-only path is unchanged."""
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+
+    from hydroseason.io import _clip_to_aoi
+
+    arr, _transform = _four_by_four_canonical_grid()
+    aoi = geopandas.GeoDataFrame(geometry=[box(0, 0, 60, 120)], crs="EPSG:3577")
+
+    baseline = np.asarray(_clip_to_aoi(arr, aoi).values)
+    explicit_none = np.asarray(_clip_to_aoi(arr, aoi, historical_water_mask=None).values)
+    assert np.array_equal(baseline, explicit_none)
+
+
+@pytest.mark.parametrize(
+    "override, message",
+    [
+        ({"crs": "EPSG:4326"}, "crs"),
+        ({"shape": (5, 4)}, "shape"),
+        ({"transform": (30.0, 0.0, 999.0, 0.0, -30.0, 120.0)}, "transform"),
+        ({"resolution": (60.0, 60.0)}, "resolution"),
+        ({"transform": (30.0, 0.0, 0.0, 0.0, 30.0, -360.0)}, "transform"),
+    ],
+    ids=["crs", "shape", "transform-origin", "resolution", "transform-orientation"],
+)
+def test_clip_to_aoi_rejects_historical_mask_grid_mismatch(override, message):
+    """A HistoricalWaterMask whose CRS/shape/transform/resolution (including
+    coordinate ordering/orientation) doesn't exactly match the cube's own
+    grid must raise BEFORE any raster values are written or counted."""
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+
+    from hydroseason.io import GeoreferencingError, _clip_to_aoi
+
+    arr, transform = _four_by_four_canonical_grid()
+    aoi = geopandas.GeoDataFrame(geometry=[box(0, 0, 120, 120)], crs="EPSG:3577")
+
+    mask_values = np.ones((4, 4), dtype=bool) if override.get("shape") != (5, 4) else np.ones((5, 4), dtype=bool)
+    kwargs = {"transform": transform, **override}
+    historical_mask = _historical_mask_for_grid(values=mask_values, **kwargs)
+
+    with pytest.raises(GeoreferencingError, match=message):
+        _clip_to_aoi(arr, aoi, historical_water_mask=historical_mask)
+
+
 def test_raster_loader_fails_closed_when_aoi_cannot_reproject(tmp_path):
     geopandas = pytest.importorskip("geopandas")
     from shapely.geometry import box
@@ -921,7 +1075,10 @@ def test_stac_loader_batches_months_into_annual_loads(monkeypatch):
 
     client.search.side_effect = fake_search
     monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
-    monkeypatch.setattr("hydroseason.io._clip_to_aoi", lambda mask, target, wet_aoi=None: mask)
+    monkeypatch.setattr(
+        "hydroseason.io._clip_to_aoi",
+        lambda mask, target, wet_aoi=None, historical_water_mask=None: mask,
+    )
 
     result = load_wofs_from_stac(
         "https://example.invalid/stac", "wofs", _aoi(),
@@ -1008,7 +1165,10 @@ def test_stac_loader_retries_transient_search_failure(monkeypatch):
     client.search.side_effect = fake_search
     monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
     monkeypatch.setattr("odc.stac.stac_load", Mock(return_value=ds))
-    monkeypatch.setattr("hydroseason.io._clip_to_aoi", lambda mask, target, wet_aoi=None: mask)
+    monkeypatch.setattr(
+        "hydroseason.io._clip_to_aoi",
+        lambda mask, target, wet_aoi=None, historical_water_mask=None: mask,
+    )
     monkeypatch.setattr("hydroseason._io_geo.time.sleep", Mock())
 
     result = load_wofs_from_stac(

@@ -384,11 +384,93 @@ def test_empty_year_mask_uses_bounded_spatial_chunks(monkeypatch):
     geobox = SimpleNamespace(
         shape=(600, 600), coordinates=_Coords(), crs="EPSG:3577", affine=transform
     )
-    monkeypatch.setattr("hydroseason._io_geo._clip_to_aoi", lambda mask, _aoi: mask)
+    monkeypatch.setattr(
+        "hydroseason._io_geo._clip_to_aoi",
+        lambda mask, _aoi, **_kwargs: mask,
+    )
 
     mask = _empty_year_mask(geobox, "2015-01-01", "2015-01-31", _aoi())
 
     assert max(mask.data.chunksize[1:]) <= 512
+
+
+def _historical_mask_for_empty_year_grid(*, transform, shape, exclude_cells=()):
+    """A real HistoricalWaterMask matching the 4x4 EPSG:3577/30m grid
+    test_empty_year_mask_is_invalid_inside_and_outside_aoi_elsewhere builds,
+    with every cell True except ``exclude_cells`` (row, col) pairs."""
+    from hydroseason._historical_water_mask import HistoricalWaterMask
+
+    values = np.ones(shape, dtype=bool)
+    for row, col in exclude_cells:
+        values[row, col] = False
+    return HistoricalWaterMask(
+        mask=values,
+        crs="EPSG:3577",
+        transform=tuple(transform)[:6],
+        shape=tuple(shape),
+        resolution=(abs(transform.a), abs(transform.e)),
+        pixel_count=int(values.sum()),
+        source_product="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_item_ids=("item-1",),
+        source_lineage=("ga_ls_wo_fq_myear_3",),
+        coverage_start="1987-01-01",
+        coverage_end="2024-12-31",
+        aoi_sha256="a" * 64,
+        mask_sha256="b" * 64,
+    )
+
+
+def test_empty_year_mask_applies_historical_water_mask_as_constant_denominator():
+    """A year with zero STAC items must still report the SAME n_aoi as a
+    normal year: every historical-mask cell reads -1 (invalid, no source
+    data), every other cell (including inside the AOI polygon but outside
+    the exact historical mask) reads -2, so n_aoi == pixel_count and
+    n_invalid == n_aoi -- never the full user-AOI pixel count."""
+    from hydroseason._io_wofs_acquire import _empty_year_mask
+    from hydroseason.hydro_year import monthly_water_extent
+
+    transform = Affine(30, 0, 0, 0, -30, 120)
+
+    class _Coord:
+        def __init__(self, values):
+            self.values = values
+
+    class _Coords:
+        def values(self):
+            return (
+                _Coord(transform.f + (np.arange(4) + 0.5) * transform.e),
+                _Coord(transform.c + (np.arange(4) + 0.5) * transform.a),
+            )
+
+    geobox = SimpleNamespace(
+        shape=(4, 4),
+        coordinates=_Coords(),
+        crs="EPSG:3577",
+        affine=transform,
+    )
+    # AOI covers the whole 4x4 grid, so without a historical mask every
+    # cell would be -1 (n_aoi == 16). The historical mask excludes exactly
+    # one cell -- that cell must read -2, not -1, and the reduction's n_aoi
+    # must equal the mask's pixel_count (15), not the full AOI (16).
+    aoi = gpd.GeoDataFrame(geometry=[box(0, 0, 120, 120)], crs="EPSG:3577")
+    historical_mask = _historical_mask_for_empty_year_grid(
+        transform=transform, shape=(4, 4), exclude_cells=[(0, 0)]
+    )
+
+    mask = _empty_year_mask(
+        geobox, "2015-01-01", "2015-01-31", aoi, historical_water_mask=historical_mask
+    )
+    values = mask.compute().values
+
+    assert values[0, 0, 0] == -2
+    assert set(np.unique(values)) == {-2, -1}
+    assert int((values[0] == -1).sum()) == historical_mask.pixel_count
+
+    summary = monthly_water_extent(mask.chunk({"time": 1, "y": 4, "x": 4}))
+    row = summary.iloc[0]
+    assert row["n_aoi"] == historical_mask.pixel_count
+    assert row["n_invalid"] == row["n_aoi"]
 
 
 def _canonical_year_cube(*, shape: tuple[int, int, int], fill: int, year: int) -> xr.DataArray:

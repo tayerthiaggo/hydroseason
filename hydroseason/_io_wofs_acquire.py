@@ -146,7 +146,7 @@ def _diagnostics_payload(query_count: int, graph_count: int, write_stats=()) -> 
     }
 
 
-def _empty_year_mask(geobox, start_date: str, end_date: str, aoi_gdf):
+def _empty_year_mask(geobox, start_date: str, end_date: str, aoi_gdf, *, historical_water_mask=None):
     """A lazy all-``-1``-inside/``-2``-outside-AOI cube for a year with zero STAC items.
 
     Matches the existing missing-month policy (see
@@ -156,6 +156,14 @@ def _empty_year_mask(geobox, start_date: str, end_date: str, aoi_gdf):
     every pixel at ``-1`` and lets the same AOI clip used elsewhere carve
     out the outside-AOI ``-2`` region -- no ``stac_load``/network call is
     made for a year with no items.
+
+    ``historical_water_mask``, when given, is applied by the same
+    :func:`hydroseason._io_geo._clip_to_aoi` call: every cell outside the
+    exact historical mask becomes ``-2``, even a cell that is inside
+    ``aoi_gdf``. This is what makes a missing year report the SAME
+    ``n_aoi`` denominator as a normal year (``historical_water_mask.pixel_count``)
+    instead of reverting to the larger, unpruned user-AOI pixel count --
+    the whole point of pinning the historical mask as a fixed denominator.
     """
     import dask.array as da
     import numpy as np
@@ -188,7 +196,7 @@ def _empty_year_mask(geobox, start_date: str, end_date: str, aoi_gdf):
     template = template.rio.write_transform(geobox.affine)
     from hydroseason._io_geo import _clip_to_aoi
 
-    return _clip_to_aoi(template, aoi_gdf)
+    return _clip_to_aoi(template, aoi_gdf, historical_water_mask=historical_water_mask)
 
 
 def _wet_aoi_from_planning_footprint(footprint: WetPlanningFootprint):

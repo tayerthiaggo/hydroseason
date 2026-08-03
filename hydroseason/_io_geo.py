@@ -9,6 +9,7 @@ those packages -- only calling a function that needs one does.
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from pathlib import Path
@@ -361,6 +362,7 @@ def _load_wofs_items(
     groupby="solar_day",
     resampling=None,
     wet_aoi=None,
+    historical_water_mask=None,
     composite_bundle: Literal["legacy", "hydrofragments_v1"] = "legacy",
 ):
     """Load WOfS items, classify, compose monthly, and clip to AOI.
@@ -420,6 +422,12 @@ def _load_wofs_items(
     across a UTC date boundary; such a scene still selects into whichever month
     its solar-day timestamp falls in, and any month loaded that is outside the
     requested year_groups is simply not selected.
+
+    ``historical_water_mask``, when given, is applied by the single
+    :func:`_clip_to_aoi` call below (after monthly compositing and AOI
+    clipping, before the cube is returned) -- see that function's docstring
+    for the exact semantics (every cell outside it becomes ``-2``,
+    unconditionally) and its grid-mismatch validation contract.
     """
     import odc.stac
     import rioxarray  # noqa: F401  (registers the .rio accessor used by _clip_to_aoi)
@@ -511,8 +519,10 @@ def _load_wofs_items(
 
     try:
         stacked = xr.concat(masks, dim="time").assign_coords(time=("time", dates))
-        clipped_cube = _io._clip_to_aoi(stacked, target, wet_aoi=wet_aoi)
-    except AOIRasterizationError:
+        clipped_cube = _io._clip_to_aoi(
+            stacked, target, wet_aoi=wet_aoi, historical_water_mask=historical_water_mask
+        )
+    except (AOIRasterizationError, GeoreferencingError):
         raise
     except Exception as exc:
         raise AOIRasterizationError(
@@ -714,6 +724,7 @@ def build_wofs_year_graph(
     groupby: str = "solar_day",
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
     wet_aoi=None,
+    historical_water_mask=None,
     composite_bundle: Literal["legacy", "hydrofragments_v1"] = "legacy",
 ):
     """Build one shared lazy WOfS cube for a single calendar year onto a fixed grid.
@@ -748,6 +759,14 @@ def build_wofs_year_graph(
     ``wet_aoi``, when given, is intersected with the AOI during the final
     clip so pixels outside the ever-wet region become ``-2``. It must be a
     superset of ever-wet -- see :func:`_clip_to_aoi`.
+
+    ``historical_water_mask``, when given, is threaded straight through to
+    :func:`_load_wofs_items` (see its docstring and :func:`_clip_to_aoi`):
+    every cell outside the exact historical mask becomes ``-2``,
+    unconditionally, after monthly compositing and AOI/``wet_aoi`` clipping.
+    Its grid must exactly match this year's ``geobox``, or
+    :class:`GeoreferencingError` is raised before any values are written or
+    counted.
 
     ``composite_bundle`` is threaded straight through to
     :func:`_load_wofs_items` (see its docstring): ``"hydrofragments_v1"``
@@ -795,6 +814,7 @@ def build_wofs_year_graph(
         groupby=groupby,
         resampling=resampling,
         wet_aoi=wet_aoi,
+        historical_water_mask=historical_water_mask,
         composite_bundle=composite_bundle,
     )
 
@@ -1049,8 +1069,9 @@ def _combine_observations(series, majority):
     return _preserve_georef(combined, series)
 
 
-def _clip_to_aoi(mask, aoi_gdf, *, wet_aoi=None):
-    """Clip ``mask`` to the AOI, optionally intersected with a wet mask.
+def _clip_to_aoi(mask, aoi_gdf, *, wet_aoi=None, historical_water_mask=None):
+    """Clip ``mask`` to the AOI, optionally intersected with a wet mask and/or
+    the exact historical water mask.
 
     ``wet_aoi`` narrows the kept region to pixels where water has ever been
     observed. Pixels inside the AOI but outside ``wet_aoi`` become ``-2``
@@ -1063,14 +1084,84 @@ def _clip_to_aoi(mask, aoi_gdf, *, wet_aoi=None):
     ``wet_aoi`` MUST be a superset of ever-wet: pixels it excludes read as
     permanently outside, indistinguishable from genuinely dry. ``None``
     disables pruning entirely and preserves the original behaviour exactly.
+
+    ``historical_water_mask``, when given, is a
+    :class:`hydroseason._historical_water_mask.HistoricalWaterMask` -- the
+    exact, grid-aligned ``(count_wet > 0) AND AOI`` boolean raster. Every
+    cell inside it keeps its normal classified value; every cell outside it
+    is forced to ``-2``, unconditionally, the same as an AOI-outside cell.
+    Unlike ``wet_aoi`` (a polygon, rasterized on demand), this is applied as
+    the exact grid-aligned boolean array with no vectorization -- it must
+    already share ``mask``'s CRS/shape/transform/resolution exactly, or
+    :func:`_resolve_aoi_inside_mask` raises :class:`GeoreferencingError`
+    before any raster values are written or counted. ``None`` (the default)
+    preserves the legacy polygon-only path exactly.
     """
     mask = mask.rio.set_spatial_dims(x_dim="x", y_dim="y")
-    inside = _resolve_aoi_inside_mask(mask, aoi_gdf, wet_aoi=wet_aoi)
+    inside = _resolve_aoi_inside_mask(
+        mask, aoi_gdf, wet_aoi=wet_aoi, historical_water_mask=historical_water_mask
+    )
     return _apply_aoi_inside_mask(mask, inside)
 
 
-def _resolve_aoi_inside_mask(mask, aoi_gdf, *, wet_aoi=None):
-    """The boolean ``(y, x)`` "inside the AOI (and wet_aoi, if given)" mask for ``mask``.
+def _assert_historical_mask_grid_matches(mask, historical_water_mask, *, crs) -> None:
+    """Raise :class:`GeoreferencingError` if ``historical_water_mask``'s grid
+    does not exactly match ``mask``'s own CRS/shape/transform/resolution.
+
+    Checked BEFORE any raster values are combined/written/counted, per the
+    exact-mask design contract: an exact, grid-aligned boolean raster is
+    only safe to AND against a cube pixel-for-pixel if every one of these
+    agrees exactly (no reprojection or resampling is ever performed on
+    ``historical_water_mask.mask``). ``transform`` equality alone already
+    encodes coordinate ordering/orientation (e.g. north-up vs. south-up),
+    but is checked as its own field so a mismatch there is reported
+    distinctly from a pure shape or resolution mismatch.
+    """
+    import pyproj
+
+    historical_crs = pyproj.CRS.from_user_input(historical_water_mask.crs)
+    mask_crs = pyproj.CRS.from_user_input(crs) if crs is not None else None
+    if mask_crs is None or mask_crs != historical_crs:
+        raise GeoreferencingError(
+            "historical water mask crs "
+            f"{historical_water_mask.crs!r} does not match raster crs {str(crs)!r}"
+        )
+
+    mask_shape = (int(mask.sizes["y"]), int(mask.sizes["x"]))
+    if mask_shape != tuple(int(v) for v in historical_water_mask.shape):
+        raise GeoreferencingError(
+            f"historical water mask shape {tuple(historical_water_mask.shape)!r} "
+            f"does not match raster shape {mask_shape!r}"
+        )
+
+    mask_transform = tuple(float(v) for v in _resolve_raster_transform(mask))[:6]
+    historical_transform = tuple(float(v) for v in historical_water_mask.transform)[:6]
+    if not all(
+        math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9)
+        for a, b in zip(mask_transform, historical_transform)
+    ):
+        raise GeoreferencingError(
+            f"historical water mask transform {historical_transform!r} does not "
+            f"match raster transform {mask_transform!r}"
+        )
+
+    mask_resolution = (abs(mask_transform[0]), abs(mask_transform[4]))
+    historical_resolution = tuple(
+        abs(float(v)) for v in historical_water_mask.resolution
+    )
+    if not all(
+        math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9)
+        for a, b in zip(mask_resolution, historical_resolution)
+    ):
+        raise GeoreferencingError(
+            f"historical water mask resolution {historical_resolution!r} does not "
+            f"match raster resolution {mask_resolution!r}"
+        )
+
+
+def _resolve_aoi_inside_mask(mask, aoi_gdf, *, wet_aoi=None, historical_water_mask=None):
+    """The boolean ``(y, x)`` "inside the AOI (and wet_aoi/historical_water_mask,
+    if given)" mask for ``mask``.
 
     Factored out of :func:`_clip_to_aoi` so a caller that needs to clip a
     SECOND cube sharing ``mask``'s exact grid (e.g. :func:`_load_wofs_items`'s
@@ -1078,15 +1169,31 @@ def _resolve_aoi_inside_mask(mask, aoi_gdf, *, wet_aoi=None):
     reuse the same ``inside`` mask for both cubes via
     :func:`_apply_aoi_inside_mask`, instead of rasterizing the identical AOI
     geometry a second time.
+
+    ``historical_water_mask``'s grid is validated against ``mask`` via
+    :func:`_assert_historical_mask_grid_matches` BEFORE it is combined into
+    ``inside`` -- a mismatch raises immediately, before any AOI
+    rasterization or value combination happens.
     """
     try:
+        import xarray as xr
+
         crs = _resolve_raster_crs(mask)
         if crs is None:
             raise GeoreferencingError("raster is missing CRS")
+        if historical_water_mask is not None:
+            _assert_historical_mask_grid_matches(mask, historical_water_mask, crs=crs)
         inside = _inside_aoi_mask_like(mask, aoi_gdf.to_crs(crs))
         if wet_aoi is not None and len(wet_aoi) and not bool(wet_aoi.geometry.is_empty.all()):
             wet_inside = _inside_aoi_mask_like(mask, wet_aoi.to_crs(crs))
             inside = inside & wet_inside
+        if historical_water_mask is not None:
+            historical_values = np.asarray(historical_water_mask.mask, dtype=bool)
+            historical_inside = xr.DataArray(
+                historical_values, dims=("y", "x"),
+                coords={"y": mask.y, "x": mask.x},
+            )
+            inside = inside & historical_inside
         return inside
     except Exception as exc:
         if isinstance(exc, (AOIRasterizationError, GeoreferencingError)):
