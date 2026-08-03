@@ -100,6 +100,101 @@ def _counts_from_primary_mask(mask) -> pd.DataFrame:
     )
 
 
+def _expected_grid_coordinates(transform: tuple[float, ...], shape: tuple[int, int]):
+    """Return pixel-centre coordinates for an unrotated affine grid."""
+    a, b, c, d, e, f = transform
+    if b != 0 or d != 0:
+        raise ValueError("containment audit does not support rotated grids")
+    height, width = shape
+    return (
+        c + a * (np.arange(width, dtype=float) + 0.5),
+        f + e * (np.arange(height, dtype=float) + 0.5),
+    )
+
+
+def _audit_grid(raster, *, spatial_ndim: int) -> dict[str, Any]:
+    """Extract values and complete spatial identity for a containment audit."""
+    if isinstance(raster, dict):
+        grid = raster
+    elif hasattr(raster, "mask"):
+        values = np.asarray(raster.mask, dtype=bool)
+        shape = tuple(int(value) for value in raster.shape)
+        x, y = _expected_grid_coordinates(tuple(raster.transform), shape)
+        grid = {
+            "values": values,
+            "crs": str(raster.crs),
+            "transform": tuple(float(value) for value in raster.transform),
+            "resolution": tuple(float(value) for value in raster.resolution),
+            "x": x,
+            "y": y,
+        }
+    else:
+        import rioxarray  # noqa: F401 - register the xarray ``rio`` accessor.
+
+        values = np.asarray(raster.values)
+        try:
+            crs = raster.rio.crs
+            transform = tuple(float(value) for value in tuple(raster.rio.transform())[:6])
+            resolution = tuple(abs(float(value)) for value in raster.rio.resolution())
+            x = np.asarray(raster.coords["x"].values, dtype=float)
+            y = np.asarray(raster.coords["y"].values, dtype=float)
+        except (AttributeError, KeyError) as exc:
+            raise ValueError(
+                "containment audit requires CRS, affine transform, resolution, and x/y coordinates"
+            ) from exc
+        grid = {
+            "values": values,
+            "crs": str(crs),
+            "transform": transform,
+            "resolution": resolution,
+            "x": x,
+            "y": y,
+        }
+
+    values = np.asarray(grid["values"])
+    if values.ndim != spatial_ndim:
+        expected = "time,y,x cube" if spatial_ndim == 3 else "y,x mask"
+        raise ValueError(f"containment audit requires a {expected}")
+    if str(grid.get("crs", "")) in {"", "None"}:
+        raise ValueError("containment audit requires a CRS")
+    if len(grid.get("transform", ())) != 6:
+        raise ValueError("containment audit requires a six-coefficient affine transform")
+    if len(grid.get("resolution", ())) != 2:
+        raise ValueError("containment audit requires a two-axis resolution")
+    if len(np.asarray(grid.get("x", ()))) != values.shape[-1] or len(
+        np.asarray(grid.get("y", ()))
+    ) != values.shape[-2]:
+        raise ValueError("containment audit requires x/y coordinates for every spatial cell")
+    return grid
+
+
+def _write_audit_grid(path: Path, raster, *, spatial_ndim: int) -> None:
+    """Persist audit values together with their full grid identity."""
+    grid = _audit_grid(raster, spatial_ndim=spatial_ndim)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        values=np.asarray(grid["values"]),
+        crs=np.asarray(grid["crs"]),
+        transform=np.asarray(grid["transform"], dtype=float),
+        resolution=np.asarray(grid["resolution"], dtype=float),
+        x=np.asarray(grid["x"], dtype=float),
+        y=np.asarray(grid["y"], dtype=float),
+    )
+
+
+def _read_audit_grid(path: Path) -> dict[str, Any]:
+    with np.load(path, allow_pickle=False) as archive:
+        return {
+            "values": archive["values"],
+            "crs": str(archive["crs"].item()),
+            "transform": tuple(float(value) for value in archive["transform"]),
+            "resolution": tuple(float(value) for value in archive["resolution"]),
+            "x": archive["x"],
+            "y": archive["y"],
+        }
+
+
 def _child_run(args: argparse.Namespace) -> int:
     """Run one bounded scientific comparison without applying a speed gate."""
     from hydroseason.io import (
@@ -115,7 +210,7 @@ def _child_run(args: argparse.Namespace) -> int:
     statistics_prepare_seconds = 0.0
     historical_water_mask = None
     planning_footprint = None
-    if args.mode == "historical_mask":
+    if args.mode in ("planning_only", "historical_mask"):
         statistics_started = time.perf_counter()
         historical_water_mask = load_or_build_historical_water_mask(
             CASES[args.case],
@@ -141,11 +236,11 @@ def _child_run(args: argparse.Namespace) -> int:
         "read_workers": args.read_workers if getattr(args, "read_workers", 0) > 0 else None,
         "resampling_policy": getattr(args, "resampling_policy", "categorical_safe"),
         "diagnostics_callback": diagnostics.append,
-        "historical_water_mask": historical_water_mask,
+        "historical_water_mask": (
+            historical_water_mask if args.mode == "historical_mask" else None
+        ),
         "planning_footprint": planning_footprint,
     }
-    if args.mode == "planning_only":
-        common["wet_mask"] = "dea_stats"
     handle = acquire_wofs_cache(
         STAC_URL,
         COLLECTION,
@@ -155,7 +250,6 @@ def _child_run(args: argparse.Namespace) -> int:
         offline=args.run_kind == "warm",
         **common,
     )
-    seconds = time.perf_counter() - started
     frame = open_completed_extent_counts(handle, YEAR_START, YEAR_END)
     primary_mask = None
     if frame is None or args.primary_mask is not None:
@@ -164,16 +258,29 @@ def _child_run(args: argparse.Namespace) -> int:
         frame = _counts_from_primary_mask(primary_mask)
     if args.primary_mask is not None:
         assert primary_mask is not None
-        np.save(args.primary_mask, np.asarray(primary_mask.values))
+        _write_audit_grid(Path(args.primary_mask), primary_mask, spatial_ndim=3)
     if args.historical_mask is not None:
         if historical_water_mask is None:
             raise ValueError("only historical_mask runs can emit a historical mask")
-        np.save(args.historical_mask, np.asarray(historical_water_mask.mask, dtype=bool))
+        _write_audit_grid(
+            Path(args.historical_mask), historical_water_mask, spatial_ndim=2
+        )
+
+    Path(args.frame).parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(
+        args.frame,
+        index=True,
+        index_label="date",
+        date_format="%Y-%m-%d",
+        lineterminator="\n",
+        float_format="%.17g",
+    )
+    frame.to_pickle(args.frame_pickle)
 
     payload = {
         "case": args.case,
         "mode": args.mode,
-        "seconds": seconds,
+        "total_seconds": time.perf_counter() - started,
         "compute_batch_size": getattr(args, "compute_batch_size", 16),
         "read_workers": getattr(args, "read_workers", 0),
         "statistics_prepare_seconds": statistics_prepare_seconds + _diagnostic_sum(
@@ -191,15 +298,6 @@ def _child_run(args: argparse.Namespace) -> int:
         "diagnostics": diagnostics,
         "package_versions": _package_versions(),
     }
-    frame.to_csv(
-        args.frame,
-        index=True,
-        index_label="date",
-        date_format="%Y-%m-%d",
-        lineterminator="\n",
-        float_format="%.17g",
-    )
-    frame.to_pickle(args.frame_pickle)
     _write_json_atomic(Path(args.result), payload)
     return 0
 
@@ -289,17 +387,27 @@ def _containment_mismatch_count(primary_masks, historical_mask) -> int:
     rely on the exact mask to prune work, so a full-AOI scan there would both
     duplicate I/O and defeat the performance comparison being measured.
     """
-    primary_values = np.asarray(primary_masks)
-    historical_values = np.asarray(historical_mask, dtype=bool)
-    if primary_values.ndim != 3 or historical_values.ndim != 2:
-        raise ValueError("containment audit requires a time,y,x cube and a y,x mask")
+    primary_grid = _audit_grid(primary_masks, spatial_ndim=3)
+    historical_grid = _audit_grid(historical_mask, spatial_ndim=2)
+    primary_values = np.asarray(primary_grid["values"])
+    historical_values = np.asarray(historical_grid["values"], dtype=bool)
     if tuple(primary_values.shape[1:]) != tuple(historical_values.shape):
         raise ValueError("containment audit requires the same spatial shape")
+    if primary_grid["crs"] != historical_grid["crs"]:
+        raise ValueError("containment audit requires the same CRS")
+    if not np.allclose(primary_grid["transform"], historical_grid["transform"]):
+        raise ValueError("containment audit requires the same affine transform")
+    if not np.allclose(primary_grid["resolution"], historical_grid["resolution"]):
+        raise ValueError("containment audit requires the same resolution")
+    if not np.allclose(primary_grid["x"], historical_grid["x"]) or not np.allclose(
+        primary_grid["y"], historical_grid["y"]
+    ):
+        raise ValueError("containment audit requires the same x/y coordinates")
     return int(np.count_nonzero((primary_values == 1) & ~historical_values[None, :, :]))
 
 
 def _median(runs: list[dict[str, Any]]) -> float:
-    return float(statistics.median(run["seconds"] for run in runs))
+    return float(statistics.median(run["total_seconds"] for run in runs))
 
 
 def _run_benchmark(args: argparse.Namespace) -> int:
@@ -318,8 +426,8 @@ def _run_benchmark(args: argparse.Namespace) -> int:
                 for run_index in range(args.runs):
                     cache_root = work_dir / f"{case}-{mode}-cold-cache-{run_index}"
                     historical_cache = work_dir / f"{case}-{mode}-historical-cache-{run_index}"
-                    primary_path = work_dir / f"{case}-{mode}-primary-{run_index}.npy"
-                    historical_path = work_dir / f"{case}-{mode}-historical-{run_index}.npy"
+                    primary_path = work_dir / f"{case}-{mode}-primary-{run_index}.npz"
+                    historical_path = work_dir / f"{case}-{mode}-historical-{run_index}.npz"
                     cold_runs[mode].append(_run_child(
                         args,
                         case=case,
@@ -363,8 +471,8 @@ def _run_benchmark(args: argparse.Namespace) -> int:
             }
             containment_mismatches = [
                 _containment_mismatch_count(
-                    np.load(work_dir / f"{case}-full_aoi-primary-{run_index}.npy"),
-                    np.load(work_dir / f"{case}-historical_mask-historical-{run_index}.npy"),
+                    _read_audit_grid(work_dir / f"{case}-full_aoi-primary-{run_index}.npz"),
+                    _read_audit_grid(work_dir / f"{case}-historical_mask-historical-{run_index}.npz"),
                 )
                 for run_index in range(args.runs)
             ]

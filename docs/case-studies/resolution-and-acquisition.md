@@ -7,9 +7,11 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 1. **Scientific Effect of Resolution Coarsening:** Coarsening resolution from 30 m down to 60 m, 90 m, or 300 m alters surface water extent precision and regime classification. For low-SNR catchments (e.g., Lachlan River), coarsening to 90 m and 300 m distorts seasonal signal detection, causing route classification mismatches (`event_characterisation` vs `per_year_detection`). None of the coarsened candidate resolutions pass all pre-declared scientific fidelity gates. 30 m whole-catchment resolution remains authoritative.
 2. **Bounded historical-mask comparison:** The opt-in acquisition benchmark is
    restricted to the 2015 Fitzroy and Gilbert AOIs at 30 m in EPSG:3577. It
-   compares a full-AOI reference, planning-only reads, and the fixed
-   historical-water-mask workflow. Planning remains performance-only; the
-   historical mask supplies the scientific denominator in its own mode.
+   compares a full-AOI reference, a planning-only workflow using a conservative
+   footprint derived from the cached historical source, and the fixed
+   historical-water-mask workflow. Planning remains performance-only and does
+   not set a scientific denominator; only historical-mask mode applies the
+   exact mask as that denominator.
 3. **Composite Bundle Semantics:** `composite_bundle="legacy"` produces default single-mask outputs. `composite_bundle="hydrofragments_v1"` adds dual sidecar metrics (max-water vs. median-water counts) derived from a single source graph build without modifying the primary mask contract or increasing tile fetch iterations.
 
 ## Scientific Resolution Fidelity
