@@ -115,6 +115,20 @@ def test_timeline_adds_rainfall_only_when_supplied(seasonal_data, seasonal_data_
     assert any(trace.get("name") == "Rainfall" for trace in with_rain["data"])
 
 
+def test_extent_trace_preserves_non_positive_values_for_log_mode_hover(seasonal_data):
+    monthly, analysis = seasonal_data
+    monthly = monthly.copy()
+    monthly.loc[0, "extent_pct"] = 0.0
+    monthly.loc[1, "extent_pct"] = -1.0
+
+    figure = timeline_figure(monthly, analysis)
+    extent = next(trace for trace in figure["data"] if trace.get("name") == "Water Extent (%)")
+
+    assert extent["meta"]["log_safe_y"][:2] == [0.02, 0.02]
+    assert extent["customdata"][:2] == [0.0, -1.0]
+    assert "%{customdata}" in extent["hovertemplate"]
+
+
 def test_secondary_figure_is_light_and_serializable(seasonal_data):
     monthly, analysis = seasonal_data
     figure = secondary_figure(monthly, analysis)

@@ -95,7 +95,9 @@ def _extent_trace(dates: list[str], values: list[Any], *, name: str) -> dict[str
         "y": values,
         "line": {"color": "#0284c7", "width": 2},
         "marker": {"size": 4, "color": "#0284c7"},
-        # The HTML mode toggle swaps y with log_safe_y; hover continues to use y.
+        "customdata": values,
+        "hovertemplate": "Date: %{x}<br>Water Extent: %{customdata}%<extra></extra>",
+        # The HTML mode toggle swaps y with log_safe_y; hover reads original customdata.
         "meta": {"log_floor": LOG_FLOOR, "log_safe_y": log_safe},
     }
 
