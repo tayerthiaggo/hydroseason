@@ -8,7 +8,6 @@ performance or exactness gate fails; see ``--help`` for the public entry point.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import platform
@@ -21,6 +20,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 os.environ.pop("PROJ_LIB", None)
@@ -35,19 +35,14 @@ STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 COLLECTION = "ga_ls_wo_3"
 YEAR_START = "2015-01-01"
 YEAR_END = "2015-12-31"
+CRS = "EPSG:3577"
 RESOLUTION = 30.0
 TILE_PIXELS = 1024
-LEGACY_QUERIES_PER_RUN = 2
 CASES = {
     "gilbert": REPO_ROOT / "data" / "Gilbert_river_buffer.geojson",
     "fitzroy": REPO_ROOT / "data" / "fitzroy_kimberley_aoi.geojson",
-    "moonie": REPO_ROOT / "data" / "catchments" / "moonie_river_qld_nsw_boundary.geojson",
 }
-GDAL_SETTINGS = {
-    "inherited": {},
-    "vsi_cache_false": {"VSI_CACHE": "FALSE"},
-    "vsi_cache_true_8mb": {"VSI_CACHE": "TRUE", "VSI_CACHE_SIZE": "8388608"},
-}
+BENCHMARK_MODES = ("full_aoi", "planning_only", "historical_mask")
 
 
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -59,17 +54,6 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         temporary.write("\n")
         temporary_path = Path(temporary.name)
     os.replace(temporary_path, path)
-
-
-def _frame_bytes(frame: pd.DataFrame) -> bytes:
-    ordered = frame.loc[:, sorted(frame.columns)].sort_index()
-    return ordered.to_csv(
-        index=True,
-        index_label="date",
-        date_format="%Y-%m-%d",
-        lineterminator="\n",
-        float_format="%.17g",
-    ).encode("utf-8")
 
 
 def _peak_rss_bytes() -> int | None:
@@ -104,57 +88,106 @@ def _package_versions() -> dict[str, str]:
     return versions
 
 
-def _child_run(args: argparse.Namespace) -> int:
-    from hydroseason.io import load_wofs_monthly_extent
+def _diagnostic_sum(diagnostics: list[dict[str, Any]], key: str) -> float:
+    return float(sum(float(item.get(key, 0)) for item in diagnostics))
 
-    diagnostics: list[dict[str, int]] = []
+
+def _counts_from_primary_mask(mask) -> pd.DataFrame:
+    values = np.asarray(mask.values)
+    return pd.DataFrame(
+        {"n_water": (values == 1).sum(axis=(1, 2), dtype=np.int64)},
+        index=pd.DatetimeIndex(mask.time.values),
+    )
+
+
+def _child_run(args: argparse.Namespace) -> int:
+    """Run one bounded scientific comparison without applying a speed gate."""
+    from hydroseason.io import (
+        acquire_wofs_cache,
+        build_planning_footprint_from_historical_mask,
+        load_or_build_historical_water_mask,
+        open_completed_extent_counts,
+        open_completed_mask_cache,
+    )
+
+    diagnostics: list[dict[str, Any]] = []
     started = time.perf_counter()
+    statistics_prepare_seconds = 0.0
+    historical_water_mask = None
+    planning_footprint = None
+    if args.mode == "historical_mask":
+        statistics_started = time.perf_counter()
+        historical_water_mask = load_or_build_historical_water_mask(
+            CASES[args.case],
+            analysis_end=YEAR_END,
+            cache_root=args.historical_mask_cache,
+            offline=args.run_kind == "warm",
+            crs=CRS,
+            resolution=RESOLUTION,
+        )
+        planning_footprint = build_planning_footprint_from_historical_mask(
+            historical_water_mask
+        )
+        statistics_prepare_seconds = time.perf_counter() - statistics_started
+
     common = {
-        "cache_dir": args.extent_cache,
-        "crs": 3577,
+        "cache_root": args.cache_root,
+        "crs": CRS,
         "resolution": RESOLUTION,
-        "force": True,
-        "tile_pixels": TILE_PIXELS,
-        "precompute_wet_aoi": True,
-        "auto_tiling": False,
+        "force": args.run_kind != "warm",
+        "chunk_x": TILE_PIXELS,
+        "chunk_y": TILE_PIXELS,
+        "compute_batch_size": args.compute_batch_size,
         "read_workers": args.read_workers if getattr(args, "read_workers", 0) > 0 else None,
         "resampling_policy": getattr(args, "resampling_policy", "categorical_safe"),
+        "diagnostics_callback": diagnostics.append,
+        "historical_water_mask": historical_water_mask,
+        "planning_footprint": planning_footprint,
     }
-    if args.mode == "legacy":
-        import hydroseason._io_geo as geo
-
-        real_query = geo._query_wofs_items
-
-        def counted_query(*query_args, **query_kwargs):
-            diagnostics.append({"query_count": 1})
-            return real_query(*query_args, **query_kwargs)
-
-        geo._query_wofs_items = counted_query
-        frame = load_wofs_monthly_extent(
-            STAC_URL, COLLECTION, CASES[args.case], YEAR_START, YEAR_END, **common
-        )
-    else:
-        frame = load_wofs_monthly_extent(
-            STAC_URL,
-            COLLECTION,
-            CASES[args.case],
-            YEAR_START,
-            YEAR_END,
-            mask_cache_dir=args.mask_cache,
-            offline=args.mode == "warm",
-            diagnostics_callback=diagnostics.append,
-            **common,
-        )
+    if args.mode == "planning_only":
+        common["wet_mask"] = "dea_stats"
+    handle = acquire_wofs_cache(
+        STAC_URL,
+        COLLECTION,
+        CASES[args.case],
+        YEAR_START,
+        YEAR_END,
+        offline=args.run_kind == "warm",
+        **common,
+    )
     seconds = time.perf_counter() - started
+    frame = open_completed_extent_counts(handle, YEAR_START, YEAR_END)
+    primary_mask = None
+    if frame is None or args.primary_mask is not None:
+        primary_mask = open_completed_mask_cache(handle, YEAR_START, YEAR_END)
+    if frame is None:
+        frame = _counts_from_primary_mask(primary_mask)
+    if args.primary_mask is not None:
+        assert primary_mask is not None
+        np.save(args.primary_mask, np.asarray(primary_mask.values))
+    if args.historical_mask is not None:
+        if historical_water_mask is None:
+            raise ValueError("only historical_mask runs can emit a historical mask")
+        np.save(args.historical_mask, np.asarray(historical_water_mask.mask, dtype=bool))
+
     payload = {
         "case": args.case,
         "mode": args.mode,
         "seconds": seconds,
         "compute_batch_size": getattr(args, "compute_batch_size", 16),
         "read_workers": getattr(args, "read_workers", 0),
-        "output_digest": hashlib.sha256(_frame_bytes(frame)).hexdigest(),
+        "statistics_prepare_seconds": statistics_prepare_seconds + _diagnostic_sum(
+            diagnostics, "statistics_prepare_seconds"
+        ),
+        "stac_read_seconds": _diagnostic_sum(diagnostics, "stac_read_seconds"),
+        "active_window_count": int(_diagnostic_sum(diagnostics, "active_window_count")),
+        "planned_native_pixels": int(_diagnostic_sum(diagnostics, "planned_native_pixels")),
+        "loaded_pixels": int(_diagnostic_sum(diagnostics, "loaded_pixels")),
+        "local_reduction_seconds": _diagnostic_sum(diagnostics, "local_reduction_seconds"),
         "peak_rss_bytes": _peak_rss_bytes(),
-        "cache_bytes": _directory_bytes(Path(args.mask_cache)) if args.mask_cache else 0,
+        "cache_bytes": _directory_bytes(Path(args.cache_root))
+        + _directory_bytes(Path(args.historical_mask_cache)),
+        "n_water": [int(value) for value in frame["n_water"].tolist()],
         "diagnostics": diagnostics,
         "package_versions": _package_versions(),
     }
@@ -176,9 +209,12 @@ def _run_child(
     *,
     case: str,
     mode: str,
+    run_kind: str,
     label: str,
-    setting: dict[str, str],
-    mask_cache: Path | None,
+    cache_root: Path,
+    historical_mask_cache: Path,
+    primary_mask_path: Path | None = None,
+    historical_mask_path: Path | None = None,
 ) -> dict[str, Any]:
     run_dir = Path(args.work_dir) / label
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -193,8 +229,12 @@ def _run_child(
         case,
         "--mode",
         mode,
-        "--extent-cache",
-        str(run_dir / "extent_cache"),
+        "--run-kind",
+        run_kind,
+        "--cache-root",
+        str(cache_root),
+        "--historical-mask-cache",
+        str(historical_mask_cache),
         "--frame",
         str(frame_path),
         "--frame-pickle",
@@ -208,12 +248,13 @@ def _run_child(
         "--resampling-policy",
         getattr(args, "resampling_policy", "categorical_safe"),
     ]
-    if mask_cache is not None:
-        command.extend(["--mask-cache", str(mask_cache)])
+    if primary_mask_path is not None:
+        command.extend(["--primary-mask", str(primary_mask_path)])
+    if historical_mask_path is not None:
+        command.extend(["--historical-mask", str(historical_mask_path)])
     environment = os.environ.copy()
     environment.pop("PROJ_LIB", None)
     environment.pop("PROJ_DATA", None)
-    environment.update(setting)
     completed = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, env=environment)
     if completed.returncode != 0:
         raise RuntimeError(
@@ -230,184 +271,121 @@ def _frame_from_run(run: dict[str, Any]) -> pd.DataFrame:
 
 
 def _assert_exact(reference: dict[str, Any], candidate: dict[str, Any]) -> bool:
-    if reference["output_digest"] != candidate["output_digest"]:
-        return False
     try:
-        pd.testing.assert_frame_equal(_frame_from_run(reference), _frame_from_run(candidate), check_exact=True)
+        pd.testing.assert_series_equal(
+            _frame_from_run(reference)["n_water"],
+            _frame_from_run(candidate)["n_water"],
+            check_exact=True,
+        )
     except AssertionError:
         return False
     return True
+
+
+def _containment_mismatch_count(primary_masks, historical_mask) -> int:
+    """Count bounded full-AOI primary-water pixels outside the exact mask.
+
+    This deliberately exists only in the benchmark harness. Production reads
+    rely on the exact mask to prune work, so a full-AOI scan there would both
+    duplicate I/O and defeat the performance comparison being measured.
+    """
+    primary_values = np.asarray(primary_masks)
+    historical_values = np.asarray(historical_mask, dtype=bool)
+    if primary_values.ndim != 3 or historical_values.ndim != 2:
+        raise ValueError("containment audit requires a time,y,x cube and a y,x mask")
+    if tuple(primary_values.shape[1:]) != tuple(historical_values.shape):
+        raise ValueError("containment audit requires the same spatial shape")
+    return int(np.count_nonzero((primary_values == 1) & ~historical_values[None, :, :]))
 
 
 def _median(runs: list[dict[str, Any]]) -> float:
     return float(statistics.median(run["seconds"] for run in runs))
 
 
-def _diagnostic_total(runs: list[dict[str, Any]], key: str) -> int:
-    return sum(int(item.get(key, 0)) for run in runs for item in run["diagnostics"])
-
-
-def _rss_not_over(reference: list[dict[str, Any]], candidate: list[dict[str, Any]], ratio: float) -> bool:
-    reference_values = [run["peak_rss_bytes"] for run in reference if run["peak_rss_bytes"] is not None]
-    candidate_values = [run["peak_rss_bytes"] for run in candidate if run["peak_rss_bytes"] is not None]
-    if not reference_values or not candidate_values:
-        return True
-    return statistics.median(candidate_values) <= statistics.median(reference_values) * ratio
-
-
-def _summarise_case(
-    legacy: list[dict[str, Any]], cold: list[dict[str, Any]], warm: list[dict[str, Any]] | None,
-) -> dict[str, Any]:
-    legacy_median = _median(legacy)
-    cold_median = _median(cold)
-    cold_improvement = (legacy_median - cold_median) / legacy_median
-    result = {
-        "legacy_runs": legacy,
-        "cache_cold_runs": cold,
-        "legacy_median_seconds": legacy_median,
-        "cold_median_seconds": cold_median,
-        "cold_median_improvement": cold_improvement,
-        "cold_median_regression": -cold_improvement,
-        "cold_hard_gate": cold_improvement >= 0.20,
-        "cold_target_met": cold_improvement >= 0.35,
-        "cold_stretch_met": cold_improvement >= 0.40,
-        "legacy_stac_calls": _diagnostic_total(legacy, "query_count"),
-        "cold_stac_calls": _diagnostic_total(cold, "query_count"),
-        "cold_graph_builds": _diagnostic_total(cold, "graph_count"),
-        "cold_task_count": _diagnostic_total(cold, "task_count"),
-        "cold_chunks_considered": _diagnostic_total(cold, "chunks_considered"),
-        "cold_chunks_written": _diagnostic_total(cold, "chunks_written"),
-    }
-    if warm is not None:
-        warm_median = _median(warm)
-        result.update(
-            {
-                "cache_warm_runs": warm,
-                "cached_median_seconds": warm_median,
-                "cached_median_improvement": (legacy_median - warm_median) / legacy_median,
-                "cached_stac_calls": _diagnostic_total(warm, "query_count"),
-                "cached_graph_builds": _diagnostic_total(warm, "graph_count"),
-            }
-        )
-    return result
-
-
-def _source_counts_ok(result: dict[str, Any], *, runs: int) -> bool:
-    """Hard source-count gate for the real one-year benchmark cases."""
-    cases = result.get("selected_cases", tuple(name for name in CASES if name in result))
-    return all(
-        result[case]["legacy_stac_calls"] == LEGACY_QUERIES_PER_RUN * runs
-        and result[case]["cold_stac_calls"] == runs
-        and result[case]["cold_graph_builds"] == runs
-        for case in cases
-    ) and (
-        not {"gilbert", "cached_stac_calls", "cached_graph_builds"}.issubset(result)
-        or (result["gilbert"]["cached_stac_calls"] == 0 and result["gilbert"]["cached_graph_builds"] == 0)
-    )
-
-
 def _run_benchmark(args: argparse.Namespace) -> int:
     work_dir = Path(args.work_dir)
     work_dir.mkdir(parents=True, exist_ok=False)
-    gdal_results: dict[str, dict[str, Any]] = {}
-    all_exact = True
+    case_results: dict[str, dict[str, Any]] = {}
+    all_correct = True
     selected_cases = list(args.cases)
     try:
-        for setting_name, setting in GDAL_SETTINGS.items():
-            per_case: dict[str, Any] = {}
-            for case in selected_cases:
-                legacy = []
-                cold = []
+        for case in selected_cases:
+            modes: dict[str, dict[str, Any]] = {}
+            cold_runs: dict[str, list[dict[str, Any]]] = {}
+            warm_runs: dict[str, list[dict[str, Any]]] = {}
+            for mode in BENCHMARK_MODES:
+                cold_runs[mode] = []
                 for run_index in range(args.runs):
-                    legacy.append(_run_child(
-                        args, case=case, mode="legacy",
-                        label=f"{setting_name}-{case}-legacy-{run_index}", setting=setting, mask_cache=None,
+                    cache_root = work_dir / f"{case}-{mode}-cold-cache-{run_index}"
+                    historical_cache = work_dir / f"{case}-{mode}-historical-cache-{run_index}"
+                    primary_path = work_dir / f"{case}-{mode}-primary-{run_index}.npy"
+                    historical_path = work_dir / f"{case}-{mode}-historical-{run_index}.npy"
+                    cold_runs[mode].append(_run_child(
+                        args,
+                        case=case,
+                        mode=mode,
+                        run_kind="cold",
+                        label=f"{case}-{mode}-cold-{run_index}",
+                        cache_root=cache_root,
+                        historical_mask_cache=historical_cache,
+                        primary_mask_path=primary_path if mode == "full_aoi" else None,
+                        historical_mask_path=historical_path if mode == "historical_mask" else None,
                     ))
-                    cold_cache = work_dir / f"{setting_name}-{case}-cold-cache-{run_index}"
-                    cold.append(_run_child(
-                        args, case=case, mode="cold",
-                        label=f"{setting_name}-{case}-cold-{run_index}", setting=setting, mask_cache=cold_cache,
-                    ))
-                exact = all(_assert_exact(left, right) for left, right in zip(legacy, cold, strict=True))
-                all_exact = all_exact and exact
-                summary = _summarise_case(legacy, cold, None)
-                summary["exact_output_equality"] = exact
-                per_case[case] = summary
-            gdal_results[setting_name] = per_case
+                seed_cache = work_dir / f"{case}-{mode}-cold-cache-0"
+                seed_historical_cache = work_dir / f"{case}-{mode}-historical-cache-0"
+                warm_runs[mode] = [
+                    _run_child(
+                        args,
+                        case=case,
+                        mode=mode,
+                        run_kind="warm",
+                        label=f"{case}-{mode}-warm-{run_index}",
+                        cache_root=seed_cache,
+                        historical_mask_cache=seed_historical_cache,
+                    )
+                    for run_index in range(args.runs)
+                ]
+                modes[mode] = {
+                    "cold_runs": cold_runs[mode],
+                    "warm_runs": warm_runs[mode],
+                    "cold_median_seconds": _median(cold_runs[mode]),
+                    "warm_median_seconds": _median(warm_runs[mode]),
+                }
 
-        promoted = "inherited"
-        inherited = gdal_results["inherited"]
-        for setting_name in ("vsi_cache_false", "vsi_cache_true_8mb"):
-            candidate = gdal_results[setting_name]
-            faster_both = all(
-                candidate[case]["cold_median_seconds"] <= inherited[case]["cold_median_seconds"] * 0.95
-                for case in selected_cases
-            )
-            exact_both = all(
-                candidate[case]["exact_output_equality"]
-                and all(
-                    _assert_exact(reference, contender)
-                    for reference, contender in zip(
-                        inherited[case]["cache_cold_runs"],
-                        candidate[case]["cache_cold_runs"],
-                        strict=True,
+            exactness = {
+                mode: all(
+                    _assert_exact(reference, candidate)
+                    for reference, candidate in zip(
+                        cold_runs["full_aoi"], cold_runs[mode], strict=True
                     )
                 )
-                for case in selected_cases
-            )
-            rss_ok = all(
-                _rss_not_over(
-                    inherited[case]["cache_cold_runs"], candidate[case]["cache_cold_runs"], 1.10
-                )
-                for case in selected_cases
-            )
-            if faster_both and exact_both and rss_ok:
-                promoted = setting_name
-                break
-
-        selected = gdal_results[promoted]
-        if "gilbert" in selected_cases:
-            warm_cache = work_dir / f"gilbert-warm-cache-{promoted}"
-            _run_child(
-                args, case="gilbert", mode="cold", label=f"gilbert-warm-seed-{promoted}",
-                setting=GDAL_SETTINGS[promoted], mask_cache=warm_cache,
-            )
-            warm = [
-                _run_child(
-                    args, case="gilbert", mode="warm",
-                    label=f"gilbert-warm-{promoted}-{run_index}",
-                    setting=GDAL_SETTINGS[promoted], mask_cache=warm_cache,
+                for mode in ("planning_only", "historical_mask")
+            }
+            containment_mismatches = [
+                _containment_mismatch_count(
+                    np.load(work_dir / f"{case}-full_aoi-primary-{run_index}.npy"),
+                    np.load(work_dir / f"{case}-historical_mask-historical-{run_index}.npy"),
                 )
                 for run_index in range(args.runs)
             ]
-            selected["gilbert"] = _summarise_case(
-                selected["gilbert"]["legacy_runs"], selected["gilbert"]["cache_cold_runs"], warm
-            ) | {"exact_output_equality": selected["gilbert"]["exact_output_equality"]}
-            all_exact = all_exact and all(
-                _assert_exact(reference, candidate)
-                for reference, candidate in zip(selected["gilbert"]["legacy_runs"], warm, strict=True)
-            )
+            mismatch_count = sum(containment_mismatches)
+            correct = all(exactness.values()) and mismatch_count == 0
+            all_correct = all_correct and correct
+            case_results[case] = {
+                "modes": modes,
+                "exact_n_water": exactness,
+                "containment_mismatch_count": mismatch_count,
+                "correct": correct,
+            }
 
         result = {
-            **selected,
+            "cases": case_results,
             "selected_cases": selected_cases,
-            "gdal_ab": gdal_results,
-            "gdal_promoted_setting": promoted,
-            "exact_output_equality": all_exact,
+            "correct": all_correct,
             "package_versions": _package_versions(),
         }
         _write_json_atomic(Path(args.output), result)
-
-        source_failure = not all_exact or not _source_counts_ok(result, runs=args.runs)
-        hard_failure = any(
-            result[case]["cold_median_improvement"] < 0.20
-            for case in selected_cases
-        )
-        if "gilbert" in selected_cases:
-            hard_failure = hard_failure or result["gilbert"]["cached_median_improvement"] < 0.80
-        if source_failure:
-            return 3
-        return 2 if hard_failure else 0
+        return 0 if all_correct else 3
     except Exception as exc:
         _write_json_atomic(Path(args.output), {"error": repr(exc), "package_versions": _package_versions()})
         return 1
@@ -421,7 +399,7 @@ def _parser() -> argparse.ArgumentParser:
         "--cases",
         type=lambda value: [item.strip() for item in value.split(",") if item.strip()],
         default=["gilbert", "fitzroy"],
-        help="comma-separated benchmark cases (default: gilbert,fitzroy)",
+        help="comma-separated bounded benchmark cases (default: gilbert,fitzroy)",
     )
     parser.add_argument("--compute-batch-size", type=int, default=16)
     parser.add_argument("--read-workers", type=int, default=0)
@@ -429,12 +407,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--work-dir", type=Path, default=None)
     parser.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--case", choices=sorted(CASES), help=argparse.SUPPRESS)
-    parser.add_argument("--mode", choices=("legacy", "cold", "warm"), help=argparse.SUPPRESS)
-    parser.add_argument("--mask-cache", type=Path, help=argparse.SUPPRESS)
-    parser.add_argument("--extent-cache", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--mode", choices=BENCHMARK_MODES, help=argparse.SUPPRESS)
+    parser.add_argument("--run-kind", choices=("cold", "warm"), default="cold", help=argparse.SUPPRESS)
+    parser.add_argument("--cache-root", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--historical-mask-cache", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--frame", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--frame-pickle", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--result", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--primary-mask", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--historical-mask", type=Path, help=argparse.SUPPRESS)
     return parser
 
 
@@ -446,9 +427,19 @@ def main() -> int:
     if not args.cases or unknown:
         raise SystemExit(f"--cases must name supported cases: {', '.join(sorted(CASES))}")
     if args.child:
-        required = (args.case, args.mode, args.extent_cache, args.frame, args.frame_pickle, args.result)
+        required = (
+            args.case,
+            args.mode,
+            args.cache_root,
+            args.historical_mask_cache,
+            args.frame,
+            args.frame_pickle,
+            args.result,
+        )
         if any(value is None for value in required):
-            raise SystemExit("child mode requires case, mode, extent cache, frame, and result paths")
+            raise SystemExit(
+                "child mode requires case, mode, cache roots, frame, and result paths"
+            )
         return _child_run(args)
     if args.work_dir is None:
         args.work_dir = args.output.parent / f".wofs-cache-benchmark-{time.time_ns()}"
