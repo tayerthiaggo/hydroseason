@@ -153,6 +153,29 @@ def test_invalid_supplied_historical_mask_fails_before_acquisition(monkeypatch, 
     acquire.assert_not_called()
 
 
+def test_supplied_historical_mask_rejects_nat_coverage_before_acquisition(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    aoi = _aoi()
+    invalid_mask = replace(_historical_water_mask(aoi=aoi), coverage_start=None)
+    acquire = Mock(side_effect=AssertionError("acquisition"))
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+
+    with pytest.raises(ValueError, match="invalid coverage provenance"):
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            aoi,
+            "2020-01-01",
+            "2020-12-31",
+            resolution=30,
+            mask_cache_dir=tmp_path,
+            historical_water_mask=invalid_mask,
+        )
+
+    acquire.assert_not_called()
+
+
 def test_default_historical_mask_is_resolved_once_and_reused_across_start_dates(monkeypatch, tmp_path):
     import hydroseason.io as hio
 

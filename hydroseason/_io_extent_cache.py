@@ -494,6 +494,8 @@ def _validate_supplied_historical_water_mask(
         coverage_end = pd.Timestamp(mask.coverage_end).tz_localize(None)
     except (TypeError, ValueError) as exc:
         raise ValueError("historical_water_mask has invalid coverage provenance") from exc
+    if pd.isna(coverage_start) or pd.isna(coverage_end):
+        raise ValueError("historical_water_mask has invalid coverage provenance")
     if coverage_end < coverage_start:
         raise ValueError("historical_water_mask coverage provenance is inverted")
     _validate_historical_mask_coverage(mask, end_date)
