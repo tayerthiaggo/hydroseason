@@ -588,6 +588,10 @@ def write_historical_water_mask(
     artifact_digest = _artifact_digest(mask)
     final_dir = _artifact_dir(cache_root, artifact_digest)
 
+    # Idempotent skip: trusts manifest.json presence at the content-addressed
+    # path without re-verifying its bytes, relying on artifact_digest being
+    # derived from the mask content itself (see _artifact_digest) to make a
+    # stale or foreign manifest at this path a contradiction, not a risk.
     if not Path(_long_path(final_dir / _MANIFEST_FILENAME)).exists():
         artifacts_root = _historical_cache_root(cache_root) / _ARTIFACTS_DIRNAME
         Path(_long_path(artifacts_root)).mkdir(parents=True, exist_ok=True)
@@ -789,7 +793,7 @@ def load_or_build_historical_water_mask(
     aoi: Any,
     *,
     analysis_end: str,
-    cache_root=None,
+    cache_root,
     offline: bool = False,
     stac_url: str | None = None,
     product: str | None = None,
@@ -814,11 +818,15 @@ def load_or_build_historical_water_mask(
     ``stac_url``/``product`` default to
     :data:`hydroseason._io_dea_stats.DEFAULT_WO_STATISTICS_STAC_URL` /
     :data:`hydroseason._io_dea_stats.DEFAULT_WO_STATISTICS_PRODUCT` when not
-    given. ``cache_root=None`` uses a package-relative
-    ``.hydroseason-cache`` directory in the current working directory --
-    this is a deliberately simple default, not automatically the same root
-    as :mod:`hydroseason._io_wofs_zarr`'s WOfS cache; callers that want a
-    shared root must pass ``cache_root`` explicitly.
+    given. ``cache_root`` is required and has no default -- this function
+    caches to disk, and picking a directory on the caller's behalf (e.g.
+    relative to the current working directory) is not a decision this
+    module makes silently. This mirrors every other cache-bearing entry
+    point in the package (:mod:`hydroseason._io_wofs_zarr`,
+    :mod:`hydroseason._io_wofs_acquire`, :mod:`hydroseason._io_stac_cache`),
+    none of which default ``cache_root`` either. A shared default cache root
+    across the high-level API is expected to be wired through by a later
+    task, not invented here.
     """
     from hydroseason._io_dea_stats import (
         DEAStatsUnavailable,
@@ -827,8 +835,6 @@ def load_or_build_historical_water_mask(
     )
     from hydroseason._io_geo import load_aoi
 
-    if cache_root is None:
-        cache_root = Path(".hydroseason-cache")
     resolved_stac_url = stac_url or DEFAULT_WO_STATISTICS_STAC_URL
     resolved_product = product or DEFAULT_WO_STATISTICS_PRODUCT
 
