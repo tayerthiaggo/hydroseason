@@ -32,9 +32,8 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 <!-- BEGIN GENERATED ACQUISITION RESULTS -->
 | Pruning Mode | Analysis Resolution | Median Speedup | Median Peak RSS (MB) |
 |---|---|---|---|
-| `full_aoi` | 30 m EPSG:3577 | Pending opt-in measurement | Pending opt-in measurement |
-| `planning_only` | 30 m EPSG:3577 | Pending opt-in measurement | Pending opt-in measurement |
-| `historical_mask` | 30 m EPSG:3577 | Pending opt-in measurement | Pending opt-in measurement |
+| `off` (Full AOI) | 30 m | 1.00x | Base |
+| `planning_footprint` | 30 m | Opt-in Benchmark | Opt-in Benchmark |
 <!-- END GENERATED ACQUISITION RESULTS -->
 
 > [!IMPORTANT]
