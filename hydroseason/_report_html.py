@@ -257,14 +257,22 @@ def render_report_html(
   const secondary = document.getElementById("secondary");
   const linearButton = document.getElementById("timeline-scale-linear");
   const logButton = document.getElementById("timeline-scale-log");
+  const originalYByTrace = new WeakMap();
 
   function originalY(trace) {{
+    const saved = originalYByTrace.get(trace);
+    if (saved) return saved;
+    let values;
     if (Array.isArray(trace.customdata) && Array.isArray(trace.customdata[0])) {{
-      return trace.customdata.map((point, index) =>
+      values = trace.customdata.map((point, index) =>
         Array.isArray(point) && point.length > 2 ? point[2] : trace.y[index]
       );
+    }} else {{
+      values = Array.isArray(trace.customdata) ? trace.customdata : trace.y;
     }}
-    return Array.isArray(trace.customdata) ? trace.customdata : trace.y;
+    const immutable = values.slice();
+    originalYByTrace.set(trace, immutable);
+    return immutable;
   }}
 
   function logY(trace) {{
