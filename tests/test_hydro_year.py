@@ -250,6 +250,7 @@ def test_month_nearest_midpoint_empty_dates_guard():
 def test_monthly_water_extent_excludes_invalid_pixels_from_water_denominator():
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
     import xarray as xr
 
     from hydroseason.hydro_year import monthly_water_extent
@@ -259,6 +260,7 @@ def test_monthly_water_extent_excludes_invalid_pixels_from_water_denominator():
         dims=("time", "y", "x"),
         coords={"time": pd.to_datetime(["2020-01-01"])},
     ).chunk({"time": 1, "y": 1, "x": 1})
+    masks = masks.rio.write_crs("EPSG:3577")
 
     summary = monthly_water_extent(masks)
 
@@ -269,6 +271,7 @@ def test_monthly_water_extent_excludes_invalid_pixels_from_water_denominator():
 def test_monthly_water_extent_nan_pixels_are_invalid_not_dry():
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
     import xarray as xr
 
     from hydroseason.hydro_year import monthly_water_extent
@@ -278,6 +281,7 @@ def test_monthly_water_extent_nan_pixels_are_invalid_not_dry():
         dims=("time", "y", "x"),
         coords={"time": pd.to_datetime(["2020-01-01"])},
     ).chunk({"time": 1, "y": 1, "x": 1})
+    masks = masks.rio.write_crs("EPSG:3577")
 
     summary = monthly_water_extent(masks)
     row = summary.loc[pd.Timestamp("2020-01-01")]
@@ -290,6 +294,7 @@ def test_monthly_water_extent_nan_pixels_are_invalid_not_dry():
 def test_monthly_water_extent_rejects_unknown_canonical_values():
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
     import xarray as xr
 
     from hydroseason.hydro_year import monthly_water_extent
@@ -299,6 +304,7 @@ def test_monthly_water_extent_rejects_unknown_canonical_values():
         dims=("time", "y", "x"),
         coords={"time": pd.to_datetime(["2020-01-01"])},
     ).chunk({"time": 1, "y": 1, "x": 1})
+    masks = masks.rio.write_crs("EPSG:3577")
 
     summary = monthly_water_extent(masks)
     row = summary.loc[pd.Timestamp("2020-01-01")]
@@ -311,6 +317,7 @@ def test_monthly_water_extent_rejects_unknown_canonical_values():
 def test_no_runtime_warning_on_fully_invalid_month(recwarn):
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
     import warnings
 
     import xarray as xr
@@ -322,6 +329,7 @@ def test_no_runtime_warning_on_fully_invalid_month(recwarn):
         dims=("time", "y", "x"),
         coords={"time": pd.to_datetime(["2020-01-01"])},
     ).chunk({"time": 1, "y": 1, "x": 1})
+    masks = masks.rio.write_crs("EPSG:3577")
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", RuntimeWarning)
@@ -331,6 +339,7 @@ def test_no_runtime_warning_on_fully_invalid_month(recwarn):
 def test_completed_missing_month_is_rejected_not_dry():
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
     import xarray as xr
 
     from hydroseason.hydro_year import detect_hydrological_years, monthly_water_extent
@@ -341,6 +350,7 @@ def test_completed_missing_month_is_rejected_not_dry():
         dims=("time", "y", "x"),
         coords={"time": pd.to_datetime(["2020-01-01", "2020-03-01"]), "y": [0, 1], "x": [0, 1]},
     ).chunk({"time": 1, "y": 1, "x": 1})
+    masks = masks.rio.write_crs("EPSG:3577")
 
     completed = complete_monthly_axis(masks, "2020-01-01", "2020-03-01")
     summary = monthly_water_extent(completed)
@@ -383,6 +393,7 @@ def test_trailing_fully_invalid_month_is_rejected_not_silently_dropped():
 def test_wofs_cloud_flags_do_not_create_false_end_dry_boundary():
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
     import xarray as xr
 
     from hydroseason.hydro_year import detect_hydrological_years, monthly_water_extent
@@ -414,6 +425,7 @@ def test_wofs_cloud_flags_do_not_create_false_end_dry_boundary():
         dims=("time", "y", "x"),
         coords={"time": index},
     ).chunk({"time": 1, "y": grid, "x": grid})
+    masks = masks.rio.write_crs("EPSG:3577")
 
     summary = monthly_water_extent(masks)
     assert (summary["invalid_pct"].dropna() <= 20.0).all()
@@ -466,6 +478,7 @@ def test_monthly_extent_wet_fill_pct_drought_signal():
 def test_monthly_extent_wet_fill_defaults_to_extent_when_no_wet_aoi():
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
     import xarray as xr
 
     from hydroseason.hydro_year import monthly_water_extent
@@ -475,6 +488,7 @@ def test_monthly_extent_wet_fill_defaults_to_extent_when_no_wet_aoi():
         dims=("time", "y", "x"),
         coords={"time": pd.to_datetime(["2020-01-01"])},
     ).chunk({"time": 1, "y": 1, "x": 1})
+    masks = masks.rio.write_crs("EPSG:3577")
 
     summary = monthly_water_extent(masks)
 
@@ -492,6 +506,7 @@ def test_monthly_extent_wet_fill_exactly_matches_extent_with_invalid_pixels_and_
     # 100*n_water/n_valid.
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
     import xarray as xr
 
     from hydroseason.hydro_year import monthly_water_extent
@@ -505,6 +520,7 @@ def test_monthly_extent_wet_fill_exactly_matches_extent_with_invalid_pixels_and_
         dims=("time", "y", "x"),
         coords={"time": pd.to_datetime(["2020-01-01"])},
     ).chunk({"time": 1, "y": 1, "x": 1})
+    masks = masks.rio.write_crs("EPSG:3577")
 
     summary = monthly_water_extent(masks)
 
@@ -518,6 +534,7 @@ def test_monthly_extent_wet_fill_exactly_matches_extent_with_invalid_pixels_and_
 def test_monthly_water_extent_static_aoi_equivalence():
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
     import xarray as xr
 
     from hydroseason.hydro_year import monthly_water_extent
@@ -535,6 +552,7 @@ def test_monthly_water_extent_static_aoi_equivalence():
         dims=["time", "y", "x"],
         coords={"time": pd.date_range("2020-01-01", periods=3, freq="MS")},
     )
+    da = da.rio.write_crs("EPSG:3577")
 
     res = monthly_water_extent(da)
     assert len(res) == 3
@@ -543,6 +561,129 @@ def test_monthly_water_extent_static_aoi_equivalence():
     assert res["n_valid"].iloc[0] == 2
     assert res["n_invalid"].iloc[0] == 1
 
+
+def test_monthly_water_extent_adds_pixel_area_and_water_extent_km2():
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
+    import xarray as xr
+
+    from hydroseason.hydro_year import monthly_water_extent
+
+    # 2x2 grid, EPSG:3577, 30 m pixels: one water, one dry, one invalid, one
+    # outside-AOI pixel -- so n_water == 1 for this month.
+    masks = xr.DataArray(
+        np.array([[[1, 0], [-1, -2]]], dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.to_datetime(["2020-01-01"]),
+            "y": np.arange(2) * -30.0,
+            "x": np.arange(2) * 30.0,
+        },
+    ).chunk({"time": 1, "y": 2, "x": 2})
+    masks = masks.rio.write_crs("EPSG:3577")
+
+    summary = monthly_water_extent(masks)
+    row = summary.loc[pd.Timestamp("2020-01-01")]
+
+    # Existing counts and percentages stay unchanged.
+    assert row["n_water"] == 1
+    assert row["n_aoi"] == 3
+    assert row["n_valid"] == 2
+    assert row["n_invalid"] == 1
+    assert row["extent_pct"] == pytest.approx(50.0)
+    assert row["invalid_pct"] == pytest.approx(100 / 3)
+
+    assert row["pixel_area_m2"] == pytest.approx(900.0)
+    assert row["water_extent_km2"] == pytest.approx(row["n_water"] * 0.0009)
+
+
+def test_metric_pixel_area_m2_uses_the_affine_determinant_under_rotation():
+    """A rotated grid must use abs(a*e - b*d), not resolution_x * resolution_y.
+
+    30 deg rotation, 30 m/60 m anisotropic pixel spacing: naively multiplying
+    coordinate-axis spacings (as if the grid were unrotated) would give a
+    wrong answer, but the true determinant area is exactly 30 * 60 = 1800.
+    """
+    pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    import math
+
+    import xarray as xr
+    from affine import Affine
+
+    from hydroseason._water_area import metric_pixel_area_m2
+
+    theta = math.radians(30)
+    res_x, res_y = 30.0, 60.0
+    transform = Affine(
+        res_x * math.cos(theta), -res_y * math.sin(theta), 0.0,
+        res_x * math.sin(theta), res_y * math.cos(theta), 0.0,
+    )
+
+    array = xr.DataArray(np.zeros((2, 2)), dims=("y", "x"))
+    array = array.rio.write_crs("EPSG:3577")
+    array = array.rio.write_transform(transform)
+
+    assert metric_pixel_area_m2(array) == pytest.approx(1800.0)
+
+
+def test_metric_pixel_area_m2_rejects_geographic_crs():
+    pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    import xarray as xr
+
+    from hydroseason._water_area import metric_pixel_area_m2
+
+    array = xr.DataArray(
+        np.zeros((2, 2)), dims=("y", "x"), coords={"y": [0.0, -0.01], "x": [0.0, 0.01]},
+    )
+    array = array.rio.write_crs("EPSG:4326")
+
+    with pytest.raises(ValueError, match="water area requires a projected metric CRS"):
+        metric_pixel_area_m2(array)
+
+
+def test_metric_pixel_area_m2_rejects_missing_crs():
+    pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    import xarray as xr
+
+    from hydroseason._water_area import metric_pixel_area_m2
+
+    array = xr.DataArray(
+        np.zeros((2, 2)), dims=("y", "x"), coords={"y": [0.0, -30.0], "x": [0.0, 30.0]},
+    )
+
+    with pytest.raises(ValueError, match="water area requires a projected metric CRS"):
+        metric_pixel_area_m2(array)
+
+
+def test_monthly_water_extent_zero_water_extent_km2_on_all_invalid_month():
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
+    import xarray as xr
+
+    from hydroseason.hydro_year import monthly_water_extent
+
+    masks = xr.DataArray(
+        np.full((1, 2, 2), -1, dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.to_datetime(["2020-01-01"]),
+            "y": np.arange(2) * -30.0,
+            "x": np.arange(2) * 30.0,
+        },
+    ).chunk({"time": 1, "y": 1, "x": 1})
+    masks = masks.rio.write_crs("EPSG:3577")
+
+    summary = monthly_water_extent(masks)
+    row = summary.loc[pd.Timestamp("2020-01-01")]
+
+    assert row["n_water"] == 0
+    assert row["pixel_area_m2"] == pytest.approx(900.0)
+    assert row["water_extent_km2"] == 0.0
 
 
 def test_confidence_is_capped_by_the_noise_floor_not_only_peer_amplitude():

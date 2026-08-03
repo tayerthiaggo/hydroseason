@@ -360,6 +360,11 @@ def monthly_water_extent(
     with np.errstate(invalid="ignore", divide="ignore"):
         np.divide(n_water_arr * 100.0, n_wet_aoi_arr, out=wet_fill_pct, where=n_wet_aoi_arr > 0)
 
+    from hydroseason._water_area import metric_pixel_area_m2
+
+    pixel_area_m2 = metric_pixel_area_m2(first_slice)
+    water_extent_km2 = n_water_arr * pixel_area_m2 / 1_000_000
+
     return pd.DataFrame(
         {
             "n_water": n_water_arr.astype(np.int64),
@@ -370,6 +375,8 @@ def monthly_water_extent(
             "extent_pct": extent_pct,
             "invalid_pct": invalid_pct,
             "wet_fill_pct": wet_fill_pct,
+            "pixel_area_m2": pixel_area_m2,
+            "water_extent_km2": water_extent_km2,
         },
         index=pd.DatetimeIndex(np.asarray(water_mask.time.values)),
     )
