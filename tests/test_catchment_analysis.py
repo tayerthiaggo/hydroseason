@@ -22,6 +22,82 @@ def _aseasonal(years=30, seed=3):
     return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
 
 
+def _percentage_equivalent_varying_coverage_series(years=30):
+    """Return full-AOI and exact-mask count series with identical percentages.
+
+    The full AOI has ten times as many valid pixels plus a month-varying
+    amount of invalid land.  The historical mask keeps the same percentage
+    signal over a smaller, fully valid population.  Any selector using
+    absolute water/area counts rather than the documented percentages will
+    therefore diverge.
+    """
+    index = pd.date_range("1990-01-01", periods=12 * years, freq="MS")
+    percentage_cycle = np.array([1, 1, 1, 1, 5, 10, 15, 20, 40, 80, 100, 10])
+    extent_pct = np.tile(percentage_cycle, years)
+    invalid_land = np.resize(np.array([0, 10, 20, 40, 60, 80, 100]), len(index))
+
+    historical = pd.DataFrame(
+        {
+            "n_water": extent_pct,
+            "n_valid": 100,
+            "n_invalid": 0,
+            "n_aoi": 100,
+        },
+        index=index,
+    )
+    full_aoi = pd.DataFrame(
+        {
+            "n_water": extent_pct * 10,
+            "n_valid": 1000,
+            "n_invalid": invalid_land,
+            "n_aoi": 1000 + invalid_land,
+        },
+        index=index,
+    )
+    return full_aoi, historical
+
+
+def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_population():
+    """Regime, cycles, phases, events and low spells use percentages, not area."""
+    from hydroseason._state_input import prepare_monthly_extent
+
+    full_aoi, historical = _percentage_equivalent_varying_coverage_series()
+    full_prepared = prepare_monthly_extent(full_aoi)
+    historical_prepared = prepare_monthly_extent(historical)
+    full_result = analyze_catchment(full_aoi, phase_model="rule_based", n_bootstrap=40)
+    historical_result = analyze_catchment(historical, phase_model="rule_based", n_bootstrap=40)
+
+    assert full_result.regime.regime == historical_result.regime.regime == "seasonal"
+    assert (full_aoi["n_water"] > historical["n_water"]).all()
+    assert (full_aoi["n_aoi"] > historical["n_aoi"]).iloc[1:].all()
+    np.testing.assert_array_equal(
+        full_prepared["extent_pct"].to_numpy(), historical_prepared["extent_pct"].to_numpy()
+    )
+    assert full_prepared["invalid_pct"].nunique() > 1
+    assert historical_prepared["invalid_pct"].eq(0.0).all()
+    assert full_result.regime.n_usable_months == historical_result.regime.n_usable_months
+
+    annual_columns = [
+        "hy_start",
+        "hy_end",
+        "peak_month",
+        "temporal_mid_dry_month",
+        "trough_month",
+    ]
+    pd.testing.assert_frame_equal(
+        full_result.hydro_years.loc[:, annual_columns],
+        historical_result.hydro_years.loc[:, annual_columns],
+    )
+    pd.testing.assert_frame_equal(
+        full_result.state.monthly_phase.loc[:, ["hy_year", "phase", "phase_status"]],
+        historical_result.state.monthly_phase.loc[:, ["hy_year", "phase", "phase_status"]],
+    )
+    assert not full_result.events.events.empty
+    assert not full_result.events.low_spells.empty
+    pd.testing.assert_frame_equal(full_result.events.events, historical_result.events.events)
+    pd.testing.assert_frame_equal(full_result.events.low_spells, historical_result.events.low_spells)
+
+
 def _marginal(years=30, seed=7, peak_month=11, *, phase_wander=False):
     """Marginal-amplitude cycle peaking at ``peak_month`` (1..12).
 

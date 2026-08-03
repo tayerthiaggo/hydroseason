@@ -103,6 +103,125 @@ def _completed_extent(start: str, end: str):
     )
 
 
+def _synthetic_historical_mask_reduction_inputs():
+    """A real, georeferenced cube with invalid land beyond the wet mask.
+
+    A regression here catches either a reduction over the planning/full AOI
+    instead of the exact historical mask, or a mask application that leaves
+    excluded invalid cells in the denominator.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("geopandas")
+    pytest.importorskip("rioxarray")
+    import geopandas as gpd
+    import rioxarray  # noqa: F401  (registers the .rio accessor)
+    from affine import Affine
+    from shapely.geometry import box
+
+    from hydroseason._historical_water_mask import HistoricalWaterMask, _mask_digest
+
+    transform = (30.0, 0.0, 0.0, 0.0, -30.0, 90.0)
+    values = np.array(
+        [
+            # Two wet pixels and four dry pixels within the exact mask;
+            # invalid land occupies the entire excluded final column.
+            [[1, 0, -1], [1, 0, -1], [0, 0, -1]],
+            # A source month with no valid observations anywhere.
+            [[-1, -1, -1], [-1, -1, -1], [-1, -1, -1]],
+        ],
+        dtype=np.int8,
+    )
+    cube = xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.to_datetime(["2020-01-01", "2020-02-01"]),
+            "y": [75.0, 45.0, 15.0],
+            "x": [15.0, 45.0, 75.0],
+        },
+    )
+    cube = (
+        cube.rio.set_spatial_dims(x_dim="x", y_dim="y")
+        .rio.write_crs("EPSG:3577")
+        .rio.write_transform(Affine(*transform))
+    )
+    mask_values = np.array(
+        [[True, True, False], [True, True, False], [True, True, False]]
+    )
+    historical_mask = HistoricalWaterMask(
+        mask=mask_values,
+        crs="EPSG:3577",
+        transform=transform,
+        shape=(3, 3),
+        resolution=(30.0, 30.0),
+        pixel_count=6,
+        source_product="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_item_ids=("synthetic-item",),
+        source_lineage=("ga_ls_wo_fq_myear_3", "synthetic-item"),
+        coverage_start="1987-01-01",
+        coverage_end="2021-12-31",
+        aoi_sha256="synthetic-aoi",
+        mask_sha256=_mask_digest(
+            mask_values,
+            crs="EPSG:3577",
+            transform=transform,
+            shape=(3, 3),
+            resolution=(30.0, 30.0),
+        ),
+    )
+    aoi = gpd.GeoDataFrame(
+        {"geometry": [box(0, 0, 90, 90)]}, geometry="geometry", crs="EPSG:3577"
+    )
+    return cube, aoi, historical_mask
+
+
+def test_exact_historical_mask_changes_only_the_intended_reduction_population():
+    """Excluded invalid land must not change in-mask water or extent percent."""
+    from hydroseason.hydro_year import monthly_water_extent
+    from hydroseason.io import _clip_to_aoi
+
+    cube, aoi, historical_mask = _synthetic_historical_mask_reduction_inputs()
+    full_aoi = monthly_water_extent(cube, time_block=2)
+    historical = monthly_water_extent(
+        _clip_to_aoi(cube, aoi, historical_water_mask=historical_mask), time_block=2
+    )
+
+    january = pd.Timestamp("2020-01-01")
+    assert full_aoi.loc[january, "n_water"] == historical.loc[january, "n_water"] == 2
+    assert full_aoi.loc[january, "n_valid"] == historical.loc[january, "n_valid"] == 6
+    assert full_aoi.loc[january, "n_aoi"] == 9
+    assert historical.loc[january, "n_aoi"] == historical_mask.pixel_count == 6
+    assert full_aoi.loc[january, "extent_pct"] == historical.loc[january, "extent_pct"] == pytest.approx(100.0 / 3.0)
+    assert full_aoi.loc[january, "invalid_pct"] == pytest.approx(100.0 * 3.0 / 9.0)
+    assert historical.loc[january, "invalid_pct"] == 0.0
+
+
+def test_historical_mask_denominator_is_fixed_for_normal_invalid_and_no_source_months():
+    """A pinned historical pixel count survives every source-availability state."""
+    from hydroseason._io_extent_cache import _missing_year_extent
+    from hydroseason.hydro_year import monthly_water_extent
+    from hydroseason.io import _clip_to_aoi
+
+    cube, aoi, historical_mask = _synthetic_historical_mask_reduction_inputs()
+    observed = monthly_water_extent(
+        _clip_to_aoi(cube, aoi, historical_water_mask=historical_mask), time_block=2
+    )
+    no_source = _missing_year_extent(
+        pd.Timestamp("2020-03-01"),
+        pd.Timestamp("2020-03-31"),
+        historical_water_mask=historical_mask,
+    )
+    result = pd.concat([observed, no_source])
+
+    assert (result["n_aoi"] == historical_mask.pixel_count).all()
+    assert result.loc["2020-01-01", "n_valid"] == 6  # normal source month
+    assert result.loc["2020-02-01", "n_invalid"] == 6  # all-invalid source month
+    assert result.loc["2020-03-01", "n_invalid"] == 6  # no source month
+    assert result.loc["2020-02-01", "invalid_pct"] == 100.0
+    assert result.loc["2020-03-01", "invalid_pct"] == 100.0
+
+
 def test_default_historical_mask_keeps_fixed_denominator_for_no_source_year(monkeypatch):
     import hydroseason.io as hio
 
