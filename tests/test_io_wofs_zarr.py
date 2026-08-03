@@ -770,6 +770,7 @@ def test_load_wofs_monthly_extent_rejects_pruned_zarr_without_exact_counts(monke
             "2015-01-01",
             "2015-01-01",
             mask_cache_dir=tmp_path,
+            use_historical_water_mask=False,
         )
 
 
@@ -805,6 +806,7 @@ def test_load_wofs_monthly_extent_rejects_explicit_wet_aoi_pruned_zarr(monkeypat
             "2015-01-01",
             "2015-01-01",
             mask_cache_dir=tmp_path,
+            use_historical_water_mask=False,
             wet_aoi=object(),
         )
 
