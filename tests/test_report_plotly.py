@@ -63,7 +63,7 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
     assert "Reference Median" in names
     assert "Invalid Coverage (%)" in names
     marker_names = {
-        trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
+        trace.get("name") for trace in figure["data"] if "markers" in trace.get("mode", "")
     }
     assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
     assert {"phase:recovery", "phase:wet", "phase:recession", "phase:dry"} == {
@@ -85,21 +85,18 @@ def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(season
 
     assert any(trace.get("name") == "Hydrological-year extent" for trace in figure["data"])
     marker_names = {
-        trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
+        trace.get("name") for trace in figure["data"] if "markers" in trace.get("mode", "")
     }
     assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
     assert any(annotation.get("text", "").startswith("HY ") for annotation in figure["layout"]["annotations"])
-    assert any(shape.get("name", "").startswith("HY ") for shape in figure["layout"]["shapes"])
     assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is False
 
     expected_intervals = {
         (pd.Timestamp(row.hy_start).strftime("%Y-%m-%d"), pd.Timestamp(row.hy_end).strftime("%Y-%m-%d"))
         for row in analysis.hydro_years.itertuples()
     }
-    intervals = [
-        shape for shape in figure["layout"]["shapes"]
-        if shape.get("type") == "rect" and shape.get("name", "").startswith("HY ")
-    ]
+    intervals = [shape for shape in figure["layout"]["shapes"] if shape.get("name", "").startswith("HY ")]
+    assert all(shape.get("type") == "rect" for shape in intervals)
     assert {(shape["x0"], shape["x1"]) for shape in intervals} == expected_intervals
 
 
