@@ -35,6 +35,7 @@ from hydroseason._io_wofs_zarr import (
     resolve_cached_request,
     validate_annual_group,
     write_annual_group,
+    write_empty_annual_group,
 )
 from hydroseason._spatial_plan import GridWindow
 
@@ -1013,6 +1014,14 @@ def test_legacy_write_annual_group_output_is_byte_identical_to_pre_w22(tmp_path)
     legacy's compute path, content digest, or extent_counts.json values
     fails this test immediately, rather than relying on a one-time manual
     comparison that itself isn't re-checked by CI.
+
+    ``extent_payload["content_digest"]`` was re-pinned for Task 4's
+    WOFS_CACHE_SCHEMA_VERSION 3 -> 4 bump: extent_counts.json embeds
+    schema_version in the hashed payload, so bumping it necessarily changes
+    this one digest even though the underlying n_aoi/n_valid/n_water values
+    (asserted below) are byte-identical to before -- confirmed by hand
+    before repinning, exactly like the original pinning process this
+    docstring describes.
     """
     rng = np.random.default_rng(1234)
     shape = (12, 64, 96)
@@ -1061,7 +1070,7 @@ def test_legacy_write_annual_group_output_is_byte_identical_to_pre_w22(tmp_path)
         "707b28f2d85eb4e35bc62b0fef617df92177a8d37ad129549e5ac4c7b0f938eb"
     )
     assert extent_payload["content_digest"] == (
-        "aa90cbc60c3038268341b0d8708a66f4661e9e23e7d0e963b9d383ad469897cd"
+        "ccbcf2d0433aeb66103d86577ee268b1b14f20885b7407a7a3f56f63b36bf23c"
     )
     assert extent_payload["n_aoi"] == [
         5530, 5509, 5576, 5562, 5535, 5516, 5521, 5518, 5540, 5492, 5554, 5541,
@@ -1229,5 +1238,647 @@ def test_write_empty_annual_group_matches_full_path_output(tmp_path):
     assert counts["n_aoi"] == [0] * len(times)
 
 
+# ---------------------------------------------------------------------------
+# Task 4: scientific-mask semantics pinned in the WOfS cache
+# ---------------------------------------------------------------------------
+
+
+def _historical_mask_request(**overrides):
+    common = dict(
+        historical_mask_sha256="f" * 64,
+        historical_mask_product="ga_ls_wo_fq_myear_3",
+        historical_mask_version="3",
+        historical_mask_item_ids=("item-a", "item-b"),
+        historical_mask_lineage=("ga_ls_wo_fq_myear_3", "item-a", "item-b"),
+        historical_mask_coverage_start="1986-01-01",
+        historical_mask_coverage_end="2026-01-01",
+        historical_mask_pixel_count=5,
+    )
+    common.update(overrides)
+    return _base_request(**common)
+
+
+def test_historical_mask_sha256_changes_request_digest():
+    base = _historical_mask_request()
+    changed = _historical_mask_request(historical_mask_sha256="e" * 64)
+    assert base.request_digest() != changed.request_digest()
+
+
+def test_historical_mask_product_changes_request_digest():
+    base = _historical_mask_request()
+    changed = _historical_mask_request(historical_mask_product="other_product")
+    assert base.request_digest() != changed.request_digest()
+
+
+def test_historical_mask_version_changes_request_digest():
+    base = _historical_mask_request()
+    changed = _historical_mask_request(historical_mask_version="4")
+    assert base.request_digest() != changed.request_digest()
+
+
+def test_historical_mask_item_ids_changes_request_digest():
+    base = _historical_mask_request()
+    changed = _historical_mask_request(historical_mask_item_ids=("item-a", "item-c"))
+    assert base.request_digest() != changed.request_digest()
+
+
+def test_historical_mask_lineage_changes_request_digest():
+    base = _historical_mask_request()
+    changed = _historical_mask_request(
+        historical_mask_lineage=("ga_ls_wo_fq_myear_3", "item-a", "item-c")
+    )
+    assert base.request_digest() != changed.request_digest()
+
+
+def test_historical_mask_coverage_start_changes_request_digest():
+    base = _historical_mask_request()
+    changed = _historical_mask_request(historical_mask_coverage_start="1987-01-01")
+    assert base.request_digest() != changed.request_digest()
+
+
+def test_historical_mask_coverage_end_changes_request_digest():
+    base = _historical_mask_request()
+    changed = _historical_mask_request(historical_mask_coverage_end="2027-01-01")
+    assert base.request_digest() != changed.request_digest()
+
+
+def test_historical_mask_pixel_count_changes_request_digest():
+    base = _historical_mask_request()
+    changed = _historical_mask_request(historical_mask_pixel_count=6)
+    assert base.request_digest() != changed.request_digest()
+
+
+def test_planning_factor_changes_request_digest_independent_of_historical_mask():
+    """footprint_factor already changes identity (see
+    test_footprint_factor_changes_request_digest above); re-assert it here
+    alongside a populated historical mask, to prove the two provenance
+    stories (scientific mask vs. planning-only footprint) are genuinely
+    independent digest inputs rather than aliasing one another."""
+    common = dict(
+        footprint_digest="d" * 64, footprint_safety_cells=1, footprint_covered_years=(2015,),
+    )
+    a = _historical_mask_request(footprint_factor=4, **common)
+    b = _historical_mask_request(footprint_factor=8, **common)
+    assert a.request_digest() != b.request_digest()
+
+
+def test_planning_safety_cells_changes_request_digest_independent_of_historical_mask():
+    common = dict(footprint_digest="d" * 64, footprint_factor=4, footprint_covered_years=(2015,))
+    a = _historical_mask_request(footprint_safety_cells=1, **common)
+    b = _historical_mask_request(footprint_safety_cells=2, **common)
+    assert a.request_digest() != b.request_digest()
+
+
+def test_absent_historical_mask_fields_preserve_the_legacy_request_digest():
+    """Existing (pre-Task-4) caches on disk must stay reachable: with no
+    historical mask supplied, the digest payload must be byte-identical to
+    the pre-historical-mask-field version (same guarantee as
+    test_absent_footprint_fields_preserve_the_legacy_request_digest)."""
+    request = _base_request()
+    payload = request._digest_payload()
+    for field in (
+        "historical_mask_sha256", "historical_mask_product", "historical_mask_version",
+        "historical_mask_item_ids", "historical_mask_lineage",
+        "historical_mask_coverage_start", "historical_mask_coverage_end",
+        "historical_mask_pixel_count",
+    ):
+        assert field not in payload
+    assert request.request_digest() == _base_request().request_digest()
+
+
+def test_wofs_cache_schema_version_is_4():
+    assert WOFS_CACHE_SCHEMA_VERSION == 4
+
+
+# --- CacheAnalysisMask: persistence and tamper detection ---
+
+
+def _historical_mask_fixture(*, shape=(2, 3), transform=(30.0, 0.0, 1000.0, 0.0, -30.0, 2000.0)):
+    """A minimal in-memory HistoricalWaterMask for CacheAnalysisMask tests.
+
+    ``mask_sha256`` is computed with the real
+    :func:`hydroseason._historical_water_mask._mask_digest` (not a
+    placeholder) so verification against re-hashed on-disk bytes genuinely
+    passes for an untampered artifact -- required for the tamper tests
+    below to actually distinguish "tampered" from "the fixture's own digest
+    was never real to begin with"."""
+    from hydroseason._historical_water_mask import HistoricalWaterMask, _mask_digest
+
+    values = np.zeros(shape, dtype=bool)
+    values[0, 0] = True
+    values[1, 1] = True
+    pixel_count = int(values.sum())
+    resolution = (abs(float(transform[0])), abs(float(transform[4])))
+    mask_sha256 = _mask_digest(
+        values, crs="EPSG:3577", transform=transform, shape=shape, resolution=resolution,
+    )
+    return HistoricalWaterMask(
+        mask=values,
+        crs="EPSG:3577",
+        transform=transform,
+        shape=shape,
+        resolution=resolution,
+        pixel_count=pixel_count,
+        source_product="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_item_ids=("item-a", "item-b"),
+        source_lineage=("ga_ls_wo_fq_myear_3", "item-a", "item-b"),
+        coverage_start="1986-01-01",
+        coverage_end="2026-01-01",
+        aoi_sha256="a" * 64,
+        mask_sha256=mask_sha256,
+    )
+
+
+def _historical_mask_fixture_with_values(values, *, transform=(30.0, 0.0, 1000.0, 0.0, -30.0, 2000.0)):
+    """Like :func:`_historical_mask_fixture`, but for an explicit boolean
+    array (used where a test needs the mask's exact footprint to match a
+    specific written cube's n_aoi) -- still with a genuinely recomputed
+    mask_sha256, never a stale/placeholder one."""
+    from hydroseason._historical_water_mask import HistoricalWaterMask, _mask_digest
+
+    values = np.asarray(values, dtype=bool)
+    shape = (int(values.shape[0]), int(values.shape[1]))
+    resolution = (abs(float(transform[0])), abs(float(transform[4])))
+    mask_sha256 = _mask_digest(
+        values, crs="EPSG:3577", transform=transform, shape=shape, resolution=resolution,
+    )
+    return HistoricalWaterMask(
+        mask=values,
+        crs="EPSG:3577",
+        transform=transform,
+        shape=shape,
+        resolution=resolution,
+        pixel_count=int(values.sum()),
+        source_product="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_item_ids=("item-a", "item-b"),
+        source_lineage=("ga_ls_wo_fq_myear_3", "item-a", "item-b"),
+        coverage_start="1986-01-01",
+        coverage_end="2026-01-01",
+        aoi_sha256="a" * 64,
+        mask_sha256=mask_sha256,
+    )
+
+
+def test_record_and_read_cache_analysis_mask_round_trips(tmp_path):
+    from hydroseason._io_wofs_zarr import (
+        CacheAnalysisMask,
+        read_cache_analysis_mask,
+        record_cache_analysis_mask,
+    )
+
+    request = _historical_mask_request()
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+    historical_mask = _historical_mask_fixture()
+
+    recorded = record_cache_analysis_mask(handle, historical_mask)
+    assert isinstance(recorded, CacheAnalysisMask)
+    assert recorded.pixel_count == 2
+
+    read_back = read_cache_analysis_mask(handle)
+    assert read_back is not None
+    assert read_back.pixel_count == 2
+    assert read_back.mask_sha256 == historical_mask.mask_sha256
+    assert np.array_equal(np.asarray(read_back.mask, dtype=bool), historical_mask.mask)
+
+    assert (handle.path / "analysis-mask" / "mask.zarr").exists()
+    assert (handle.path / "analysis-mask" / "manifest.json").exists()
+
+
+def test_analysis_mask_manifest_never_serializes_a_polygon(tmp_path):
+    from hydroseason._io_wofs_zarr import record_cache_analysis_mask
+
+    request = _historical_mask_request()
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+    historical_mask = _historical_mask_fixture()
+    record_cache_analysis_mask(handle, historical_mask)
+
+    manifest = json.loads(
+        (handle.path / "analysis-mask" / "manifest.json").read_text(encoding="utf-8")
+    )
+    manifest_text = json.dumps(manifest)
+    assert "POLYGON" not in manifest_text.upper()
+    assert "wkb" not in manifest_text.lower()
+
+
+def test_verify_cache_analysis_mask_passes_for_untampered_artifact(tmp_path):
+    from hydroseason._io_wofs_zarr import record_cache_analysis_mask, verify_cache_analysis_mask
+
+    request = _historical_mask_request()
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+    historical_mask = _historical_mask_fixture()
+    record_cache_analysis_mask(handle, historical_mask)
+
+    verified = verify_cache_analysis_mask(handle)
+    assert verified.pixel_count == 2
+
+
+def test_verify_cache_analysis_mask_detects_tampered_raster_bytes(tmp_path):
+    import zarr
+
+    from hydroseason._io_wofs_zarr import (
+        _zarr_store,
+        record_cache_analysis_mask,
+        verify_cache_analysis_mask,
+    )
+
+    request = _historical_mask_request()
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+    historical_mask = _historical_mask_fixture()
+    record_cache_analysis_mask(handle, historical_mask)
+
+    zarr_path = handle.path / "analysis-mask" / "mask.zarr"
+    array = zarr.open_array(_zarr_store(zarr_path), mode="r+")
+    array[0, 0] = False  # flip a True cell to False -- tamper the raster bytes
+
+    with pytest.raises(ValueError, match="verification failed"):
+        verify_cache_analysis_mask(handle)
+
+
+def test_verify_cache_analysis_mask_detects_tampered_digest(tmp_path):
+    from hydroseason._io_wofs_zarr import record_cache_analysis_mask, verify_cache_analysis_mask
+
+    request = _historical_mask_request()
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+    historical_mask = _historical_mask_fixture()
+    record_cache_analysis_mask(handle, historical_mask)
+
+    manifest_path = handle.path / "analysis-mask" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["mask_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="verification failed"):
+        verify_cache_analysis_mask(handle)
+
+
+@pytest.mark.parametrize("field", ["crs", "transform", "shape"])
+def test_verify_cache_analysis_mask_detects_tampered_grid_metadata(tmp_path, field):
+    from hydroseason._io_wofs_zarr import record_cache_analysis_mask, verify_cache_analysis_mask
+
+    request = _historical_mask_request()
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+    historical_mask = _historical_mask_fixture()
+    record_cache_analysis_mask(handle, historical_mask)
+
+    manifest_path = handle.path / "analysis-mask" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if field == "crs":
+        manifest["crs"] = "EPSG:4326"
+    elif field == "transform":
+        manifest["transform"] = [60.0, 0.0, 1000.0, 0.0, -60.0, 2000.0]
+    else:
+        manifest["shape"] = [3, 2]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="verification failed"):
+        verify_cache_analysis_mask(handle)
+
+
+def test_verify_cache_analysis_mask_detects_tampered_source_lineage(tmp_path):
+    from hydroseason._io_wofs_zarr import record_cache_analysis_mask, verify_cache_analysis_mask
+
+    request = _historical_mask_request()
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+    historical_mask = _historical_mask_fixture()
+    record_cache_analysis_mask(handle, historical_mask)
+
+    manifest_path = handle.path / "analysis-mask" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["source_lineage"] = ["tampered_lineage"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="verification failed"):
+        verify_cache_analysis_mask(handle)
+
+
+def test_verify_cache_analysis_mask_detects_tampered_coverage(tmp_path):
+    from hydroseason._io_wofs_zarr import record_cache_analysis_mask, verify_cache_analysis_mask
+
+    request = _historical_mask_request()
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+    historical_mask = _historical_mask_fixture()
+    record_cache_analysis_mask(handle, historical_mask)
+
+    manifest_path = handle.path / "analysis-mask" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["coverage_end"] = "2099-01-01"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="verification failed"):
+        verify_cache_analysis_mask(handle)
+
+
+def test_verify_cache_analysis_mask_detects_tampered_pixel_count(tmp_path):
+    from hydroseason._io_wofs_zarr import record_cache_analysis_mask, verify_cache_analysis_mask
+
+    request = _historical_mask_request()
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+    historical_mask = _historical_mask_fixture()
+    record_cache_analysis_mask(handle, historical_mask)
+
+    manifest_path = handle.path / "analysis-mask" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["pixel_count"] = 999
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="verification failed"):
+        verify_cache_analysis_mask(handle)
+
+
+def test_read_cache_analysis_mask_returns_none_when_absent(tmp_path):
+    from hydroseason._io_wofs_zarr import read_cache_analysis_mask
+
+    request = _historical_mask_request()
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+
+    assert read_cache_analysis_mask(handle) is None
+
+
+# --- write_annual_group / write_empty_annual_group: count invariants ---
+
+
+def test_write_annual_group_enforces_n_aoi_equals_historical_mask_pixel_count(tmp_path):
+    """When the request carries a historical mask, every month's n_aoi must
+    equal the pinned historical_mask_pixel_count -- a store whose actually
+    written pixels disagree with the request's own pinned denominator is
+    corrupt and must fail loudly rather than silently cache a wrong count."""
+    # 2x3 grid, historical_mask_pixel_count pinned to 5, but the written mask
+    # has n_aoi == 4 (one more -2 cell than the pinned mask allows for), so
+    # the invariant n_aoi == historical_mask_pixel_count must reject this.
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, -2, -2]]
+    request = _historical_mask_request(historical_mask_pixel_count=5)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+
+    with pytest.raises(ValueError, match="n_aoi"):
+        write_annual_group(
+            handle,
+            2015,
+            mask.chunk({"time": 1, "y": 2, "x": 3}),
+            windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+            item_ids=("a",),
+        )
+
+
+def test_write_annual_group_passes_invariants_when_n_aoi_matches_historical_mask(tmp_path):
+    """The positive case: n_aoi over the actually-written pixels equals the
+    pinned historical_mask_pixel_count, so write_annual_group must succeed
+    and persist counts as normal."""
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, -2]]  # n_aoi = 4 (all but the two -2 cells)
+    request = _historical_mask_request(historical_mask_pixel_count=4)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+
+    extent = open_completed_extent_counts(handle, "2015-01-01", "2015-01-01")
+    assert extent is None or extent["n_aoi"].tolist() == [4]
+
+
+def test_write_annual_group_skips_historical_mask_invariant_for_legacy_requests(tmp_path):
+    """A request with no historical mask (the pre-Task-4, still-supported
+    shape) must behave exactly as before: no n_aoi == historical_mask_pixel_count
+    check is even attempted, since there is no pinned denominator to compare
+    against."""
+    mask = _canonical_cube(shape=(2, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, 0]]
+    mask.values[1] = [[0, 0, -1], [-2, 1, 1]]
+    handle = _handle_for_cube(tmp_path, mask)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+
+    extent = open_completed_extent_counts(handle, "2015-01-01", "2015-02-01")
+    assert extent["n_aoi"].tolist() == [5, 5]
+
+
+def test_write_empty_annual_group_enforces_historical_mask_pixel_count_invariant(tmp_path):
+    """An empty year (no STAC items) is entirely -2 (n_aoi=0), so if the
+    request pins a nonzero historical_mask_pixel_count the invariant must
+    reject it -- a genuinely no-source year covering historically-observed
+    water is a contradiction, not a valid empty group."""
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    request = _historical_mask_request(historical_mask_pixel_count=5)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+
+    with pytest.raises(ValueError, match="n_aoi"):
+        write_empty_annual_group(handle, 2015, mask)
+
+
+def test_write_empty_annual_group_passes_when_historical_mask_pixel_count_is_zero(tmp_path):
+    """Degenerate but internally consistent: a request pinning
+    historical_mask_pixel_count=0 combined with an empty (all -2) year
+    satisfies n_aoi == historical_mask_pixel_count trivially."""
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    request = _historical_mask_request(historical_mask_pixel_count=0)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+
+    write_empty_annual_group(handle, 2015, mask)
+    assert 2015 in completed_years(handle)
+
+
+def test_write_annual_group_enforces_n_water_le_n_valid(tmp_path):
+    """n_water <= n_valid must hold for every month; this is already
+    structurally guaranteed by how n_water/n_valid are derived from the same
+    canonical-domain values (n_valid = water + dry, n_water = water), so this
+    test documents/pins that invariant explicitly rather than leaving it
+    merely implicit in the arithmetic."""
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, 0]]
+    handle = _handle_for_cube(tmp_path, mask)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+    extent = open_completed_extent_counts(handle, "2015-01-01", "2015-01-01")
+    assert (extent["n_water"] <= extent["n_valid"]).all()
+
+
+def test_write_annual_group_enforces_n_valid_plus_n_invalid_equals_n_aoi(tmp_path):
+    """n_valid + n_invalid == n_aoi must hold for every month; again already
+    structurally guaranteed (n_invalid = n_aoi - n_valid) -- pin it
+    explicitly as a regression guard."""
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, 0]]
+    handle = _handle_for_cube(tmp_path, mask)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+    extent = open_completed_extent_counts(handle, "2015-01-01", "2015-01-01")
+    assert (extent["n_valid"] + extent["n_invalid"] == extent["n_aoi"]).all()
+
+
+# --- open_completed_extent_counts: scientific-mask pruning acceptance/refusal ---
+
+
+def test_open_completed_extent_counts_accepts_scientific_pruning_when_verified(tmp_path):
+    """A store pruned to the exact historical (scientific) mask -- not merely
+    a smaller planning-only footprint -- must be accepted by the fast-count
+    reader when the request and a verified CacheAnalysisMask agree."""
+    from hydroseason._io_wofs_zarr import record_cache_analysis_mask
+
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, -2]]  # n_aoi = 4
+    # A mask whose footprint genuinely matches the written cube's n_aoi=4,
+    # so record+verify reflects a real, internally consistent scientific
+    # mask rather than an arbitrary fixture.
+    values = np.array([[True, True, True], [False, True, False]], dtype=bool)
+    historical_mask = _historical_mask_fixture_with_values(values)
+    assert historical_mask.pixel_count == 4
+
+    # The request's historical_mask_sha256 must genuinely agree with the
+    # recorded mask's own digest -- open_completed_extent_counts refuses
+    # when they disagree (see
+    # test_open_completed_extent_counts_refuses_when_analysis_mask_is_tampered),
+    # so this positive test must set it to the mask's real digest, not the
+    # arbitrary "f" * 64 placeholder _historical_mask_request defaults to.
+    request = _historical_mask_request(
+        historical_mask_pixel_count=4, historical_mask_sha256=historical_mask.mask_sha256,
+    )
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+
+    record_cache_analysis_mask(handle, historical_mask)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+
+    extent = open_completed_extent_counts(handle, "2015-01-01", "2015-01-01")
+    assert extent is not None
+    assert extent["n_aoi"].tolist() == [4]
+
+
+def test_open_completed_extent_counts_refuses_when_no_analysis_mask_recorded(tmp_path):
+    """A request that pins a historical_mask_pixel_count but has no verified
+    CacheAnalysisMask on disk (e.g. record_cache_analysis_mask was never
+    called) cannot be trusted as a scientific denominator -- fail closed."""
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, -2]]
+    request = _historical_mask_request(historical_mask_pixel_count=4)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+
+    assert open_completed_extent_counts(handle, "2015-01-01", "2015-01-01") is None
+
+
+def test_open_completed_extent_counts_refuses_when_analysis_mask_is_tampered(tmp_path):
+    """A recorded CacheAnalysisMask that fails verification (tampered on
+    disk) must not be trusted as a scientific denominator either."""
+    from hydroseason._io_wofs_zarr import record_cache_analysis_mask
+
+    mask = _canonical_cube(shape=(1, 2, 3), fill=-2)
+    mask.values[0] = [[1, 0, -1], [-2, 1, -2]]
+    request = _historical_mask_request(historical_mask_pixel_count=4)
+    handle = _handle_for_cube(tmp_path, mask, request=request)
+
+    values = np.array([[True, True, True], [False, True, False]], dtype=bool)
+    historical_mask = _historical_mask_fixture_with_values(values)
+    record_cache_analysis_mask(handle, historical_mask)
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+
+    manifest_path = handle.path / "analysis-mask" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["pixel_count"] = 999
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert open_completed_extent_counts(handle, "2015-01-01", "2015-01-01") is None
+
+
+def test_open_completed_extent_counts_still_refuses_planning_only_footprint(tmp_path):
+    """Pre-existing behaviour (see
+    test_pruned_extent_counts_do_not_infer_full_aoi_denominator_from_footprints
+    above) must be unchanged: a store pruned only via wet_mask_sha256/
+    footprint_* (planning-only, no historical mask) is still refused,
+    because it still lacks a valid scientific denominator regardless of
+    Task 4's new acceptance path."""
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    from hydroseason._io_wofs_zarr import record_cache_footprints
+
+    mask = _canonical_cube(shape=(2, 2, 4), fill=-2)
+    mask.values[:, :, :] = [
+        [[1, 0, -2, -2], [1, 0, -2, -2]],
+        [[1, 0, -2, -2], [1, 0, -2, -2]],
+    ]
+    handle = _handle_for_cube(
+        tmp_path,
+        mask,
+        request=dataclasses.replace(_request(), wet_mask_sha256="b" * 64),
+    )
+    full_aoi = gpd.GeoDataFrame(
+        {"geometry": [box(999.0, 1941.0, 1119.0, 1999.0)]}, crs="EPSG:3577"
+    )
+    analysis_footprint = gpd.GeoDataFrame(
+        {"geometry": [box(999.0, 1941.0, 1059.0, 1999.0)]}, crs="EPSG:3577"
+    )
+    record_cache_footprints(
+        handle,
+        full_aoi_gdf=full_aoi,
+        analysis_footprint_gdf=analysis_footprint,
+        shape=(2, 4),
+        transform=(30.0, 0.0, 1000.0, 0.0, -30.0, 2000.0),
+        crs="EPSG:3577",
+    )
+
+    write_annual_group(
+        handle,
+        2015,
+        mask.chunk({"time": 1, "y": 2, "x": 4}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 4),),
+        item_ids=("a",),
+    )
+
+    assert open_completed_extent_counts(handle, "2015-01-01", "2015-01-01") is None
 
 
