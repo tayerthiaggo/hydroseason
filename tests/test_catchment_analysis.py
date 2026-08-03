@@ -25,32 +25,39 @@ def _aseasonal(years=30, seed=3):
 def _percentage_equivalent_varying_coverage_series(years=30):
     """Return full-AOI and exact-mask count series with identical percentages.
 
-    The full AOI has ten times as many valid pixels plus a month-varying
-    amount of invalid land.  The historical mask keeps the same percentage
-    signal over a smaller, fully valid population.  Any selector using
-    absolute water/area counts rather than the documented percentages will
-    therefore diverge.
+    Both populations vary by month (and differ from each other) while
+    retaining the same percentage signal. Any selector using absolute
+    water/area counts rather than the documented percentages will therefore
+    diverge.
     """
     index = pd.date_range("1990-01-01", periods=12 * years, freq="MS")
     percentage_cycle = np.array([1, 1, 1, 1, 5, 10, 15, 20, 40, 80, 100, 10])
     extent_pct = np.tile(percentage_cycle, years)
     invalid_land = np.resize(np.array([0, 10, 20, 40, 60, 80, 100]), len(index))
+    historical_valid = np.resize(
+        np.array([100, 900, 200, 1200, 300, 1100, 400, 1000, 500, 900, 600, 800]),
+        len(index),
+    )
+    full_valid = np.resize(
+        np.array([3000, 2100, 3400, 2000, 3500, 2100, 3600, 2000, 3700, 2100, 3800, 2000]),
+        len(index),
+    )
 
     historical = pd.DataFrame(
         {
-            "n_water": extent_pct,
-            "n_valid": 100,
+            "n_water": extent_pct * historical_valid // 100,
+            "n_valid": historical_valid,
             "n_invalid": 0,
-            "n_aoi": 100,
+            "n_aoi": historical_valid,
         },
         index=index,
     )
     full_aoi = pd.DataFrame(
         {
-            "n_water": extent_pct * 10,
-            "n_valid": 1000,
+            "n_water": extent_pct * full_valid // 100,
+            "n_valid": full_valid,
             "n_invalid": invalid_land,
-            "n_aoi": 1000 + invalid_land,
+            "n_aoi": full_valid + invalid_land,
         },
         index=index,
     )
@@ -69,7 +76,15 @@ def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_popula
 
     assert full_result.regime.regime == historical_result.regime.regime == "seasonal"
     assert (full_aoi["n_water"] > historical["n_water"]).all()
-    assert (full_aoi["n_aoi"] > historical["n_aoi"]).iloc[1:].all()
+    assert (full_aoi["n_aoi"] > historical["n_aoi"]).all()
+    assert full_aoi["n_valid"].nunique() > 1
+    assert historical["n_valid"].nunique() > 1
+    assert historical.loc["1990-06-01", "n_water"] > historical.loc["1990-07-01", "n_water"]
+    assert full_aoi.loc["1990-06-01", "n_water"] < full_aoi.loc["1990-07-01", "n_water"]
+    assert not np.array_equal(
+        np.argsort(full_aoi["n_water"].to_numpy()),
+        np.argsort(historical["n_water"].to_numpy()),
+    )
     np.testing.assert_array_equal(
         full_prepared["extent_pct"].to_numpy(), historical_prepared["extent_pct"].to_numpy()
     )

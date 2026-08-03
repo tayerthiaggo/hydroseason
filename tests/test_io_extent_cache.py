@@ -222,6 +222,55 @@ def test_historical_mask_denominator_is_fixed_for_normal_invalid_and_no_source_m
     assert result.loc["2020-03-01", "invalid_pct"] == 100.0
 
 
+def test_cache_path_passes_exact_mask_and_dilated_planning_footprint_without_changing_counts(
+    monkeypatch, tmp_path,
+):
+    """Planning dilation is passed to acquisition, never used as analysis area."""
+    import hydroseason.io as hio
+    from hydroseason._io_dea_stats import build_planning_footprint_from_historical_mask
+
+    aoi = _aoi()
+    historical_mask = _historical_water_mask(aoi=aoi)
+    footprints = []
+
+    def build_dilated_footprint(mask):
+        footprint = build_planning_footprint_from_historical_mask(
+            mask, factor=1, safety_cells=1
+        )
+        footprints.append(footprint)
+        return footprint
+
+    acquire = Mock(return_value=SimpleNamespace(path=tmp_path / "store.zarr"))
+    expected = _completed_extent("2020-01-01", "2020-12-31")
+    monkeypatch.setattr(hio, "build_planning_footprint_from_historical_mask", build_dilated_footprint)
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+    monkeypatch.setattr(hio, "open_completed_extent_counts", Mock(return_value=expected))
+
+    result = hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac",
+        "ga_ls_wo_3",
+        aoi,
+        "2020-01-01",
+        "2020-12-31",
+        resolution=30,
+        mask_cache_dir=tmp_path / "cache",
+        historical_water_mask=historical_mask,
+    )
+
+    footprint = footprints[0]
+    native = np.asarray(getattr(footprint.native_mask, "values", footprint.native_mask), dtype=bool)
+    coarse = np.asarray(getattr(footprint.coarse_mask, "values", footprint.coarse_mask), dtype=bool)
+    assert np.array_equal(native, historical_mask.mask)
+    assert coarse.sum() > native.sum()  # the planning halo is a true superset
+    assert acquire.call_args.kwargs["historical_water_mask"] is historical_mask
+    assert acquire.call_args.kwargs["planning_footprint"] is footprint
+    pd.testing.assert_frame_equal(result, expected)
+    assert (result["n_aoi"] == historical_mask.pixel_count).all()
+    assert (result["n_valid"] == historical_mask.pixel_count).all()
+    assert (result["n_water"] == 1).all()
+    assert (result["n_invalid"] == 0).all()
+
+
 def test_default_historical_mask_keeps_fixed_denominator_for_no_source_year(monkeypatch):
     import hydroseason.io as hio
 
