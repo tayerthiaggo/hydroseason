@@ -862,18 +862,18 @@ def test_historical_water_mask_value_object_records_full_provenance():
     assert len(result.mask_sha256) == 64
 
 
-def test_historical_water_mask_empty_mask_raises_value_error():
+def test_historical_water_mask_empty_mask_raises_dea_stats_unavailable():
     """count_wet all-zero within the AOI must fail closed: an empty mask
     could otherwise be mistaken for 'no water to analyse' rather than 'the
     source/AOI combination has none'."""
     grid = np.zeros((10, 10), dtype=np.int32)
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
 
-    with pytest.raises(ValueError, match="no historically observed water"):
+    with pytest.raises(DEAStatsUnavailable, match="no historically observed water"):
         build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-01-01")
 
 
-def test_historical_water_mask_all_wet_outside_aoi_raises_value_error():
+def test_historical_water_mask_all_wet_outside_aoi_raises_dea_stats_unavailable():
     """Wet pixels that exist only outside the AOI must also fail as 'no
     historically observed water' -- the AND-with-AOI step must run before
     the emptiness check, not after."""
@@ -881,20 +881,20 @@ def test_historical_water_mask_all_wet_outside_aoi_raises_value_error():
     grid[3, 12] = 1  # outside the left-half AOI
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
 
-    with pytest.raises(ValueError, match="no historically observed water"):
+    with pytest.raises(DEAStatsUnavailable, match="no historically observed water"):
         build_historical_water_mask(stats, _historical_aoi(), analysis_end="2020-01-01")
 
 
-def test_historical_water_mask_insufficient_coverage_raises_value_error():
+def test_historical_water_mask_insufficient_coverage_raises_dea_stats_unavailable():
     grid = np.zeros((10, 10), dtype=np.int32)
     grid[2, 2] = 1
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2018-12-31T00:00:00Z")
 
-    with pytest.raises(ValueError, match="does not cover analysis end"):
+    with pytest.raises(DEAStatsUnavailable, match="does not cover analysis end"):
         build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-06-01")
 
 
-def test_historical_water_mask_incompatible_lineage_raises_value_error():
+def test_historical_water_mask_incompatible_lineage_raises_dea_stats_unavailable():
     """Only the all-time Multi-Year product (ga_ls_wo_fq_myear_3) is a valid
     source for the historical mask -- an incompatible product (e.g. the
     per-calendar-year summary) must fail closed rather than silently being
@@ -907,7 +907,7 @@ def test_historical_water_mask_incompatible_lineage_raises_value_error():
         product=DEA_STATS_ANNUAL_COLLECTION,
     )
 
-    with pytest.raises(ValueError, match="incompatible WOfS lineage"):
+    with pytest.raises(DEAStatsUnavailable, match="incompatible WOfS lineage"):
         build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-01-01")
 
 

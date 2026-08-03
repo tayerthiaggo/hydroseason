@@ -29,10 +29,13 @@ if TYPE_CHECKING:
 # The all-time summary is the one whose provenance is pinned as the fixed
 # scientific footprint for the entire requested analysis period -- see
 # hydroseason._io_dea_stats.DEA_STATS_ALLTIME_COLLECTION, duplicated here as
-# a literal (rather than imported) so this module never depends on
-# _io_dea_stats, matching the existing one-way dependency between the two
-# (_io_dea_stats.build_planning_footprint_from_historical_mask depends on
-# this module, not the reverse).
+# a literal rather than imported. This module does import
+# hydroseason._io_dea_stats.DEAStatsUnavailable (a leaf exception class with
+# no dependency back on this module) for its fail-closed raises, but not the
+# collection constants, so the existing one-way dependency direction between
+# the two modules is preserved (_io_dea_stats.
+# build_planning_footprint_from_historical_mask depends on this module for
+# HistoricalWaterMask/build_historical_water_mask, not the reverse).
 HISTORICAL_MASK_SOURCE_PRODUCT = "ga_ls_wo_fq_myear_3"
 
 # The monthly WOfS observation collection the historical mask is applied
@@ -79,17 +82,22 @@ class HistoricalWaterMask:
 def _resolve_provenance(stats: "xr.Dataset") -> Mapping[str, Any]:
     """The ``stats.attrs["provenance"]`` block written by ``open_wo_statistics``.
 
-    Raises :class:`ValueError` if it is absent or missing ``product`` -- the
-    lineage/version/coverage contract this builder validates is itself the
-    thing being checked, so an absent or malformed block must fail exactly
-    like an incompatible lineage would.
+    Raises :class:`hydroseason._io_dea_stats.DEAStatsUnavailable` if it is
+    absent or missing ``product`` -- the lineage/version/coverage contract
+    this builder validates is itself the thing being checked, so an absent
+    or malformed block must fail exactly like an incompatible lineage would,
+    and via the same fail-closed exception type
+    :func:`hydroseason._io_dea_stats.build_wet_planning_footprint` already
+    uses for the identical provenance contract.
     """
+    from hydroseason._io_dea_stats import DEAStatsUnavailable
+
     provenance = stats.attrs.get("provenance")
     if not isinstance(provenance, Mapping) or not provenance.get("product"):
-        raise ValueError(
+        raise DEAStatsUnavailable(
             "DEA Water Observation Statistics provenance is absent or "
-            "incompatible WOfS lineage; refusing to build a historical "
-            "water mask without a verifiable source contract"
+            "malformed -- incompatible WOfS lineage; refusing to build a "
+            "historical water mask without a verifiable source contract"
         )
     return provenance
 
@@ -106,14 +114,16 @@ def _version_token(collection: str) -> str:
 
 
 def _parse_time_span(time_span: str | None) -> "tuple[str, str]":
+    from hydroseason._io_dea_stats import DEAStatsUnavailable
+
     if not time_span or "/" not in time_span:
-        raise ValueError(
+        raise DEAStatsUnavailable(
             "DEA Water Observation Statistics does not cover analysis end: "
             f"source coverage {time_span!r} is unknown or malformed"
         )
     start, _, end = time_span.partition("/")
     if not start or not end:
-        raise ValueError(
+        raise DEAStatsUnavailable(
             "DEA Water Observation Statistics does not cover analysis end: "
             f"source coverage {time_span!r} is unknown or malformed"
         )
@@ -141,8 +151,10 @@ def build_historical_water_mask(
     through a polygon: it is exactly ``(count_wet > 0) & rasterized_aoi``,
     materialized as a plain boolean ``numpy`` array.
 
-    Raises :class:`ValueError` (fail-closed, matching this module's
-    convention) for:
+    Raises :class:`hydroseason._io_dea_stats.DEAStatsUnavailable`
+    (fail-closed, matching the identical three-category validation
+    :func:`hydroseason._io_dea_stats.build_wet_planning_footprint` already
+    performs against the same ``stats.attrs["provenance"]`` contract) for:
 
     * an incompatible source product/lineage (anything other than
       ``ga_ls_wo_fq_myear_3``, or a version token that does not match the
@@ -155,12 +167,13 @@ def build_historical_water_mask(
     """
     import numpy as np
 
+    from hydroseason._io_dea_stats import DEAStatsUnavailable
     from hydroseason._io_geo import _inside_aoi_mask_like, load_aoi
 
     provenance = _resolve_provenance(stats)
     product = str(provenance["product"])
     if product != HISTORICAL_MASK_SOURCE_PRODUCT:
-        raise ValueError(
+        raise DEAStatsUnavailable(
             f"incompatible WOfS lineage: historical water mask requires "
             f"product {HISTORICAL_MASK_SOURCE_PRODUCT!r}, got {product!r}"
         )
@@ -168,7 +181,11 @@ def build_historical_water_mask(
     version = _version_token(product)
     monthly_version = _version_token(MONTHLY_WOFS_COLLECTION)
     if version != monthly_version:
-        raise ValueError(
+        # Unreachable in practice today: both collection constants above are
+        # hardcoded to agree, so this can only fire if a future edit lets
+        # them drift apart. Kept as defense-in-depth for that drift rather
+        # than trusting the product-identity check above to catch it alone.
+        raise DEAStatsUnavailable(
             f"incompatible WOfS lineage: Multi-Year Statistics version "
             f"{version!r} (from {product!r}) does not match the monthly "
             f"WOfS collection {MONTHLY_WOFS_COLLECTION!r} version "
@@ -180,7 +197,7 @@ def build_historical_water_mask(
 
     coverage_start, coverage_end = _parse_time_span(provenance.get("time_span"))
     if not _coverage_covers_analysis_end(coverage_end, analysis_end):
-        raise ValueError(
+        raise DEAStatsUnavailable(
             f"DEA Water Observation Statistics source coverage "
             f"{coverage_start!r}/{coverage_end!r} does not cover analysis "
             f"end {analysis_end!r}"
@@ -199,7 +216,7 @@ def build_historical_water_mask(
 
     pixel_count = int(exact_values.sum())
     if pixel_count == 0:
-        raise ValueError(
+        raise DEAStatsUnavailable(
             "no historically observed water: (count_wet > 0) AND AOI is "
             "empty for this AOI; refusing to build a historical water mask "
             "that would silently become an empty scientific denominator"
