@@ -37,6 +37,15 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert "plotly-basic-3.6.0" in html
     assert "cdn.plot.ly" not in html
     assert "<script src=" not in html
+    assert 'id="timeline-scale-linear"' in html
+    assert 'id="timeline-scale-log"' in html
+    assert 'id="timeline"' in html
+    assert 'id="hydro-year"' in html
+    assert html.index("Monthly Surface Water Extent") < html.index("Hydrological Year Extent")
+    assert html.index("Hydrological Year Extent") < html.index("Supporting View")
+    assert "plotly_relayout" in html
+    assert "Invalid Coverage (%)" in html
+    assert '"hydro_year"' in html
     assert 'data-theme="light"' in html
     assert "prefers-color-scheme" not in html
     assert paths.monthly_csv.exists()
@@ -132,6 +141,8 @@ def test_compatibility_report_uses_light_shell_without_csv_bundle(tmp_path, seas
     assert result == output.resolve()
     assert "Plotly.newPlot" in html
     assert "cdn.plot.ly" not in html
+    assert 'id="timeline"' in html
+    assert 'id="hydro-year"' in html
     assert "&lt;b&gt;title&lt;/b&gt;" in html
     assert list(tmp_path.glob("*.csv")) == []
 
