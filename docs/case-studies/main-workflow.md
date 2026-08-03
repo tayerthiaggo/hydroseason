@@ -1,5 +1,19 @@
 # Main Workflow Case Study
 
+New extraction uses this exact default sequence:
+
+`user AOI acquisition boundary -> cached DEA Multi-Year Statistics -> fixed unfiltered count_wet > 0 raster -> separate planning superset -> monthly WOfS -> percentage-based analysis -> four CSVs`
+
+The mask source is one pinned `ga_ls_wo_fq_myear_3` artifact, not a Calendar
+Year union. Its verified manifest records product/version, item IDs, lineage,
+and exact coverage; the source observed at design time covered 1987--2025. A
+requested analysis end after the manifest's `coverage_end` fails closed. The
+scientific raster has no frequency threshold, closing, or buffer, while the
+separate coarse/dilated planning superset only limits reads.
+
+No network re-extraction or case-study regeneration was performed for this
+documentation update, so the committed inputs and results remain unchanged.
+
 This case study demonstrates the single route-aware HydroSeason workflow across five representative Australian catchments using committed 30 m whole-catchment monthly surface-water extent series (2005–2025).
 
 ## Methodology and Routing Authority
@@ -26,7 +40,7 @@ generated graph images are deferred until the separate HTML pass is finalised.
 
 > [!IMPORTANT]
 > **Scientific Denominator and Extent Caveats:**
-> Surface extent percentage (`extent_pct`) measures the proportion of unmasked catchment area covered by surface water.
+> In newly extracted records, `n_aoi` is the fixed historical-mask pixel count. `invalid_pct` uses that denominator, so invalid pixels outside the historical mask have no effect. `extent_pct` uses valid pixels inside the same mask, and all routing/date/event selections remain percentage-based.
 > - Surface water extent is **not** river discharge, stream depth, total storage volume, ecological health, or causal water allocation attribution.
 > - Whole-catchment extent percentages dilute narrow river channels and localized floodplain inundation across broad dry landscapes.
 > - Optical water detection (WOfS) can miss water under dense vegetation or during persistent cloud cover.
