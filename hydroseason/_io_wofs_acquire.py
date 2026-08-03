@@ -60,9 +60,11 @@ from hydroseason._io_wofs_zarr import (
     completed_years,
     create_cache_handle,
     preflight_request_space,
+    record_cache_analysis_mask,
     record_cache_footprints,
     require_cached_request,
     resolve_cached_request,
+    verify_cache_analysis_mask,
     write_annual_group,
     write_empty_annual_group,
 )
@@ -135,7 +137,33 @@ def _planned_pixel_shape(plan) -> tuple[int, int]:
     return (1, int(total_pixels))
 
 
-def _diagnostics_payload(query_count: int, graph_count: int, write_stats=()) -> dict[str, int]:
+def _diagnostics_payload(
+    query_count: int,
+    graph_count: int,
+    write_stats=(),
+    *,
+    statistics_prepare_seconds: float = 0.0,
+    stac_read_seconds: float = 0.0,
+    active_window_count: int = 0,
+    planned_native_pixels: int = 0,
+) -> dict[str, Any]:
+    """The payload handed to ``diagnostics_callback``.
+
+    The six original keys (``query_count``/``graph_count``/``task_count``/
+    ``chunks_considered``/``chunks_written``/``loaded_pixels``) are computed
+    exactly as before -- untouched by this function's five new keyword-only
+    parameters, which are ADDITIVE: ``statistics_prepare_seconds``,
+    ``stac_read_seconds``, ``active_window_count``, ``planned_native_pixels``
+    (all supplied by the caller, since they depend on state -- the spatial
+    plan, phase timers -- this function has no access to), and
+    ``local_reduction_seconds`` (summed here from ``write_stats``' own
+    ``compute_seconds``, mirroring how ``task_count``/``chunks_considered``/
+    etc. are already summed across years in this same function). Every call
+    site -- including the three early-return "nothing to do" call sites,
+    which pass no keyword arguments and so get ``0``/``0.0`` for all five --
+    now includes all eleven keys, so a caller's callback always sees a
+    stable key set regardless of which path returned.
+    """
     return {
         "query_count": int(query_count),
         "graph_count": int(graph_count),
@@ -143,6 +171,13 @@ def _diagnostics_payload(query_count: int, graph_count: int, write_stats=()) -> 
         "chunks_considered": sum(int(stats.chunks_considered) for stats in write_stats),
         "chunks_written": sum(int(stats.chunks_written) for stats in write_stats),
         "loaded_pixels": sum(int(stats.loaded_pixels) for stats in write_stats),
+        "statistics_prepare_seconds": float(statistics_prepare_seconds),
+        "stac_read_seconds": float(stac_read_seconds),
+        "active_window_count": int(active_window_count),
+        "planned_native_pixels": int(planned_native_pixels),
+        "local_reduction_seconds": sum(
+            float(getattr(stats, "compute_seconds", 0.0)) for stats in write_stats
+        ),
     }
 
 
@@ -243,6 +278,112 @@ def _wet_aoi_from_planning_footprint(footprint: WetPlanningFootprint):
     if buffer_m < close_m:
         raise ValueError("planning footprint buffer_m must be at least close_m")
     return wet_aoi_polygon(footprint.native_mask, close_m=close_m, buffer_m=buffer_m)
+
+
+def _assert_planning_footprint_derives_from_historical_mask(
+    planning_footprint: WetPlanningFootprint, historical_water_mask,
+) -> None:
+    """Raise ``ValueError`` if ``planning_footprint`` was not genuinely
+    derived from ``historical_water_mask`` via
+    :func:`hydroseason._io_dea_stats.build_planning_footprint_from_historical_mask`.
+
+    Two independent artifacts can be handed to :func:`acquire_wofs_cache`
+    together -- a caller could (by mistake, or by passing stale/mismatched
+    objects) supply a ``planning_footprint`` built from a DIFFERENT
+    historical mask than the ``historical_water_mask`` it also supplies.
+    Since the planning footprint's coarse/dilated mask only ever gates which
+    storage windows get read -- never the stored ``-2`` pixels or counts,
+    which always come from the exact ``historical_water_mask`` -- a
+    mismatch here would silently prune reads using the WRONG mask's
+    footprint (potentially under-covering the real mask's wet extent) while
+    the exact mask still looks self-consistent downstream. This must be
+    caught before any STAC access, not discovered later as a scientific
+    discrepancy.
+
+    Checks two things, both required by
+    :func:`hydroseason._io_dea_stats.build_planning_footprint_from_historical_mask`'s
+    own contract:
+
+    1. ``planning_footprint.native_mask`` equals ``historical_water_mask.mask``
+       EXACTLY, byte-for-byte (that function sets ``native_mask =
+       historical_mask.mask`` with zero dilation) -- a coarser/looser
+       ``native_mask`` would mean the footprint's "exact" layer no longer
+       matches this mask.
+    2. ``planning_footprint.digest`` is recomputed from the footprint's own
+       ``coarse_mask``/``factor``/``safety_cells`` together with
+       ``historical_water_mask``'s own ``mask_sha256``/``source_product``/
+       ``source_version``, using the SAME digest function
+       (``_historical_planning_footprint_digest``) that function uses to
+       build it -- so this reuses Task 1's derivation exactly rather than
+       reinventing a second "derives from" check. Recomputing and comparing
+       digests (rather than only comparing raw bytes) also catches a
+       footprint whose ``native_mask`` bytes coincidentally agree but whose
+       ``coarse_mask``/``factor``/``safety_cells`` were built from another
+       historical mask's provenance.
+    """
+    import numpy as np
+
+    from hydroseason._io_dea_stats import _eager_values, _historical_planning_footprint_digest
+
+    native_values = np.asarray(_eager_values(planning_footprint.native_mask), dtype=bool)
+    historical_values = np.asarray(historical_water_mask.mask, dtype=bool)
+    if native_values.shape != historical_values.shape or not np.array_equal(
+        native_values, historical_values
+    ):
+        raise ValueError(
+            "planning_footprint does not derive from the supplied "
+            "historical_water_mask: native_mask does not match "
+            "historical_water_mask.mask exactly -- refusing to prune reads "
+            "using a footprint built from a different scientific mask"
+        )
+
+    coarse_values = np.asarray(_eager_values(planning_footprint.coarse_mask), dtype=bool)
+    expected_digest = _historical_planning_footprint_digest(
+        coarse_values,
+        factor=planning_footprint.factor,
+        safety_cells=planning_footprint.safety_cells,
+        historical_mask_sha256=historical_water_mask.mask_sha256,
+        source_collection=historical_water_mask.source_product,
+        source_version=historical_water_mask.source_version,
+    )
+    if planning_footprint.digest != expected_digest:
+        raise ValueError(
+            "planning_footprint does not derive from the supplied "
+            "historical_water_mask: digest mismatch (planning_footprint.digest "
+            f"{planning_footprint.digest!r} was not built from this exact "
+            "historical mask's mask_sha256/source_product/source_version) -- "
+            "refusing to prune reads using a footprint built from a "
+            "different scientific mask"
+        )
+
+
+def _resumed_years_are_trustworthy(handle: WOfSCacheHandle, historical_water_mask) -> bool:
+    """True if a resume (every requested year already completed) may be
+    accepted as-is for ``handle``.
+
+    When ``historical_water_mask`` is ``None`` this is a no-op (``True``) --
+    the pre-existing resume contract, unaffected by this task, applies
+    unchanged for a request that pins no scientific mask.
+
+    When a historical mask IS pinned, a completed-years hit alone is not
+    enough: :func:`hydroseason._io_wofs_zarr.completed_years` only checks
+    each year's own ``complete.json``/grid-shape bookkeeping, never whether
+    the store's ``analysis-mask/`` sidecar (the on-disk copy of the exact
+    mask those years were written against) is still present and untampered.
+    This calls :func:`hydroseason._io_wofs_zarr.verify_cache_analysis_mask`
+    (re-hashing on-disk bytes, not just checking presence) and refuses the
+    resume -- returns ``False``, so the caller falls through to a normal
+    (re)build rather than silently trusting a corrupted or missing sidecar --
+    on ``FileNotFoundError`` (never recorded, e.g. a store from before this
+    task) or ``ValueError`` (tampered/corrupt).
+    """
+    if historical_water_mask is None:
+        return True
+    try:
+        verify_cache_analysis_mask(handle)
+    except (FileNotFoundError, ValueError):
+        return False
+    return True
 
 
 def _resolve_wet_aoi(
@@ -393,6 +534,7 @@ def acquire_wofs_cache(
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
     wet_aoi: Any = None,
     wet_mask: Literal["off", "dea_stats"] = "off",
+    historical_water_mask: "Any | None" = None,
     planning_footprint: WetPlanningFootprint | None = None,
     composite_bundle: Literal["legacy", "hydrofragments_v1"] = "legacy",
     compute_batch_size: int = 16,
@@ -452,12 +594,44 @@ def acquire_wofs_cache(
     existing ``extent_counts.json``. It is also recorded in cache identity
     here so a ``"legacy"`` and a ``"hydrofragments_v1"`` run of
     otherwise-identical parameters never share a store.
+
+    ``historical_water_mask`` accepts an already-built
+    :class:`hydroseason._historical_water_mask.HistoricalWaterMask` -- the
+    EXACT ``(count_wet > 0) AND AOI`` scientific denominator (see that
+    module). When given, it is threaded straight through to every
+    :func:`hydroseason._io_geo.build_wofs_year_graph`/:func:`_empty_year_mask`
+    call: every cell outside the exact mask is written ``-2``, and the fixed
+    ``historical_water_mask.pixel_count`` becomes the constant ``n_aoi``
+    denominator for every requested month, whether or not a source
+    observation exists that month. Its 8 identity/provenance fields
+    (``mask_sha256``, ``product``, ``version``, ``item_ids``, ``lineage``,
+    ``coverage_start``/``coverage_end``, ``pixel_count``) are recorded on
+    :class:`hydroseason._io_wofs_zarr.WOfSCacheRequest`, and a verified copy
+    of the raster itself is persisted under the store via
+    :func:`hydroseason._io_wofs_zarr.record_cache_analysis_mask` before any
+    annual group is written for a new (non-resumed) request.
+
+    ``planning_footprint`` is confined to active-window selection (which
+    storage windows get read at all) and diagnostic counts ONLY -- it must
+    NEVER supply ``n_aoi``/``invalid_pct``/``extent_pct``/stored counts; only
+    ``historical_water_mask`` does that. When BOTH are supplied,
+    ``planning_footprint`` must genuinely derive from ``historical_water_mask``
+    (see :func:`hydroseason._io_dea_stats.build_planning_footprint_from_historical_mask`):
+    a mismatched pair (independently supplied, disagreeing artifacts) raises
+    ``ValueError`` before any STAC access. ``planning_footprint`` may still be
+    supplied on its own (no ``historical_water_mask``), preserving its
+    pre-existing DEA-statistics-only pruning behaviour unchanged.
     """
+    statistics_prepare_started = time.monotonic()
     if wet_aoi is not None and planning_footprint is not None:
         raise ValueError(
             "acquire_wofs_cache received both wet_aoi and planning_footprint; "
             "these are mutually exclusive pruning sources (ambiguous "
             "precedence) -- pass only one."
+        )
+    if historical_water_mask is not None and planning_footprint is not None:
+        _assert_planning_footprint_derives_from_historical_mask(
+            planning_footprint, historical_water_mask
         )
     cache_root = Path(cache_root)
     aoi_name = "aoi"
@@ -496,6 +670,36 @@ def acquire_wofs_cache(
         composite_bundle=composite_bundle,
     )
 
+    # The exact historical mask's identity/provenance fields (Task 4's 8
+    # historical_mask_* fields), shared by every WOfSCacheRequest built
+    # below exactly like footprint_request_kwargs is -- already fully known
+    # from the caller-supplied HistoricalWaterMask object, so this never
+    # depends on offline mode or network access either.
+    #
+    # historical_mask_sha256 is ALWAYS set together with
+    # historical_mask_pixel_count here (both sourced from the same
+    # historical_water_mask object) -- this is what closes the gap Task 4's
+    # reviewer flagged: open_completed_extent_counts()'s digest check only
+    # fires "if historical_mask_sha256 is not None", so a request that set
+    # historical_mask_pixel_count without historical_mask_sha256 would get a
+    # weaker, pixel-count-only agreement guarantee on resume. Populating
+    # both fields together, from one source object, on every request built
+    # by this function means that weaker path can never be reached from here.
+    historical_mask_request_kwargs = (
+        dict(
+            historical_mask_sha256=historical_water_mask.mask_sha256,
+            historical_mask_product=historical_water_mask.source_product,
+            historical_mask_version=historical_water_mask.source_version,
+            historical_mask_item_ids=tuple(historical_water_mask.source_item_ids),
+            historical_mask_lineage=tuple(historical_water_mask.source_lineage),
+            historical_mask_coverage_start=historical_water_mask.coverage_start,
+            historical_mask_coverage_end=historical_water_mask.coverage_end,
+            historical_mask_pixel_count=int(historical_water_mask.pixel_count),
+        )
+        if historical_water_mask is not None
+        else {}
+    )
+
     # A prepared planning_footprint carries its own cache-identity fields
     # (digest/factor/safety_cells/covered_years) regardless of offline mode --
     # unlike wet_mask_sha256 (only computable from an explicit wet_aoi, or by
@@ -531,6 +735,7 @@ def acquire_wofs_cache(
         request = WOfSCacheRequest(
             **base_request_kwargs,
             **footprint_request_kwargs,
+            **historical_mask_request_kwargs,
             wet_mask_sha256=offline_wet_mask_sha256,
         )
         handle = require_cached_request(cache_root, request, offline=True)
@@ -588,7 +793,10 @@ def acquire_wofs_cache(
         )
 
     request = WOfSCacheRequest(
-        **base_request_kwargs, **footprint_request_kwargs, wet_mask_sha256=wet_mask_sha256
+        **base_request_kwargs,
+        **footprint_request_kwargs,
+        **historical_mask_request_kwargs,
+        wet_mask_sha256=wet_mask_sha256,
     )
 
     requested_years = set(requested_years)
@@ -596,9 +804,16 @@ def acquire_wofs_cache(
     existing_handle = resolve_cached_request(cache_root, request, offline=True)
     if existing_handle is not None and not force:
         already_done = completed_years(existing_handle)
-        if requested_years <= already_done:
+        if requested_years <= already_done and _resumed_years_are_trustworthy(
+            existing_handle, historical_water_mask
+        ):
             if diagnostics_callback is not None:
-                diagnostics_callback(_diagnostics_payload(0, 0))
+                diagnostics_callback(
+                    _diagnostics_payload(
+                        0, 0,
+                        statistics_prepare_seconds=time.monotonic() - statistics_prepare_started,
+                    )
+                )
             return existing_handle
 
     months = _months_in_range(request.start_date, request.end_date)
@@ -642,15 +857,38 @@ def acquire_wofs_cache(
             crs=str(crs_value),
         )
 
+        if historical_water_mask is not None:
+            # Persist a verified copy of the exact scientific denominator
+            # under this store (Task 4's record_cache_analysis_mask, never
+            # called before this task) BEFORE any annual group is written --
+            # write_annual_group/write_empty_annual_group already enforce
+            # n_aoi == historical_mask_pixel_count against the REQUEST's
+            # pinned value (see _check_historical_mask_count_invariants), but
+            # open_completed_extent_counts's later reads need the raster
+            # ITSELF on disk (not just its digest) to independently verify
+            # against, which only this call provides. Idempotent -- a
+            # byte-identical mask overwrites the sidecar with an identical
+            # result, so calling this on every acquire_wofs_cache pass
+            # (resumed or not) self-heals a store whose sidecar predates this
+            # task, matching record_cache_footprints's own idempotent-call
+            # convention just above.
+            record_cache_analysis_mask(handle, historical_water_mask)
+
         already_done = set() if force else completed_years(handle)
         missing_years = sorted(requested_years - already_done)
 
         if not missing_years:
             if diagnostics_callback is not None:
-                diagnostics_callback(_diagnostics_payload(0, 0))
+                diagnostics_callback(
+                    _diagnostics_payload(
+                        0, 0,
+                        statistics_prepare_seconds=time.monotonic() - statistics_prepare_started,
+                    )
+                )
             return handle
 
         phase_started = time.monotonic()
+        statistics_prepare_seconds = phase_started - statistics_prepare_started
         query_elapsed = 0.0
         graph_count = 0
         all_item_ids: list[str] = []
@@ -725,10 +963,14 @@ def acquire_wofs_cache(
                     groupby="solar_day",
                     resampling_policy=resampling_policy,
                     wet_aoi=wet_aoi,
+                    historical_water_mask=historical_water_mask,
                     composite_bundle=composite_bundle,
                 )
             else:
-                mask = _empty_year_mask(parent_geobox, year_start, year_end, target)
+                mask = _empty_year_mask(
+                    parent_geobox, year_start, year_end, target,
+                    historical_water_mask=historical_water_mask,
+                )
             # hydrofragments_v1's secondary (max_water) composite counts ride
             # as a side-channel attribute on `mask` (see
             # hydroseason._io_geo._load_wofs_items) rather than changing this
@@ -870,7 +1112,15 @@ def acquire_wofs_cache(
             composite_bundle=composite_bundle,
         )
         if diagnostics_callback is not None:
-            diagnostics_callback(_diagnostics_payload(1, graph_count, write_stats))
+            diagnostics_callback(
+                _diagnostics_payload(
+                    1, graph_count, write_stats,
+                    statistics_prepare_seconds=statistics_prepare_seconds,
+                    stac_read_seconds=query_elapsed,
+                    active_window_count=len(plan.windows),
+                    planned_native_pixels=planned_shape[1],
+                )
+            )
         if terminal_failures:
             details = "; ".join(
                 f"{year}: {message}" for year, message in sorted(terminal_failures.items())

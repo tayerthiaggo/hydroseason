@@ -1259,14 +1259,34 @@ def write_empty_annual_group(
 ) -> AnnualWriteStats:
     """Write a completed annual group for a year with no source observations.
 
-    When STAC returned no items for ``year``, every pixel of every month is
-    ``-2`` (outside/no-data) by construction. ``write_annual_group`` would
-    still compute and hash every 512px block to discover that, then write
-    none of them -- pure waste proportional to AOI area. This produces the
-    identical on-disk group directly: the same Zarr layout, the same
-    all-zero ``wet_count``/``clear_count``, the same zeroed
-    ``extent_counts.json``, and a ``complete.json`` carrying an empty
-    ``item_ids``. ``validate_annual_group`` accepts the result unchanged.
+    When STAC returned no items for ``year`` and the store's request pins NO
+    historical mask, every pixel of every month is ``-2`` (outside/no-data)
+    by construction. ``write_annual_group`` would still compute and hash
+    every 512px block to discover that, then write none of them -- pure
+    waste proportional to AOI area. This produces the identical on-disk
+    group directly: the same Zarr layout, the same all-zero
+    ``wet_count``/``clear_count``, the same zeroed ``extent_counts.json``,
+    and a ``complete.json`` carrying an empty ``item_ids``.
+    ``validate_annual_group`` accepts the result unchanged.
+
+    When the store's request DOES pin a historical mask
+    (``historical_mask_pixel_count`` set -- see
+    :func:`hydroseason._io_wofs_acquire.acquire_wofs_cache`), a missing
+    year's pixels are NOT uniformly ``-2``: every cell inside the exact
+    historical mask is ``-1`` (invalid -- inside the fixed AOI, but no
+    source observation this month), matching
+    :func:`hydroseason._io_wofs_acquire._empty_year_mask`'s own contract, so
+    the constant ``n_aoi == historical_mask_pixel_count`` denominator holds
+    for a missing year exactly like it does for a normal one. This reads the
+    verified analysis-mask sidecar (:func:`read_cache_analysis_mask`, which
+    :func:`hydroseason._io_wofs_acquire.acquire_wofs_cache` always records
+    before calling this function whenever a historical mask is pinned) and
+    writes its ``-1``-inside/``-2``-outside pattern into every month's
+    ``water_mask`` plane directly (still zero STAC/network access -- this is
+    pure in-memory raster writing, not a monthly composite), with
+    ``n_aoi``/``n_invalid`` set to ``historical_mask_pixel_count`` and
+    ``n_valid``/``n_water`` left at ``0`` (no source observation exists this
+    month, so nothing can be classified wet or dry).
 
     ``dual_extent_counts=True`` (only ever passed for
     ``composite_bundle="hydrofragments_v1"``) additionally writes a zeroed
@@ -1335,34 +1355,102 @@ def write_empty_annual_group(
         time_values = pd.DatetimeIndex(np.asarray(year_mask.time.values))
         zeros = [0] * time_len
 
-        content_hasher = _content_hasher()
-        content_hasher.update(
-            _canonical_json_bytes(
-                {
-                    "dtype": "int8",
-                    "shape": [time_len, height, width],
-                    "spatial_chunks": [],
-                }
-            )
+        # A pinned historical mask means a missing year's pixels are NOT
+        # uniformly -2: every cell inside the exact mask is -1 (invalid, no
+        # source data this month -- see _empty_year_mask), so the fixed
+        # n_aoi == historical_mask_pixel_count denominator must hold here
+        # exactly like it does for a normal (item-bearing) year. Read the
+        # verified on-disk copy of the exact mask (record_cache_analysis_mask
+        # is always called before this function whenever a historical mask
+        # is pinned -- see acquire_wofs_cache) rather than trusting `mask`'s
+        # own (possibly mocked, in tests) values, so this stays correct even
+        # when a caller substitutes a stand-in `mask` object.
+        historical_mask_pixel_count = _handle_request_dict(handle).get(
+            "historical_mask_pixel_count"
         )
+        analysis_mask = (
+            read_cache_analysis_mask(handle) if historical_mask_pixel_count is not None else None
+        )
+
+        mask_array = group["water_mask"]
+        chunks_written = 0
+        written_chunk_keys: list[list[int]] = []
+
+        if analysis_mask is not None:
+            inside = np.asarray(analysis_mask.mask, dtype=bool)
+            if inside.shape != (height, width):
+                raise ValueError(
+                    f"annual group for year {year}: analysis-mask shape "
+                    f"{inside.shape!r} does not match this store's grid "
+                    f"{(height, width)!r}"
+                )
+            plane = np.full((height, width), -2, dtype=np.int8)
+            plane[inside] = -1
+            pixel_count = int(inside.sum())
+            n_aoi_cnt = [pixel_count] * time_len
+            n_invalid_cnt = [pixel_count] * time_len
+            n_valid_cnt = list(zeros)
+            n_water_cnt = list(zeros)
+
+            content_hasher = _content_hasher()
+            content_hasher.update(
+                _canonical_json_bytes(
+                    {
+                        "dtype": "int8",
+                        "shape": [time_len, height, width],
+                        "spatial_chunks": [],
+                    }
+                )
+            )
+            for t in range(time_len):
+                mask_array[t, :, :] = plane
+                content_hasher.update(
+                    _canonical_json_bytes({"y_start": 0, "x_start": 0, "shape": [1, height, width]})
+                )
+                content_hasher.update(
+                    plane.tobytes() if plane.flags["C_CONTIGUOUS"]
+                    else np.ascontiguousarray(plane).tobytes()
+                )
+                for cy in _storage_chunk_starts(0, height):
+                    for cx in _storage_chunk_starts(0, width):
+                        written_chunk_keys.append(
+                            [t, cy // _STORAGE_CHUNK, cx // _STORAGE_CHUNK]
+                        )
+            chunks_written = len(written_chunk_keys)
+        else:
+            n_aoi_cnt = zeros
+            n_valid_cnt = zeros
+            n_water_cnt = zeros
+            n_invalid_cnt = zeros
+
+            content_hasher = _content_hasher()
+            content_hasher.update(
+                _canonical_json_bytes(
+                    {
+                        "dtype": "int8",
+                        "shape": [time_len, height, width],
+                        "spatial_chunks": [],
+                    }
+                )
+            )
 
         _check_historical_mask_count_invariants(
             handle,
             year=year,
-            n_aoi_cnt=zeros,
-            n_valid_cnt=zeros,
-            n_water_cnt=zeros,
-            n_invalid_cnt=zeros,
+            n_aoi_cnt=n_aoi_cnt,
+            n_valid_cnt=n_valid_cnt,
+            n_water_cnt=n_water_cnt,
+            n_invalid_cnt=n_invalid_cnt,
         )
 
         extent_counts_payload = {
             "schema_version": WOFS_CACHE_SCHEMA_VERSION,
             "year": int(year),
             "dates": [d.strftime("%Y-%m-%d") for d in time_values],
-            "n_aoi": list(zeros),
-            "n_valid": list(zeros),
-            "n_water": list(zeros),
-            "n_invalid": list(zeros),
+            "n_aoi": list(n_aoi_cnt),
+            "n_valid": list(n_valid_cnt),
+            "n_water": list(n_water_cnt),
+            "n_invalid": list(n_invalid_cnt),
         }
         extent_counts_payload["content_digest"] = _sha256_digest(extent_counts_payload)
         _write_json_atomic(temp_path / "extent_counts.json", extent_counts_payload)
@@ -1391,10 +1479,10 @@ def write_empty_annual_group(
             "item_ids": [],
             "item_digest": digest,
             "content_digest": content_hasher.hexdigest(),
-            "chunks_considered": 0,
-            "chunks_written": 0,
+            "chunks_considered": chunks_written,
+            "chunks_written": chunks_written,
             "loaded_pixels": 0,
-            "written_chunk_keys": [],
+            "written_chunk_keys": written_chunk_keys,
         }
         _write_json_atomic(temp_path / _COMPLETE_FILENAME, complete_payload)
 
@@ -1421,8 +1509,8 @@ def write_empty_annual_group(
     return AnnualWriteStats(
         year=int(year),
         task_count=0,
-        chunks_considered=0,
-        chunks_written=0,
+        chunks_considered=chunks_written,
+        chunks_written=chunks_written,
         loaded_pixels=0,
         item_digest=digest,
         compute_seconds=0.0,
