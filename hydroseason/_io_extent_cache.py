@@ -304,19 +304,25 @@ def _read_requested_annual_extent_parts(
     return pd.concat(parts).sort_index()
 
 
-def _missing_year_extent(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+def _missing_year_extent(
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    *,
+    historical_water_mask: HistoricalWaterMask | None = None,
+) -> pd.DataFrame:
     index = pd.date_range(
         start.to_period("M").to_timestamp(), end.to_period("M").to_timestamp(), freq="MS"
     )
+    n_aoi = 0 if historical_water_mask is None else int(historical_water_mask.pixel_count)
     return pd.DataFrame(
         {
             "n_water": 0,
-            "n_aoi": 0,
+            "n_aoi": n_aoi,
             "n_valid": 0,
-            "n_invalid": 0,
+            "n_invalid": n_aoi,
             "n_wet_aoi": 0,
             "extent_pct": float("nan"),
-            "invalid_pct": float("nan"),
+            "invalid_pct": float("nan") if n_aoi == 0 else 100.0,
             "wet_fill_pct": float("nan"),
         },
         index=index,
@@ -425,9 +431,100 @@ def _validate_historical_mask_coverage(mask: HistoricalWaterMask, end_date: str)
         )
 
 
+def _validate_supplied_historical_water_mask(
+    mask: HistoricalWaterMask,
+    *,
+    aoi,
+    collection: str,
+    crs: int | str | None,
+    resolution: float | None,
+    end_date: str,
+) -> None:
+    """Fail closed before a public mask can bypass the exact-mask builder."""
+    import numpy as np
+
+    from hydroseason._historical_water_mask import (
+        HISTORICAL_MASK_SOURCE_PRODUCT,
+        MONTHLY_WOFS_COLLECTION,
+        _aoi_digest,
+        _mask_digest,
+        _version_token,
+    )
+    from hydroseason._io_geo import load_aoi
+
+    if not isinstance(mask, HistoricalWaterMask):
+        raise ValueError("historical_water_mask must be a HistoricalWaterMask")
+    values = np.asarray(mask.mask)
+    if values.dtype != np.dtype(bool) or values.ndim != 2:
+        raise ValueError("historical_water_mask.mask must be a two-dimensional boolean array")
+    if tuple(values.shape) != tuple(int(v) for v in mask.shape):
+        raise ValueError("historical_water_mask shape does not match mask values")
+    if int(mask.pixel_count) <= 0 or int(values.sum()) != int(mask.pixel_count):
+        raise ValueError("historical_water_mask pixel_count does not match mask values")
+    if len(mask.transform) != 6 or len(mask.resolution) != 2:
+        raise ValueError("historical_water_mask has invalid grid metadata")
+    transform = tuple(float(value) for value in mask.transform)
+    mask_resolution = tuple(float(value) for value in mask.resolution)
+    if not np.isfinite(transform).all() or not np.isfinite(mask_resolution).all():
+        raise ValueError("historical_water_mask has non-finite grid metadata")
+    if mask_resolution[0] <= 0 or mask_resolution[1] <= 0 or not np.allclose(
+        (abs(transform[0]), abs(transform[4])), mask_resolution, rtol=1e-9, atol=1e-9
+    ):
+        raise ValueError("historical_water_mask resolution does not match transform")
+
+    if collection != MONTHLY_WOFS_COLLECTION:
+        raise ValueError(
+            f"historical_water_mask is only compatible with {MONTHLY_WOFS_COLLECTION!r}, "
+            f"not {collection!r}"
+        )
+    if mask.source_product != HISTORICAL_MASK_SOURCE_PRODUCT:
+        raise ValueError("historical_water_mask has incompatible source product")
+    expected_version = _version_token(HISTORICAL_MASK_SOURCE_PRODUCT)
+    if str(mask.source_version) != expected_version:
+        raise ValueError("historical_water_mask has incompatible source version")
+    item_ids = tuple(sorted(str(item_id) for item_id in mask.source_item_ids))
+    if tuple(mask.source_item_ids) != item_ids:
+        raise ValueError("historical_water_mask source_item_ids are not canonical")
+    expected_lineage = tuple(sorted({mask.source_product, *item_ids})) if item_ids else (mask.source_product,)
+    if tuple(mask.source_lineage) != expected_lineage:
+        raise ValueError("historical_water_mask source_lineage is incompatible")
+
+    try:
+        coverage_start = pd.Timestamp(mask.coverage_start).tz_localize(None)
+        coverage_end = pd.Timestamp(mask.coverage_end).tz_localize(None)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("historical_water_mask has invalid coverage provenance") from exc
+    if coverage_end < coverage_start:
+        raise ValueError("historical_water_mask coverage provenance is inverted")
+    _validate_historical_mask_coverage(mask, end_date)
+
+    expected_digest = _mask_digest(
+        values,
+        crs=str(mask.crs),
+        transform=transform,
+        shape=tuple(int(value) for value in mask.shape),
+        resolution=mask_resolution,
+    )
+    if mask.mask_sha256 != expected_digest:
+        raise ValueError("historical_water_mask digest does not match mask values and grid")
+
+    requested_crs = f"EPSG:{crs}" if isinstance(crs, int) else (crs or "EPSG:3577")
+    if str(mask.crs) != str(requested_crs):
+        raise ValueError("historical_water_mask crs does not match requested grid")
+    if resolution is not None and not np.allclose(
+        mask_resolution, (float(resolution), float(resolution)), rtol=1e-9, atol=1e-9
+    ):
+        raise ValueError("historical_water_mask resolution does not match requested grid")
+    aoi_gdf = load_aoi(aoi)
+    expected_aoi_digest = _aoi_digest(aoi_gdf.to_crs(mask.crs))
+    if mask.aoi_sha256 != expected_aoi_digest:
+        raise ValueError("historical_water_mask AOI provenance does not match requested AOI")
+
+
 def _resolve_historical_water_mask(
     *,
     aoi,
+    collection: str,
     end_date: str,
     cache_root: Path | None,
     offline: bool,
@@ -439,7 +536,14 @@ def _resolve_historical_water_mask(
 ) -> HistoricalWaterMask:
     """Resolve one exact Multi-Year mask, cache-first when a root is available."""
     if historical_water_mask is not None:
-        _validate_historical_mask_coverage(historical_water_mask, end_date)
+        _validate_supplied_historical_water_mask(
+            historical_water_mask,
+            aoi=aoi,
+            collection=collection,
+            crs=crs,
+            resolution=resolution,
+            end_date=end_date,
+        )
         return historical_water_mask
 
     statistics_crs = f"EPSG:{crs}" if isinstance(crs, int) else (crs or "EPSG:3577")
@@ -706,6 +810,7 @@ def load_wofs_monthly_extent(
         )
         resolved_historical_mask = _resolve_historical_water_mask(
             aoi=aoi,
+            collection=collection,
             end_date=end_date,
             cache_root=historical_cache_root,
             offline=offline,
@@ -950,7 +1055,9 @@ def load_wofs_monthly_extent(
             except ValueError as exc:
                 if "No STAC items found" not in str(exc):
                     raise
-                extent = _missing_year_extent(year_start, year_end)
+                extent = _missing_year_extent(
+                    year_start, year_end, historical_water_mask=resolved_historical_mask
+                )
                 if cache_path is not None:
                     _write_extent_atomic(extent, cache_path)
                 parts.append(extent)
@@ -1017,7 +1124,9 @@ def load_wofs_monthly_extent(
         except ValueError as exc:
             if "No STAC items found" not in str(exc):
                 raise
-            extent = _missing_year_extent(year_start, year_end)
+            extent = _missing_year_extent(
+                year_start, year_end, historical_water_mask=resolved_historical_mask
+            )
         else:
             extent = monthly_water_extent(
                 _apply_historical_water_mask(
