@@ -543,7 +543,17 @@ def _load_wofs_items(
             # single call/call-signature legacy callers and tests rely on;
             # only hydrofragments_v1 pays this second rasterization cost, in
             # exchange for never re-reading STAC or re-running _classify().
-            inside = _io._resolve_aoi_inside_mask(secondary_stacked, target, wet_aoi=wet_aoi)
+            # `historical_water_mask` is threaded through here too (mirroring
+            # the primary call above exactly) so pixels outside the exact
+            # historical mask are excluded from `secondary_wet_count`/
+            # `secondary_clear_count` the same way they are already excluded
+            # from the primary cube -- otherwise this side-channel (consumed
+            # by `load_or_build_cached_wet_aoi`) would silently readmit area
+            # the historical mask exists to exclude.
+            inside = _io._resolve_aoi_inside_mask(
+                secondary_stacked, target, wet_aoi=wet_aoi,
+                historical_water_mask=historical_water_mask,
+            )
             clipped_secondary = _io._apply_aoi_inside_mask(secondary_stacked, inside)
         except AOIRasterizationError:
             raise

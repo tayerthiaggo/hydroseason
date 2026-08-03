@@ -340,6 +340,131 @@ def test_hydrofragments_v1_dual_counts_zero_fill_a_missing_month(monkeypatch):
     assert int(np.asarray(february_clear).sum()) == 0
 
 
+def test_hydrofragments_v1_secondary_composite_respects_historical_water_mask(monkeypatch):
+    """The hydrofragments_v1 secondary (max_water) composite's dual counts
+    must also exclude cells outside the exact historical water mask, the
+    same way the primary composite already does via its own
+    ``_clip_to_aoi(..., historical_water_mask=...)`` call.
+
+    Reuses the exact fixture from
+    ``test_hydrofragments_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pixel``:
+    at pixel (0, 0), the primary (majority) composite votes dry (0) while
+    the secondary (max_water) composite votes wet (1) -- the one cell where
+    the two composites genuinely diverge. The historical mask here excludes
+    exactly that cell. If the fix at the secondary ``_resolve_aoi_inside_mask``
+    call site were missing, (0, 0) would still be counted as wet in
+    ``secondary_wet_count``/``secondary_clear_count`` despite being outside
+    the historical mask -- the exact asymmetry this test guards against.
+
+    Runs the REAL (unmocked) ``_clip_to_aoi``/``_resolve_aoi_inside_mask``/
+    ``_apply_aoi_inside_mask`` path (via a real ``GeoBox`` so the grid has a
+    genuine CRS/transform to validate the historical mask against), unlike
+    the other hydrofragments_v1 tests in this file which mock that path at
+    the identity level.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("rioxarray")
+    pytest.importorskip("odc.geo")
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+
+    from odc.geo.geobox import GeoBox
+
+    from hydroseason._io_geo import build_wofs_year_graph
+
+    geobox = GeoBox.from_bbox((0, 0, 2, 2), crs="EPSG:3577", shape=(2, 2))
+    aoi = geopandas.GeoDataFrame(geometry=[box(0, 0, 2, 2)], crs="EPSG:3577")
+
+    dates = pd.to_datetime(["2020-01-05", "2020-01-15", "2020-01-25"])
+    # Same raw[day, y, x] fixture as the hand-traced-pixel test above: pixel
+    # (0, 0) is wet, dry, dry across the 3 days -> majority (primary) votes
+    # dry (0); max_water (secondary) votes wet (1) because day 1 alone saw
+    # water. That is the one cell where the two composites diverge, and
+    # therefore the one cell that best proves the historical mask is being
+    # applied to the secondary composite independently of the primary.
+    raw = np.array(
+        [
+            [[128, 128], [0, 1]],
+            [[0, 128], [0, 1]],
+            [[0, 0], [0, 128]],
+        ],
+        dtype=np.uint16,
+    )
+    items = []
+    for date in dates:
+        item = type("Item", (), {})()
+        item.properties = {"datetime": date.isoformat()}
+        items.append(item)
+
+    # Real geobox pixel-center coordinates (y descending/north-up, x
+    # ascending) so the fake-loaded dataset carries genuine georeferencing
+    # via rioxarray -- the historical-mask grid validation this test
+    # exercises requires a real CRS/transform on the loaded cube, unlike the
+    # other hydrofragments_v1 tests in this file (which mock the AOI-clip
+    # functions themselves and never need real georeferencing).
+    def fake_stac_load(batch_items, **kwargs):
+        batch_dates = pd.to_datetime([item.properties["datetime"] for item in batch_items])
+        ds = xr.Dataset(
+            {"water": (("time", "y", "x"), raw[: len(batch_dates)])},
+            coords={
+                "time": batch_dates,
+                "y": geobox.coords["y"].values,
+                "x": geobox.coords["x"].values,
+            },
+        )
+        ds = ds.rio.write_crs(geobox.crs).rio.write_transform(geobox.transform)
+        return ds
+
+    monkeypatch.setattr("odc.stac.stac_load", fake_stac_load)
+
+    # Historical mask shares the geobox's exact grid (EPSG:3577, 1 m
+    # pixels, north-up, origin (0, 2)) and excludes exactly pixel
+    # (0, 0) -- the one cell where the primary and secondary composites
+    # disagree.
+    historical_mask = _historical_mask_for_grid(
+        values=[[False, True], [True, True]],
+        crs=str(geobox.crs),
+        transform=tuple(geobox.transform)[:6],
+        resolution=(1.0, 1.0),
+    )
+
+    result = build_wofs_year_graph(
+        items,
+        aoi,
+        "2020-01-01",
+        "2020-12-31",
+        geobox=geobox,
+        majority=True,
+        composite_bundle="hydrofragments_v1",
+        historical_water_mask=historical_mask,
+    )
+
+    # Primary composite: (0, 0) is masked outside the historical mask, so it
+    # reads -2 (outside) rather than its classified value of 0 (dry).
+    primary = result.compute() if hasattr(result, "compute") else result
+    primary_values = np.asarray(primary.isel(time=0).values)
+    assert primary_values[0, 0] == -2
+
+    # Secondary composite dual counts: (0, 0) must NOT be counted as wet or
+    # clear, even though the unmasked max_water vote there is wet (1).
+    dual = result.attrs["hydrofragments_dual_counts"]
+    secondary_wet = np.asarray(dual["wet_count"].isel(time=0).compute().values)
+    secondary_clear = np.asarray(dual["clear_count"].isel(time=0).compute().values)
+    assert secondary_wet[0, 0] == 0, (
+        "secondary_wet_count must exclude a cell outside the historical "
+        "water mask even though its unmasked max_water vote is wet"
+    )
+    assert secondary_clear[0, 0] == 0, (
+        "secondary_clear_count must exclude a cell outside the historical "
+        "water mask too (outside is neither wet nor clear)"
+    )
+    # Control cell (0, 1) is inside the historical mask and both composites
+    # agree it is wet, so it must still be counted normally.
+    assert secondary_wet[0, 1] == 1
+    assert secondary_clear[0, 1] == 1
+
+
 @pytest.mark.parametrize(
     "transform, expected",
     [
