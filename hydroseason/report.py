@@ -27,7 +27,7 @@ from ._report_export import (
     write_report_csvs,
 )
 from ._report_html import render_report_html
-from ._report_plotly import secondary_figure, timeline_figure
+from ._report_plotly import hydro_year_figure, secondary_figure, timeline_figure
 from ._state_input import prepare_monthly_extent
 
 
@@ -273,6 +273,7 @@ def generate_catchment_report(
         low_spells=low_spells,
         summary=summary,
         timeline_figure=timeline_figure(monthly, analysis),
+        hydro_year_figure=hydro_year_figure(monthly, analysis),
         secondary_figure=secondary_figure(monthly, analysis),
     )
     _write_text_atomic(html_path, html_text)

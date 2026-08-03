@@ -89,6 +89,7 @@ def render_report_html(
     summary: pd.DataFrame,
     timeline_figure: dict[str, Any],
     secondary_figure: dict[str, Any],
+    hydro_year_figure: dict[str, Any] | None = None,
 ) -> str:
     """Render a self-contained light report with inline pinned Plotly."""
     plotly_js = _plotly_bundle()
@@ -100,6 +101,9 @@ def render_report_html(
         "verdict": verdict,
         "figures": {
             "timeline": timeline_figure,
+            "hydro_year": hydro_year_figure
+            if hydro_year_figure is not None
+            else {"data": [], "layout": {}, "config": {"responsive": True, "displaylogo": False}},
             "secondary": secondary_figure,
         },
         "preview_rows": _records(monthly),
@@ -183,21 +187,34 @@ def render_report_html(
     }}
     .kpi span, .kpi small {{ display: block; color: var(--muted); }}
     .kpi strong {{ display: block; margin: 8px 0 4px; font-size: 1.35rem; }}
-    .grid {{ display: grid; grid-template-columns: 1fr; gap: 16px; }}
     .plot, details {{
       border: 1px solid var(--line);
       background: var(--panel);
       border-radius: 8px;
       padding: 14px;
     }}
+    .plot {{ margin-top: 16px; }}
     .plot > div {{ width: 100%; min-height: 360px; }}
+    .plot-primary > div {{ min-height: 480px; }}
+    .plot-heading {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; }}
+    .plot-heading h2 {{ margin-bottom: 0; }}
+    .scale-controls {{ display: flex; gap: 6px; }}
+    .scale-controls button {{
+      border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 5px;
+      padding: 6px 9px; cursor: pointer; font: inherit; font-size: .85rem;
+    }}
+    .scale-controls button.active {{ background: var(--blue); border-color: var(--blue); color: #fff; }}
     details {{ margin-top: 14px; }}
     summary {{ cursor: pointer; font-weight: 650; }}
     .data-table {{ width: 100%; border-collapse: collapse; margin-top: 12px; font-size: .88rem; }}
     .data-table th, .data-table td {{ padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }}
     .data-table th {{ background: #eef2f7; }}
     .empty {{ color: var(--muted); margin-top: 10px; }}
-    @media (min-width: 900px) {{ .grid {{ grid-template-columns: 1.3fr .9fr; }} }}
+    @media (max-width: 899px) {{
+      main {{ padding: 20px 12px 36px; }}
+      .plot-primary > div {{ min-height: 400px; }}
+      .plot-heading {{ align-items: flex-start; flex-direction: column; }}
+    }}
     @media print {{ body {{ background: #fff; }} .plot, details, .verdict, .kpi {{ box-shadow: none; }} }}
   </style>
 </head>
@@ -210,10 +227,18 @@ def render_report_html(
   </header>
   <section class="verdict">{_escape(verdict)}</section>
   <section class="kpis">{_kpi_cards(kpis)}</section>
-  <section class="grid">
-    <div class="plot"><h2>Monthly Surface Water Extent</h2><div id="timeline"></div></div>
-    <div class="plot"><h2>Supporting View</h2><div id="secondary"></div></div>
+  <section class="plot plot-primary">
+    <div class="plot-heading">
+      <h2>Monthly Surface Water Extent</h2>
+      <div class="scale-controls" role="group" aria-label="Extent scale">
+        <button id="timeline-scale-linear" type="button" class="active" aria-pressed="true">Linear scale</button>
+        <button id="timeline-scale-log" type="button" aria-pressed="false">Log scale</button>
+      </div>
+    </div>
+    <div id="timeline"></div>
   </section>
+  <section class="plot plot-primary"><h2>Hydrological Year Extent</h2><div id="hydro-year"></div></section>
+  <section class="plot"><h2>Supporting View</h2><div id="secondary"></div></section>
   <details><summary>Hydrological years</summary>{tables["hydro_years"]}</details>
   <details><summary>Wet events</summary>{tables["events"]}</details>
   <details><summary>Low-extent spells</summary>{tables["low_spells"]}</details>
@@ -227,8 +252,77 @@ def render_report_html(
 <script>
 (() => {{
   const figures = window.HydroSeasonReport.figures;
-  Plotly.newPlot("timeline", figures.timeline.data, figures.timeline.layout, figures.timeline.config);
-  Plotly.newPlot("secondary", figures.secondary.data, figures.secondary.layout, figures.secondary.config);
+  const timeline = document.getElementById("timeline");
+  const hydroYear = document.getElementById("hydro-year");
+  const secondary = document.getElementById("secondary");
+  const linearButton = document.getElementById("timeline-scale-linear");
+  const logButton = document.getElementById("timeline-scale-log");
+
+  function originalY(trace) {{
+    if (Array.isArray(trace.customdata) && Array.isArray(trace.customdata[0])) {{
+      return trace.customdata.map((point, index) =>
+        Array.isArray(point) && point.length > 2 ? point[2] : trace.y[index]
+      );
+    }}
+    return Array.isArray(trace.customdata) ? trace.customdata : trace.y;
+  }}
+
+  function logY(trace) {{
+    if (trace.meta && Array.isArray(trace.meta.log_safe_y)) return trace.meta.log_safe_y;
+    const floor = trace.meta && Number.isFinite(trace.meta.log_floor) ? trace.meta.log_floor : 0.02;
+    return originalY(trace).map(value => value == null ? null : Math.max(value, floor));
+  }}
+
+  function setScale(type) {{
+    [timeline, hydroYear].forEach(chart => {{
+      const updates = {{ y: [], indices: [] }};
+      chart.data.forEach((trace, index) => {{
+        if (!trace.yaxis || trace.yaxis === "y") {{
+          updates.y.push(type === "log" ? logY(trace) : originalY(trace));
+          updates.indices.push(index);
+        }}
+      }});
+      if (updates.indices.length) Plotly.restyle(chart, {{ y: updates.y }}, updates.indices);
+      Plotly.relayout(chart, {{ "yaxis.type": type }});
+    }});
+    linearButton.classList.toggle("active", type === "linear");
+    logButton.classList.toggle("active", type === "log");
+    linearButton.setAttribute("aria-pressed", String(type === "linear"));
+    logButton.setAttribute("aria-pressed", String(type === "log"));
+  }}
+
+  function rangeUpdate(event, source) {{
+    if (Array.isArray(event["xaxis.range"])) return {{ "xaxis.range": event["xaxis.range"] }};
+    if (event["xaxis.range[0]"] !== undefined || event["xaxis.range[1]"] !== undefined) {{
+      const current = source.layout.xaxis.range || [];
+      return {{ "xaxis.range": [
+        event["xaxis.range[0]"] !== undefined ? event["xaxis.range[0]"] : current[0],
+        event["xaxis.range[1]"] !== undefined ? event["xaxis.range[1]"] : current[1],
+      ] }};
+    }}
+    return event["xaxis.autorange"] ? {{ "xaxis.autorange": true }} : null;
+  }}
+
+  let syncing = false;
+  function synchronize(source, target) {{
+    source.on("plotly_relayout", event => {{
+      const update = rangeUpdate(event, source);
+      if (!update || syncing) return;
+      syncing = true;
+      Plotly.relayout(target, update).finally(() => {{ syncing = false; }});
+    }});
+  }}
+
+  Promise.all([
+    Plotly.newPlot(timeline, figures.timeline.data, figures.timeline.layout, figures.timeline.config),
+    Plotly.newPlot(hydroYear, figures.hydro_year.data, figures.hydro_year.layout, figures.hydro_year.config),
+    Plotly.newPlot(secondary, figures.secondary.data, figures.secondary.layout, figures.secondary.config),
+  ]).then(() => {{
+    linearButton.addEventListener("click", () => setScale("linear"));
+    logButton.addEventListener("click", () => setScale("log"));
+    synchronize(timeline, hydroYear);
+    synchronize(hydroYear, timeline);
+  }});
 }})();
 </script>
 </body>
