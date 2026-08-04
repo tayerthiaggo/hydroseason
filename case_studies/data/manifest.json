@@ -1,0 +1,193 @@
+{
+  "source_product": "ga_ls_wo_3",
+  "source_provider": "Geoscience Australia / Digital Earth Australia",
+  "source_doi": "10.26186/146257",
+  "source_license": "CC-BY-4.0",
+  "stac_url": "https://explorer.dea.ga.gov.au/stac",
+  "analysis_start": "2005-01-01",
+  "analysis_end": "2025-12-01",
+  "output_crs": "EPSG:3577",
+  "generator_commit": "86ad5ccbcfbfed4954fa9034e67297adb330ac82",
+  "inputs": {
+    "daly_river_nt_30m": {
+      "catchment": "daly_river_nt",
+      "resolution_m": 30,
+      "file": "extent/daly_river_nt_30m.csv",
+      "sha256": "006f60f9aa4b97f7f714c5c3d410b7eddefd6c6c4bb051b4e44b77750dff5a10",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "daly_river_nt_60m": {
+      "catchment": "daly_river_nt",
+      "resolution_m": 60,
+      "file": "extent/daly_river_nt_60m.csv",
+      "sha256": "32e2527371cb0d496f7b330381627000ceb80d087b6d3afd4d6095e0ebee7566",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "daly_river_nt_90m": {
+      "catchment": "daly_river_nt",
+      "resolution_m": 90,
+      "file": "extent/daly_river_nt_90m.csv",
+      "sha256": "7ace7ab6d6e43f81cf330ecb056c5bacc2e8cf84986e83d226aabacf0bd650d2",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "daly_river_nt_300m": {
+      "catchment": "daly_river_nt",
+      "resolution_m": 300,
+      "file": "extent/daly_river_nt_300m.csv",
+      "sha256": "da9739bc27800c2c3a115fc398fdd076263d9e8af69bbfc83b9e82757e5a376d",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "fitzroy_river_wa_30m": {
+      "catchment": "fitzroy_river_wa",
+      "resolution_m": 30,
+      "file": "extent/fitzroy_river_wa_30m.csv",
+      "sha256": "148e578bf5256fac0644949fb7c1d51f8ca2df1cca534f833afe9f307eb30f97",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "fitzroy_river_wa_60m": {
+      "catchment": "fitzroy_river_wa",
+      "resolution_m": 60,
+      "file": "extent/fitzroy_river_wa_60m.csv",
+      "sha256": "b98f1cccb9a86b300b58021ee65d3c9379ebe72aaa331e125b4aa9aacaf4a6c1",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "fitzroy_river_wa_90m": {
+      "catchment": "fitzroy_river_wa",
+      "resolution_m": 90,
+      "file": "extent/fitzroy_river_wa_90m.csv",
+      "sha256": "06fcfcc0f587fe4534aa2a38d9a997c3adf67dd7e3ea80414c1eab53bda7f97f",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "fitzroy_river_wa_300m": {
+      "catchment": "fitzroy_river_wa",
+      "resolution_m": 300,
+      "file": "extent/fitzroy_river_wa_300m.csv",
+      "sha256": "008bc63a16fccf9fb0e9ac9fce55145eb6267e4481d683572fc746d8e6f941ff",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "gilbert_river_qld_30m": {
+      "catchment": "gilbert_river_qld",
+      "resolution_m": 30,
+      "file": "extent/gilbert_river_qld_30m.csv",
+      "sha256": "7078abf135e4c90aa808974bde1b257450c62196a4d6af30fad1f5a04e93f8f3",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "gilbert_river_qld_60m": {
+      "catchment": "gilbert_river_qld",
+      "resolution_m": 60,
+      "file": "extent/gilbert_river_qld_60m.csv",
+      "sha256": "b02a6697da88d5d2b165c886251366479f4abae42d9c2007d599ad7e04c78a13",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "gilbert_river_qld_90m": {
+      "catchment": "gilbert_river_qld",
+      "resolution_m": 90,
+      "file": "extent/gilbert_river_qld_90m.csv",
+      "sha256": "3d45c94023a81babeb5bb05eeb5a1a612793fe90b65c4890a44f26c98b40ba43",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "gilbert_river_qld_300m": {
+      "catchment": "gilbert_river_qld",
+      "resolution_m": 300,
+      "file": "extent/gilbert_river_qld_300m.csv",
+      "sha256": "208a5d3733964349e0a8093bfe16cf9519516c16677da45d67aeba7f86c087fc",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "lachlan_river_nsw_30m": {
+      "catchment": "lachlan_river_nsw",
+      "resolution_m": 30,
+      "file": "extent/lachlan_river_nsw_30m.csv",
+      "sha256": "6e6daffc00685af3a0469550e2ae5f3a1bea5421beb96e242bec6e9f8bd4889e",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "lachlan_river_nsw_60m": {
+      "catchment": "lachlan_river_nsw",
+      "resolution_m": 60,
+      "file": "extent/lachlan_river_nsw_60m.csv",
+      "sha256": "6d0e7a8a1eeb4d35303ad4afbf2baa73db23279f48fad3e2fc2839aceafdaa79",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "lachlan_river_nsw_90m": {
+      "catchment": "lachlan_river_nsw",
+      "resolution_m": 90,
+      "file": "extent/lachlan_river_nsw_90m.csv",
+      "sha256": "744dab4502d2707d7ed58c067bbd539ff8f20b039e8a5c0d23e662c79105a74b",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "lachlan_river_nsw_300m": {
+      "catchment": "lachlan_river_nsw",
+      "resolution_m": 300,
+      "file": "extent/lachlan_river_nsw_300m.csv",
+      "sha256": "52eca04e43350e32ef8502406ec7f55301e1d69a8348106caea88d84674c60b8",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "moonie_river_qld_nsw_30m": {
+      "catchment": "moonie_river_qld_nsw",
+      "resolution_m": 30,
+      "file": "extent/moonie_river_qld_nsw_30m.csv",
+      "sha256": "24954eb337cf366d3922cbebb0c1e90a5cf3e09b83da9cb4962615a639f05094",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "moonie_river_qld_nsw_60m": {
+      "catchment": "moonie_river_qld_nsw",
+      "resolution_m": 60,
+      "file": "extent/moonie_river_qld_nsw_60m.csv",
+      "sha256": "8f4887ee15f32cb3f04deb069c3d62166888649870848e266f696ad2d3aef2ba",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "moonie_river_qld_nsw_90m": {
+      "catchment": "moonie_river_qld_nsw",
+      "resolution_m": 90,
+      "file": "extent/moonie_river_qld_nsw_90m.csv",
+      "sha256": "b13c0b35a105d35e6908ebb1a01a886bbf4e27668f008489c7c61c87b80f0b0d",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    },
+    "moonie_river_qld_nsw_300m": {
+      "catchment": "moonie_river_qld_nsw",
+      "resolution_m": 300,
+      "file": "extent/moonie_river_qld_nsw_300m.csv",
+      "sha256": "2dcf1f1cc66c17a2d5f4e318e7d9ad4d7cdd3cd6ab46a7cb9abeddacf40a375f",
+      "rows": 252,
+      "start": "2005-01-01",
+      "end": "2025-12-01"
+    }
+  }
+}

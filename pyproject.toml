@@ -9,9 +9,10 @@ description = "Remote-sensing-first hydro-year detection from monthly surface-wa
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-  { name = "Thiaggo Tayer" }
+  { name = "Thiaggo C. Tayer", email = "thiaggo.tayer@uwa.edu.au" }
 ]
 license = "MIT"
+license-files = ["LICENSE"]
 keywords = [
   "hydrology",
   "hydrological-year",
@@ -62,6 +63,10 @@ stac = [
 all = [
   "hydroseason[raster,stac]"
 ]
+case-study = [
+  "hydroseason[stac]",
+  "psutil>=5.9",
+]
 docs = [
   "mkdocs>=1.6",
   "mkdocs-material>=9.5",
@@ -69,7 +74,12 @@ docs = [
 ]
 dev = [
   "pytest>=8.0",
-  "pytest-cov>=5.0"
+  "pytest-cov>=5.0",
+  "ruff>=0.12,<1",
+  "build>=1.2",
+  "twine>=6.1",
+  "check-wheel-contents>=0.6",
+  "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.urls]
@@ -81,6 +91,9 @@ Changelog = "https://github.com/tayerthiaggo/hydroseason/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.setuptools.package-data]
+hydroseason = ["_assets/*.js", "_assets/*.txt"]
 
 [tool.setuptools.packages.find]
 where = ["."]

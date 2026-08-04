@@ -1,108 +1,150 @@
 # HydroSeason
 
-Source-agnostic hydrological-year detection from **monthly surface-water extent**.
+[![Tests](https://github.com/tayerthiaggo/hydroseason/actions/workflows/test.yml/badge.svg)](https://github.com/tayerthiaggo/hydroseason/actions/workflows/test.yml)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://tayerthiaggo.github.io/hydroseason/)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://github.com/tayerthiaggo/hydroseason)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-HydroSeason used to be rainfall-first. Applied across several catchments, the
-rainfall approach did not work well in practice, so the package has been
-re-platformed as **remote-sensing (water-mask) first**: hydro-year boundaries
-are detected from monthly water-extent series, not rainfall. The previous
-rainfall implementation is preserved, unchanged, on the `legacy/rainfall`
-branch (tag `v0-rainfall-legacy`) for anyone who still needs it.
+**Remote-sensing-first hydrological year detection and regime routing from monthly surface-water extent.**
 
-## Three supported input paths
+HydroSeason identifies wet/dry timing, hydrological year boundaries, and inundation regimes in satellite-derived water-mask time series (such as Digital Earth Australia Water Observations).
 
-All three converge on the same monthly water-extent representation before
-detection runs — nothing downstream branches on source type.
+> [!NOTE]
+> HydroSeason analyzes surface-water extent percentages. It does **not** estimate river discharge, channel depth, total water volume, or groundwater storage.
 
-| Path | Loader | Core deps only? |
-|---|---|---|
-| Monthly extent CSV (already computed) | `load_extent_csv` | Yes — pandas/numpy only |
-| Generic binary or canonical water-mask rasters (incl. Zarr cubes) | `load_monthly_masks`, `load_monthly_masks_zarr` | No — needs `[raster]` |
-| WOfS / STAC catalog | `load_wofs_from_stac` | No — needs `[stac]` |
+---
 
-Raster paths require an AOI (`load_aoi`) and fail closed if AOI
-clipping/rasterization cannot be applied — they never fall back to
-processing an unclipped raster.
-
-> **Strongly recommended:** if you are starting from raw or incomplete water
-> masks, run WaterMask-TSFill gapfilling first, then
-> feed the completed masks (or a completed monthly-extent series) into
-> HydroSeason. Cloud/shadow gaps and missing months can shift detected
-> wet/dry boundaries. The CSV path is only safe when the upstream extent
-> series has already been completed and quality-screened.
-
-## Install
+## Installation
 
 ```bash
-pip install hydroseason              # core: CSV-only detection (pandas, numpy)
-pip install hydroseason[raster]      # + xarray/rioxarray/rasterio/geopandas/dask/zarr
-pip install hydroseason[stac]        # + pystac-client/odc-stac
-pip install hydroseason[all]         # raster + stac
+pip install hydroseason              # Core: CSV detection & reports (pandas, numpy)
+pip install "hydroseason[raster]"    # + xarray, rioxarray, rasterio, geopandas, dask, zarr
+pip install "hydroseason[stac]"      # + pystac-client, odc-stac (DEA STAC acquisition)
+pip install "hydroseason[all]"       # Complete raster + STAC dependencies
 ```
 
-## Quickstart (extent CSV path)
+---
+
+## Quickstart (CSV Input)
 
 ```python
-from hydroseason import load_extent_csv, detect_hydrological_years, label_hydrological_months
+from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv
 
-extent = load_extent_csv("monthly_extent.csv", date_col="date", value_col="extent_pct")
-hydro_years = detect_hydrological_years(extent)
-labels = label_hydrological_months(extent.index, hydro_years)
+# 1. Load monthly surface-water extent series (2005-2025)
+extent = load_extent_csv(
+    "monthly_extent.csv",
+    date_col="date",
+    value_col="extent_pct",
+)
+
+# 2. Automatic regime routing (seasonal vs aseasonal)
+analysis = analyze_catchment(extent, phase_model="rule_based")
+print(f"Regime: {analysis.regime.regime} | Route: {analysis.route}")
+
+# 3. Generate self-contained HTML report and CSV bundle
+paths = generate_catchment_report(
+    extent,
+    output_dir="output/report",
+    name="my_catchment",
+    analysis=analysis,
+    title="My Catchment",
+    subtitle="Monthly surface-water hydrological analysis",
+)
+print(f"HTML report written to: {paths.html}")
 ```
 
-For the raster/WOfS paths, canonical mask values, and AOI requirements, see
-the [usage guide](docs/guide.md).
+---
 
-## Empirical resolution check
+## Route Interpretation
 
-To quantify native-pixel vs coarsened WOfS loading on the real catchment
-fixtures, run:
+HydroSeason evaluates regime signal-to-noise ratio (SNR) and peak dispersion to assign one of two routes via `analyze_catchment`:
 
-```bash
-python scripts/compare_catchment_resolution_windows.py --start-date 2005-01-01 --end-date 2025-12-31 --workers 2
-```
+1. **`per_year_detection` (Seasonal Regimes):**
+   - Applies when a reproducible annual seasonal cycle is present (SNR > 1.5).
+   - Trough-to-trough hydrological years are anchored to robust climatological minima.
+   - Outputs complete annual recharge/trough metrics (`<stem>_hydro_years.csv`).
 
-The script uses each `data/catchments` stream network to infer a lower/outlet
-reach, builds a 50 km square around that reach, clips it to the catchment, and
-compares monthly extent at 30 m versus a coarsened resolution (default 100 m).
-It exports per-catchment AOIs, monthly CSVs, summary JSON/CSV, and a visual HTML
-report at `notebooks/hydroseason_resolution_window_comparison.html`.
-STAC reads are batched annually; each completed year is cached, and catchments
-run in parallel. Rerun the same command to resume from the annual cache.
+2. **`event_characterisation` (Aseasonal Regimes):**
+   - Applies to dryland, ephemeral, or irregular systems where forcing annual boundaries creates arbitrary partitions (SNR ≤ 1.5).
+   - Prevents artificial hydrological year boundaries.
+   - Characterizes discrete wet inundation events (`<stem>_wet_event.csv`) and low-water spells (`<stem>_low_spells.csv`). Per-AOI summaries are presented in HTML rather than duplicated as CSVs.
 
-The regular multi-catchment workflow uses the same optimised path:
+---
 
-```bash
-python scripts/run_multi_catchment_report.py --start-date 2005-01-01 --end-date 2025-12-31 --workers 2
-```
+## Digital Earth Australia (DEA) Acquisition Options
 
-## Public API
+The default high-level acquisition follows one fixed workflow:
+
+`user AOI acquisition boundary -> cached DEA Multi-Year Statistics -> fixed unfiltered count_wet > 0 raster -> separate planning superset -> monthly WOfS -> percentage-based analysis -> four CSVs`
+
+- **Historical scientific footprint**: `load_wofs_monthly_extent` queries or reuses one pinned `ga_ls_wo_fq_myear_3` artifact and applies `(count_wet > 0) AND user AOI` on the analysis grid for every month. It applies no frequency threshold, closing, buffer, or Calendar Year union.
+- **Pinned provenance and coverage**: The verified mask manifest records the exact source version, item IDs, lineage, and coverage period. The source observed at design time was unfiltered and covered 1987--2025; the manifest values are authoritative. If `coverage_end` does not include the requested analysis end, acquisition fails closed instead of silently reverting to the full AOI.
+- **Conservative planning superset**: A separate coarse/dilated derivative restricts remote reads for efficiency. It never becomes the scientific denominator.
+- **Percentages and quality**: `n_aoi` is the fixed historical-mask pixel count. Pixels outside that mask are outside (`-2`), so their invalid observations do not affect `invalid_pct`. Classification and selected dates continue to use percentages; no area or km2 fields are produced.
+- **Explicit compatibility mode**: `python scripts/extract_water_extent_csv.py --full-aoi` retains the legacy full-AOI denominator for diagnostics and benchmarking only. The default never falls back to it when Statistics or a verified offline mask is unavailable.
+- **Composite Bundles (`composite_bundle`)**: Supports `legacy` (default single mask) and `hydrofragments_v1` (dual max/median water counts for downstream fragment analysis).
+
+---
+
+## Case Studies
+
+HydroSeason includes two fully reproducible offline case studies using 2005–2025 DEA 30 m whole-catchment extent data across five Australian catchments (Daly, Fitzroy, Gilbert, Lachlan, Moonie):
+
+1. **[Main Catchment Workflow](docs/case-studies/main-workflow.md)**: Demonstrates route-aware analysis and self-contained report bundles across seasonal monsoonal and aseasonal dryland basins.
+2. **[Resolution and Acquisition Evidence](docs/case-studies/resolution-and-acquisition.md)**: Evaluates resolution coarsening (30 m vs 60 m/90 m/300 m), conservative pruning guarantees, and composite bundle semantics.
+
+---
+
+## Scientific Limitations
+
+- **Extent is not Volume or Discharge**: Surface area percentage (`extent_pct`) dilutes narrow river channels and misses sub-canopy water.
+- **Cloud Gaps**: High cloud/shadow invalid coverage (`invalid_pct`) distorts extent statistics if unflagged.
+- **Resolution**: Coarsening spatial resolution distorts peak/trough timing and event boundaries. 30 m resolution remains authoritative.
+
+---
+
+## Public API Summary
 
 ```python
 from hydroseason import (
-    # detection core — source-agnostic, operates on canonical shapes
-    HydroYearConfig,
-    detect_hydrological_years,
-    label_hydrological_months,
-    monthly_water_extent,
-    # loaders — one per source, all converging on the canonical shape
-    load_aoi,
-    load_wofs_from_stac,
-    load_monthly_masks,
-    load_monthly_masks_zarr,
-    load_extent_csv,
-    complete_monthly_axis,
+    # Loaders & I/O
+    load_extent_csv, load_aoi, load_monthly_masks, load_monthly_masks_zarr,
+    load_wofs_from_stac, load_wofs_monthly_extent, complete_monthly_axis,
+    # DEA & Cache Surfaces
+    open_wo_statistics, HistoricalWaterMask, load_or_build_historical_water_mask,
+    build_wet_planning_footprint, WetPlanningFootprint,
+    acquire_wofs_cache, open_completed_mask_cache, open_completed_dual_extent_counts,
+    verify_cache_footprints,
+    # Regime & Catchment Analysis
+    assess_water_regime, analyze_catchment, extract_water_events,
+    # Hydrological State & Detection
+    analyze_hydrological_state, detect_dynamic_hydrological_years,
+    detect_hydrological_years, label_hydrological_months,
+    # Report Generation
+    generate_catchment_report, generate_html_report, CatchmentReportPaths,
 )
 ```
 
-`detect_hydrological_years` and `label_hydrological_months` import with only
-`numpy`/`pandas` — no raster extra required for the CSV path.
+Full API documentation: [docs/api.md](docs/api.md).
 
-## Documentation
-
-Full usage guide, canonical mask values, and examples: [`docs/`](docs/index.md)
-(or the built site at the URL in `pyproject.toml`).
+---
 
 ## Citation
 
-See [`CITATION.cff`](CITATION.cff) and [`docs/citation.md`](docs/citation.md).
+If you use HydroSeason in your research, please cite `CITATION.cff` and:
+
+```bibtex
+@article{Tayer2026,
+  author = {Tayer, Thiaggo C. and others},
+  title = {Remote-Sensing-First Hydrological Year Detection from Surface Water Extent},
+  journal = {Journal of Hydrology},
+  year = {2026},
+  doi = {10.1016/j.jhydrol.2025.134750}
+}
+```
+
+---
+
+## License
+
+MIT License — see [LICENSE](LICENSE).

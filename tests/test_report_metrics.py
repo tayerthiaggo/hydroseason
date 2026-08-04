@@ -3,7 +3,11 @@ import pandas as pd
 import pytest
 
 from hydroseason import detect_hydrological_years, label_hydrological_months
-from hydroseason._report_metrics import build_monthly_records, build_year_cards_data, compute_report_kpis
+from hydroseason._report_metrics import (
+    build_monthly_records,
+    build_year_cards_data,
+    compute_report_kpis,
+)
 
 
 def _seasonal_extent(n_years=3):

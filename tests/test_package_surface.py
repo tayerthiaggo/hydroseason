@@ -1,4 +1,5 @@
 import importlib
+from importlib import resources
 from pathlib import Path
 
 
@@ -11,8 +12,12 @@ def test_package_import_exposes_only_migration_safe_surface():
         "label_hydrological_months", "monthly_water_extent", "suggest_hydro_year_config",
         "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
         "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
-        "acquire_wofs_cache", "WOfSCacheHandle",
-        "generate_html_report", "DynamicHydroYearConfig", "HydrologicalStateResult",
+        "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
+        "verify_cache_footprints", "open_completed_dual_extent_counts",
+        "build_wet_planning_footprint", "WetPlanningFootprint", "HistoricalWaterMask",
+        "build_historical_water_mask", "load_or_build_historical_water_mask",
+        "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
+        "DynamicHydroYearConfig", "HydrologicalStateResult",
         "SeasonalPatternResult", "aggregate_basin_monthly_extent",
         "analyze_hydrological_state", "classify_annual_surface_water_condition",
         "classify_seasonal_pattern", "compute_monthly_surface_water_condition",
@@ -26,9 +31,32 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert callable(hydroseason.load_extent_csv)
     assert callable(hydroseason.load_wofs_monthly_extent)
     assert callable(hydroseason.acquire_wofs_cache)
+    # open_completed_mask_cache is acquire_wofs_cache's public reader
+    # counterpart (Task W2.1): a caller that acquired a cache must be able to
+    # read it back through the top-level package surface, not just via the
+    # private hydroseason._io_wofs_zarr module.
+    assert callable(hydroseason.open_completed_mask_cache)
+    # verify_cache_footprints is the public tamper-detection entry point for
+    # a cache's persisted full-AOI/analysis-footprint metadata (Task W2.3):
+    # HydroFragments calls hydroseason.verify_cache_footprints(handle)
+    # directly, so it must be reachable from the top-level package surface,
+    # not just via the private hydroseason._io_wofs_zarr module.
+    assert callable(hydroseason.verify_cache_footprints)
+    # open_completed_dual_extent_counts is the public reader counterpart for
+    # composite_bundle="hydrofragments_v1" acquisitions (Task W2.2): the
+    # second (max_water) composite's per-month counts must be reachable from
+    # the top-level package surface, not just via the private
+    # hydroseason._io_wofs_zarr module.
+    assert callable(hydroseason.open_completed_dual_extent_counts)
+    assert callable(hydroseason.build_wet_planning_footprint)
+    assert hydroseason.WetPlanningFootprint.__name__ == "WetPlanningFootprint"
+    assert hydroseason.HistoricalWaterMask.__name__ == "HistoricalWaterMask"
+    assert callable(hydroseason.build_historical_water_mask)
+    assert callable(hydroseason.load_or_build_historical_water_mask)
     assert callable(hydroseason.assess_water_regime)
     assert callable(hydroseason.extract_water_events)
     assert callable(hydroseason.analyze_catchment)
+    assert callable(hydroseason.generate_catchment_report)
     assert "ValidationSeasonConfig" not in vars(hydroseason)
 
     stripped_names = {
@@ -47,11 +75,8 @@ def test_package_metadata_has_no_removed_cli_entry_point():
     assert "rainfall" not in pyproject_text.lower()
 
 
-def test_conda_recipe_has_no_removed_cli_entry_point():
-    recipe = Path("conda/meta.yaml").read_text(encoding="utf-8")
-
-    assert "hydroseason.cli:main" not in recipe
-    assert "hydroseason --version" not in recipe
+def test_invalid_conda_recipe_is_not_shipped():
+    assert not Path("conda/meta.yaml").exists()
 
 
 def test_robust_extrema_and_semi_markov_internals_stay_unexported():
@@ -74,6 +99,18 @@ def test_robust_extrema_and_semi_markov_internals_stay_unexported():
         "select_cycle_peak", "select_boundary_sequence", "robust_scale",
         "SemiMarkovConfig", "fit_semi_markov_boundaries",
         "WindowStatus", "SelectionStatus",
+        # Task 6 review: experimental detector entry points stay internal.
+        "_detect_dynamic_hydrological_years_experimental",
+        "_find_semi_markov_trough_opportunities",
     }
     assert internal_names.isdisjoint(vars(hydroseason))
     assert internal_names.isdisjoint(hydroseason.__all__)
+
+
+def test_report_assets_resolve_from_source_package():
+    root = resources.files("hydroseason").joinpath("_assets")
+
+    assert root.joinpath("plotly-basic-3.6.0.min.js").read_text(encoding="utf-8").startswith(
+        "/**"
+    )
+    assert "MIT License" in root.joinpath("PLOTLY-LICENSE.txt").read_text(encoding="utf-8")

@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from ._rainfall import monthly_rainfall_to_frame
 from ._regime import Regime, WaterRegimeAssessment, assess_water_regime
 
-
 Divergence = str
 
 

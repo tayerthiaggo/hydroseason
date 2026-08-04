@@ -23,6 +23,7 @@ import pytest
 pytest.importorskip("dask")
 pytest.importorskip("affine")
 
+from hydroseason._historical_water_mask import HistoricalWaterMask
 from hydroseason.io import _DEFAULT_CANDIDATE_RES_M
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -501,6 +502,29 @@ def _synthetic_water_mask_cube(*, n_time=24, ny=8, nx=8, seed=0):
     return xr.DataArray(arr, dims=("time", "y", "x"), coords={"time": dates})
 
 
+def _synthetic_historical_water_mask(*, ny=8, nx=8):
+    """A valid exact-mask artifact for the default high-level load path."""
+    mask = np.ones((ny, nx), dtype=bool)
+    mask[0, :] = False
+    mask[:, 0] = False
+    return HistoricalWaterMask(
+        mask=mask,
+        crs="EPSG:3577",
+        transform=(30.0, 0.0, 0.0, 0.0, -30.0, 0.0),
+        shape=mask.shape,
+        resolution=(30.0, 30.0),
+        pixel_count=int(mask.sum()),
+        source_product="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_item_ids=("synthetic-myear-item",),
+        source_lineage=("ga_ls_wo_fq_myear_3", "synthetic-myear-item"),
+        coverage_start="1987-01-01",
+        coverage_end="2025-12-31",
+        aoi_sha256="a" * 64,
+        mask_sha256="b" * 64,
+    )
+
+
 class TestRealWiredEndToEnd:
     """Exercises the real, wired-together gate/probe/reduction seam.
 
@@ -534,14 +558,21 @@ class TestRealWiredEndToEnd:
         monkeypatch.setattr(mod, "START_DATE", "2015-01-01")
         monkeypatch.setattr(mod, "END_DATE", "2015-12-31")
         (tmp_path / "test_catchment_boundary.geojson").write_text(
-            '{"type":"FeatureCollection","features":[]}', encoding="utf-8"
+            '{"type":"FeatureCollection","features":[{"type":"Feature",'
+            '"properties":{},"geometry":{"type":"Polygon","coordinates":['
+            '[[115.0,-32.0],[115.01,-32.0],[115.01,-32.01],'
+            '[115.0,-32.01],[115.0,-32.0]]]}}]}',
+            encoding="utf-8",
         )
         cube = _synthetic_water_mask_cube(n_time=12)
         import hydroseason.io as hio
+        historical_mask = _synthetic_historical_water_mask()
         acquire_mock = Mock(return_value=SimpleNamespace(path=tmp_path / "cache.zarr", identity="id", request_digest="request"))
         open_mock = Mock(return_value=cube)
+        historical_mask_mock = Mock(return_value=historical_mask)
         monkeypatch.setattr(hio, "acquire_wofs_cache", acquire_mock)
         monkeypatch.setattr(hio, "open_completed_mask_cache", open_mock)
+        monkeypatch.setattr(hio, "load_or_build_historical_water_mask", historical_mask_mock)
 
         spec = _fake_spec(mod)
         result = mod.run_one_catchment(
@@ -551,6 +582,13 @@ class TestRealWiredEndToEnd:
 
         assert acquire_mock.call_count == 3
         assert open_mock.call_count == 3
+        assert historical_mask_mock.call_count == 3
+        for call in acquire_mock.call_args_list:
+            assert call.kwargs["historical_water_mask"] is historical_mask
+            assert (
+                call.kwargs["planning_footprint"].native_mask.values.tolist()
+                == historical_mask.mask.tolist()
+            )
 
         # plan_resolution's real signal veto is a function of the AOI's tiny
         # (test-fixture) bounds and the real amplitude probe_amplitude computed

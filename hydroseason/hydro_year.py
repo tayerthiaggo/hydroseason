@@ -404,9 +404,13 @@ def detect_hydrological_years(
         date_col=date_col,
         duplicate_month_policy=duplicate_month_policy,
     )
-    if invalid_pct is not None and quality_policy == "exclude":
+    if invalid_pct is not None:
         invalid = invalid_pct.reindex(full_index)
-        if invalid.isna().any() or (invalid > max_invalid_pct).any():
+        if quality_policy == "flag":
+            # A 100%-invalid month has no valid pixels supporting its extent;
+            # retain the row for export, but do not use it as a boundary input.
+            series = series.where(invalid.reindex(series.index).lt(100.0)).dropna()
+        elif invalid.isna().any() or (invalid > max_invalid_pct).any():
             raise ValueError(
                 "Invalid coverage exceeds max_invalid_pct or is unknown; "
                 "use completed masks, quality-screen the series, or explicitly raise the threshold."
@@ -551,7 +555,10 @@ def _noise_floor_pp(series: pd.Series) -> float:
     # norm in dryland catchments) this under-reads the true spread -- and it
     # under-reads most on exactly the records whose apparent amplitude is
     # persistence rather than season. Rescale to the iid-equivalent spread.
-    phi = float(pd.Series(residual.to_numpy(float)).autocorr(1) or 0.0)
+    if residual.std(ddof=0) == 0:
+        phi = 0.0
+    else:
+        phi = float(pd.Series(residual.to_numpy(float)).autocorr(1) or 0.0)
     phi = min(max(phi, 0.0), 0.9)
     return scale / np.sqrt(1.0 - phi)
 

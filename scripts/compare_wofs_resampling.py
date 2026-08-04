@@ -10,13 +10,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 import time
 from pathlib import Path
 
-import math
 import numpy as np
-import pandas as pd
 
 
 def _digest_windowed(cube, windows, *, compute_batch_size: int = 16):
@@ -117,12 +116,15 @@ def main() -> int:
     parser.add_argument("--compute-batch-size", type=int, default=16)
     args = parser.parse_args()
 
-    import dask
-    from odc.geo.geobox import GeoBox
-    from odc.geo.crs import CRS
     from affine import Affine
-    from hydroseason.io import load_aoi
-    from hydroseason._io_geo import _query_wofs_items, build_wofs_year_graph, _all_sources_native_aligned
+    from odc.geo.crs import CRS
+    from odc.geo.geobox import GeoBox
+
+    from hydroseason._io_geo import (
+        _all_sources_native_aligned,
+        _query_wofs_items,
+        build_wofs_year_graph,
+    )
     from hydroseason._spatial_plan import plan_storage_aligned_slices
 
     start_date = f"{args.year}-01-01"

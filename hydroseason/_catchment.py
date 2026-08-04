@@ -29,15 +29,17 @@ that never presumes a cycle exists.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from typing import Literal
 
 import pandas as pd
 
+from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
 from ._regime import WaterRegimeAssessment, assess_water_regime
-from ._state_input import QualityPolicy
+from ._state_input import QualityPolicy, prepare_monthly_extent
 from .hydro_year import HydroYearConfig, detect_hydrological_years
-
+from .hydrological_state import HydrologicalStateResult, analyze_hydrological_state
 
 Route = str
 
@@ -55,6 +57,11 @@ class CatchmentAnalysis:
     climatological_peak_month: int | None = None
     climatological_trough_month: int | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    state: HydrologicalStateResult | None = None
+    # Retain the quality policy used to construct this analysis so report
+    # exports validate and label months against the same candidate set.
+    quality_policy: QualityPolicy = "exclude"
+    max_invalid_pct: float = 20.0
 
     def summary_row(self, *, name: str) -> dict:
         """Flat one-row-per-catchment record for a cross-catchment table."""
@@ -91,35 +98,91 @@ def _wrap_month(month: int) -> int:
     return ((month - 1) % 12) + 1
 
 
-def _fixed_config_from_climatology(peak_month: int) -> HydroYearConfig | None:
+def _fixed_config_from_climatology(peak_month: int) -> HydroYearConfig:
     """Build a fixed wet/dry window spanning an observed climatological peak.
 
     The wet window is centred so the peak sits inside it, not at its edge: a
     window ending at the peak leaves too few months for the dry window and the
     detector rejects every year.
 
-    ``HydroYearConfig`` hard-requires the wet window to cross the calendar-year
-    boundary and the dry window to sit within one year after it. That geometry
-    describes a tropical wet season (wet spanning the turn of the year, dry
-    mid-year) and genuinely cannot express the reverse phase -- a catchment
-    peaking around mid-year has no valid representation. Return ``None`` in
-    that case rather than fitting a window with the wrong phase, and let the
-    caller fall back to a view that makes no phase assumption.
+    Windows are cyclic month ranges (see ``HydroYearConfig``), so any
+    climatological peak phase is representable -- tropical year-boundary wet
+    seasons and mid-year / winter-rainfall phases alike. The six-month wet
+    window is ``peak-2 .. peak+3``; the dry window is the six months that
+    follow. Callers must still mark every emitted row
+    ``boundary_basis="imposed_fixed_window"``: this is average behaviour
+    imposed from climatology, not a per-year detection.
     """
+    if peak_month < 1 or peak_month > 12:
+        raise ValueError(f"peak_month must be in 1..12, got {peak_month}")
     wet_start = _wrap_month(peak_month - 2)
     wet_end = _wrap_month(peak_month + 3)
-    if wet_start <= wet_end:
-        return None  # wet window would not cross the year boundary
     dry_start = _wrap_month(wet_end + 1)
-    dry_end = min(12, dry_start + 5)
-    if dry_start <= wet_end or dry_end < dry_start:
-        return None
+    dry_end = _wrap_month(dry_start + 5)
     return HydroYearConfig(
         wet_start_month=wet_start,
         wet_end_month=wet_end,
         dry_start_month=dry_start,
         dry_end_month=dry_end,
     )
+
+
+def _annotate_fixed_window_quality(
+    years: pd.DataFrame,
+    extent,
+    *,
+    value_col: str,
+    date_col: str | None,
+    max_invalid_pct: float,
+    quality_policy: QualityPolicy,
+) -> pd.DataFrame:
+    """Carry invalid-coverage diagnostics into imposed-window HY rows.
+
+    The fixed-window route predates the robust dynamic schema.  It still needs
+    the same trust signal: observed boundary months are retained, but any
+    boundary touching a low-quality month is explicitly provisional/low.
+    ``quality_policy`` controls which finite months are exported as usable;
+    the invalid percentage itself remains the evidence used for the flag.
+    """
+    if years.empty:
+        return years
+    prepared = prepare_monthly_extent(
+        extent,
+        value_col=value_col,
+        date_col=date_col,
+        max_invalid_pct=max_invalid_pct,
+        quality_policy=quality_policy,
+    )
+    out = years.copy()
+
+    def _invalid(month) -> float:
+        if pd.isna(month) or pd.Timestamp(month) not in prepared.index:
+            return float("nan")
+        value = prepared.loc[pd.Timestamp(month), "invalid_pct"]
+        return float(value) if pd.notna(value) else float("nan")
+
+    def _support(value: float) -> float:
+        return max(0.0, min(1.0, 1.0 - value / 100.0)) if pd.notna(value) else 0.0
+
+    peak_invalid = [_invalid(value) for value in out["peak_month"]]
+    mid_invalid = [_invalid(value) for value in out["mid_dry_month"]]
+    trough_invalid = [_invalid(value) for value in out["end_dry_month"]]
+    out["peak_invalid_pct"] = peak_invalid
+    out["mid_dry_invalid_pct"] = mid_invalid
+    out["trough_invalid_pct"] = trough_invalid
+    out["temporal_mid_dry_month"] = out["mid_dry_month"]
+    out["temporal_mid_dry_extent_pct"] = out["mid_extent_pct"]
+    bad = [
+        any(pd.isna(value) or float(value) > max_invalid_pct for value in values)
+        for values in zip(peak_invalid, mid_invalid, trough_invalid)
+    ]
+    out["peak_selection_status"] = ["low_quality" if value else "raw" for value in bad]
+    out["peak_selection_support"] = [_support(value) for value in peak_invalid]
+    out["boundary_status"] = ["provisional" if value else "confirmed" for value in bad]
+    out["status"] = ["partial" if value else "complete" for value in bad]
+    out["status_reason"] = ["boundary_low_quality" if value else "ok" for value in bad]
+    out.loc[out["status"] == "partial", "confidence"] = "low"
+    return out
 
 
 def analyze_catchment(
@@ -130,6 +193,9 @@ def analyze_catchment(
     min_months_per_year: int = 9,
     max_invalid_pct: float = 20.0,
     quality_policy: QualityPolicy = "exclude",
+    phase_model: Literal["none", "rule_based"] = "none",
+    n_bootstrap: int = 200,
+    random_state: int = 0,
 ) -> CatchmentAnalysis:
     """Assess regime, then run the analysis that regime supports.
 
@@ -138,6 +204,9 @@ def analyze_catchment(
     detectors directly, which makes the override explicit in their own code
     rather than hidden in a flag here.
     """
+    if phase_model not in {"none", "rule_based"}:
+        raise ValueError("phase_model must be 'none' or 'rule_based'")
+
     regime = assess_water_regime(
         extent,
         value_col=value_col,
@@ -168,7 +237,10 @@ def analyze_catchment(
             hydro_years=empty_years,
             events=events,
             monthly=pd.DataFrame(),
+            state=None,
             warnings=tuple(warnings),
+            quality_policy=quality_policy,
+            max_invalid_pct=max_invalid_pct,
         )
 
     if regime.regime == "aseasonal":
@@ -183,34 +255,65 @@ def analyze_catchment(
             hydro_years=empty_years,
             events=events,
             monthly=pd.DataFrame(),
+            state=None,
             climatological_peak_month=None,
             climatological_trough_month=None,
             warnings=tuple(warnings),
+            quality_policy=quality_policy,
+            max_invalid_pct=max_invalid_pct,
         )
 
-    config = _fixed_config_from_climatology(int(regime.climatological_peak_month))
-    if config is None:
-        warnings.append(
-            "climatological peak falls mid-year, a phase the fixed wet/dry "
-            "window geometry cannot represent; reported as events only rather "
-            "than fitted with a wrong-phase window"
+    if regime.regime == "seasonal":
+        config = DynamicHydroYearConfig(
+            expected_trough_month=int(regime.climatological_trough_month),
+            expected_peak_month=int(regime.climatological_peak_month),
+            max_invalid_pct=max_invalid_pct,
+            quality_policy=quality_policy,
+            detector="robust_extrema",
+            phase_model=phase_model,
         )
+        state_extent = prepare_monthly_extent(
+            extent,
+            value_col=value_col,
+            date_col=date_col,
+            max_invalid_pct=max_invalid_pct,
+            quality_policy=quality_policy,
+        )
+        state = analyze_hydrological_state(
+            state_extent,
+            config=config,
+            n_bootstrap=n_bootstrap,
+            random_state=random_state,
+            quality_policy=quality_policy,
+        )
+        years = state.hydro_years.copy()
+        if not years.empty:
+            years["boundary_basis"] = "detected_per_year"
+        state = replace(state, hydro_years=years)
         return CatchmentAnalysis(
             regime=regime,
-            route="event_characterisation",
+            route="per_year_detection",
             route_reason=(
-                f"{regime.regime} record peaking in month "
-                f"{regime.climatological_peak_month}: the supported window "
-                "geometry requires a wet season spanning the turn of the year, "
-                "so no hydrological year is defined"
+                f"seasonal record (SNR {regime.amplitude_snr:.2f}, per-year peak spread "
+                f"{regime.peak_phase_iqr_months:.1f} months): per-year boundaries are "
+                "reproducible"
             ),
-            hydro_years=empty_years,
+            hydro_years=years,
             events=events,
             monthly=pd.DataFrame(),
+            state=state,
             climatological_peak_month=regime.climatological_peak_month,
             climatological_trough_month=regime.climatological_trough_month,
             warnings=tuple(warnings),
+            quality_policy=quality_policy,
+            max_invalid_pct=max_invalid_pct,
         )
+
+    # Marginal (and any remaining non-seasonal/non-aseasonal route that still
+    # carries a climatological peak): impose one fixed window from that peak.
+    # HydroYearConfig is cyclic, so every calendar peak phase is valid -- no
+    # tropical-only geometry gate and no silent downgrade to events-only.
+    config = _fixed_config_from_climatology(int(regime.climatological_peak_month))
     try:
         years = detect_hydrological_years(
             extent,
@@ -229,28 +332,30 @@ def analyze_catchment(
             hydro_years=empty_years,
             events=events,
             monthly=pd.DataFrame(),
+            state=None,
             warnings=tuple(warnings),
+            quality_policy=quality_policy,
+            max_invalid_pct=max_invalid_pct,
         )
 
-    if regime.regime == "seasonal":
-        route = "per_year_detection"
-        basis = "detected_per_year"
-        reason = (
-            f"seasonal record (SNR {regime.amplitude_snr:.2f}, per-year peak spread "
-            f"{regime.peak_phase_iqr_months:.1f} months): per-year boundaries are "
-            "reproducible"
-        )
-    else:
-        route = "fixed_climatological_window"
-        basis = "imposed_fixed_window"
-        reason = (
-            f"marginal record (SNR {regime.amplitude_snr:.2f}, per-year peak spread "
-            f"{regime.peak_phase_iqr_months:.1f} months): per-year timing is not "
-            "reproducible, so one fixed climatological window is imposed on every year"
-        )
+    route = "fixed_climatological_window"
+    basis = "imposed_fixed_window"
+    reason = (
+        f"marginal record (SNR {regime.amplitude_snr:.2f}, per-year peak spread "
+        f"{regime.peak_phase_iqr_months:.1f} months): per-year timing is not "
+        "reproducible, so one fixed climatological window is imposed on every year"
+    )
     if not years.empty:
         years = years.copy()
         years["boundary_basis"] = basis
+        years = _annotate_fixed_window_quality(
+            years,
+            extent,
+            value_col=value_col,
+            date_col=date_col,
+            max_invalid_pct=max_invalid_pct,
+            quality_policy=quality_policy,
+        )
 
     return CatchmentAnalysis(
         regime=regime,
@@ -259,9 +364,12 @@ def analyze_catchment(
         hydro_years=years,
         events=events,
         monthly=pd.DataFrame(),
+        state=None,
         climatological_peak_month=regime.climatological_peak_month,
         climatological_trough_month=regime.climatological_trough_month,
         warnings=tuple(warnings),
+        quality_policy=quality_policy,
+        max_invalid_pct=max_invalid_pct,
     )
 
 

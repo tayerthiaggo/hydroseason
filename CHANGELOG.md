@@ -10,9 +10,10 @@ All notable changes to HydroSeason are documented here. This project follows
   the new default) on `detect_dynamic_hydrological_years`, gated on real
   Fitzroy/Kimberley and Gilbert River evidence. It identifies the raw observed
   extremum in each year's expected window plus its contiguous "equivalent low
-  run", then a sequence-consistent optimizer (`select_boundary_sequence`) may
-  select another month from within that same run to keep consecutive cycle
-  lengths coherent; a raw observed extremum is never silently replaced.
+  run". Public trough selection preserves the true observed minimum; only
+  exact-value ties may receive `coherence_adjusted` provenance for cycle
+  consistency. Observed high-invalid extrema remain visible but are marked
+  `low_quality`.
 - New additive diagnostic columns on the annual output for both raw/selected
   boundary auditability and confidence grading: `raw_trough_month`,
   `raw_trough_extent_pct`, `raw_peak_month`, `raw_peak_extent_pct`,
@@ -21,13 +22,34 @@ All notable changes to HydroSeason are documented here. This project follows
   `window_n_usable`, `peak_selection_status`, `peak_selection_support`, and
   `phase_shift_months`. `selection_support` is a 0-1 quality grade, not yet a
   calibrated probability.
-- Experimental, opt-in semi-Markov boundary challenger
-  (`detector="semi_markov"`, a four-state hidden semi-Markov model) selectable
-  via the same `DynamicHydroYearConfig.detector` field, producing the same
-  output schema as the default detector. It remains experimental and is
-  **not** promoted to default: its own promotion gate
-  (`tests/test_detector_comparison.py::test_semi_markov_promotion_gate`) did
-  not pass on available fixtures.
+- Experimental, internal-only semi-Markov boundary challenger (a four-state
+  hidden semi-Markov model), reachable only through the underscore-prefixed
+  `_detect_dynamic_hydrological_years_experimental` dispatcher used by the
+  experimental promotion-gate comparison harness
+  (`tests/test_detector_comparison.py::test_semi_markov_promotion_gate`). It
+  is **not** selectable through the public `DynamicHydroYearConfig.detector`
+  field (which accepts only `"robust_extrema"` and rejects anything else at
+  construction), is **not** promoted to default, and is not part of the
+  released public API.
+- Opt-in robust-anchored monthly phases with `phase_model="rule_based"`.
+  The labels are descriptive (`recovery`, `wet`, `recession`, `dry`), use the
+  existing robust extrema annual cycles as fixed anchors, and do not change
+  annual hydrological-year outputs. `monthly_phase` is kept separate from
+  `monthly_condition`; its confidence values are quality grades, not
+  calibrated probabilities. Constrained semi-Markov phase labeling remains
+  post-release research and is not a hidden released mode.
+- Marginal `analyze_catchment` routing now imposes a fixed climatological
+  window for **every** climatological peak phase (all twelve calendar months),
+  not only tropical year-boundary wet seasons. Emitted rows remain labelled
+  `boundary_basis="imposed_fixed_window"` with `state=None`.
+- Observed maxima and minima from partially masked months remain visible for
+  review, but are marked `selection_status="low_quality"`; low-quality peaks
+  make annual rows provisional and prevent condition-baseline activation.
+- `quality_policy="flag"` now propagates through catchment/report exports: all
+  finite, partially observed months remain usable for cycle mapping, while
+  invalid coverage is retained as a low-confidence/provisional diagnostic.
+  Public trough sequence selection now preserves the true observed minimum,
+  allowing only exact-value ties to receive `coherence_adjusted` provenance.
 
 ### Deprecated
 - `DynamicHydroYearConfig.sustained_rise_months`,
@@ -52,14 +74,14 @@ All notable changes to HydroSeason are documented here. This project follows
   dependencies moved to the `raster`/`stac`/`all` extras.
 
 ### Removed
-- All rainfall-based modules, CLI, pandas accessor, HTML report, and rainfall
-  fetchers (CHIRPS/SILO/ERA5/BoM) were removed from `main`. The previous
-  rainfall implementation is preserved, unmodified, on the `legacy/rainfall`
-  branch (tag `v0-rainfall-legacy`).
+- Rainfall-first public APIs removed; ancillary rainfall comparison remains
+  internal and never sets boundaries. The previous rainfall implementation is
+  preserved, unmodified, on the `legacy/rainfall` branch (tag
+  [`v0-rainfall-legacy`]).
 
-## [0.1.0] — 2026-06-02
+## Pre-release rainfall prototype
 
-First public release.
+Legacy rainfall prototype, preserved at [`v0-rainfall-legacy`].
 
 ### Added
 - Rainfall-based Wet/Dry season and hydrological-year delineation
@@ -98,4 +120,4 @@ First public release.
   - `PLOTLY_CONFIG` → `hydroseason.plot`
 - Removed the unused `matplotlib` runtime dependency.
 
-[0.1.0]: https://github.com/tayerthiaggo/hydroseason/releases/tag/v0.1.0
+[`v0-rainfall-legacy`]: https://github.com/tayerthiaggo/hydroseason/releases/tag/v0-rainfall-legacy

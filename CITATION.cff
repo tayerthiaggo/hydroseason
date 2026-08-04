@@ -3,11 +3,11 @@ message: "If you use HydroSeason in your research, please cite both this softwar
 title: "HydroSeason: Remote-sensing-first hydrological year and season detection"
 type: software
 version: "0.1.0"
-doi: 10.5281/zenodo.1234567
-date-released: "2026-06-02"
 authors:
   - family-names: "Tayer"
     given-names: "Thiaggo C."
+    orcid: "https://orcid.org/0000-0001-5210-968X"
+    affiliation: "The University of Western Australia"
 repository-code: "https://github.com/tayerthiaggo/hydroseason"
 url: "https://tayerthiaggo.github.io/hydroseason/"
 license: "MIT"

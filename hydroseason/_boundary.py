@@ -11,7 +11,10 @@ __all__ = ["SIGNAL_FLOOR_FRACTION", "RobustBoundaryConfig", "BoundarySelection",
            "select_boundary_sequence"]
 
 WindowStatus = Literal["full", "left_truncated", "right_truncated", "internal_gap"]
-SelectionStatus = Literal["raw", "ambiguous", "quality_adjusted", "unresolved"]
+SelectionStatus = Literal[
+    "raw", "ambiguous", "quality_adjusted", "low_quality",
+    "coherence_adjusted", "unresolved",
+]
 
 SIGNAL_FLOOR_FRACTION = 0.10
 
@@ -94,24 +97,34 @@ def _select_window_extreme(
     """Select an extremum (minimum or maximum) within a window.
 
     For maxima the extent sign is inverted for comparisons only; the returned
-    ``raw_*``/``selected_*`` extents are always the original observed values, so
-    a raw observed extremum is never silently replaced. Passing ``kind="min"``
-    reproduces the historical minimum-selection behaviour exactly.
+    ``raw_*``/``selected_*`` extents are always the original observed values.
+    A high-invalid observed extremum is retained for auditability but receives
+    ``selection_status="low_quality"``. Troughs retain the true observed
+    minimum; any later sequence-level tie choice is labelled separately by the
+    caller as ``coherence_adjusted``.
+
+    Candidacy for *being the observed extremum* is gated only on some water
+    having actually been observed (``extent_pct`` not NaN and ``invalid_pct``
+    below 100), not on ``candidate_usable``. This preserves the visible
+    maximum/minimum for review even when quality is poor. ``candidate_usable``
+    still gates ``n_usable``/``support``/``window_status`` below, and the
+    resulting low-quality status makes the annual cycle provisional so the
+    observation cannot silently anchor a historical condition baseline.
     """
     sign = 1.0 if kind == "min" else -1.0
-    usable = window.loc[window["candidate_usable"]].copy()
-    n_usable = len(usable)
-    if n_usable < config.min_usable_candidates:
+    value_present = window["extent_pct"].notna() & window["invalid_pct"].lt(100.0)
+    usable = window.loc[value_present].copy()
+    n_usable = int(window.loc[window["candidate_usable"], "extent_pct"].notna().sum())
+    if len(usable) < config.min_usable_candidates:
         return BoundarySelection(None, np.nan, None, np.nan, None, None,
                                  "internal_gap", "unresolved", 0.0,
                                  expected_count, n_usable, None)
     comparison = usable["extent_pct"] * sign
     raw_month = pd.Timestamp(comparison.idxmin())
-    raw_extent = float(usable.loc[raw_month, "extent_pct"])
     raw_comparison = float(comparison.loc[raw_month])
     epsilon = _epsilon_pp(usable.loc[raw_month], noise_pp=noise_pp, amplitude_pp=amplitude_pp)
     equivalent = (
-        window["candidate_usable"]
+        value_present
         & (window["extent_pct"] * sign).le(raw_comparison + epsilon)
     )
     groups = equivalent.ne(equivalent.shift(fill_value=False)).cumsum()
@@ -119,7 +132,23 @@ def _select_window_extreme(
     run = window.loc[equivalent & groups.eq(raw_group)]
     local = comparison.rolling(3, center=True, min_periods=2).median()
     residual = float(local.loc[raw_month] - raw_comparison)
+    raw_extent = float(usable.loc[raw_month, "extent_pct"])
     ambiguous = noise_pp > 0 and residual > config.anomaly_noise_scales * noise_pp
+    raw_row = window.loc[raw_month]
+    raw_quality_state = raw_row.get("quality_state")
+    raw_is_low_quality = (
+        (raw_quality_state is not None and str(raw_quality_state) != "usable")
+        or (
+            "candidate_usable" in window.columns
+            and not bool(raw_row["candidate_usable"])
+        )
+    )
+    if raw_is_low_quality:
+        selection_status: SelectionStatus = "low_quality"
+    elif ambiguous:
+        selection_status = "ambiguous"
+    else:
+        selection_status = "raw"
     full_start = expected - pd.DateOffset(months=(expected_count - 1) // 2)
     full_end = expected + pd.DateOffset(months=(expected_count - 1) // 2)
     if window.index.min() > full_start:
@@ -138,7 +167,7 @@ def _select_window_extreme(
     return BoundarySelection(
         raw_month, raw_extent, raw_month, raw_extent,
         pd.Timestamp(run.index[0]), pd.Timestamp(run.index[-1]),
-        window_status, "ambiguous" if ambiguous else "raw", support,
+        window_status, selection_status, support,
         expected_count, n_usable,
         (raw_month.year - expected.year) * 12 + raw_month.month - expected.month,
     )
@@ -207,6 +236,12 @@ def select_cycle_peak(
 # bracket, so it honours "≤5% is noise" without being tuned to the material
 # value it must exclude.
 _RAW_MINIMUM_REL_TOLERANCE = 0.05
+
+# All DP costs here are sums of small integer month-counts (phase, cycle
+# deviation) plus a 0.0/inf fidelity term, so genuine ties land on exactly
+# equal floats; this only absorbs floating-point summation error, not a
+# deliberately "close enough" band.
+_COST_TIE_TOLERANCE = 1e-9
 
 
 def select_boundary_sequence(
@@ -283,13 +318,23 @@ def select_boundary_sequence(
                     candidate_cost = (
                         costs[index - 1][parent_index] + phase + fidelity + abs(cycle - 12)
                     )
-                    if candidate_cost < best_cost:
+                    if candidate_cost < best_cost - _COST_TIE_TOLERANCE:
                         best_cost, best_parent = candidate_cost, parent_index
                 row_costs.append(best_cost)
                 row_parents.append(best_parent)
             costs.append(row_costs)
             parents.append(row_parents)
-        cursor = int(np.argmin(costs[-1]))
+        # A trough is a recession's low point: among candidates tied within
+        # floating-point tolerance on total cost, prefer the later month as the
+        # more defensible read of when the recession actually bottomed out.
+        # Candidates are chronologically ordered, so scanning last-to-first and
+        # keeping the first (i.e. latest) tie found achieves that.
+        final_costs = costs[-1]
+        cursor = len(final_costs) - 1
+        best = final_costs[cursor]
+        for index in range(len(final_costs) - 2, -1, -1):
+            if final_costs[index] < best - _COST_TIE_TOLERANCE:
+                best, cursor = final_costs[index], index
         chosen = []
         for index in range(len(block) - 1, -1, -1):
             chosen.append(pd.Timestamp(block[index]["candidates"][cursor][0]))

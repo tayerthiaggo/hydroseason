@@ -5,7 +5,7 @@ import pytest
 xr = pytest.importorskip("xarray")
 pytest.importorskip("rioxarray")
 
-from hydroseason._wet_aoi import compute_ever_wet, compute_ever_wet_from_counts
+from hydroseason._wet_aoi import compute_ever_wet, compute_ever_wet_from_counts  # noqa: E402
 
 
 def _cube(values):
@@ -47,8 +47,10 @@ def test_persistence_threshold_excludes_rare_pixel():
 def test_persistence_denominator_is_clear_not_scene_count():
     # (0,0): wet once, invalid once, no dry -> clear_count=1, wet/clear=1.0
     dry = np.zeros((2, 2), np.int8)
-    wet = dry.copy(); wet[0, 0] = 1
-    invalid = dry.copy(); invalid[0, 0] = -1
+    wet = dry.copy()
+    wet[0, 0] = 1
+    invalid = dry.copy()
+    invalid[0, 0] = -1
     cube = _cube([wet, invalid, dry])
     # If denominator were scene_count (3): 1/3=0.33 -> excluded at 0.5
     # With clear denominator (wet+dry at that pixel = 1+1=2): 1/2=0.5 -> included at 0.5
@@ -154,7 +156,8 @@ def test_count_based_ever_wet_rejects_invalid_threshold():
 def test_compute_wet_aoi_composes():
     from hydroseason._wet_aoi import compute_wet_aoi
     dry = np.zeros((2, 2), np.int8)
-    wet = dry.copy(); wet[0, 0] = 1
+    wet = dry.copy()
+    wet[0, 0] = 1
     da = xr.DataArray(
         np.stack([dry, wet]).astype(np.int8),
         dims=("time", "y", "x"),

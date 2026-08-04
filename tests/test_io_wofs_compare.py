@@ -12,9 +12,8 @@ pytest.importorskip("rioxarray")
 import xarray as xr
 from affine import Affine
 
-from hydroseason._io_wofs_compare import count_categorical_mismatches
 from hydroseason._io_geo import GeoreferencingError
-import rioxarray
+from hydroseason._io_wofs_compare import count_categorical_mismatches
 
 
 def _make_mask(data, transform: Affine = None, crs="EPSG:3577") -> xr.DataArray:

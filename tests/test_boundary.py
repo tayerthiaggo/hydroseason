@@ -26,6 +26,20 @@ def test_peak_selector_flags_isolated_high_without_hiding_raw_maximum():
     assert peak.selection_status == "ambiguous"
 
 
+def test_peak_selector_keeps_high_invalid_observed_maximum_as_low_quality():
+    index = pd.date_range("2020-01-01", periods=8, freq="MS")
+    cycle = pd.DataFrame({
+        "extent_pct": [2, 90, 10, 8, 6, 4, 3, 2],
+        "invalid_pct": [0, 60, 0, 0, 0, 0, 0, 0],
+        "candidate_usable": [True, False, True, True, True, True, True, True],
+        "quality_state": ["usable", "low", "usable", "usable", "usable", "usable", "usable", "usable"],
+    }, index=index)
+    peak = select_cycle_peak(cycle, start=index[0], end=index[-1], noise_pp=1, amplitude_pp=87)
+    assert peak.raw_month == pd.Timestamp("2020-02-01")
+    assert peak.selected_month == peak.raw_month
+    assert peak.selection_status == "low_quality"
+
+
 def test_peak_candidates_exclude_both_trough_boundaries():
     index = pd.date_range("2020-01-01", periods=8, freq="MS")
     cycle = pd.DataFrame({
@@ -159,6 +173,20 @@ def test_sequence_optimizer_handles_single_opportunity_block():
 
 def test_sequence_optimizer_handles_empty_opportunity_list():
     assert select_boundary_sequence([]) == []
+
+
+def test_sequence_optimizer_can_preserve_each_year_raw_minimum():
+    opportunities = [
+        {"year": 2020, "expected": pd.Timestamp("2020-09-01"),
+         "candidates": [(pd.Timestamp("2020-09-01"), 1.0),
+                        (pd.Timestamp("2020-10-01"), 1.01)]},
+        {"year": 2021, "expected": pd.Timestamp("2021-09-01"),
+         "candidates": [(pd.Timestamp("2021-08-01"), 1.0),
+                        (pd.Timestamp("2021-09-01"), 1.01)]},
+    ]
+    assert select_boundary_sequence(
+        opportunities, raw_minimum_rel_tolerance=0.0
+    ) == [pd.Timestamp("2020-09-01"), pd.Timestamp("2021-08-01")]
 
 
 def test_sequence_optimizer_returns_none_for_all_unresolved_years():
