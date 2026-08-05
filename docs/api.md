@@ -12,6 +12,17 @@ Internals (`hydroseason._*`) are not part of the stable public API surface.
       show_source: false
       heading_level: 2
 
+## Main Workflow
+
+::: hydroseason.workflow
+    options:
+      members:
+        - HydroSeasonRunResult
+        - run_hydroseason
+      show_root_heading: true
+      show_source: false
+      heading_level: 2
+
 ## Detection Core
 
 ::: hydroseason.hydro_year

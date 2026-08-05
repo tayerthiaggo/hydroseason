@@ -6,6 +6,11 @@ All notable changes to HydroSeason are documented here. This project follows
 ## [Unreleased]
 
 ### Added
+- Public `run_hydroseason` orchestration for extent CSV/DataFrame, canonical
+  NetCDF/Zarr/xarray masks, or DEA WOfS fetching. Optional supplied-CSV or
+  SILO rainfall is ancillary and non-fatal, enriches only the monthly CSV,
+  and adds a collapsible rainfall-regime comparison to the HTML report
+  without changing water routing, boundaries, phases, events, or low spells.
 - Robust-extrema trough/peak boundary detector (`detector="robust_extrema"`,
   the new default) on `detect_dynamic_hydrological_years`, gated on real
   Fitzroy/Kimberley and Gilbert River evidence. It identifies the raw observed

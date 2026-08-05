@@ -65,7 +65,7 @@ def _base_layout(*, rangeslider: bool) -> dict[str, Any]:
             "gridcolor": "#e2e8f0",
             "zeroline": False,
             "rangeslider": {"visible": bool(rangeslider)},
-        }
+        },
         "yaxis": {
             "title": "Water Extent (%)",
             "type": "linear",
@@ -469,6 +469,88 @@ def secondary_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict
             data.append({"type": "histogram", "name": "Event Duration (months)", "x": _clean_list(events["duration_months"]), "marker": {"color": "#0ea5e9"}})
             layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 30, "b": 40}, "xaxis": {"title": "Duration (months)", "showgrid": True, "gridcolor": "#e2e8f0"}, "yaxis": {"title": "Count", "showgrid": True, "gridcolor": "#e2e8f0"}}
         else:
-            data.append({"type": "bar", "x": [], "y": []})
-            layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 30, "b": 40}, "xaxis": {"title": "No Events"}, "yaxis": {"title": "Count"}}
-    return {"data": data, "layout": layout, "config": {"responsive": True, "displaylogo": False, "modeBarButtonsToRemove": ["lasso2d", "select2d"]}}
+            # Fallback empty
+            data.append({
+                "type": "bar",
+                "x": [],
+                "y": [],
+            })
+            layout = {
+                "paper_bgcolor": "#ffffff",
+                "plot_bgcolor": "#f8fafc",
+                "margin": {"l": 50, "r": 30, "t": 30, "b": 40},
+                "xaxis": {"title": "No Events"},
+                "yaxis": {"title": "Count"},
+            }
+
+
+    config = {
+        "responsive": True,
+        "displaylogo": False,
+        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+    }
+
+    return {"data": data, "layout": layout, "config": config}
+
+
+def rainfall_context_figure(monthly: pd.DataFrame) -> dict[str, Any] | None:
+    """Generate paired monthly climatology figure for rainfall and extent.
+
+    Returns None if rainfall data is not present; otherwise returns a strict-JSON
+    serializable Plotly figure dict with rainfall (bar) and extent (scatter) traces.
+    """
+    if "rainfall_mm" not in monthly or not monthly["rainfall_mm"].notna().any():
+        return None
+
+    month_number = pd.to_datetime(monthly["date"]).dt.month
+    labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    rain_means = [
+        _clean_val(monthly.loc[month_number == month, "rainfall_mm"].mean())
+        for month in range(1, 13)
+    ]
+    extent_means = [
+        _clean_val(monthly.loc[month_number == month, "extent_pct"].mean())
+        for month in range(1, 13)
+    ]
+
+    return {
+        "data": [
+            {
+                "type": "bar",
+                "name": "Mean Monthly Rainfall (mm)",
+                "x": labels,
+                "y": rain_means,
+                "yaxis": "y2",
+                "marker": {"color": "rgba(16, 185, 129, 0.42)"},
+            },
+            {
+                "type": "scatter",
+                "mode": "lines+markers",
+                "name": "Mean Monthly Extent (%)",
+                "x": labels,
+                "y": extent_means,
+                "line": {"color": "#0284c7", "width": 2},
+                "marker": {"color": "#0284c7", "size": 6},
+            },
+        ],
+        "layout": {
+            "paper_bgcolor": "#ffffff",
+            "plot_bgcolor": "#f8fafc",
+            "margin": {"l": 50, "r": 50, "t": 20, "b": 40},
+            "xaxis": {"title": "Calendar month", "showgrid": False},
+            "yaxis": {"title": "Water Extent (%)", "gridcolor": "#e2e8f0"},
+            "yaxis2": {
+                "title": "Rainfall (mm)",
+                "overlaying": "y",
+                "side": "right",
+                "showgrid": False,
+            },
+            "legend": {"orientation": "h", "y": -0.22, "x": 0.5, "xanchor": "center"},
+        },
+        "config": {
+            "responsive": True,
+            "displaylogo": False,
+            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+        },
+    }

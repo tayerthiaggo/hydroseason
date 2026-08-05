@@ -44,7 +44,7 @@ month; percentages are 0--100.
 | `in_wet_event` / `wet_event_id` | Whether the month belongs to a wet event and its identifier. |
 | `in_low_spell` / `low_spell_id` | Whether the month belongs to a low-extent spell and its identifier. |
 | `regime` / `route` | The regime decision and analysis route applied to the record. |
-| `rainfall_mm` / `rain_anomaly_mm` | Optional rainfall context, written only when rainfall is supplied. |
+| `rainfall_mm` / `rain_anomaly_mm` | Optional supplied-CSV or SILO rainfall context, written only when rainfall loads successfully. The anomaly is rainfall minus the median for the same calendar month. These fields never drive regime routing, boundaries, phases, events, or low spells. |
 
 ## Hydrological years (`<stem>_hydro_years.csv`)
 

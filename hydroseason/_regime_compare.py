@@ -77,37 +77,75 @@ def compare_extent_and_rainfall_regimes(
     extent_regime = assess_water_regime(
         extent, value_col=value_col, date_col=date_col, min_months_per_year=min_months_per_year
     )
+    return compare_rainfall_to_extent_regime(
+        extent_regime,
+        rainfall,
+        rainfall_value_col=rainfall_value_col,
+        date_col=date_col,
+        min_months_per_year=min_months_per_year,
+    )
 
+
+def compare_rainfall_to_extent_regime(
+    extent_regime: WaterRegimeAssessment,
+    rainfall,
+    *,
+    rainfall_value_col: str = "rainfall_mm",
+    date_col: str | None = None,
+    min_months_per_year: int = 9,
+) -> RegimeComparison:
+    """Interpret an already-computed extent regime against ancillary rainfall.
+
+    This is the authoritative comparison entry point: it takes the extent
+    regime as an already-built ``WaterRegimeAssessment`` rather than raw
+    extent data, so there is no path -- accidental or otherwise -- for
+    rainfall to feed back into extent/regime computation. Callers that only
+    have raw extent should use ``compare_extent_and_rainfall_regimes``, which
+    computes the assessment and delegates here.
+
+    ``rainfall`` may be ``None`` (no ancillary data available), a Series, or a
+    DataFrame with a ``rainfall_value_col`` column -- raw SILO output or any
+    other monthly rainfall series in the same shape.
+    """
     if rainfall is None:
         return RegimeComparison(
-            extent=extent_regime, rainfall=None, divergence="no_rainfall",
+            extent=extent_regime,
+            rainfall=None,
+            divergence="no_rainfall",
             interpretation=(
                 "No rainfall series supplied; extent regime reported on its own. "
-                "Add SILO rainfall for this catchment to test whether an aseasonal "
-                "or marginal extent regime reflects the local climate or a "
-                "non-rainfall driver (regulation, extraction, storage)."
+                "Add SILO rainfall for this catchment to compare the local rainfall "
+                "cycle with observed surface-water extent."
             ),
             peak_lag_months=None,
         )
-
-    rainfall_frame = monthly_rainfall_to_frame(rainfall, value_col=rainfall_value_col, date_col=date_col)
-    rainfall_regime = assess_water_regime(
-        rainfall_frame, min_months_per_year=min_months_per_year
+    rainfall_frame = monthly_rainfall_to_frame(
+        rainfall,
+        value_col=rainfall_value_col,
+        date_col=date_col,
     )
-
+    rainfall_regime = assess_water_regime(
+        rainfall_frame,
+        min_months_per_year=min_months_per_year,
+    )
     peak_lag = None
     if (
         extent_regime.climatological_peak_month is not None
         and rainfall_regime.climatological_peak_month is not None
     ):
         peak_lag = _circular_lag_months(
-            rainfall_regime.climatological_peak_month, extent_regime.climatological_peak_month
+            rainfall_regime.climatological_peak_month,
+            extent_regime.climatological_peak_month,
         )
-
-    divergence, interpretation = _interpret(extent_regime, rainfall_regime, peak_lag)
+    divergence, interpretation = _interpret(
+        extent_regime, rainfall_regime, peak_lag
+    )
     return RegimeComparison(
-        extent=extent_regime, rainfall=rainfall_regime, divergence=divergence,
-        interpretation=interpretation, peak_lag_months=peak_lag,
+        extent=extent_regime,
+        rainfall=rainfall_regime,
+        divergence=divergence,
+        interpretation=interpretation,
+        peak_lag_months=peak_lag,
     )
 
 
@@ -170,4 +208,9 @@ def _interpret(
     )
 
 
-__all__ = ["Divergence", "RegimeComparison", "compare_extent_and_rainfall_regimes"]
+__all__ = [
+    "Divergence",
+    "RegimeComparison",
+    "compare_extent_and_rainfall_regimes",
+    "compare_rainfall_to_extent_regime",
+]

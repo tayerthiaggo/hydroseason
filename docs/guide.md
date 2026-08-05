@@ -84,6 +84,57 @@ Local cache stores record persistent metadata to prevent tamper or mismatched pa
 
 ---
 
+## Main Workflow Orchestrator
+
+`run_hydroseason` is the supported one-call workflow. It resolves water
+input, runs the authoritative water-only `analyze_catchment` route, optionally
+adds ancillary rainfall, and writes the self-contained HTML/CSV bundle.
+
+| `water_source` | Resolution |
+|---|---|
+| `None` | Fetch DEA WOfS; requires `aoi`, `start_date`, and `end_date` |
+| CSV path or `pandas.DataFrame` | Use precomputed monthly `extent_pct`; optional `invalid_pct` defaults to `0.0` as an already-screened series |
+| NetCDF or Zarr path | Select and summarize one canonical mask variable |
+| `xarray.Dataset` or `xarray.DataArray` | Summarize the canonical mask in memory |
+
+Core CSV/DataFrame workflows require the base install. NetCDF, Zarr, xarray,
+and SILO require `hydroseason[raster]`; DEA fetching requires
+`hydroseason[stac]`.
+
+```python
+from hydroseason import run_hydroseason
+
+# Local NetCDF plus supplied rainfall CSV
+result = run_hydroseason(
+    "monthly_masks.nc",
+    output_dir="output/local",
+    water_mask_variable="water_mask",
+    aoi_name="Local AOI",
+    rainfall_csv_path="monthly_rainfall.csv",
+)
+
+# DEA fetch without rainfall
+result = run_hydroseason(
+    output_dir="output/dea",
+    aoi="aoi.geojson",
+    start_date="2005-01-01",
+    end_date="2025-12-01",
+)
+```
+
+Rainfall is off by default. `rainfall_csv_path` takes precedence over
+`fetch_rainfall=True`; otherwise the flag fetches SILO over the resolved
+water-extent years. Rainfall never enters `analyze_catchment` and cannot
+change the water regime, route, boundaries, phases, events, or low spells.
+
+`result.rainfall_status` is `disabled`, `provided`, `fetched`,
+`provided_failed`, or `fetch_failed`. Supplied/fetched load failures and
+comparison failures emit a warning and are recorded on the result, but the
+water-only report bundle is still written. Water loading, analysis, and
+report-writing failures remain fatal.
+
+---
+
 ## Input Paths
 
 ### Path 1: Extent CSV (Lightweight / Core Only)
