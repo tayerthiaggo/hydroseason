@@ -1078,6 +1078,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "twine" },
 ]
 docs = [
@@ -1148,6 +1149,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12,<1" },
     { name = "s3fs", marker = "extra == 'raster'", specifier = ">=2024.6" },
     { name = "shapely", marker = "extra == 'raster'", specifier = ">=2.0" },
+    { name = "tomli", marker = "python_full_version < '3.11' and extra == 'dev'", specifier = ">=2.0" },
     { name = "tqdm", marker = "extra == 'stac'", specifier = ">=4.65" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=6.1" },
     { name = "xarray", marker = "extra == 'raster'", specifier = ">=2023.8" },

@@ -17,16 +17,6 @@ gpd = pytest.importorskip("geopandas")
 
 from shapely.geometry import box  # noqa: E402
 
-from hydroseason._io_dea_stats import (  # noqa: E402
-    DEA_STATS_ALLTIME_COLLECTION,
-    DEA_STATS_ANNUAL_COLLECTION,
-    DEAStatsUnavailable,
-    WetPlanningFootprint,
-    build_wet_planning_footprint,
-    fetch_dea_stats_wet_aoi,
-    open_wo_statistics,
-    wet_mask_digest,
-)
 from hydroseason._historical_water_mask import (  # noqa: E402
     HistoricalWaterMask,
     HistoricalWaterMaskRequest,
@@ -37,8 +27,16 @@ from hydroseason._historical_water_mask import (  # noqa: E402
     write_historical_water_mask,
 )
 from hydroseason._historical_water_mask import _aoi_digest as _historical_aoi_digest  # noqa: E402
-from hydroseason._io_dea_stats import (  # noqa: E402
+from hydroseason._io_dea_stats import (  # noqa: E402  # noqa: E402
+    DEA_STATS_ALLTIME_COLLECTION,
+    DEA_STATS_ANNUAL_COLLECTION,
+    DEAStatsUnavailable,
+    WetPlanningFootprint,
     build_planning_footprint_from_historical_mask,
+    build_wet_planning_footprint,
+    fetch_dea_stats_wet_aoi,
+    open_wo_statistics,
+    wet_mask_digest,
 )
 
 
