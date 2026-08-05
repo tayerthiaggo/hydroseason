@@ -14,7 +14,8 @@ def test_package_import_exposes_only_migration_safe_surface():
         "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
         "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
         "verify_cache_footprints", "open_completed_dual_extent_counts",
-        "build_wet_planning_footprint", "WetPlanningFootprint",
+        "build_wet_planning_footprint", "WetPlanningFootprint", "HistoricalWaterMask",
+        "build_historical_water_mask", "load_or_build_historical_water_mask",
         "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
         "DynamicHydroYearConfig", "HydrologicalStateResult",
         "SeasonalPatternResult", "aggregate_basin_monthly_extent",
@@ -49,6 +50,9 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert callable(hydroseason.open_completed_dual_extent_counts)
     assert callable(hydroseason.build_wet_planning_footprint)
     assert hydroseason.WetPlanningFootprint.__name__ == "WetPlanningFootprint"
+    assert hydroseason.HistoricalWaterMask.__name__ == "HistoricalWaterMask"
+    assert callable(hydroseason.build_historical_water_mask)
+    assert callable(hydroseason.load_or_build_historical_water_mask)
     assert callable(hydroseason.assess_water_regime)
     assert callable(hydroseason.extract_water_events)
     assert callable(hydroseason.analyze_catchment)

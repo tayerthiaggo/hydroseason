@@ -73,10 +73,15 @@ HydroSeason evaluates regime signal-to-noise ratio (SNR) and peak dispersion to 
 
 ## Digital Earth Australia (DEA) Acquisition Options
 
-When acquiring water masks directly from DEA STAC:
+The default high-level acquisition follows one fixed workflow:
 
-- **`open_wo_statistics`**: Queries lazy DEA Water Observations statistics and derives historical frequency.
-- **Conservative Pruning (`planning_footprint` / `WetPlanningFootprint`)**: Restricts tile acquisition to an expanded, max-pooled planning mask for I/O efficiency without shrinking the full-AOI scientific denominator.
+`user AOI acquisition boundary -> cached DEA Multi-Year Statistics -> fixed unfiltered count_wet > 0 raster -> separate planning superset -> monthly WOfS -> percentage-based analysis -> four CSVs`
+
+- **Historical scientific footprint**: `load_wofs_monthly_extent` queries or reuses one pinned `ga_ls_wo_fq_myear_3` artifact and applies `(count_wet > 0) AND user AOI` on the analysis grid for every month. It applies no frequency threshold, closing, buffer, or Calendar Year union.
+- **Pinned provenance and coverage**: The verified mask manifest records the exact source version, item IDs, lineage, and coverage period. The source observed at design time was unfiltered and covered 1987--2025; the manifest values are authoritative. If `coverage_end` does not include the requested analysis end, acquisition fails closed instead of silently reverting to the full AOI.
+- **Conservative planning superset**: A separate coarse/dilated derivative restricts remote reads for efficiency. It never becomes the scientific denominator.
+- **Percentages and quality**: `n_aoi` is the fixed historical-mask pixel count. Pixels outside that mask are outside (`-2`), so their invalid observations do not affect `invalid_pct`. Classification and selected dates continue to use percentages; no area or km2 fields are produced.
+- **Explicit compatibility mode**: `python scripts/extract_water_extent_csv.py --full-aoi` retains the legacy full-AOI denominator for diagnostics and benchmarking only. The default never falls back to it when Statistics or a verified offline mask is unavailable.
 - **Composite Bundles (`composite_bundle`)**: Supports `legacy` (default single mask) and `hydrofragments_v1` (dual max/median water counts for downstream fragment analysis).
 
 ---
@@ -106,7 +111,8 @@ from hydroseason import (
     load_extent_csv, load_aoi, load_monthly_masks, load_monthly_masks_zarr,
     load_wofs_from_stac, load_wofs_monthly_extent, complete_monthly_axis,
     # DEA & Cache Surfaces
-    open_wo_statistics, build_wet_planning_footprint, WetPlanningFootprint,
+    open_wo_statistics, HistoricalWaterMask, load_or_build_historical_water_mask,
+    build_wet_planning_footprint, WetPlanningFootprint,
     acquire_wofs_cache, open_completed_mask_cache, open_completed_dual_extent_counts,
     verify_cache_footprints,
     # Regime & Catchment Analysis

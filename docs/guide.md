@@ -11,7 +11,7 @@ Every raster loader converges on the same canonical values before detection sees
 | `-1` | Invalid (cloud, shadow, no-data, out-of-domain code) |
 | `-2` | Outside AOI |
 
-`monthly_water_extent` summarizes a canonical cube into a monthly `extent_pct`/`invalid_pct` DataFrame. Only pixels explicitly equal to `0` or `1` count as valid observations (`n_valid`).
+`monthly_water_extent` summarizes a canonical cube into a monthly `extent_pct`/`invalid_pct` DataFrame. Only pixels explicitly equal to `0` or `1` count as valid observations (`n_valid`). In the default high-level DEA workflow, `n_aoi` is the fixed historical-water-mask pixel count; invalid pixels outside that mask are `-2` and do not contribute to `invalid_pct`.
 
 ---
 
@@ -38,8 +38,17 @@ unusable.
 
 HydroSeason provides direct interfaces for Digital Earth Australia (DEA) Water Observations (`ga_ls_wo_3`) and local Zarr caching:
 
-### 1. DEA Statistics (`open_wo_statistics`)
-Query lazy DEA statistics to derive historical wet frequency over an AOI:
+### 1. Fixed Historical Water Mask
+
+The default high-level route is:
+
+`user AOI acquisition boundary -> cached DEA Multi-Year Statistics -> fixed unfiltered count_wet > 0 raster -> separate planning superset -> monthly WOfS -> percentage-based analysis -> four CSVs`
+
+HydroSeason queries or reuses exactly one pinned `ga_ls_wo_fq_myear_3` artifact. The scientific mask is exactly `(count_wet > 0) AND rasterized user AOI` on the analysis grid. It has no frequency threshold, closing, buffer, Calendar Year union, or polygon round trip. The same raster is used for every requested month.
+
+The verified manifest pins source product/version, item IDs, lineage, and coverage start/end. The source observed at design time was unfiltered and covered 1987--2025; use the manifest's exact values as authority. If `coverage_end` predates the requested analysis end, or no verified cache exists in offline mode, loading fails closed and never substitutes the full AOI.
+
+`open_wo_statistics` remains available for direct inspection:
 ```python
 from hydroseason import open_wo_statistics
 
@@ -62,10 +71,10 @@ handle = acquire_wofs_cache(
 ```
 
 > [!IMPORTANT]
-> **Superset Guarantee:** `WetPlanningFootprint` expands native wet pixels via max pooling. All native wet pixels are guaranteed to remain inside the planning footprint. The full AOI area is preserved as the denominator for extent percentage calculation.
+> **Superset Guarantee:** `WetPlanningFootprint` expands native wet pixels via max pooling. All historical-mask pixels remain inside the planning footprint. The exact historical raster, not this performance-only superset, determines `n_aoi` and `invalid_pct`.
 
 > [!NOTE]
-> **Legacy Compatibility:** Passing `wet_mask="dea_stats"` uses legacy polygon pruning. The recommended path is caller-built `WetPlanningFootprint` passed via `planning_footprint`.
+> **Legacy Compatibility:** Pass `use_historical_water_mask=False`, or use `--full-aoi` in the extraction script, only when an explicit full-AOI diagnostic/reference result is required.
 
 ### 3. Mask Cache Integrity & Dual Composite Bundles
 Local cache stores record persistent metadata to prevent tamper or mismatched parameters:
@@ -114,8 +123,11 @@ extent = load_wofs_monthly_extent(
     start_date="2005-01-01",
     end_date="2025-12-01",
     cache_dir="output/extent_cache",
+    mask_cache_dir="output/wofs_cache",
 )
 ```
+
+This default resolves the fixed historical mask and separate planning superset. Regime, hydrological-year, phase, wet-event, and low-spell logic continues to select from `extent_pct`; no absolute-area columns are added.
 
 ---
 
@@ -130,7 +142,7 @@ extent = load_wofs_monthly_extent(
 
 ## HTML & CSV Report Bundle Export
 
-Generate manager-ready self-contained HTML reports and matching CSV export bundles (`monthly`, `hydro_years`, `events`, `low_spells`, `summary`):
+Generate manager-ready self-contained HTML reports and the four matching CSV exports (`monthly`, `hydro_years`, `wet_event`, and `low_spells`):
 
 ```python
 from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv

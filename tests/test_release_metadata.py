@@ -1,6 +1,9 @@
 from pathlib import Path
 
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib  # type: ignore[no-redef]
 
 from scripts.check_release_metadata import validate_release_metadata
 

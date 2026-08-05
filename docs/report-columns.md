@@ -12,6 +12,15 @@ The HTML report still receives the complete internal frames. The
 `build_summary_export` helpers remain available when a diagnostic table is
 needed programmatically.
 
+For monthly WOfS acquired through the default high-level workflow, the fixed
+scientific footprint is `(DEA Multi-Year count_wet > 0) AND user AOI`.
+`n_aoi` is that historical mask's constant pixel count,
+`invalid_pct = 100 * n_invalid / n_aoi`, and pixels outside the mask do not
+affect quality percentages. `extent_pct = 100 * n_water / n_valid` uses valid
+observations inside the same mask. The separate planning superset affects only
+remote reads. Date and event selection remains percentage-based, and no area,
+pixel-area, or km2 columns are added.
+
 ## Monthly timeline (`<stem>_monthly.csv`)
 
 One row is retained for every input month. `date` is the first day of the
@@ -21,8 +30,8 @@ month; percentages are 0--100.
 |---|---|
 | `date` | Month represented by the row. |
 | `extent_pct` | Observed surface-water extent percentage. |
-| `invalid_pct` | Percentage of pixels that were invalid in that month. |
-| `max_invalid_pct` | Configured per-month invalid-pixel limit used when determining `usable_month`. |
+| `invalid_pct` | Percentage of the fixed historical-mask pixels that were invalid in that month; invalid pixels outside the mask are excluded. |
+| `max_invalid_pct` | User-configurable per-month invalid-pixel limit over the historical-mask denominator, used when determining `usable_month`. |
 | `baseline_extent_pct` | Record baseline extent used by both wet-event and low-spell detection. |
 | `usable_month` | Whether the month is admitted by the configured quality policy. In the review-oriented `flag` workflow, finite partial-invalid months remain usable and are flagged by `quality_state`. |
 | `quality_state` | Quality label for the month (`usable`, `low`, `missing`, or `unknown`). |
@@ -97,8 +106,8 @@ multi-catchment case study keeps its aggregate
 `case_studies/results/main/summary.csv` for documentation tables; its extent
 marker is named `water_extent_peak_month`.
 
-`max_invalid_pct` is always a per-month invalid-pixel threshold, not a
-percentage of invalid months.
+`max_invalid_pct` is always a configurable per-month invalid-pixel threshold
+over the historical-mask denominator, not a percentage of invalid months.
 
 ## AOI naming
 
