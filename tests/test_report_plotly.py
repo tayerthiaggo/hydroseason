@@ -6,7 +6,7 @@ import pytest
 
 from hydroseason._catchment import analyze_catchment
 from hydroseason._report_export import build_monthly_export
-from hydroseason._report_plotly import secondary_figure, timeline_figure
+from hydroseason._report_plotly import rainfall_context_figure, secondary_figure, timeline_figure
 
 
 @pytest.fixture
@@ -70,3 +70,24 @@ def test_secondary_figure_is_light_and_serializable(seasonal_data):
     json.dumps(figure, allow_nan=False)
     assert figure["layout"]["paper_bgcolor"] == "#ffffff"
     assert figure["layout"]["plot_bgcolor"] == "#f8fafc"
+
+
+def test_rainfall_context_figure_pairs_monthly_climatologies(
+    seasonal_data_with_rainfall,
+):
+    monthly, _ = seasonal_data_with_rainfall
+    figure = rainfall_context_figure(monthly)
+
+    assert [trace["name"] for trace in figure["data"]] == [
+        "Mean Monthly Rainfall (mm)",
+        "Mean Monthly Extent (%)",
+    ]
+    assert figure["data"][0]["type"] == "bar"
+    assert figure["data"][1]["type"] == "scatter"
+    assert len(figure["data"][0]["x"]) == 12
+    json.dumps(figure, allow_nan=False)
+
+
+def test_rainfall_context_figure_is_none_without_rainfall(seasonal_data):
+    monthly, _ = seasonal_data
+    assert rainfall_context_figure(monthly) is None

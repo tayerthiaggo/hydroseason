@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 import calendar
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from hydroseason._catchment import CatchmentAnalysis
+
+from ._regime_compare import RegimeComparison
+
+
+_DIVERGENCE_LABELS = {
+    "agree": "Agree",
+    "extent_damped": "Extent damped versus rainfall",
+    "extent_more_seasonal": "Extent more seasonal than rainfall",
+    "rainfall_insufficient": "Rainfall record too short",
+    "extent_insufficient": "Extent record too short",
+    "partial": "Partial comparison",
+    "no_rainfall": "No rainfall data",
+}
 
 
 def _month_name(month_idx: int | float | None) -> str:
@@ -95,3 +108,57 @@ def select_kpis(analysis: CatchmentAnalysis) -> list[dict[str, str]]:
 
     # Ensure at most 6 items
     return kpis[:6]
+
+
+def build_rainfall_context(
+    *,
+    source: str,
+    comparison: RegimeComparison | None,
+    comparison_warning: str | None,
+) -> dict[str, Any]:
+    """Build rainfall context labels and metrics for display.
+
+    Consumes an already-computed RegimeComparison (Task 2 output) and returns
+    presentation-ready metadata: source title, divergence label, comparison status,
+    and derived monthly climatology metrics for a paired figure.
+    """
+    title = (
+        "Rainfall context (SILO)"
+        if source == "silo"
+        else "Rainfall context (supplied CSV)"
+    )
+    if comparison is None or comparison.rainfall is None:
+        return {
+            "title": title,
+            "divergence": "unavailable",
+            "comparison_label": "Unavailable",
+            "interpretation": "Rainfall values are shown, but regime comparison is unavailable.",
+            "extent_regime": None,
+            "rainfall_regime": None,
+            "extent_snr": None,
+            "rainfall_snr": None,
+            "extent_peak_month": "N/A",
+            "extent_trough_month": "N/A",
+            "rainfall_peak_month": "N/A",
+            "rainfall_trough_month": "N/A",
+            "peak_lag_months": None,
+            "warning": comparison_warning,
+        }
+    return {
+        "title": title,
+        "divergence": comparison.divergence,
+        "comparison_label": _DIVERGENCE_LABELS.get(
+            comparison.divergence, comparison.divergence.replace("_", " ").title()
+        ),
+        "interpretation": comparison.interpretation,
+        "extent_regime": comparison.extent.regime,
+        "rainfall_regime": comparison.rainfall.regime,
+        "extent_snr": comparison.extent.amplitude_snr,
+        "rainfall_snr": comparison.rainfall.amplitude_snr,
+        "extent_peak_month": _month_name(comparison.extent.climatological_peak_month),
+        "extent_trough_month": _month_name(comparison.extent.climatological_trough_month),
+        "rainfall_peak_month": _month_name(comparison.rainfall.climatological_peak_month),
+        "rainfall_trough_month": _month_name(comparison.rainfall.climatological_trough_month),
+        "peak_lag_months": comparison.peak_lag_months,
+        "warning": comparison_warning,
+    }
