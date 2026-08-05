@@ -97,7 +97,7 @@ def normalise_monthly_rainfall(
     missing = {date_col, value_col}.difference(rainfall.columns)
     if missing:
         raise ValueError(
-            f"Rainfall input requires date and rainfall_mm columns; missing: {sorted(missing)}."
+            f"Rainfall input requires {date_col!r} and {value_col!r} columns; missing: {sorted(missing)}."
         )
     out = rainfall[[date_col, value_col]].copy()
     out.index = pd.DatetimeIndex(
