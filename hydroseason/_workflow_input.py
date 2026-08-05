@@ -96,7 +96,7 @@ def _summarise_mask(mask, *, start_date: str | None, end_date: str | None) -> pd
         raise ValueError("Canonical water masks require exactly time, y, and x dimensions.")
     if mask.sizes["time"] == 0:
         raise ValueError("Canonical water mask has no time steps.")
-    valid_codes = mask.isin(np.array([-2, -1, 0, 1], dtype=mask.dtype)).all()
+    valid_codes = mask.astype("int16").isin(np.array([-2, -1, 0, 1], dtype=np.int16)).all()
     scalar = valid_codes.compute() if hasattr(valid_codes.data, "compute") else valid_codes
     if not bool(scalar.item()):
         raise ValueError("Canonical water mask contains values outside canonical values: -2, -1, 0, and 1.")
