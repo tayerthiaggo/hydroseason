@@ -27,7 +27,7 @@ from ._report_export import (
     write_report_csvs,
 )
 from ._report_html import render_report_html
-from ._report_plotly import hydro_year_figure, secondary_figure, timeline_figure
+from ._report_plotly import secondary_figure, timeline_figure
 from ._state_input import prepare_monthly_extent
 
 
@@ -157,7 +157,7 @@ def _legacy_timeline(monthly: pd.DataFrame) -> dict[str, Any]:
                     "name": name,
                     "x": [dates[i] for i, keep in enumerate(mask) if keep],
                     "y": [y[i] for i, keep in enumerate(mask) if keep],
-                    "marker": {"size": 10, "color": color, "symbol": symbol},
+                    "marker": {"size": 8, "color": color, "symbol": symbol},
                 }
             )
     return {
@@ -266,15 +266,15 @@ def generate_catchment_report(
         subtitle=subtitle,
         quality_note=quality_note,
         verdict=verdict,
-        kpis=select_kpis(analysis),
+        kpis=select_kpis(analysis, extent=monthly),
         monthly=monthly,
         hydro_years=hydro_years,
         events=events,
         low_spells=low_spells,
         summary=summary,
         timeline_figure=timeline_figure(monthly, analysis),
-        hydro_year_figure=hydro_year_figure(monthly, analysis),
         secondary_figure=secondary_figure(monthly, analysis),
+        quality_threshold=analysis.max_invalid_pct,
     )
     _write_text_atomic(html_path, html_text)
 

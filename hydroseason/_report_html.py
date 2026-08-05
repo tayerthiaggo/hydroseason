@@ -63,13 +63,160 @@ def _table(frame: pd.DataFrame, *, empty_text: str) -> str:
 
 def _kpi_cards(kpis: list[dict[str, str]]) -> str:
     cards = []
-    for item in kpis[:6]:
+    for item in kpis[:10]:
         cards.append(
             "<div class=\"kpi\">"
-            f"<span>{_escape(item.get('label', ''))}</span>"
-            f"<strong>{_escape(item.get('value', ''))}</strong>"
-            f"<small>{_escape(item.get('detail', ''))}</small>"
+            f"<strong class=\"kpi-value\">{_escape(item.get('value', ''))}</strong>"
+            f"<div class=\"kpi-label\">{_escape(item.get('label', ''))}<br>"
+            f"<small>{_escape(item.get('detail', ''))}</small></div>"
             "</div>"
+        )
+    return "".join(cards)
+
+
+def _safe_date(value: Any) -> pd.Timestamp | None:
+    if value is None or pd.isna(value):
+        return None
+    parsed = pd.to_datetime(value, errors="coerce")
+    return None if pd.isna(parsed) else pd.Timestamp(parsed)
+
+
+def _row_value(row: pd.Series, *names: str) -> Any:
+    for name in names:
+        if name in row.index and pd.notna(row[name]):
+            return row[name]
+    return None
+
+
+def _fmt_extent(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return "N/A"
+    return f"{float(value):.2f}%"
+
+
+def _fmt_date(value: Any, *, year: bool = True) -> str:
+    parsed = _safe_date(value)
+    if parsed is None:
+        return "N/A"
+    return parsed.strftime("%B %Y" if year else "%b %Y")
+
+
+def _interval_match(date: pd.Timestamp | None, rows: list[dict[str, Any]]) -> bool:
+    if date is None:
+        return False
+    for row in rows:
+        start = _safe_date(row.get("start") or row.get("start_date"))
+        end = _safe_date(row.get("end") or row.get("end_date"))
+        if start is not None and end is not None and start <= date <= end:
+            return True
+    return False
+
+
+def _browser_rows(
+    monthly: pd.DataFrame,
+    events: pd.DataFrame,
+    low_spells: pd.DataFrame,
+    *,
+    quality_threshold: float = 20.0,
+) -> list[dict[str, Any]]:
+    rows = _records(monthly, max_rows=10000)
+    event_rows = _records(events, max_rows=10000)
+    low_rows = _records(low_spells, max_rows=10000)
+    for row in rows:
+        date = _safe_date(row.get("date"))
+        if date is not None:
+            row.setdefault("year", int(date.year))
+            row.setdefault("display_date", date.strftime("%b %Y"))
+        invalid = row.get("invalid_pct")
+        try:
+            invalid_value = float(invalid)
+        except (TypeError, ValueError):
+            invalid_value = None
+        state = str(row.get("quality_state") or "").lower()
+        if invalid_value is None or state in {"missing", "unknown"}:
+            row["quality_filter"] = "missing"
+            row["quality_label"] = "Missing/unknown"
+        elif state == "usable" and invalid_value <= quality_threshold:
+            row["quality_filter"] = "good"
+            row["quality_label"] = "Good"
+        else:
+            row["quality_filter"] = "flagged"
+            row["quality_label"] = "Flagged"
+        row["wet_event"] = "Yes" if _interval_match(date, event_rows) else "No"
+        row["low_extent_spell"] = "Yes" if _interval_match(date, low_rows) else "No"
+    return rows
+
+
+def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
+    if hydro_years.empty:
+        return '<p class="empty">No hydrological-year cycles available.</p>'
+
+    monthly_frame = monthly.copy()
+    monthly_frame.index = pd.to_datetime(
+        monthly_frame["date"] if "date" in monthly_frame.columns else monthly_frame.index,
+        errors="coerce",
+    )
+    cards: list[str] = []
+    for _, row in hydro_years.sort_values("hy_year", ascending=False).iterrows():
+        start = _safe_date(_row_value(row, "hy_start", "start_date", "start"))
+        end = _safe_date(_row_value(row, "hy_end", "end_date", "end"))
+        if start is None or end is None:
+            continue
+        year = _row_value(row, "hy_year")
+        peak_date = _row_value(row, "peak_month", "peak_date")
+        mid_date = _row_value(row, "temporal_mid_dry_month", "mid_dry_month", "mid_dry_date")
+        trough_date = _row_value(row, "trough_month", "end_dry_month", "trough_date")
+        cycle = _row_value(row, "cycle_months", "n_months_cycle")
+        amplitude = _row_value(row, "drawdown_pct", "amplitude_pct")
+        confidence = str(_row_value(row, "confidence") or "unassigned").lower()
+        segment = monthly_frame.loc[(monthly_frame.index >= start) & (monthly_frame.index <= end)]
+        detail_rows: list[str] = []
+        for date, month in segment.iterrows():
+            phase = str(month.get("phase", "unspecified") or "unspecified")
+            phase_label = "Unassigned" if phase == "unspecified" else phase.title()
+            phase_class = phase if phase in {"recovery", "wet", "recession", "dry"} else "unassigned"
+            event = ""
+            if _safe_date(peak_date) == date:
+                event = '<span class="cell-marker marker-wet">Wet Peak</span>'
+            elif _safe_date(mid_date) == date:
+                event = '<span class="cell-marker marker-mid">Mid Dry</span>'
+            elif _safe_date(trough_date) == date:
+                event = '<span class="cell-marker marker-dry">Dry End</span>'
+            extent_value = month.get("extent_pct")
+            invalid_value = month.get("invalid_pct")
+            invalid_text = "N/A" if pd.isna(invalid_value) else f"{float(invalid_value):.2f}%"
+            detail_rows.append(
+                "<tr>"
+                f"<td>{_escape(date.strftime('%b %Y'))}</td>"
+                f"<td><span class=\"phase-badge phase-{phase_class}\">{_escape(phase_label)}</span></td>"
+                f"<td><strong>{_escape(_fmt_extent(extent_value))}</strong></td>"
+                f"<td>{_escape(invalid_text)}</td>"
+                f"<td>{event}</td>"
+                "</tr>"
+            )
+        cards.append(
+            '<details class="year-card">'
+            '<summary class="year-header">'
+            '<div class="year-title-group">'
+            '<span class="expand-icon">▶</span>'
+            f'<span class="year-number">HY {_escape(year)}</span>'
+            f'<span class="year-dates">{_escape(start.strftime("%b %Y"))} – {_escape(end.strftime("%b %Y"))}</span>'
+            '</div>'
+            '<div class="year-meta-group">'
+            f'<span class="summary-stat">Cycle: <strong>{_escape("N/A" if cycle is None or pd.isna(cycle) else f"{float(cycle):.1f} mos")}</strong></span>'
+            f'<span class="summary-stat">Amplitude: <strong>{_escape(_fmt_extent(amplitude))}</strong></span>'
+            f'<span class="confidence-badge badge-{_escape(confidence)}">{_escape(confidence.upper())}</span>'
+            '</div>'
+            '</summary>'
+            '<div class="year-detail-content">'
+            '<div class="detail-kpis">'
+            f'<div class="detail-kpi-card"><span class="detail-kpi-label">Peak Wet Month</span><span class="detail-kpi-value value-wet">{_escape(_fmt_date(peak_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "peak_extent_pct")))} extent</span></div>'
+            f'<div class="detail-kpi-card"><span class="detail-kpi-label">Mid-Dry Target</span><span class="detail-kpi-value value-mid">{_escape(_fmt_date(mid_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "temporal_mid_dry_extent_pct", "mid_extent_pct")))} extent</span></div>'
+            f'<div class="detail-kpi-card"><span class="detail-kpi-label">End Dry Month</span><span class="detail-kpi-value value-dry">{_escape(_fmt_date(trough_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "trough_extent_pct", "end_extent_pct")))} extent</span></div>'
+            '</div>'
+            '<table class="nested-table"><thead><tr><th>Month</th><th>Phase</th><th>Water Extent</th><th>Invalid/Cloud Cover</th><th>Key Event</th></tr></thead>'
+            f'<tbody>{"".join(detail_rows)}</tbody></table>'
+            '</div></details>'
         )
     return "".join(cards)
 
@@ -90,8 +237,10 @@ def render_report_html(
     timeline_figure: dict[str, Any],
     secondary_figure: dict[str, Any],
     hydro_year_figure: dict[str, Any] | None = None,
+    quality_threshold: float | None = None,
 ) -> str:
     """Render a self-contained light report with inline pinned Plotly."""
+    quality_threshold = 20.0 if quality_threshold is None else float(quality_threshold)
     plotly_js = _plotly_bundle()
     data_payload = {
         "name": name,
@@ -101,12 +250,15 @@ def render_report_html(
         "verdict": verdict,
         "figures": {
             "timeline": timeline_figure,
-            "hydro_year": hydro_year_figure
-            if hydro_year_figure is not None
-            else {"data": [], "layout": {}, "config": {"responsive": True, "displaylogo": False}},
             "secondary": secondary_figure,
         },
-        "preview_rows": _records(monthly),
+        "quality_threshold": quality_threshold,
+        "raw_rows": _browser_rows(
+            monthly,
+            events,
+            low_spells,
+            quality_threshold=quality_threshold,
+        ),
     }
     quality = ""
     if quality_note:
@@ -114,15 +266,6 @@ def render_report_html(
             '<div class="quality quality-banner" role="status">'
             f"<strong>Data quality:</strong> {_escape(quality_note)}</div>"
         )
-    tables = {
-        "hydro_years": _table(
-            hydro_years,
-            empty_text="No hydrological-year table applies to this route.",
-        ),
-        "events": _table(events, empty_text="No wet events detected."),
-        "low_spells": _table(low_spells, empty_text="No low-extent spells detected."),
-        "summary": _table(summary, empty_text="No summary row emitted."),
-    }
     return f"""<!doctype html>
 <html lang="en" data-theme="light">
 <head>
@@ -174,19 +317,21 @@ def render_report_html(
     }}
     .kpis {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-      gap: 10px;
-      margin: 18px 0;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 16px;
+      margin: 18px 0 24px;
     }}
     .kpi {{
-      min-height: 104px;
-      padding: 14px;
+      min-height: 126px;
+      padding: 20px;
       border: 1px solid var(--line);
       background: var(--panel);
       border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.05);
     }}
-    .kpi span, .kpi small {{ display: block; color: var(--muted); }}
-    .kpi strong {{ display: block; margin: 8px 0 4px; font-size: 1.35rem; }}
+    .kpi-value {{ display: block; margin: 0 0 4px; font-size: 1.65rem; line-height: 1.15; }}
+    .kpi-label {{ display: block; color: var(--muted); font-size: .78rem; line-height: 1.3; }}
+    .kpi-label small {{ font-size: .72rem; }}
     .plot, details {{
       border: 1px solid var(--line);
       background: var(--panel);
@@ -205,13 +350,54 @@ def render_report_html(
     }}
     .scale-controls button.active {{ background: var(--blue); border-color: var(--blue); color: #fff; }}
     details {{ margin-top: 14px; }}
+    .report-section {{ margin-top: 16px; }}
+    .report-section-content {{ padding-top: 12px; }}
     summary {{ cursor: pointer; font-weight: 650; }}
     .data-table {{ width: 100%; border-collapse: collapse; margin-top: 12px; font-size: .88rem; }}
     .data-table th, .data-table td {{ padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }}
     .data-table th {{ background: #eef2f7; }}
     .empty {{ color: var(--muted); margin-top: 10px; }}
+    .year-cards-container {{ display: flex; flex-direction: column; gap: 12px; margin: 16px 0 28px; }}
+    .year-card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.05); }}
+    .year-card[open] {{ border-color: var(--blue); }}
+    .year-header {{ padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 16px; list-style: none; }}
+    .year-header::-webkit-details-marker {{ display: none; }}
+    .year-title-group, .year-meta-group {{ display: flex; align-items: center; gap: 10px; }}
+    .expand-icon {{ color: var(--muted); font-size: .75rem; transition: transform .2s ease; }}
+    .year-card[open] .expand-icon {{ transform: rotate(90deg); }}
+    .year-number {{ font-size: 1.1rem; font-weight: 700; }}
+    .year-dates, .summary-stat {{ color: var(--muted); font-size: .82rem; }}
+    .confidence-badge {{ font-size: .68rem; font-weight: 700; padding: 3px 7px; border-radius: 4px; letter-spacing: .04em; }}
+    .badge-high {{ background: #dcfce7; color: #166534; }}
+    .badge-medium {{ background: #fef3c7; color: #92400e; }}
+    .badge-low {{ background: #fee2e2; color: #991b1b; }}
+    .badge-unassigned, .badge-nan {{ background: #e2e8f0; color: #475569; }}
+    .year-detail-content {{ padding: 0 18px 18px; border-top: 1px solid var(--line); background: #fafafa; }}
+    .detail-kpis {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0 18px; }}
+    .detail-kpi-card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }}
+    .detail-kpi-label {{ display: block; color: var(--muted); font-size: .7rem; text-transform: uppercase; margin-bottom: 3px; }}
+    .detail-kpi-value {{ display: block; font-size: 1rem; font-weight: 650; }}
+    .value-wet {{ color: #087f5b; }} .value-mid {{ color: #c2410c; }} .value-dry {{ color: #dc2626; }}
+    .detail-kpi-sub {{ display: block; color: var(--muted); font-size: .75rem; margin-top: 2px; }}
+    .nested-table, .main-table {{ width: 100%; border-collapse: collapse; font-size: .82rem; background: var(--panel); }}
+    .nested-table th, .nested-table td, .main-table th, .main-table td {{ padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; }}
+    .nested-table th, .main-table th {{ background: #eef2f7; font-size: .75rem; }}
+    .phase-badge, .cell-marker {{ display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: .7rem; font-weight: 650; }}
+    .phase-recovery {{ background: #d3e9d2; color: #166534; }} .phase-wet {{ background: #b9d9ef; color: #075985; }}
+    .phase-recession {{ background: #f3e6c6; color: #92400e; }} .phase-dry {{ background: #f1d7d4; color: #991b1b; }}
+    .phase-unassigned {{ background: #e2e8f0; color: #475569; }}
+    .marker-wet {{ background: #2563eb; color: #fff; }} .marker-mid {{ background: #f97316; color: #fff; }} .marker-dry {{ background: #dc2626; color: #fff; }}
+    .filters-row {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: end; padding: 14px; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }}
+    .filter-item {{ display: flex; flex-direction: column; gap: 4px; min-width: 150px; }}
+    .filter-item label {{ color: var(--muted); font-size: .75rem; }}
+    .filter-item select {{ border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; background: #fff; color: var(--ink); font: inherit; font-size: .82rem; }}
+    .main-table-container {{ overflow-x: auto; }}
     @media (max-width: 899px) {{
       main {{ padding: 20px 12px 36px; }}
+      .kpis {{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+      .year-header {{ align-items: flex-start; flex-direction: column; }}
+      .year-meta-group {{ flex-wrap: wrap; }}
+      .detail-kpis {{ grid-template-columns: 1fr; }}
       .plot-primary > .plot-canvas {{ min-height: 400px; }}
       .plot-heading {{ align-items: flex-start; flex-direction: column; }}
     }}
@@ -237,12 +423,38 @@ def render_report_html(
     </div>
     <div id="timeline" class="plot-canvas"></div>
   </section>
-  <section class="plot plot-primary"><h2>Hydrological Year Extent</h2><div id="hydro-year" class="plot-canvas"></div></section>
-  <section class="plot"><h2>Supporting View</h2><div id="secondary" class="plot-canvas"></div></section>
-  <details><summary>Hydrological years</summary>{tables["hydro_years"]}</details>
-  <details><summary>Wet events</summary>{tables["events"]}</details>
-  <details><summary>Low-extent spells</summary>{tables["low_spells"]}</details>
-  <details><summary>Method summary</summary>{tables["summary"]}</details>
+  <details class="report-section">
+    <summary>Seasonal Context</summary>
+    <div class="report-section-content">
+      <div class="plot"><div id="secondary" class="plot-canvas"></div></div>
+    </div>
+  </details>
+  <details class="report-section">
+    <summary>Yearly Cycle Details</summary>
+    <div class="report-section-content">
+      <p>Expand individual hydrological years to view monthly breakdowns and detailed statistics.</p>
+      <div class="year-cards-container">{_year_cards(monthly, hydro_years)}</div>
+    </div>
+  </details>
+  <details class="report-section">
+    <summary>Raw Data Browser</summary>
+    <div class="report-section-content">
+      <p>Filter and explore the monthly extent data directly.</p>
+      <div class="filters-row">
+        <div class="filter-item"><label for="raw-year-filter">Filter by Year</label><select id="raw-year-filter"><option value="all">All Years</option></select></div>
+        <div class="filter-item"><label for="raw-phase-filter">Filter by Phase</label><select id="raw-phase-filter"><option value="all">All Phases</option><option value="recovery">Recovery</option><option value="wet">Wet</option><option value="recession">Recession</option><option value="dry">Dry</option></select></div>
+        <div class="filter-item"><label for="raw-quality-filter">Data quality (threshold {quality_threshold:.1f}% invalid)</label><select id="raw-quality-filter"><option value="all">All Records</option><option value="good">Good</option><option value="flagged">Flagged</option><option value="missing">Missing/unknown</option></select></div>
+        <div class="filter-item"><label for="raw-event-filter">Wet events</label><select id="raw-event-filter"><option value="all">All Records</option><option value="yes">In wet event</option><option value="no">Outside wet event</option></select></div>
+        <div class="filter-item"><label for="raw-spell-filter">Low-extent spells</label><select id="raw-spell-filter"><option value="all">All Records</option><option value="yes">In low-extent spell</option><option value="no">Outside low-extent spell</option></select></div>
+      </div>
+      <div class="main-table-container">
+        <table class="main-table" id="raw-data-table">
+          <thead><tr><th>Date</th><th>Phase</th><th>Hydro Year</th><th>Extent (%)</th><th>Invalid (%)</th><th>Data quality</th><th>Wet event</th><th>Low-extent spell</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </details>
 </main>
 <script>
 /* {PLOTLY_ASSET_NAME}; vendored pinned offline runtime */
@@ -253,11 +465,60 @@ def render_report_html(
 (() => {{
   const figures = window.HydroSeasonReport.figures;
   const timeline = document.getElementById("timeline");
-  const hydroYear = document.getElementById("hydro-year");
   const secondary = document.getElementById("secondary");
   const linearButton = document.getElementById("timeline-scale-linear");
   const logButton = document.getElementById("timeline-scale-log");
+  const rawRows = window.HydroSeasonReport.raw_rows || [];
   const originalYByTrace = new WeakMap();
+
+  function escapeHtml(value) {{
+    const escapes = {{ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }};
+    return String(value ?? "").replace(/[&<>"']/g, character => escapes[character]);
+  }}
+
+  function formatPercent(value) {{
+    return value == null || value === "" || Number.isNaN(Number(value)) ? "N/A" : Number(value).toFixed(2) + "%";
+  }}
+
+  function populateRawBrowser() {{
+    const yearFilter = document.getElementById("raw-year-filter");
+    const phaseFilter = document.getElementById("raw-phase-filter");
+    const qualityFilter = document.getElementById("raw-quality-filter");
+    const eventFilter = document.getElementById("raw-event-filter");
+    const spellFilter = document.getElementById("raw-spell-filter");
+    if (!document.querySelector) return;
+    const body = document.querySelector("#raw-data-table tbody");
+    if (!yearFilter || !body) return;
+    [...new Set(rawRows.map(row => row.year).filter(year => year != null))]
+      .sort((left, right) => right - left)
+      .forEach(year => {{
+        const option = document.createElement("option");
+        option.value = String(year);
+        option.textContent = String(year);
+        yearFilter.appendChild(option);
+      }});
+    function render() {{
+      const rows = rawRows.filter(row =>
+        (yearFilter.value === "all" || String(row.year) === yearFilter.value) &&
+        (phaseFilter.value === "all" || String(row.phase || "unspecified") === phaseFilter.value) &&
+        (qualityFilter.value === "all" || String(row.quality_filter || "missing") === qualityFilter.value) &&
+        (eventFilter.value === "all" || String(row.wet_event || "No").toLowerCase() === eventFilter.value) &&
+        (spellFilter.value === "all" || String(row.low_extent_spell || "No").toLowerCase() === spellFilter.value)
+      );
+      body.innerHTML = rows.map(row => {{
+        const phase = String(row.phase || "unspecified");
+        const phaseLabel = phase === "unspecified" ? "Unassigned" : phase.charAt(0).toUpperCase() + phase.slice(1);
+        const hydroYear = row.hy_year == null ? "" : "HY " + row.hy_year;
+        return "<tr><td>" + escapeHtml(row.display_date || row.date) + "</td><td>" + escapeHtml(phaseLabel) +
+          "</td><td>" + escapeHtml(hydroYear) + "</td><td>" + formatPercent(row.extent_pct) +
+          "</td><td>" + formatPercent(row.invalid_pct) + "</td><td>" + escapeHtml(row.quality_label || "Missing/unknown") +
+          "</td><td>" + escapeHtml(row.wet_event || "No") +
+          "</td><td>" + escapeHtml(row.low_extent_spell || "No") + "</td></tr>";
+      }}).join("");
+    }}
+    [yearFilter, phaseFilter, qualityFilter, eventFilter, spellFilter].forEach(control => control && control.addEventListener("change", render));
+    render();
+  }}
 
   function originalY(trace) {{
     if (trace.meta && Array.isArray(trace.meta.original_y)) return trace.meta.original_y;
@@ -291,37 +552,34 @@ def render_report_html(
     logButton.setAttribute("aria-pressed", String(type === "log"));
   }}
 
-  function rangeUpdate(event, source) {{
-    if (Array.isArray(event["xaxis.range"])) return {{ "xaxis.range": event["xaxis.range"] }};
-    if (event["xaxis.range[0]"] !== undefined || event["xaxis.range[1]"] !== undefined) {{
-      const current = source.layout.xaxis.range || [];
-      return {{ "xaxis.range": [
-        event["xaxis.range[0]"] !== undefined ? event["xaxis.range[0]"] : current[0],
-        event["xaxis.range[1]"] !== undefined ? event["xaxis.range[1]"] : current[1],
-      ] }};
-    }}
-    return event["xaxis.autorange"] ? {{ "xaxis.autorange": true }} : null;
-  }}
-
-  let syncing = false;
-  function synchronize(source, target) {{
-    source.on("plotly_relayout", event => {{
-      const update = rangeUpdate(event, source);
-      if (!update || syncing) return;
-      syncing = true;
-      Plotly.relayout(target, update).finally(() => {{ syncing = false; }});
-    }});
+  function togglePhaseLegend(event) {{
+    const trace = timeline.data[event.curveNumber];
+    const phase = trace.meta && trace.meta.phase_legend;
+    if (!phase) return;
+    const hidden = trace.visible !== "legendonly";
+    const nextVisible = hidden ? "legendonly" : true;
+    const phaseName = "phase:" + phase;
+    const shapes = (timeline.layout.shapes || []).map(shape =>
+      shape.name === phaseName ? Object.assign({{}}, shape, {{visible: !hidden}}) : shape
+    );
+    Plotly.restyle(timeline, {{visible: nextVisible}}, [event.curveNumber]);
+    Plotly.relayout(timeline, {{shapes}});
+    return false;
   }}
 
   Promise.all([
     Plotly.newPlot(timeline, figures.timeline.data, figures.timeline.layout, figures.timeline.config),
-    Plotly.newPlot(hydroYear, figures.hydro_year.data, figures.hydro_year.layout, figures.hydro_year.config),
     Plotly.newPlot(secondary, figures.secondary.data, figures.secondary.layout, figures.secondary.config),
   ]).then(() => {{
     linearButton.addEventListener("click", () => setScale("linear"));
     logButton.addEventListener("click", () => setScale("log"));
-    synchronize(timeline, hydroYear);
-    synchronize(hydroYear, timeline);
+    timeline.on("plotly_legendclick", togglePhaseLegend);
+    if (document.querySelectorAll) document.querySelectorAll("details.report-section").forEach(section => {{
+      section.addEventListener("toggle", () => {{
+        if (section.open && section.contains(secondary)) Plotly.Plots.resize(secondary);
+      }});
+    }});
+    populateRawBrowser();
   }});
 }})();
 </script>

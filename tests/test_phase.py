@@ -102,6 +102,39 @@ def test_rule_based_phases_follow_one_way_order(monsonal_extent):
         assert values == sorted(values)
 
 
+def test_rule_based_phases_use_baseline_and_half_peak_anomaly():
+    dates = pd.date_range("2018-01-01", "2020-12-01", freq="MS")
+    baseline_year = [10, 10, 11, 12, 12, 11, 10, 9, 8, 7, 6, 5]
+    target_year = [5, 8, 15, 30, 25, 20, 15, 10, 8, 6, 5, 4]
+    values = baseline_year + baseline_year + target_year
+    raw = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
+    prepared = prepare_monthly_extent(raw)
+    config = DynamicHydroYearConfig(expected_trough_month=12, phase_model="rule_based")
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2020,
+                "status": "complete",
+                "hy_start": pd.Timestamp("2020-01-01"),
+                "hy_end": pd.Timestamp("2020-12-01"),
+                "peak_month": pd.Timestamp("2020-04-01"),
+                "peak_extent_pct": 30.0,
+                "trough_month": pd.Timestamp("2020-12-01"),
+                "trough_extent_pct": 4.0,
+                "boundary_status": "confirmed",
+            }
+        ]
+    )
+
+    labels = assign_monthly_phases(prepared, hydro_years, config, noise_pp=0.0)
+    actual = labels.loc["2020", "phase"].tolist()
+
+    assert actual == [
+        "recovery", "recovery", "wet", "wet", "wet", "recession",
+        "recession", "recession", "dry", "dry", "dry", "dry",
+    ]
+
+
 def test_monthly_phase_boundary_basis_matches_actual_annual_boundary_detector(monsonal_extent):
     # Regression for the stage-06 review finding: monthly_phase.boundary_basis
     # must report the detector that actually produced the annual boundaries,

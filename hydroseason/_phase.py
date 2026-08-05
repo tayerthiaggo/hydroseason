@@ -67,46 +67,92 @@ def _confidence(row: pd.Series, *, has_half_loss: bool, unusable: bool) -> float
     return float(np.clip(score, 0.0, 1.0))
 
 
-def _first_wet_transition(
+def _monthly_baseline(prepared: pd.DataFrame) -> pd.Series:
+    usable = prepared.loc[
+        prepared["candidate_usable"] & prepared["extent_pct"].notna(),
+        "extent_pct",
+    ]
+    if usable.empty:
+        return pd.Series(dtype=float)
+    return usable.groupby(usable.index.month).median()
+
+
+def _first_baseline_crossing(
     prepared: pd.DataFrame,
     *,
     start: pd.Timestamp,
     peak: pd.Timestamp,
-    previous_trough: pd.Timestamp,
-    peak_extent_pct: float,
+    baseline: pd.Series,
     noise_pp: float,
 ) -> pd.Timestamp:
-    pre_peak = prepared.loc[start:peak]
-    if pre_peak.empty:
+    window = prepared.loc[start:peak]
+    if window.empty:
         return peak
-    previous_extent = prepared.loc[previous_trough, "extent_pct"] if previous_trough in prepared.index else np.nan
-    if pd.isna(previous_extent):
-        previous_extent = pre_peak["extent_pct"].dropna().iloc[0]
-    mid_level = (float(previous_extent) + float(peak_extent_pct)) / 2.0
-
-    usable = pre_peak.loc[pre_peak["candidate_usable"] & pre_peak["extent_pct"].notna(), "extent_pct"]
-    if usable.empty:
+    values = window["extent_pct"]
+    levels = pd.Series(
+        [baseline.get(date.month, np.nan) for date in window.index],
+        index=window.index,
+        dtype=float,
+    )
+    usable = window["candidate_usable"] & values.notna() & levels.notna()
+    if not usable.any():
         return peak
-    slopes = usable.diff()
-    slopes.iloc[0] = float(usable.iloc[0]) - float(previous_extent)
-    candidates = usable.loc[usable.ge(mid_level - noise_pp) & slopes.ge(0.0)]
-    if candidates.empty:
+    slopes = values.diff()
+    previous = start - pd.DateOffset(months=1)
+    previous_value = prepared.loc[previous, "extent_pct"] if previous in prepared.index else values.iloc[0]
+    slopes.iloc[0] = values.iloc[0] - previous_value
+    candidates = window.index[usable & values.ge(levels) & slopes.ge(-float(noise_pp))]
+    if len(candidates) == 0:
         return peak
-    return pd.Timestamp(candidates.index[0])
+    return pd.Timestamp(candidates[0])
 
 
-def _fallback_recession_end(
+def _first_baseline_downcrossing(
     prepared: pd.DataFrame,
     *,
-    peak: pd.Timestamp,
+    start: pd.Timestamp,
     end: pd.Timestamp,
+    baseline: pd.Series,
 ) -> pd.Timestamp | None:
-    post_peak = prepared.loc[peak + pd.DateOffset(months=1):end].index
-    if post_peak.empty:
+    window = prepared.loc[start:end]
+    if window.empty:
         return None
-    if len(post_peak) == 1:
+    values = window["extent_pct"]
+    levels = pd.Series(
+        [baseline.get(date.month, np.nan) for date in window.index],
+        index=window.index,
+        dtype=float,
+    )
+    usable = window["candidate_usable"] & values.notna() & levels.notna()
+    candidates = window.index[usable & values.le(levels)]
+    if len(candidates) == 0:
         return None
-    return pd.Timestamp(post_peak[(len(post_peak) - 1) // 2])
+    return pd.Timestamp(candidates[0])
+
+
+def _first_relative_threshold_crossing(
+    prepared: pd.DataFrame,
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    baseline: pd.Series,
+    amplitude: float,
+    fraction: float,
+) -> pd.Timestamp | None:
+    window = prepared.loc[start:end]
+    if window.empty:
+        return None
+    values = window["extent_pct"]
+    levels = pd.Series(
+        [baseline.get(date.month, np.nan) + fraction * amplitude for date in window.index],
+        index=window.index,
+        dtype=float,
+    )
+    usable = window["candidate_usable"] & values.notna() & levels.notna()
+    candidates = window.index[usable & values.le(levels)]
+    if len(candidates) == 0:
+        return None
+    return pd.Timestamp(candidates[0])
 
 
 def assign_rule_based_phases(
@@ -116,9 +162,16 @@ def assign_rule_based_phases(
     noise_pp: float,
     boundary_basis: str = "robust_extrema",
 ) -> pd.DataFrame:
-    """Assign deterministic descriptive phases anchored to robust annual cycles."""
+    """Assign baseline-relative descriptive phases to robust annual cycles.
+
+    The month-specific reference median is the baseline. Recovery ends when
+    extent crosses that baseline while rising; wet/high-water continues through
+    the peak until half the peak anomaly is lost; recession continues until the
+    extent falls back through baseline; and dry continues to the trough.
+    """
     out = empty_monthly_phase(prepared, method="rule_based", boundary_basis=boundary_basis)
     out["phase_status"] = "outside_cycle"
+    baseline = _monthly_baseline(prepared)
 
     for _, row in hydro_years.iterrows():
         start = _as_month(row.get("hy_start"))
@@ -140,33 +193,47 @@ def assign_rule_based_phases(
         peak = _as_month(row.get("peak_month"))
         if start is None or end is None or peak is None:
             continue
-        previous_trough = start - pd.DateOffset(months=1)
-        wet_start = _first_wet_transition(
+        wet_start = _first_baseline_crossing(
             prepared,
             start=start,
             peak=peak,
-            previous_trough=previous_trough,
-            peak_extent_pct=float(row["peak_extent_pct"]),
+            baseline=baseline,
             noise_pp=noise_pp,
         )
 
-        half_loss = _as_month(row.get("half_loss_month"))
-        has_half_loss = half_loss is not None and peak < half_loss <= end
-        recession_end = (
-            half_loss
-            if has_half_loss
-            else _fallback_recession_end(prepared, peak=peak, end=end)
+        peak_extent = float(row["peak_extent_pct"])
+        peak_baseline = baseline.get(peak.month, np.nan)
+        trough_extent = float(row.get("trough_extent_pct", np.nan))
+        amplitude = peak_extent - float(peak_baseline) if pd.notna(peak_baseline) else np.nan
+        if not np.isfinite(amplitude) or amplitude <= 0:
+            amplitude = peak_extent - trough_extent
+        if not np.isfinite(amplitude) or amplitude <= 0:
+            amplitude = max(float(noise_pp), 1e-6)
+
+        half_crossing = _first_relative_threshold_crossing(
+            prepared,
+            start=peak + pd.DateOffset(months=1),
+            end=end,
+            baseline=baseline,
+            amplitude=amplitude,
+            fraction=0.5,
         )
+        half_start = half_crossing or peak + pd.DateOffset(months=1)
+        recession_end = _first_baseline_downcrossing(
+            prepared,
+            start=half_start + pd.DateOffset(months=1),
+            end=end,
+            baseline=baseline,
+        )
+        dry_start = recession_end or end
+        has_half_loss = half_crossing is not None
 
         assignments = [
             (start, wet_start - pd.DateOffset(months=1), "recovery"),
-            (wet_start, peak, "wet"),
+            (wet_start, half_start - pd.DateOffset(months=1), "wet"),
+            (half_start, dry_start - pd.DateOffset(months=1), "recession"),
+            (dry_start, end, "dry"),
         ]
-        if recession_end is not None:
-            assignments.append((peak + pd.DateOffset(months=1), recession_end, "recession"))
-            assignments.append((recession_end + pd.DateOffset(months=1), end, "dry"))
-        else:
-            assignments.append((peak + pd.DateOffset(months=1), end, "dry"))
 
         for phase_start, phase_end, phase in assignments:
             if phase_start > phase_end:

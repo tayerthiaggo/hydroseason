@@ -62,18 +62,42 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
 
     assert "Water Extent (%)" in names
     assert "Reference Median" in names
-    assert "Invalid Coverage (%)" in names
+    assert "Median Baseline" in names
+    assert "Invalid Coverage (%)" not in names
+    primary_names = [
+        trace["name"] for trace in figure["data"] if not trace.get("meta", {}).get("phase_legend")
+    ]
+    assert primary_names[:6] == [
+        "Water Extent (%)", "Reference Median", "Median Baseline",
+        "HY Peak", "HY Mid Dry", "HY End Dry",
+    ]
+    assert next(trace for trace in figure["data"] if trace["name"] == "Reference Median")["visible"] == "legendonly"
+    assert next(trace for trace in figure["data"] if trace["name"] == "Median Baseline")["visible"] == "legendonly"
     marker_names = {
         trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
     assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
-    assert {"phase:recovery", "phase:wet", "phase:recession", "phase:dry"} == {
+    assert {"phase:wet", "phase:recession", "phase:dry"} <= {
         shape["name"] for shape in phase_shapes
     }
+    phase_legend_names = {
+        trace["name"] for trace in figure["data"] if trace.get("meta", {}).get("phase_legend")
+    }
+    assert phase_legend_names == {"Recovery", "Wet", "Recession", "Dry"}
     assert figure["layout"]["yaxis"]["type"] == "linear"
-    assert figure["layout"]["yaxis2"]["title"] == "Invalid Coverage (%)"
-    assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is True
+    assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is False
+    assert figure["layout"]["dragmode"] == "pan"
+    assert not any(
+        shape.get("name", "").startswith("low confidence:")
+        for shape in figure["layout"]["shapes"]
+    )
     assert figure["config"]["scrollZoom"] is True
+
+    assert all(
+        trace["marker"]["size"] == 8
+        for trace in figure["data"]
+        if trace.get("name") in {"HY Peak", "HY Mid Dry", "HY End Dry"}
+    )
 
     mid_dry = next(trace for trace in figure["data"] if trace.get("name") == "HY Mid Dry")
     expected = [
@@ -116,17 +140,14 @@ def test_timeline_adds_rainfall_only_when_supplied(seasonal_data, seasonal_data_
     assert any(trace.get("name") == "Rainfall" for trace in with_rain["data"])
 
 
-def test_timeline_separates_invalid_and_rainfall_axes(seasonal_data_with_rainfall):
+def test_timeline_uses_single_rainfall_secondary_axis(seasonal_data_with_rainfall):
     monthly, analysis = seasonal_data_with_rainfall
 
     figure = timeline_figure(monthly, analysis)
 
-    assert figure["layout"]["xaxis"]["domain"] == [0.0, 0.82]
-    assert figure["layout"]["yaxis2"]["anchor"] == "free"
-    assert figure["layout"]["yaxis2"]["position"] == 0.84
-    assert figure["layout"]["yaxis3"]["anchor"] == "free"
-    assert figure["layout"]["yaxis3"]["position"] == 1.0
-    assert figure["layout"]["margin"]["r"] >= 120
+    assert figure["layout"]["yaxis2"]["title"] == "Rainfall (mm)"
+    assert "yaxis3" not in figure["layout"]
+    assert "domain" not in figure["layout"]["xaxis"]
 
 
 def test_extent_trace_preserves_non_positive_values_for_log_mode_hover(seasonal_data):
@@ -171,13 +192,13 @@ def test_timeline_extent_hover_has_month_context_with_and_without_markers():
     figure = timeline_figure(monthly, analysis)
     extent = next(trace for trace in figure["data"] if trace.get("name") == "Water Extent (%)")
 
-    assert extent["customdata"][0] == [0.0, -2.0, 4.0, "recovery", 2020, "HY Peak"]
-    assert extent["customdata"][1] == [12.5, 10.0, 5.0, "wet", 2020, "None"]
+    assert extent["customdata"][0] == [0.0, -2.0, "recovery", 2020, "HY Peak"]
+    assert extent["customdata"][1] == [12.5, 10.0, "wet", 2020, "None"]
     assert extent["hovertemplate"] == (
         "Date: %{x}<br>Water Extent: %{customdata[0]}%<br>"
         "Reference Median: %{customdata[1]}%<br>"
-        "Invalid Coverage: %{customdata[2]}%<br>Phase: %{customdata[3]}<br>"
-        "HY Year: %{customdata[4]}<br>Marker Status: %{customdata[5]}<extra></extra>"
+        "Phase: %{customdata[2]}<br>"
+        "HY Year: %{customdata[3]}<br>Marker Status: %{customdata[4]}<extra></extra>"
     )
     assert extent["meta"]["original_y"] == [0.0, 12.5, 30.0, 4.0]
 

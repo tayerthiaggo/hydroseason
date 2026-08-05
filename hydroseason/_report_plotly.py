@@ -12,15 +12,15 @@ if TYPE_CHECKING:
 
 LOG_FLOOR = 0.02
 PHASE_COLORS = {
-    "recovery": "#38bdf8",
-    "wet": "#22c55e",
-    "recession": "#f59e0b",
-    "dry": "#f97316",
+    "recovery": "#d3e9d2",
+    "wet": "#b9d9ef",
+    "recession": "#f3e6c6",
+    "dry": "#f1d7d4",
 }
 MARKERS = {
-    "HY Peak": ("peak_month", "#059669", "triangle-up"),
-    "HY Mid Dry": ("temporal_mid_dry_month", "#7c3aed", "diamond"),
-    "HY End Dry": ("trough_month", "#dc2626", "triangle-down"),
+    "HY Peak": ("peak_month", "#2563eb", "circle"),
+    "HY Mid Dry": ("temporal_mid_dry_month", "#f97316", "square"),
+    "HY End Dry": ("trough_month", "#dc2626", "circle"),
 }
 
 
@@ -57,13 +57,14 @@ def _base_layout(*, rangeslider: bool) -> dict[str, Any]:
     return {
         "paper_bgcolor": "#ffffff",
         "plot_bgcolor": "#f8fafc",
-        "margin": {"l": 50, "r": 50, "t": 30, "b": 40},
+        "margin": {"l": 50, "r": 50, "t": 35, "b": 138},
+        "dragmode": "pan",
         "xaxis": {
             "title": "Date",
             "showgrid": True,
             "gridcolor": "#e2e8f0",
             "zeroline": False,
-            "rangeslider": {"visible": rangeslider},
+            "rangeslider": {"visible": False},
         },
         "yaxis": {
             "title": "Water Extent (%)",
@@ -72,7 +73,24 @@ def _base_layout(*, rangeslider: bool) -> dict[str, Any]:
             "gridcolor": "#e2e8f0",
             "zeroline": False,
         },
-        "legend": {"orientation": "h", "y": -0.2, "x": 0.5, "xanchor": "center"},
+        "legend": {
+            "orientation": "h",
+            "y": -0.06,
+            "yanchor": "top",
+            "x": 0.5,
+            "xanchor": "center",
+            "itemclick": "toggle",
+            "itemdoubleclick": "toggleothers",
+        },
+        "legend2": {
+            "orientation": "h",
+            "y": -0.27,
+            "yanchor": "top",
+            "x": 0.5,
+            "xanchor": "center",
+            "itemclick": "toggle",
+            "itemdoubleclick": "toggleothers",
+        },
     }
 
 
@@ -145,12 +163,11 @@ def _monthly_hover_data(
 
     marker_statuses = _marker_status_by_date(analysis)
     return [
-        [extent_value, reference, invalid, phase, hy_year, marker_statuses.get(date, "None")]
-        for date, extent_value, reference, invalid, phase, hy_year in zip(
+        [extent_value, reference, phase, hy_year, marker_statuses.get(date, "None")]
+        for date, extent_value, reference, phase, hy_year in zip(
             dates,
             extent,
             values("reference_median_pct"),
-            values("invalid_pct"),
             values("phase"),
             values("hy_year"),
         )
@@ -160,11 +177,10 @@ def _monthly_hover_data(
 def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
     dates = _dates(monthly)
     monthly_values = {
-        _iso_date(date): (_clean_val(extent), _clean_val(invalid))
-        for date, extent, invalid in zip(
+        _iso_date(date): _clean_val(extent)
+        for date, extent in zip(
             dates,
             monthly.get("extent_pct", pd.Series(index=monthly.index, dtype=float)),
-            monthly.get("invalid_pct", pd.Series(index=monthly.index, dtype=float)),
         )
         if _iso_date(date) is not None
     }
@@ -179,11 +195,11 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
                 date = _iso_date(row[column])
                 if date is None:
                     continue
-                extent, invalid = monthly_values.get(date, (None, None))
+                extent = monthly_values.get(date)
                 x.append(date)
                 y.append(extent)
                 customdata.append([
-                    _clean_val(row.get("hy_year")), date, extent, invalid,
+                    _clean_val(row.get("hy_year")), date, extent,
                     _clean_val(row.get("confidence")), _clean_val(row.get("boundary_status")),
                 ])
         traces.append({
@@ -191,17 +207,33 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
             "customdata": customdata,
             "hovertemplate": (
                 "HY %{customdata[0]}<br>Date: %{customdata[1]}<br>"
-                "Extent: %{customdata[2]}%<br>Invalid: %{customdata[3]}%<br>"
-                "Confidence: %{customdata[4]}<br>Boundary: %{customdata[5]}<extra></extra>"
+                "Extent: %{customdata[2]}%<br>"
+                "Confidence level: %{customdata[3]}<br>Boundary: %{customdata[4]}<extra></extra>"
             ),
-            "marker": {"size": 10, "color": color, "symbol": symbol},
+            "marker": {
+                "size": 8,
+                "color": color,
+                "symbol": symbol,
+                "line": {"color": "#ffffff", "width": 1},
+            },
             "meta": _scale_meta(y),
         })
     return traces
 
 
-def _phase_shapes(monthly: pd.DataFrame, dates: list[pd.Timestamp]) -> list[dict[str, Any]]:
+def _phase_shapes(
+    monthly: pd.DataFrame,
+    dates: list[pd.Timestamp],
+    analysis: CatchmentAnalysis,
+) -> list[dict[str, Any]]:
     phases = monthly.get("phase", pd.Series(index=monthly.index, dtype=object)).tolist()
+    rows = getattr(analysis, "hydro_years", pd.DataFrame())
+    trough_dates = set()
+    if rows is not None and not rows.empty:
+        trough_dates = {
+            pd.Timestamp(value).to_period("M").to_timestamp()
+            for value in rows.get("trough_month", pd.Series(dtype="datetime64[ns]")).dropna()
+        }
     shapes: list[dict[str, Any]] = []
     start = 0
     while start < len(dates):
@@ -211,13 +243,92 @@ def _phase_shapes(monthly: pd.DataFrame, dates: list[pd.Timestamp]) -> list[dict
             end += 1
         if phase in PHASE_COLORS and pd.notna(dates[start]):
             boundary = dates[end] if end < len(dates) else dates[-1] + pd.DateOffset(months=1)
+            phase_start = dates[start]
+            if phase == "dry" and end < len(dates) and phases[end] == "recovery":
+                prior_troughs = [value for value in trough_dates if value <= dates[end]]
+                if prior_troughs:
+                    prior_trough = max(prior_troughs)
+                    if prior_trough == dates[end] - pd.DateOffset(months=1):
+                        boundary = prior_trough
+            if phase == "recovery":
+                prior_troughs = [value for value in trough_dates if value <= phase_start]
+                if prior_troughs:
+                    prior_trough = max(prior_troughs)
+                    if prior_trough >= phase_start - pd.DateOffset(months=1):
+                        phase_start = prior_trough
             shapes.append({
                 "name": f"phase:{phase}", "type": "rect", "xref": "x", "yref": "paper",
-                "x0": _iso_date(dates[start]), "x1": _iso_date(boundary), "y0": 0, "y1": 1,
-                "fillcolor": PHASE_COLORS[phase], "opacity": 0.12, "line": {"width": 0},
+                "x0": _iso_date(phase_start), "x1": _iso_date(boundary), "y0": 0, "y1": 1,
+                "fillcolor": PHASE_COLORS[phase], "opacity": 0.48, "line": {"width": 0},
+                "layer": "below",
             })
         start = end
     return shapes
+
+
+def _hydro_year_context(analysis: CatchmentAnalysis) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    rows = getattr(analysis, "hydro_years", pd.DataFrame())
+    if rows is None or rows.empty:
+        return [], []
+
+    shapes: list[dict[str, Any]] = []
+    annotations: list[dict[str, Any]] = []
+    seen_boundaries: set[str] = set()
+    for _, row in rows.iterrows():
+        start = _iso_date(row.get("hy_start"))
+        end = _iso_date(row.get("hy_end"))
+        trough = _iso_date(row.get("trough_month"))
+        if trough is not None and trough not in seen_boundaries:
+            seen_boundaries.add(trough)
+            shapes.append({
+                "name": f"HY trough {trough}",
+                "type": "line",
+                "xref": "x",
+                "yref": "paper",
+                "x0": trough,
+                "x1": trough,
+                "y0": 0,
+                "y1": 1,
+                "line": {"color": "#94a3b8", "dash": "dash", "width": 0.6},
+                "layer": "below",
+            })
+
+        if start is not None and end is not None:
+            midpoint = pd.Timestamp(start) + (pd.Timestamp(end) - pd.Timestamp(start)) / 2
+        elif trough is not None:
+            midpoint = pd.Timestamp(trough)
+        else:
+            continue
+        hy_year = _clean_val(row.get("hy_year"))
+        annotations.append({
+            "text": f"HY {hy_year}",
+            "xref": "x",
+            "yref": "paper",
+            "x": _iso_date(midpoint),
+            "y": 1.02,
+            "showarrow": False,
+            "yanchor": "bottom",
+            "font": {"size": 10, "color": "#64748b"},
+        })
+    return shapes, annotations
+
+
+def _phase_legend_traces() -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "scatter",
+            "mode": "lines",
+            "name": phase.title(),
+            "legend": "legend2",
+            "legendgroup": f"phase:{phase}",
+            "x": [None],
+            "y": [None],
+            "line": {"color": color, "width": 10},
+            "hoverinfo": "skip",
+            "meta": {"phase_legend": phase},
+        }
+        for phase, color in PHASE_COLORS.items()
+    ]
 
 
 def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[str, Any]:
@@ -226,6 +337,21 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
     dates = [_iso_date(date) for date in raw_dates]
     extent_vals = _clean_list(monthly["extent_pct"])
     data: list[dict[str, Any]] = []
+
+    data.append(
+        _extent_trace(
+            dates,
+            extent_vals,
+            name="Water Extent (%)",
+            customdata=_monthly_hover_data(monthly, dates, extent_vals, analysis),
+            hovertemplate=(
+                "Date: %{x}<br>Water Extent: %{customdata[0]}%<br>"
+                "Reference Median: %{customdata[1]}%<br>"
+                "Phase: %{customdata[2]}<br>"
+                "HY Year: %{customdata[3]}<br>Marker Status: %{customdata[4]}<extra></extra>"
+            ),
+        )
+    )
 
     if "reference_median_pct" in monthly.columns:
         reference = _clean_list(monthly["reference_median_pct"])
@@ -241,49 +367,39 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
                     "Date: %{x}<br>Reference Median: %{customdata}%<extra></extra>"
                 ),
                 "line": {"color": "#94a3b8", "dash": "dash", "width": 1.5},
+                "visible": "legendonly",
                 "meta": _scale_meta(reference),
             })
-    data.append(
-        _extent_trace(
-            dates,
-            extent_vals,
-            name="Water Extent (%)",
-            customdata=_monthly_hover_data(monthly, dates, extent_vals, analysis),
-            hovertemplate=(
-                "Date: %{x}<br>Water Extent: %{customdata[0]}%<br>"
-                "Reference Median: %{customdata[1]}%<br>"
-                "Invalid Coverage: %{customdata[2]}%<br>Phase: %{customdata[3]}<br>"
-                "HY Year: %{customdata[4]}<br>Marker Status: %{customdata[5]}<extra></extra>"
-            ),
-        )
-    )
-
-    has_invalid = "invalid_pct" in monthly.columns and any(
-        value is not None for value in _clean_list(monthly["invalid_pct"])
-    )
-    if has_invalid:
-        data.append({"type": "scatter", "mode": "lines", "name": "Invalid Coverage (%)", "x": dates,
-                     "y": _clean_list(monthly["invalid_pct"]), "yaxis": "y2",
-                     "line": {"color": "#d97706", "width": 1.5}})
-
+            median_baseline = float(np.nanmedian([value for value in reference if value is not None]))
+            data.append({
+                "type": "scatter",
+                "mode": "lines",
+                "name": "Median Baseline",
+                "x": [dates[0], dates[-1]],
+                "y": [median_baseline, median_baseline],
+                "customdata": [median_baseline, median_baseline],
+                "hovertemplate": "Median Baseline: %{customdata}<extra></extra>",
+                "line": {"color": "#475569", "dash": "dot", "width": 1.5},
+                "visible": "legendonly",
+                "meta": _scale_meta([median_baseline, median_baseline]),
+            })
+    data.extend(_marker_traces(monthly, analysis))
     has_rainfall = "rainfall_mm" in monthly.columns and monthly["rainfall_mm"].notna().any()
     if has_rainfall:
         data.append({"type": "bar", "name": "Rainfall", "x": dates, "y": _clean_list(monthly["rainfall_mm"]),
-                     "yaxis": "y3" if has_invalid else "y2", "marker": {"color": "rgba(148, 163, 184, 0.4)"}})
-    data.extend(_marker_traces(monthly, analysis))
+                     "yaxis": "y2", "marker": {"color": "rgba(148, 163, 184, 0.4)"}})
+    data.extend(_phase_legend_traces())
 
-    layout = _base_layout(rangeslider=True)
-    layout["shapes"] = _phase_shapes(monthly, raw_dates)
-    if has_invalid:
-        layout["yaxis2"] = {"title": "Invalid Coverage (%)", "type": "linear", "overlaying": "y", "side": "right", "showgrid": False, "zeroline": False}
+    layout = _base_layout(rangeslider=False)
+    hydro_shapes, hydro_annotations = _hydro_year_context(analysis)
+    layout["shapes"] = (
+        _phase_shapes(monthly, raw_dates, analysis)
+        + hydro_shapes
+    )
+    layout["annotations"] = hydro_annotations
+    layout["margin"]["t"] = 52
     if has_rainfall:
-        rainfall_axis = "yaxis3" if has_invalid else "yaxis2"
-        layout[rainfall_axis] = {"title": "Rainfall (mm)", "type": "linear", "overlaying": "y", "side": "right", "showgrid": False, "zeroline": False}
-    if has_invalid and has_rainfall:
-        layout["xaxis"]["domain"] = [0.0, 0.82]
-        layout["yaxis2"].update({"anchor": "free", "position": 0.84})
-        layout["yaxis3"].update({"anchor": "free", "position": 1.0})
-        layout["margin"]["r"] = 130
+        layout["yaxis2"] = {"title": "Rainfall (mm)", "type": "linear", "overlaying": "y", "side": "right", "showgrid": False, "zeroline": False}
     return {"data": data, "layout": layout, "config": _config()}
 
 
@@ -319,9 +435,34 @@ def secondary_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict
         months = range(1, 13)
         month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         m_indices = pd.to_datetime(monthly["date"]).dt.month if "date" in monthly.columns else monthly.index.month
-        means = [_clean_val(monthly.loc[m_indices == month, "extent_pct"].dropna().mean()) if not monthly.loc[m_indices == month, "extent_pct"].dropna().empty else None for month in months]
-        data.append({"type": "bar", "name": "Mean Monthly Extent (%)", "x": month_names, "y": means, "marker": {"color": "#0284c7"}})
-        layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 30, "b": 40}, "xaxis": {"title": "Month", "showgrid": False}, "yaxis": {"title": "Mean Extent (%)", "showgrid": True, "gridcolor": "#e2e8f0"}}
+        grouped = monthly.assign(_month=m_indices).groupby("_month")["extent_pct"]
+        means = grouped.mean().reindex(months)
+        stds = grouped.std().fillna(0.0).reindex(months).fillna(0.0)
+        lower = (means - stds).clip(lower=0.0)
+        upper = means + stds
+        data.extend([
+            {
+                "type": "scatter", "mode": "lines", "name": "Mean - 1 std",
+                "x": month_names, "y": _clean_list(lower), "showlegend": False,
+                "line": {"width": 0}, "hoverinfo": "skip",
+            },
+            {
+                "type": "scatter", "mode": "lines", "name": "Mean + 1 std",
+                "x": month_names, "y": _clean_list(upper), "showlegend": False,
+                "line": {"width": 0}, "fill": "tonexty",
+                "fillcolor": "rgba(2, 132, 199, 0.16)", "hoverinfo": "skip",
+            },
+            {
+                "type": "scatter", "mode": "lines+markers",
+                "name": "Long-term monthly water extent (+/-1 std)",
+                "x": month_names, "y": _clean_list(means),
+                "customdata": [[_clean_val(mean), _clean_val(std)] for mean, std in zip(means, stds)],
+                "hovertemplate": "Month: %{x}<br>Mean: %{customdata[0]}%<br>Std: %{customdata[1]}%<extra></extra>",
+                "line": {"color": "#0284c7", "width": 2},
+                "marker": {"size": 6, "color": "#0284c7"},
+            },
+        ])
+        layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 58, "b": 40}, "title": {"text": "Long-term monthly water extent (+/-1 std)", "x": 0.02, "xanchor": "left", "font": {"size": 13, "color": "#334155"}}, "xaxis": {"title": "Month", "showgrid": False}, "yaxis": {"title": "Mean Extent (%)", "showgrid": True, "gridcolor": "#e2e8f0"}}
     else:
         events = analysis.events.events
         if not events.empty and "duration_months" in events.columns:
