@@ -25,33 +25,41 @@ pip install "hydroseason[all]"       # Complete raster + STAC dependencies
 
 ---
 
-## Quickstart (CSV Input)
+## Quickstart
+
+Run the complete local workflow from a monthly extent CSV:
 
 ```python
-from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv
+from hydroseason import run_hydroseason
 
-# 1. Load monthly surface-water extent series (2005-2025)
-extent = load_extent_csv(
+result = run_hydroseason(
     "monthly_extent.csv",
-    date_col="date",
-    value_col="extent_pct",
-)
-
-# 2. Automatic regime routing (seasonal vs aseasonal)
-analysis = analyze_catchment(extent, phase_model="rule_based")
-print(f"Regime: {analysis.regime.regime} | Route: {analysis.route}")
-
-# 3. Generate self-contained HTML report and CSV bundle
-paths = generate_catchment_report(
-    extent,
     output_dir="output/report",
-    name="my_catchment",
-    analysis=analysis,
-    title="My Catchment",
-    subtitle="Monthly surface-water hydrological analysis",
+    aoi_name="My AOI",
+    analysis_options={"phase_model": "rule_based"},
 )
-print(f"HTML report written to: {paths.html}")
+
+print(f"Regime: {result.analysis.regime.regime}")
+print(f"Route: {result.analysis.route}")
+print(f"HTML: {result.artifacts.html}")
 ```
+
+Or fetch both DEA WOfS water extent and ancillary SILO rainfall:
+
+```python
+result = run_hydroseason(
+    output_dir="output/fitzroy",
+    aoi="fitzroy.geojson",
+    aoi_name="Fitzroy River",
+    start_date="2005-01-01",
+    end_date="2025-12-01",
+    fetch_rainfall=True,
+)
+```
+
+Rainfall is ancillary and non-fatal. It adds context to the monthly CSV and
+HTML report, but never changes water-regime routing, hydrological-year
+boundaries, phases, wet events, or low-extent spells.
 
 ---
 
@@ -102,6 +110,8 @@ HydroSeason includes two fully reproducible offline case studies using 2005–20
 
 ```python
 from hydroseason import (
+    # Main workflow
+    run_hydroseason, HydroSeasonRunResult,
     # Loaders & I/O
     load_extent_csv, load_aoi, load_monthly_masks, load_monthly_masks_zarr,
     load_wofs_from_stac, load_wofs_monthly_extent, complete_monthly_axis,

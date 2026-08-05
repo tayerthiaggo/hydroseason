@@ -43,6 +43,7 @@ from .io import (
     verify_cache_footprints,
 )
 from .report import CatchmentReportPaths, generate_catchment_report, generate_html_report
+from .workflow import HydroSeasonRunResult, run_hydroseason
 
 try:
     __version__ = _pkg_version("hydroseason")
@@ -66,4 +67,5 @@ __all__ = [
     "Regime", "WaterRegimeAssessment", "assess_water_regime",
     "WaterEventResult", "extract_water_events",
     "CatchmentAnalysis", "analyze_catchment",
+    "HydroSeasonRunResult", "run_hydroseason",
 ]
