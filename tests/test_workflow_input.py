@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
@@ -94,7 +92,7 @@ def _mask_array():
 
 
 def test_dataarray_dataset_netcdf_and_zarr_match(tmp_path):
-    xr = pytest.importorskip("xarray")
+    pytest.importorskip("xarray")
     mask = _mask_array()
     dataset = mask.to_dataset(name="water_mask")
     netcdf_path = tmp_path / "masks.nc"

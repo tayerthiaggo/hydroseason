@@ -8,7 +8,6 @@ if TYPE_CHECKING:
 
 from ._regime_compare import RegimeComparison
 
-
 _DIVERGENCE_LABELS = {
     "agree": "Agree",
     "extent_damped": "Extent damped versus rainfall",
