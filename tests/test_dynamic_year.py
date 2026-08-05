@@ -512,3 +512,26 @@ def test_peak_diagnostic_columns_are_nan_for_unresolved_cycles():
         assert pd.isna(row["raw_peak_extent_pct"])
         assert pd.isna(row["peak_selection_status"])
         assert pd.isna(row["peak_selection_support"])
+
+
+def test_record_start_boundary_cycle_is_never_high_confidence():
+    """A cycle opened at the record's edge is an assumption, not a
+    detection, and must never be scored "high". Task 1 forces
+    boundary_status="provisional" for these, which caps _confidence's
+    score at 0.75 -- below the 0.80 "high" threshold.
+    """
+    index = pd.date_range("2005-01-01", periods=36, freq="MS")
+    opening = [90.0, 78.0, 66.0, 54.0, 42.0, 30.0, 22.0, 16.0, 11.0, 8.0]
+    following = list(
+        30.0 + 20.0 * np.cos(2 * np.pi * (index[10:].month - 4) / 12)
+    )
+    raw = pd.DataFrame(
+        {"extent_pct": opening + following, "invalid_pct": 0.0}, index=index
+    )
+    config = DynamicHydroYearConfig(expected_trough_month=10)
+
+    result = detect_dynamic_hydrological_years(raw, config=config)
+
+    first_row = result.iloc[0]
+    assert first_row["status_reason"] == "record_start_boundary"
+    assert first_row["confidence"] in {"medium", "low"}
