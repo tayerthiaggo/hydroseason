@@ -404,11 +404,27 @@ def check_resolution_study(
         target_fidelity = pd.read_csv(fidelity_csv)
         target_decision = pd.read_csv(decision_csv)
 
-        if not gen_fidelity.equals(target_fidelity):
+        def matches_checked(generated: pd.DataFrame, checked: pd.DataFrame) -> bool:
+            try:
+                # BLAS/platform differences can change floating-point tails while
+                # leaving the scientific decision unchanged.
+                pd.testing.assert_frame_equal(
+                    generated,
+                    checked,
+                    check_dtype=False,
+                    check_exact=False,
+                    rtol=1e-12,
+                    atol=1e-12,
+                )
+            except AssertionError:
+                return False
+            return True
+
+        if not matches_checked(gen_fidelity, target_fidelity):
             print("CHECK FAIL: fidelity.csv content mismatch.", file=sys.stderr)
             return False
 
-        if not gen_decision.equals(target_decision):
+        if not matches_checked(gen_decision, target_decision):
             print("CHECK FAIL: decision.csv content mismatch.", file=sys.stderr)
             return False
 
