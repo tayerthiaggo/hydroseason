@@ -64,8 +64,8 @@ def _base_layout(*, rangeslider: bool) -> dict[str, Any]:
             "showgrid": True,
             "gridcolor": "#e2e8f0",
             "zeroline": False,
-            "rangeslider": {"visible": False},
-        },
+            "rangeslider": {"visible": bool(rangeslider)},
+        }
         "yaxis": {
             "title": "Water Extent (%)",
             "type": "linear",
