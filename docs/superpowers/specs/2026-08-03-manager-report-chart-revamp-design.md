@@ -37,11 +37,9 @@ The chart keeps the chronological monthly extent line as the main trace. It
 also renders:
 
 - dashed reference median trace when available;
-- invalid percentage as an amber line on a linear right-hand y-axis;
 - low-opacity phase bands for recovery, wet, recession, and dry;
-- peak, mid-dry, and end-dry markers sourced from HY-derived monthly flags;
-- hover fields for date, extent, reference median, invalid percentage, phase,
-  HY year, and marker status.
+- peak, mid-dry, and end-dry markers sourced from HY-derived monthly exports;
+- hover fields for date, extent, reference median, phase, HY year, and marker status.
 
 The left y-axis defaults to linear. The `Linear scale` and `Log scale` controls
 change the left axis type without changing the invalid-percentage axis. Log
