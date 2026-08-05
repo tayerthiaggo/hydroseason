@@ -5,7 +5,6 @@ import pytest
 
 from hydroseason import DynamicHydroYearConfig, detect_dynamic_hydrological_years
 
-
 ROOT = Path(__file__).parents[1]
 CASES = {
     "fitzroy_river_wa": ("fitzroy_river_wa_30m.csv", 11),

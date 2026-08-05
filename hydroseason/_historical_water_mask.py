@@ -829,9 +829,9 @@ def load_or_build_historical_water_mask(
     task, not invented here.
     """
     from hydroseason._io_dea_stats import (
-        DEAStatsUnavailable,
         DEFAULT_WO_STATISTICS_PRODUCT,
         DEFAULT_WO_STATISTICS_STAC_URL,
+        DEAStatsUnavailable,
     )
     from hydroseason._io_geo import load_aoi
 

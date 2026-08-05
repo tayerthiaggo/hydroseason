@@ -33,13 +33,25 @@ def test_aseasonal_copy_never_mentions_hydrological_year(aseasonal_analysis):
     assert "no stable annual cycle" in sentence
     assert "use wet events" in sentence
     assert "hydrological-year boundaries" not in sentence
-    assert len(select_kpis(aseasonal_analysis)) <= 6
+    assert len(select_kpis(aseasonal_analysis)) == 10
 
 
 def test_seasonal_kpis_include_complete_year_count(seasonal_analysis):
-    labels = {item["label"] for item in select_kpis(seasonal_analysis)}
-    assert "Complete hydrological years" in labels
-    assert len(select_kpis(seasonal_analysis)) <= 6
+    kpis = select_kpis(seasonal_analysis)
+    labels = [item["label"] for item in kpis]
+    assert labels == [
+        "hydrological years",
+        "mean annual amplitude",
+        "mean cycle length",
+        "Typical peak month",
+        "Typical trough month",
+        "lower water extent at end of dry season",
+        "higher water extent in wet season",
+        "average water extent at end of dry season",
+        "high confidence years",
+        "average invalid/cloud cover",
+    ]
+    assert len(kpis) == 10
 
 
 def test_seasonal_copy_has_regime_verdict(seasonal_analysis):

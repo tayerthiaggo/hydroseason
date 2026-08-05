@@ -36,7 +36,7 @@ month; percentages are 0--100.
 | `usable_month` | Whether the month is admitted by the configured quality policy. In the review-oriented `flag` workflow, finite partial-invalid months remain usable and are flagged by `quality_state`. |
 | `quality_state` | Quality label for the month (`usable`, `low`, `missing`, or `unknown`). |
 | `hy_year` | Hydrological-year identifier, blank when the selected route does not define years. |
-| `phase` | Phase label when a hydrological-year phase model is available. Partial cycles are labelled provisionally; `unspecified` is reserved for months outside a resolvable cycle or routes without phases. |
+| `phase` | Phase label when a hydrological-year phase model is available. With `rule_based`, phases use the month-specific Reference Median: recovery (trough to rising baseline crossing), wet (through peak to half peak anomaly), recession (to the falling baseline crossing), then dry (to trough). Partial cycles are labelled provisionally; `unspecified` is reserved for months outside a resolvable cycle or routes without phases. |
 | `phase_status` | Phase provenance (`ok`, `provisional`, `unresolved_cycle`, `outside_cycle`, `unusable`, or `disabled`). |
 | `is_hy_peak` | `True` for the detected annual maximum month. |
 | `is_hy_mid_dry` | `True` for the temporal mid-dry marker. |

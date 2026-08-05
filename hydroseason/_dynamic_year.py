@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 
 from ._boundary import (
-    _RAW_MINIMUM_REL_TOLERANCE,
     RobustBoundaryConfig,
     robust_scale,
     select_boundary_sequence,

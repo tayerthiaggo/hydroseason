@@ -36,8 +36,21 @@ cycle boundaries. The default `phase_model="none"` returns the stable
 
 Set `phase_model="rule_based"` on `DynamicHydroYearConfig` to label months
 inside complete robust-extrema cycles as `recovery`, `wet`, `recession`, then
-`dry`. Labels are anchored to the selected robust trough boundaries,
-`peak_month`, and `half_loss_month`; months outside complete cycles remain
+`dry`. Phase boundaries use the month-specific Reference Median baseline,
+computed as the median of usable observations for each calendar month:
+
+- `recovery`: detected trough until the extent crosses the baseline while rising;
+- `wet`: baseline crossing through the peak until half the peak anomaly is lost;
+- `recession`: half-anomaly crossing until the extent falls back through baseline;
+- `dry`: below-baseline extent until the detected trough.
+
+The half-anomaly threshold is `baseline(t) + 0.5 * (peak - baseline(peak))`;
+it is deliberately not half of the raw peak extent. The annual
+`half_loss_month` field remains the separate peak-to-trough diagnostic. These
+are descriptive surface-water phases, not discharge or baseflow separation.
+
+Labels are anchored to the selected robust trough boundaries and `peak_month`;
+months outside complete cycles remain
 `unspecified` with `phase_status="outside_cycle"`, and months in partial cycles
 are marked `phase_status="unresolved_cycle"`. Unusable months keep their
 positional phase label for continuity, but use `phase_status="unusable"` with

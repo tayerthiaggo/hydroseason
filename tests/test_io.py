@@ -367,9 +367,8 @@ def test_hydrofragments_v1_secondary_composite_respects_historical_water_mask(mo
     pytest.importorskip("rioxarray")
     pytest.importorskip("odc.geo")
     geopandas = pytest.importorskip("geopandas")
-    from shapely.geometry import box
-
     from odc.geo.geobox import GeoBox
+    from shapely.geometry import box
 
     from hydroseason._io_geo import build_wofs_year_graph
 

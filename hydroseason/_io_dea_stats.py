@@ -224,6 +224,8 @@ def open_wo_statistics(
     (``guard_area_metric_crs``); this loader is source-agnostic and hands
     whatever grid was asked for, unsigned COG reads and all, straight back.
     """
+    import concurrent.futures
+
     import odc.stac
     import pystac_client
 
@@ -266,7 +268,7 @@ def open_wo_statistics(
                 lambda: list(search.items()),
                 STAC_SEARCH_DEADLINE_S,
             )
-        except TimeoutError as exc:
+        except (TimeoutError, concurrent.futures.TimeoutError) as exc:
             raise WoStatisticsUnavailable(
                 f"DEA Water Observation Statistics search exceeded the "
                 f"{STAC_SEARCH_DEADLINE_S:g}s deadline"

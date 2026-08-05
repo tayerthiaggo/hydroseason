@@ -3,6 +3,9 @@ from __future__ import annotations
 import calendar
 from typing import TYPE_CHECKING
 
+import numpy as np
+import pandas as pd
+
 if TYPE_CHECKING:
     from hydroseason._catchment import CatchmentAnalysis
 
@@ -51,47 +54,97 @@ def verdict_sentence(analysis: CatchmentAnalysis) -> str:
         )
 
 
-def select_kpis(analysis: CatchmentAnalysis) -> list[dict[str, str]]:
-    """Select at most 6 key performance indicators tailored to catchment regime."""
-    assessment = analysis.regime
-    kpis: list[dict[str, str]] = []
+def _metric_column(frame: pd.DataFrame, *names: str) -> pd.Series:
+    for name in names:
+        if name in frame.columns:
+            return pd.to_numeric(frame[name], errors="coerce")
+    return pd.Series(dtype=float)
 
-    # 1. Regime
-    regime_display = assessment.regime.replace("_", " ").title()
-    kpis.append({"label": "Regime", "value": regime_display, "detail": "Assessed seasonal strength"})
 
-    # 2. SNR
-    kpis.append({"label": "Signal-to-Noise Ratio", "value": f"{assessment.amplitude_snr:.2f}", "detail": "SNR metric"})
+def _number(value: float | int | None, *, decimals: int = 1, suffix: str = "") -> str:
+    if value is None or not np.isfinite(float(value)):
+        return "N/A"
+    return f"{float(value):.{decimals}f}{suffix}"
 
-    # 3. Route
-    route_display = analysis.route.replace("_", " ").title()
-    kpis.append({"label": "Hydrological route", "value": route_display, "detail": "Analytical workflow path"})
 
-    if analysis.route in ("per_year_detection", "climatological_fixed"):
-        hy_df = analysis.hydro_years
-        complete_cnt = 0
-        if not hy_df.empty and "status" in hy_df.columns:
-            complete_cnt = int((hy_df["status"] == "complete").sum())
+def _date_range_label(extent: pd.DataFrame | None) -> str:
+    if extent is None or extent.empty:
+        return "Source record"
+    source = extent["date"] if "date" in extent.columns else extent.index
+    dates = pd.to_datetime(source, errors="coerce" ).dropna()
+    if dates.empty:
+        return "Source record"
+    return f"{dates.min():%b %Y} to {dates.max():%b %Y}"
 
-        kpis.append({
-            "label": "Complete hydrological years",
-            "value": str(complete_cnt),
-            "detail": "Robust dynamic annual cycles" if analysis.route == "per_year_detection" else "Imposed annual cycles",
-        })
 
-        trough_m = _month_name(analysis.climatological_trough_month)
-        peak_m = _month_name(analysis.climatological_peak_month)
+def select_kpis(
+    analysis: CatchmentAnalysis,
+    extent: pd.DataFrame | None = None,
+) -> list[dict[str, str]]:
+    """Build the ten manager-facing summary cards in display order."""
+    hy_df = analysis.hydro_years.copy()
+    n_years = len(hy_df)
+    amplitude = _metric_column(hy_df, "drawdown_pct", "amplitude_pct")
+    cycle_length = _metric_column(hy_df, "cycle_months", "n_months_cycle")
+    peak = _metric_column(hy_df, "peak_extent_pct")
+    trough = _metric_column(hy_df, "trough_extent_pct", "end_extent_pct")
+    confidence = hy_df.get("confidence", pd.Series(dtype=object)).astype(str).str.lower()
+    high_confidence = int(confidence.eq("high").sum())
+    average_invalid = (
+        pd.to_numeric(extent["invalid_pct"], errors="coerce").mean()
+        if extent is not None and "invalid_pct" in extent.columns
+        else np.nan
+    )
 
-        kpis.append({"label": "Typical peak month", "value": peak_m, "detail": "Climatological max"})
-        kpis.append({"label": "Typical trough month", "value": trough_m, "detail": "Climatological min"})
-
-    else:
-        # Event characterisation / insufficient
-        n_events = len(analysis.events.events) if hasattr(analysis.events, "events") else 0
-        n_spells = len(analysis.events.low_spells) if hasattr(analysis.events, "low_spells") else 0
-
-        kpis.append({"label": "Wet events detected", "value": str(n_events), "detail": "Distinct high-water events"})
-        kpis.append({"label": "Low-extent spells", "value": str(n_spells), "detail": "Prolonged dry/low periods"})
-
-    # Ensure at most 6 items
-    return kpis[:6]
+    return [
+        {
+            "label": "hydrological years",
+            "value": str(n_years),
+            "detail": _date_range_label(extent),
+        },
+        {
+            "label": "mean annual amplitude",
+            "value": _number(amplitude.mean(), suffix="%"),
+            "detail": "difference between peak and end dry",
+        },
+        {
+            "label": "mean cycle length",
+            "value": _number(cycle_length.mean()),
+            "detail": "months per hydro-year",
+        },
+        {
+            "label": "Typical peak month",
+            "value": _month_name(analysis.climatological_peak_month),
+            "detail": "climatological maximum",
+        },
+        {
+            "label": "Typical trough month",
+            "value": _month_name(analysis.climatological_trough_month),
+            "detail": "climatological minimum",
+        },
+        {
+            "label": "lower water extent at end of dry season",
+            "value": _number(trough.min(), suffix="%"),
+            "detail": "minimum across all hydro-years",
+        },
+        {
+            "label": "higher water extent in wet season",
+            "value": _number(peak.max(), suffix="%"),
+            "detail": "maximum across all hydro-years",
+        },
+        {
+            "label": "average water extent at end of dry season",
+            "value": _number(trough.mean(), suffix="%"),
+            "detail": "mean across all hydro-years",
+        },
+        {
+            "label": "high confidence years",
+            "value": str(high_confidence),
+            "detail": f"out of {n_years} total years",
+        },
+        {
+            "label": "average invalid/cloud cover",
+            "value": _number(average_invalid, suffix="%"),
+            "detail": f"mean across {len(extent) if extent is not None else 0} months of observations",
+        },
+    ]

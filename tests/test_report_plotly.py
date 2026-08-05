@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -6,7 +7,7 @@ import pytest
 
 from hydroseason._catchment import analyze_catchment
 from hydroseason._report_export import build_monthly_export
-from hydroseason._report_plotly import secondary_figure, timeline_figure
+from hydroseason._report_plotly import hydro_year_figure, secondary_figure, timeline_figure
 
 
 @pytest.fixture
@@ -46,11 +47,86 @@ def test_plotly_figures_are_light_and_serializable(seasonal_data):
     json.dumps(figure, allow_nan=False)
     assert figure["layout"]["paper_bgcolor"] == "#ffffff"
     assert figure["layout"]["plot_bgcolor"] == "#f8fafc"
-    assert figure["config"] == {
-        "responsive": True,
-        "displaylogo": False,
-        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+    assert figure["config"]["responsive"] is True
+    assert figure["config"]["displaylogo"] is False
+    assert figure["config"]["scrollZoom"] is True
+    assert "lasso2d" in figure["config"]["modeBarButtonsToRemove"]
+    assert "select2d" in figure["config"]["modeBarButtonsToRemove"]
+
+
+def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_data):
+    monthly, analysis = seasonal_data
+    figure = timeline_figure(monthly, analysis)
+    names = {trace.get("name") for trace in figure["data"]}
+    phase_shapes = [shape for shape in figure["layout"]["shapes"] if shape.get("name", "").startswith("phase:")]
+
+    assert "Water Extent (%)" in names
+    assert "Reference Median" in names
+    assert "Median Baseline" in names
+    assert "Invalid Coverage (%)" not in names
+    primary_names = [
+        trace["name"] for trace in figure["data"] if not trace.get("meta", {}).get("phase_legend")
+    ]
+    assert primary_names[:6] == [
+        "Water Extent (%)", "Reference Median", "Median Baseline",
+        "HY Peak", "HY Mid Dry", "HY End Dry",
+    ]
+    assert next(trace for trace in figure["data"] if trace["name"] == "Reference Median")["visible"] == "legendonly"
+    assert next(trace for trace in figure["data"] if trace["name"] == "Median Baseline")["visible"] == "legendonly"
+    marker_names = {
+        trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
+    assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
+    assert {"phase:wet", "phase:recession", "phase:dry"} <= {
+        shape["name"] for shape in phase_shapes
+    }
+    phase_legend_names = {
+        trace["name"] for trace in figure["data"] if trace.get("meta", {}).get("phase_legend")
+    }
+    assert phase_legend_names == {"Recovery", "Wet", "Recession", "Dry"}
+    assert figure["layout"]["yaxis"]["type"] == "linear"
+    assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is False
+    assert figure["layout"]["dragmode"] == "pan"
+    assert not any(
+        shape.get("name", "").startswith("low confidence:")
+        for shape in figure["layout"]["shapes"]
+    )
+    assert figure["config"]["scrollZoom"] is True
+
+    assert all(
+        trace["marker"]["size"] == 8
+        for trace in figure["data"]
+        if trace.get("name") in {"HY Peak", "HY Mid Dry", "HY End Dry"}
+    )
+
+    mid_dry = next(trace for trace in figure["data"] if trace.get("name") == "HY Mid Dry")
+    expected = [
+        pd.Timestamp(value).strftime("%Y-%m-%d")
+        for value in analysis.hydro_years["temporal_mid_dry_month"].dropna()
+    ]
+    assert mid_dry["x"] == expected
+
+
+def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(seasonal_data):
+    monthly, analysis = seasonal_data
+    figure = hydro_year_figure(monthly, analysis)
+
+    assert any(trace.get("name") == "Hydrological-year extent" for trace in figure["data"])
+    marker_names = {
+        trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
+    }
+    assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
+    assert any(annotation.get("text", "").startswith("HY ") for annotation in figure["layout"]["annotations"])
+    assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is False
+
+    expected_intervals = {
+        (pd.Timestamp(row.hy_start).strftime("%Y-%m-%d"), pd.Timestamp(row.hy_end).strftime("%Y-%m-%d"))
+        for row in analysis.hydro_years.itertuples()
+        if pd.notna(row.hy_start) and pd.notna(row.hy_end)
+    }
+    intervals = [shape for shape in figure["layout"]["shapes"] if shape.get("name", "").startswith("HY ")]
+    assert all(shape.get("type") == "rect" for shape in intervals)
+    assert {(shape["x0"], shape["x1"]) for shape in intervals} == expected_intervals
 
 
 def test_timeline_adds_rainfall_only_when_supplied(seasonal_data, seasonal_data_with_rainfall):
@@ -62,6 +138,86 @@ def test_timeline_adds_rainfall_only_when_supplied(seasonal_data, seasonal_data_
 
     assert all(trace.get("name") != "Rainfall" for trace in without["data"])
     assert any(trace.get("name") == "Rainfall" for trace in with_rain["data"])
+
+
+def test_timeline_uses_single_rainfall_secondary_axis(seasonal_data_with_rainfall):
+    monthly, analysis = seasonal_data_with_rainfall
+
+    figure = timeline_figure(monthly, analysis)
+
+    assert figure["layout"]["yaxis2"]["title"] == "Rainfall (mm)"
+    assert "yaxis3" not in figure["layout"]
+    assert "domain" not in figure["layout"]["xaxis"]
+
+
+def test_extent_trace_preserves_non_positive_values_for_log_mode_hover(seasonal_data):
+    monthly, analysis = seasonal_data
+    monthly = monthly.copy()
+    monthly.loc[0, "extent_pct"] = 0.0
+    monthly.loc[1, "extent_pct"] = -1.0
+
+    figure = timeline_figure(monthly, analysis)
+    extent = next(trace for trace in figure["data"] if trace.get("name") == "Water Extent (%)")
+
+    assert extent["meta"]["log_safe_y"][:2] == [0.02, 0.02]
+    assert extent["meta"]["original_y"][:2] == [0.0, -1.0]
+    assert [row[0] for row in extent["customdata"][:2]] == [0.0, -1.0]
+    assert "%{customdata[0]}" in extent["hovertemplate"]
+
+
+def test_timeline_extent_hover_has_month_context_with_and_without_markers():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01"]),
+            "extent_pct": [0.0, 12.5, 30.0, 4.0],
+            "reference_median_pct": [-2.0, 10.0, 20.0, 6.0],
+            "invalid_pct": [4.0, 5.0, 6.0, 7.0],
+            "phase": ["recovery", "wet", "recession", "dry"],
+            "hy_year": [2020, 2020, 2020, 2020],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "temporal_mid_dry_month": [pd.Timestamp("2020-03-01")],
+                "trough_month": [pd.Timestamp("2020-04-01")],
+                "confidence": ["high"],
+                "boundary_status": ["complete"],
+            }
+        )
+    )
+
+    figure = timeline_figure(monthly, analysis)
+    extent = next(trace for trace in figure["data"] if trace.get("name") == "Water Extent (%)")
+
+    assert extent["customdata"][0] == [0.0, -2.0, "recovery", 2020, "HY Peak"]
+    assert extent["customdata"][1] == [12.5, 10.0, "wet", 2020, "None"]
+    assert extent["hovertemplate"] == (
+        "Date: %{x}<br>Water Extent: %{customdata[0]}%<br>"
+        "Reference Median: %{customdata[1]}%<br>"
+        "Phase: %{customdata[2]}<br>"
+        "HY Year: %{customdata[3]}<br>Marker Status: %{customdata[4]}<extra></extra>"
+    )
+    assert extent["meta"]["original_y"] == [0.0, 12.5, 30.0, 4.0]
+
+
+def test_reference_median_keeps_original_values_for_log_hover(seasonal_data):
+    monthly, analysis = seasonal_data
+    monthly = monthly.copy()
+    monthly.loc[0, "reference_median_pct"] = 0.0
+    monthly.loc[1, "reference_median_pct"] = -1.0
+
+    figure = timeline_figure(monthly, analysis)
+    reference = next(trace for trace in figure["data"] if trace.get("name") == "Reference Median")
+
+    assert reference["meta"]["original_y"][:2] == [0.0, -1.0]
+    assert reference["meta"]["log_safe_y"][:2] == [0.02, 0.02]
+    assert reference["customdata"][:2] == [0.0, -1.0]
+    assert reference["hovertemplate"] == (
+        "Date: %{x}<br>Reference Median: %{customdata}%<extra></extra>"
+    )
 
 
 def test_secondary_figure_is_light_and_serializable(seasonal_data):

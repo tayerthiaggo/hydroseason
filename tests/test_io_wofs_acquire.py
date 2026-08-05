@@ -1510,7 +1510,6 @@ def test_planned_windows_limit_reads_while_exact_historical_mask_sets_stored_pix
     excluded from n_aoi, even though the planning-driven windows still cover
     it (nothing to prune away at the coarse level for a single excluded
     native cell)."""
-    from hydroseason._io_geo import build_wofs_year_graph as real_build_wofs_year_graph
 
     historical_mask = _historical_mask(exclude_cells=[(0, 0)])
     footprint = _footprint_from(historical_mask)
@@ -1577,7 +1576,6 @@ def test_planning_dilation_does_not_increase_n_aoi(monkeypatch, tmp_path):
     must never leak into the stored n_aoi denominator -- n_aoi must still
     equal historical_water_mask.pixel_count exactly, proving the planning
     mask never supplies n_aoi/counts, only active-window selection."""
-    from hydroseason._io_wofs_zarr import open_completed_extent_counts
 
     historical_mask = _historical_mask(exclude_cells=[(0, 0), (0, 1)])
     # A wide dilation halo: the planning footprint's coarse/native mask
@@ -1600,7 +1598,6 @@ def test_planning_dilation_does_not_increase_n_aoi(monkeypatch, tmp_path):
         historical_water_mask=historical_mask, planning_footprint=footprint,
     )
 
-    request = handle.identity
     from hydroseason._io_wofs_zarr import _handle_request_dict
 
     request_dict = _handle_request_dict(handle)
