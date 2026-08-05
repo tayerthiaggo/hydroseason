@@ -236,7 +236,6 @@ def render_report_html(
     summary: pd.DataFrame,
     timeline_figure: dict[str, Any],
     secondary_figure: dict[str, Any],
-    hydro_year_figure: dict[str, Any] | None = None,
     quality_threshold: float | None = None,
 ) -> str:
     """Render a self-contained light report with inline pinned Plotly."""
