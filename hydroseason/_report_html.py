@@ -74,6 +74,44 @@ def _kpi_cards(kpis: list[dict[str, str]]) -> str:
     return "".join(cards)
 
 
+def _format_metric(value: object, *, digits: int = 2) -> str:
+    if value is None or pd.isna(value):
+        return "N/A"
+    if isinstance(value, (float, int)):
+        return f"{float(value):.{digits}f}"
+    return str(value)
+
+
+def _rainfall_details(context: dict[str, Any] | None) -> str:
+    if context is None:
+        return ""
+    lag = context.get("peak_lag_months")
+    lag_text = "N/A" if lag is None else f"{int(lag)} month(s)"
+    warning = (
+        f'<p class="rain-warning">{_escape(context["warning"])}</p>'
+        if context.get("warning")
+        else ""
+    )
+    return (
+        '<details class="rainfall-context">'
+        f'<summary>{_escape(context["title"])}</summary>'
+        f'<div class="rain-badge">{_escape(context["comparison_label"])}</div>'
+        '<div class="rain-grid">'
+        '<div id="rainfall-context-figure"></div>'
+        '<dl class="rain-stats">'
+        f'<dt>Rainfall regime</dt><dd>{_escape(context.get("rainfall_regime") or "N/A")}</dd>'
+        f'<dt>Comparison</dt><dd>{_escape(context["comparison_label"])}</dd>'
+        f'<dt>Extent SNR</dt><dd>{_escape(_format_metric(context.get("extent_snr")))}</dd>'
+        f'<dt>Rain SNR</dt><dd>{_escape(_format_metric(context.get("rainfall_snr")))}</dd>'
+        f'<dt>Extent peak / trough</dt><dd>{_escape(context["extent_peak_month"])} / {_escape(context["extent_trough_month"])}</dd>'
+        f'<dt>Rain peak / trough</dt><dd>{_escape(context["rainfall_peak_month"])} / {_escape(context["rainfall_trough_month"])}</dd>'
+        f'<dt>Peak lag</dt><dd>{_escape(lag_text)}</dd>'
+        '</dl></div>'
+        f'<p class="rain-interpretation">{_escape(context["interpretation"])}</p>'
+        f'{warning}</details>'
+    )
+
+
 def render_report_html(
     *,
     name: str,
@@ -89,6 +127,9 @@ def render_report_html(
     summary: pd.DataFrame,
     timeline_figure: dict[str, Any],
     secondary_figure: dict[str, Any],
+    rainfall_context: dict[str, Any] | None = None,
+    rainfall_figure: dict[str, Any] | None = None,
+    rainfall_warning: str | None = None,
 ) -> str:
     """Render a self-contained light report with inline pinned Plotly."""
     plotly_js = _plotly_bundle()
@@ -104,12 +145,22 @@ def render_report_html(
         },
         "preview_rows": _records(monthly),
     }
+    if rainfall_figure is not None:
+        data_payload["figures"]["rainfall"] = rainfall_figure
     quality = ""
     if quality_note:
         quality = (
             '<div class="quality quality-banner" role="status">'
             f"<strong>Data quality:</strong> {_escape(quality_note)}</div>"
         )
+    rainfall_failure = (
+        '<div class="quality rainfall-warning" role="status">'
+        f'<strong>Rainfall context unavailable:</strong> {_escape(rainfall_warning)}'
+        '</div>'
+        if rainfall_warning
+        else ""
+    )
+    rainfall_details = _rainfall_details(rainfall_context)
     tables = {
         "hydro_years": _table(
             hydro_years,
@@ -193,6 +244,36 @@ def render_report_html(
     .plot > div {{ width: 100%; min-height: 360px; }}
     details {{ margin-top: 14px; }}
     summary {{ cursor: pointer; font-weight: 650; }}
+    .rain-grid {{
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(220px, .6fr);
+      gap: 16px;
+      margin-top: 12px;
+    }}
+    .rain-grid > div {{ width: 100%; min-height: 320px; }}
+    .rain-stats {{
+      display: grid;
+      grid-template-columns: minmax(110px, auto) 1fr;
+      gap: 7px 10px;
+      align-content: start;
+      margin: 0;
+    }}
+    .rain-stats dt {{ color: var(--muted); font-weight: 650; }}
+    .rain-stats dd {{ margin: 0; }}
+    .rain-badge {{
+      display: inline-block;
+      margin-top: 10px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #e8f5ef;
+      color: #086445;
+      font-weight: 650;
+    }}
+    .rain-warning {{ color: #704f12; }}
+    .rain-interpretation {{ margin-top: 12px; color: var(--muted); }}
+    @media (max-width: 760px) {{
+      .rain-grid {{ grid-template-columns: 1fr; }}
+    }}
     .data-table {{ width: 100%; border-collapse: collapse; margin-top: 12px; font-size: .88rem; }}
     .data-table th, .data-table td {{ padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }}
     .data-table th {{ background: #eef2f7; }}
@@ -207,6 +288,7 @@ def render_report_html(
     <h1>{_escape(title)}</h1>
     <p class="subtitle">{_escape(subtitle or name)}</p>
     {quality}
+    {rainfall_failure}
   </header>
   <section class="verdict">{_escape(verdict)}</section>
   <section class="kpis">{_kpi_cards(kpis)}</section>
@@ -214,6 +296,7 @@ def render_report_html(
     <div class="plot"><h2>Monthly Surface Water Extent</h2><div id="timeline"></div></div>
     <div class="plot"><h2>Supporting View</h2><div id="secondary"></div></div>
   </section>
+  {rainfall_details}
   <details><summary>Hydrological years</summary>{tables["hydro_years"]}</details>
   <details><summary>Wet events</summary>{tables["events"]}</details>
   <details><summary>Low-extent spells</summary>{tables["low_spells"]}</details>
@@ -229,6 +312,14 @@ def render_report_html(
   const figures = window.HydroSeasonReport.figures;
   Plotly.newPlot("timeline", figures.timeline.data, figures.timeline.layout, figures.timeline.config);
   Plotly.newPlot("secondary", figures.secondary.data, figures.secondary.layout, figures.secondary.config);
+  if (figures.rainfall) {{
+    Plotly.newPlot(
+      "rainfall-context-figure",
+      figures.rainfall.data,
+      figures.rainfall.layout,
+      figures.rainfall.config
+    );
+  }}
 }})();
 </script>
 </body>

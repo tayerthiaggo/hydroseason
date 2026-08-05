@@ -6,13 +6,14 @@ import math
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import _empty_events, _empty_low_spells
-from ._report_copy import select_kpis, verdict_sentence
+from ._regime_compare import RegimeComparison
+from ._report_copy import build_rainfall_context, select_kpis, verdict_sentence
 from ._report_export import (
     build_events_export,
     build_hydro_years_export,
@@ -27,7 +28,11 @@ from ._report_export import (
     write_report_csvs,
 )
 from ._report_html import render_report_html
-from ._report_plotly import secondary_figure, timeline_figure
+from ._report_plotly import (
+    rainfall_context_figure,
+    secondary_figure,
+    timeline_figure,
+)
 from ._state_input import prepare_monthly_extent
 
 
@@ -211,6 +216,10 @@ def generate_catchment_report(
     name: str | None = None,
     analysis: CatchmentAnalysis | None = None,
     rainfall: Any | None = None,
+    rainfall_comparison: RegimeComparison | None = None,
+    rainfall_source: Literal["csv", "silo"] | None = None,
+    rainfall_warning: str | None = None,
+    rainfall_comparison_warning: str | None = None,
     title: str | None = None,
     subtitle: str | None = None,
     quality_note: str | None = None,
@@ -220,6 +229,12 @@ def generate_catchment_report(
     ``name`` is optional because an AOI may not correspond to a named
     catchment.  Blank names are rendered as ``HydroSeason results`` and use a
     safe ``hydroseason-results`` filename stem.
+
+    Rainfall context is presentation-only and additive: ``rainfall_comparison``,
+    ``rainfall_source``, ``rainfall_warning``, and ``rainfall_comparison_warning``
+    never alter the route-aware KPIs or primary figures -- they only render an
+    optional collapsible rainfall section below them. Direct ``rainfall=``
+    callers that do not specify ``rainfall_source`` are labelled "supplied CSV".
     """
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -236,6 +251,19 @@ def generate_catchment_report(
     events, low_spells = build_events_export(analysis)
     verdict = verdict_sentence(analysis)
     summary = build_summary_export(analysis, name=display_name, verdict=verdict)
+
+    has_rainfall = "rainfall_mm" in monthly and monthly["rainfall_mm"].notna().any()
+    effective_rainfall_source = rainfall_source or ("csv" if has_rainfall else None)
+    rain_context = (
+        build_rainfall_context(
+            source=effective_rainfall_source,
+            comparison=rainfall_comparison,
+            comparison_warning=rainfall_comparison_warning,
+        )
+        if has_rainfall and effective_rainfall_source is not None
+        else None
+    )
+    rain_figure = rainfall_context_figure(monthly) if has_rainfall else None
 
     # Keep the rich frames for HTML.  The CSV bundle is intentionally a
     # smaller, stable interface with explicit date names and only the fields a
@@ -274,6 +302,9 @@ def generate_catchment_report(
         summary=summary,
         timeline_figure=timeline_figure(monthly, analysis),
         secondary_figure=secondary_figure(monthly, analysis),
+        rainfall_context=rain_context,
+        rainfall_figure=rain_figure,
+        rainfall_warning=rainfall_warning,
     )
     _write_text_atomic(html_path, html_text)
 

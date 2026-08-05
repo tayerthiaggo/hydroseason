@@ -1,3 +1,4 @@
+import json
 import re
 
 import numpy as np
@@ -5,6 +6,7 @@ import pandas as pd
 import pytest
 
 from hydroseason import CatchmentReportPaths, analyze_catchment, generate_catchment_report
+from hydroseason._regime_compare import compare_rainfall_to_extent_regime
 from hydroseason.report import generate_html_report
 
 
@@ -145,3 +147,81 @@ def test_aseasonal_bundle_has_no_hydrological_year_claims(tmp_path, aseasonal_ex
     assert hydro_years.empty
     assert "hydrological-year boundaries" not in html
     assert "wet events" in html
+
+
+def test_report_adds_collapsible_rainfall_context(
+    tmp_path, seasonal_extent
+):
+    analysis = analyze_catchment(
+        seasonal_extent, phase_model="rule_based", n_bootstrap=40
+    )
+    rainfall = pd.DataFrame(
+        {"rainfall_mm": np.linspace(1, 120, len(seasonal_extent))},
+        index=seasonal_extent.index,
+    )
+    comparison = compare_rainfall_to_extent_regime(analysis.regime, rainfall)
+    paths = generate_catchment_report(
+        seasonal_extent,
+        tmp_path,
+        analysis=analysis,
+        rainfall=rainfall,
+        rainfall_comparison=comparison,
+        rainfall_source="silo",
+    )
+    html = paths.html.read_text(encoding="utf-8")
+    app_payload = html.split("window.HydroSeasonReport = ", 1)[1].split(
+        ";</script>", 1
+    )[0]
+    report_data = json.loads(app_payload)
+
+    assert '<details class="rainfall-context">' in html
+    assert "Rainfall context (SILO)" in html
+    assert "Rainfall regime" in html
+    assert "Extent SNR" in html
+    assert "Rain SNR" in html
+    assert "Peak lag" in html
+    assert 'id="rainfall-context-figure"' in html
+    rainfall_trace = next(
+        trace
+        for trace in report_data["figures"]["timeline"]["data"]
+        if trace.get("name") == "Rainfall"
+    )
+    assert rainfall_trace["yaxis"] == "y2"
+
+
+def test_report_omits_rainfall_context_when_absent(tmp_path, seasonal_extent):
+    paths = generate_catchment_report(seasonal_extent, tmp_path)
+    html = paths.html.read_text(encoding="utf-8")
+    assert "Rainfall context (" not in html
+    assert 'id="rainfall-context-figure"' not in html
+
+
+def test_report_keeps_rainfall_when_comparison_failed(tmp_path, seasonal_extent):
+    rainfall = pd.DataFrame(
+        {"rainfall_mm": np.linspace(1, 120, len(seasonal_extent))},
+        index=seasonal_extent.index,
+    )
+    paths = generate_catchment_report(
+        seasonal_extent,
+        tmp_path,
+        rainfall=rainfall,
+        rainfall_source="csv",
+        rainfall_comparison_warning="comparison unavailable",
+    )
+    html = paths.html.read_text(encoding="utf-8")
+    assert "Rainfall context (supplied CSV)" in html
+    assert "comparison unavailable" in html
+    assert "Mean Monthly Rainfall" in html
+
+
+def test_report_escapes_rainfall_warning(tmp_path, seasonal_extent):
+    payload = '</script><script id="rain-owned">window.owned=true</script>'
+    paths = generate_catchment_report(
+        seasonal_extent,
+        tmp_path,
+        rainfall_warning=payload,
+    )
+    html = paths.html.read_text(encoding="utf-8")
+
+    assert '<script id="rain-owned">' not in html
+    assert "&lt;/script&gt;" in html

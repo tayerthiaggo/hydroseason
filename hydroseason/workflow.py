@@ -171,12 +171,25 @@ def run_hydroseason(
             comparison_error = str(exc)
             _warn(messages, f"Ancillary rainfall comparison unavailable: {exc}")
 
+    rainfall_warning = None
+    if rainfall_error is not None:
+        rainfall_source_label = (
+            "SILO rainfall" if rain_source == "silo" else "rainfall CSV"
+        )
+        rainfall_warning = (
+            f"Ancillary {rainfall_source_label} unavailable: {rainfall_error}"
+        )
+
     artifacts = generate_catchment_report(
         resolved.extent,
         output_dir,
         name=aoi_name,
         analysis=analysis,
         rainfall=rainfall,
+        rainfall_comparison=comparison,
+        rainfall_source=rain_source if rain_source != "none" else None,
+        rainfall_warning=rainfall_warning,
+        rainfall_comparison_warning=comparison_error,
         title=report_title,
         subtitle=report_subtitle,
     )

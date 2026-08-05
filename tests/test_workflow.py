@@ -110,6 +110,7 @@ def test_fetch_rainfall_uses_extent_years_and_loaded_aoi(monkeypatch, tmp_path):
     assert result.rainfall_status == "fetched"
     assert result.rainfall_source == "silo"
     assert calls == {"gdf": sentinel_aoi, "start_year": 2010, "end_year": 2017}
+    assert "Rainfall context (SILO)" in result.artifacts.html.read_text(encoding="utf-8")
 
 
 def test_silo_failure_is_nonfatal_and_writes_water_bundle(monkeypatch, tmp_path):
@@ -132,6 +133,9 @@ def test_silo_failure_is_nonfatal_and_writes_water_bundle(monkeypatch, tmp_path)
     assert result.rainfall_error == "SILO unavailable"
     assert result.artifacts.html.exists()
     assert "rainfall_mm" not in pd.read_csv(result.artifacts.monthly_csv)
+    failure_html = result.artifacts.html.read_text(encoding="utf-8")
+    assert "Ancillary SILO rainfall unavailable" in failure_html
+    assert 'id="rainfall-context-figure"' not in failure_html
 
 
 def test_missing_aoi_is_a_nonfatal_fetch_failure(tmp_path):
@@ -168,6 +172,9 @@ def test_malformed_supplied_rainfall_is_nonfatal(tmp_path):
     assert result.rainfall is None
     assert result.rainfall_error is not None
     assert result.artifacts.html.exists()
+    provided_failure_html = result.artifacts.html.read_text(encoding="utf-8")
+    assert "Ancillary rainfall CSV unavailable" in provided_failure_html
+    assert 'id="rainfall-context-figure"' not in provided_failure_html
 
 
 def test_comparison_failure_retains_loaded_rainfall(monkeypatch, tmp_path):
@@ -193,6 +200,9 @@ def test_comparison_failure_retains_loaded_rainfall(monkeypatch, tmp_path):
     assert result.rainfall_comparison is None
     assert result.rainfall_comparison_error == "comparison unavailable"
     assert "rainfall_mm" in pd.read_csv(result.artifacts.monthly_csv)
+    comparison_html = result.artifacts.html.read_text(encoding="utf-8")
+    assert "Rainfall context (supplied CSV)" in comparison_html
+    assert "comparison unavailable" in comparison_html
 
 
 def test_rainfall_never_changes_water_analysis(tmp_path):
