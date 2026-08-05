@@ -214,6 +214,92 @@ def test_unresolved_nominal_year_breaks_cycles_instead_of_merging():
     assert (resolved_lengths <= 18).all()
 
 
+def test_first_opportunity_uses_record_start_as_opening_boundary():
+    """The record's own first observed month anchors the opening cycle.
+
+    The very first hydrological-year opportunity has no preceding trough,
+    but when enough real data precedes its trough there is a genuine
+    partial cycle to report. Before this fix that row was a blank stub
+    (status_reason="no_previous_boundary", no hy_start/hy_end/peak at
+    all), which rendered as an unbounded "no data" card and left the
+    start of the timeline unshaded.
+    """
+    index = pd.date_range("2005-01-01", periods=36, freq="MS")
+    # Descending Jan..Oct 2005 -- the record opens mid-cycle, so its peak
+    # is its first month -- then two clean cycles troughing in October.
+    # The +30/-20 offset keeps every later month above the opening trough
+    # of 8.0, so Oct 2005 stays the first resolved trough.
+    opening = [90.0, 78.0, 66.0, 54.0, 42.0, 30.0, 22.0, 16.0, 11.0, 8.0]
+    following = list(
+        30.0 + 20.0 * np.cos(2 * np.pi * (index[10:].month - 4) / 12)
+    )
+    raw = pd.DataFrame(
+        {"extent_pct": opening + following, "invalid_pct": 0.0}, index=index
+    )
+    config = DynamicHydroYearConfig(expected_trough_month=10)
+
+    result = detect_dynamic_hydrological_years(raw, config=config)
+
+    first_row = result.iloc[0]
+    assert first_row["status_reason"] == "record_start_boundary"
+    assert first_row["hy_start"] == pd.Timestamp("2005-01-01")
+    assert first_row["hy_end"] == pd.Timestamp("2005-10-01")
+    # The record's own first month must be peak-eligible: select_cycle_peak
+    # is given the synthetic pre-record trough, not hy_start, precisely so
+    # that January is not excluded as a boundary month.
+    assert first_row["peak_month"] == pd.Timestamp("2005-01-01")
+    assert pd.notna(first_row["drawdown_pct"])
+    assert first_row["boundary_status"] == "provisional"
+
+
+def test_first_opportunity_too_short_still_falls_back_to_insufficient_coverage():
+    """A record starting only 3 months before its first trough has no
+    cycle to report, even with the record-start boundary. It must fail
+    the same min_usable_months_per_cycle check as any other cycle rather
+    than being waved through on a synthetic boundary.
+    """
+    index = pd.date_range("2005-08-01", periods=24, freq="MS")
+    opening = [30.0, 20.0, 10.0]  # Aug, Sep, Oct 2005 -- 3 months only
+    following = list(
+        20.0 + 15.0 * np.cos(2 * np.pi * (index[3:].month - 12) / 12)
+    )
+    raw = pd.DataFrame(
+        {"extent_pct": opening + following, "invalid_pct": 0.0}, index=index
+    )
+    config = DynamicHydroYearConfig(
+        expected_trough_month=10, min_usable_months_per_cycle=8
+    )
+
+    result = detect_dynamic_hydrological_years(raw, config=config)
+
+    first_row = result.iloc[0]
+    assert first_row["status_reason"] == "insufficient_cycle_coverage"
+    assert first_row["hy_start"] == pd.Timestamp("2005-08-01")
+    assert pd.isna(first_row["peak_month"])
+
+
+def test_mid_record_reset_after_gap_still_reports_no_previous_boundary():
+    """Only the record's first opportunity may synthesize a boundary.
+
+    A year that resets the chain mid-record (because an earlier year's
+    trough was unresolvable) must keep reporting no_previous_boundary --
+    synthesizing a start there would invent cycle data spanning a real
+    data gap.
+    """
+    raw = _candidate_frame(start="2017-01-01", periods=84)
+    raw.loc["2020-06-01":"2020-12-01", "invalid_pct"] = 100.0
+    config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle")
+
+    result = detect_dynamic_hydrological_years(raw, config=config)
+
+    assert result.loc[result["hy_year"] == 2020, "status"].item() == "unresolved"
+    assert (
+        result.loc[result["hy_year"] == 2021, "status_reason"].item()
+        == "no_previous_boundary"
+    )
+    assert pd.isna(result.loc[result["hy_year"] == 2021, "hy_start"].item())
+
+
 def test_temporary_rewetting_after_half_loss_is_counted():
     raw = _candidate_frame(start="2017-01-01", periods=72)
     raw.loc["2020-06-01":"2020-09-01", "extent_pct"] = [8.0, 14.0, 7.0, 4.0]
