@@ -10,7 +10,8 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
-import rioxarray  # noqa: F401 - registers the xarray ``rio`` accessor for grid fixtures.
+
+pytest.importorskip("rioxarray")  # Registers xarray's ``rio`` accessor for grid fixtures.
 import xarray as xr
 from affine import Affine
 
