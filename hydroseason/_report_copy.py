@@ -79,6 +79,24 @@ def _number(value: float | int | None, *, decimals: int = 1, suffix: str = "") -
     return f"{float(value):.{decimals}f}{suffix}"
 
 
+def _extent_number(value: float | int | None) -> str:
+    """Format a water-extent percentage without collapsing small values to zero.
+
+    Catchment extents are often a small fraction of a percent, where a fixed
+    one-decimal format renders a real, non-zero extent as ``0.0%``.  Add
+    decimals until the value is distinguishable from zero.
+    """
+    if value is None or not np.isfinite(float(value)):
+        return "N/A"
+    magnitude = abs(float(value))
+    if magnitude == 0:
+        return "0.0%"
+    for decimals in (1, 2, 3):
+        if round(magnitude, decimals) != 0:
+            return f"{float(value):.{decimals}f}%"
+    return "<0.001%" if value > 0 else ">-0.001%"
+
+
 def _date_range_label(extent: pd.DataFrame | None) -> str:
     if extent is None or extent.empty:
         return "Source record"
@@ -93,7 +111,11 @@ def select_kpis(
     analysis: CatchmentAnalysis,
     extent: pd.DataFrame | None = None,
 ) -> list[dict[str, str]]:
-    """Build the ten manager-facing summary cards in display order."""
+    """Build the manager-facing summary cards in display order.
+
+    Regime, signal-to-noise ratio and analytical route lead the deck: they
+    frame how much weight the remaining per-year numbers can carry.
+    """
     hy_df = analysis.hydro_years.copy()
     n_years = len(hy_df)
     amplitude = _metric_column(hy_df, "drawdown_pct", "amplitude_pct")
@@ -108,7 +130,24 @@ def select_kpis(
         else np.nan
     )
 
+    assessment = analysis.regime
+
     return [
+        {
+            "label": "hydrological regime",
+            "value": str(assessment.regime).replace("_", " ").title(),
+            "detail": "assessed seasonal strength",
+        },
+        {
+            "label": "amplitude signal-to-noise ratio",
+            "value": _number(assessment.amplitude_snr, decimals=2),
+            "detail": "higher means a more reproducible annual cycle",
+        },
+        {
+            "label": "analytical route",
+            "value": str(analysis.route).replace("_", " ").title(),
+            "detail": "how hydro-year boundaries were derived",
+        },
         {
             "label": "hydrological years",
             "value": str(n_years),
@@ -136,17 +175,17 @@ def select_kpis(
         },
         {
             "label": "lower water extent at end of dry season",
-            "value": _number(trough.min(), suffix="%"),
+            "value": _extent_number(trough.min()),
             "detail": "minimum across all hydro-years",
         },
         {
             "label": "higher water extent in wet season",
-            "value": _number(peak.max(), suffix="%"),
+            "value": _extent_number(peak.max()),
             "detail": "maximum across all hydro-years",
         },
         {
             "label": "average water extent at end of dry season",
-            "value": _number(trough.mean(), suffix="%"),
+            "value": _extent_number(trough.mean()),
             "detail": "mean across all hydro-years",
         },
         {

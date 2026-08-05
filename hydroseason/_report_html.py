@@ -63,7 +63,7 @@ def _table(frame: pd.DataFrame, *, empty_text: str) -> str:
 
 def _kpi_cards(kpis: list[dict[str, str]]) -> str:
     cards = []
-    for item in kpis[:10]:
+    for item in kpis:
         cards.append(
             "<div class=\"kpi\">"
             f"<strong class=\"kpi-value\">{_escape(item.get('value', ''))}</strong>"
@@ -185,6 +185,65 @@ def _browser_rows(
     return rows
 
 
+_STATUS_REASON_TEXT = {
+    "no_previous_boundary": (
+        "No preceding hydrological-year boundary exists, so this cycle has no "
+        "resolved start and end."
+    ),
+    "insufficient_trough_candidates": (
+        "Too few usable trough candidates to place a cycle boundary."
+    ),
+    "boundary_low_quality": "Boundary months failed the data-quality threshold.",
+    "boundary_provisional": "Boundary is provisional and was not confirmed.",
+    "peak_low_quality": "The peak month failed the data-quality threshold.",
+}
+
+
+def _unbounded_year_card(row: pd.Series, year: Any) -> str:
+    """Render a hydrological year that has no resolved start/end boundary.
+
+    These years are reported rather than skipped so the number of cards always
+    matches the hydrological-year count shown in the summary cards.
+    """
+    confidence = str(_row_value(row, "confidence") or "unassigned").lower()
+    status = str(_row_value(row, "status") or "incomplete").lower()
+    reason_key = str(_row_value(row, "status_reason") or "").lower()
+    reason = _STATUS_REASON_TEXT.get(
+        reason_key,
+        reason_key.replace("_", " ").capitalize() if reason_key else "",
+    )
+    trough_date = _row_value(row, "trough_month", "end_dry_month", "trough_date")
+    trough_extent = _row_value(row, "trough_extent_pct", "end_extent_pct")
+    observed = ""
+    if trough_date is not None:
+        observed = (
+            '<div class="detail-kpis">'
+            '<div class="detail-kpi-card">'
+            '<span class="detail-kpi-label">End Dry Month</span>'
+            f'<span class="detail-kpi-value value-dry">{_escape(_fmt_date(trough_date))}</span>'
+            f'<span class="detail-kpi-sub">{_escape(_fmt_extent(trough_extent))} extent</span>'
+            "</div></div>"
+        )
+    return (
+        '<details class="year-card year-card-unbounded">'
+        '<summary class="year-header">'
+        '<div class="year-title-group">'
+        '<span class="expand-icon">▶</span>'
+        f'<span class="year-number">HY {_escape(year)}</span>'
+        '<span class="year-dates">Cycle boundaries not resolved</span>'
+        "</div>"
+        '<div class="year-meta-group">'
+        f'<span class="summary-stat">Status: <strong>{_escape(status.title())}</strong></span>'
+        f'<span class="confidence-badge badge-{_escape(confidence)}">{_escape(confidence.upper())}</span>'
+        "</div>"
+        "</summary>"
+        '<div class="year-detail-content">'
+        f'<p class="year-card-note">{_escape(reason)}</p>'
+        f"{observed}"
+        "</div></details>"
+    )
+
+
 def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
     if hydro_years.empty:
         return '<p class="empty">No hydrological-year cycles available.</p>'
@@ -198,9 +257,12 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
     for _, row in hydro_years.sort_values("hy_year", ascending=False).iterrows():
         start = _safe_date(_row_value(row, "hy_start", "start_date", "start"))
         end = _safe_date(_row_value(row, "hy_end", "end_date", "end"))
-        if start is None or end is None:
-            continue
         year = _row_value(row, "hy_year")
+        if start is None or end is None:
+            # A year without resolved boundaries still has to appear, or the
+            # card count silently disagrees with the reported year total.
+            cards.append(_unbounded_year_card(row, year))
+            continue
         peak_date = _row_value(row, "peak_month", "peak_date")
         mid_date = _row_value(row, "temporal_mid_dry_month", "mid_dry_month", "mid_dry_date")
         trough_date = _row_value(row, "trough_month", "end_dry_month", "trough_date")
@@ -367,7 +429,7 @@ def render_report_html(
     }}
     .kpis {{
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
       gap: 16px;
       margin: 18px 0 24px;
     }}
@@ -453,6 +515,9 @@ def render_report_html(
     .badge-low {{ background: #fee2e2; color: #991b1b; }}
     .badge-unassigned, .badge-nan {{ background: #e2e8f0; color: #475569; }}
     .year-detail-content {{ padding: 0 18px 18px; border-top: 1px solid var(--line); background: #fafafa; }}
+    .year-card-unbounded {{ border-style: dashed; }}
+    .year-card-unbounded .year-number {{ color: var(--muted); }}
+    .year-card-note {{ margin: 14px 0 0; color: var(--muted); }}
     .detail-kpis {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0 18px; }}
     .detail-kpi-card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }}
     .detail-kpi-label {{ display: block; color: var(--muted); font-size: .7rem; text-transform: uppercase; margin-bottom: 3px; }}

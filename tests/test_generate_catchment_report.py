@@ -48,7 +48,7 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert 'id="timeline"' in html
     assert '<div id="timeline" class="plot-canvas"></div>' in html
     assert '<div id="secondary" class="plot-canvas"></div>' in html
-    assert html.count('class="kpi"') == 10
+    assert html.count('class="kpi"') == 13
     assert html.index("hydrological years") < html.index("mean annual amplitude")
     assert html.index("average invalid/cloud cover") > html.index("high confidence years")
     assert ".plot > .plot-canvas {" in html

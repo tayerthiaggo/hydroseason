@@ -274,24 +274,36 @@ def _hydro_year_context(analysis: CatchmentAnalysis) -> tuple[list[dict[str, Any
     shapes: list[dict[str, Any]] = []
     annotations: list[dict[str, Any]] = []
     seen_boundaries: set[str] = set()
+
+    def add_boundary(date: str | None, label: str) -> None:
+        # A cycle boundary is only drawn once, whichever year references it
+        # first: consecutive years share a boundary, and on a dashed grey line
+        # a duplicate is invisible but doubles the rendered opacity.
+        if date is None or date in seen_boundaries:
+            return
+        seen_boundaries.add(date)
+        shapes.append({
+            "name": f"HY {label} {date}",
+            "type": "line",
+            "xref": "x",
+            "yref": "paper",
+            "x0": date,
+            "x1": date,
+            "y0": 0,
+            "y1": 1,
+            "line": {"color": "#94a3b8", "dash": "dash", "width": 0.6},
+            "layer": "below",
+        })
+
     for _, row in rows.iterrows():
         start = _iso_date(row.get("hy_start"))
         end = _iso_date(row.get("hy_end"))
         trough = _iso_date(row.get("trough_month"))
-        if trough is not None and trough not in seen_boundaries:
-            seen_boundaries.add(trough)
-            shapes.append({
-                "name": f"HY trough {trough}",
-                "type": "line",
-                "xref": "x",
-                "yref": "paper",
-                "x0": trough,
-                "x1": trough,
-                "y0": 0,
-                "y1": 1,
-                "line": {"color": "#94a3b8", "dash": "dash", "width": 0.6},
-                "layer": "below",
-            })
+        # The opening boundary matters as much as the trough: a year whose
+        # start is not itself a trough (the cycle after a gap, or a partial
+        # final year) otherwise renders with no left-hand edge at all.
+        add_boundary(start, "start")
+        add_boundary(trough, "trough")
 
         if start is not None and end is not None:
             midpoint = pd.Timestamp(start) + (pd.Timestamp(end) - pd.Timestamp(start)) / 2

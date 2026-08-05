@@ -129,8 +129,11 @@ def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(season
         for row in analysis.hydro_years.itertuples()
         if pd.notna(row.hy_start) and pd.notna(row.hy_end)
     }
-    intervals = [shape for shape in figure["layout"]["shapes"] if shape.get("name", "").startswith("HY ")]
-    assert all(shape.get("type") == "rect" for shape in intervals)
+    intervals = [
+        shape
+        for shape in figure["layout"]["shapes"]
+        if shape.get("name", "").startswith("HY ") and shape.get("type") == "rect"
+    ]
     assert {(shape["x0"], shape["x1"]) for shape in intervals} == expected_intervals
 
 
@@ -168,6 +171,88 @@ def test_extent_trace_preserves_non_positive_values_for_log_mode_hover(seasonal_
     assert extent["meta"]["original_y"][:2] == [0.0, -1.0]
     assert [row[0] for row in extent["customdata"][:2]] == [0.0, -1.0]
     assert "%{customdata[0]}" in extent["hovertemplate"]
+
+
+def test_timeline_draws_opening_boundary_for_year_starting_off_a_trough():
+    """A hydro-year whose start is not a trough still needs a left-hand edge.
+
+    Boundaries used to be drawn only at trough months, so the final partial
+    cycle -- which opens the month after the previous trough -- rendered with
+    no opening line and visually merged into the preceding year.
+    """
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                ["2024-10-01", "2024-11-01", "2024-12-01", "2025-01-01"]
+            ),
+            "extent_pct": [0.05, 0.03, 0.07, 0.26],
+            "invalid_pct": [1.0, 1.0, 1.0, 1.0],
+            "phase": ["recession", "dry", "wet", "wet"],
+            "hy_year": [2024, 2024, 2025, 2025],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2024, 2025],
+                "hy_start": [pd.Timestamp("2024-02-01"), pd.Timestamp("2024-12-01")],
+                "hy_end": [pd.Timestamp("2024-11-01"), pd.Timestamp("2025-11-01")],
+                "trough_month": [
+                    pd.Timestamp("2024-11-01"),
+                    pd.Timestamp("2025-11-01"),
+                ],
+                "confidence": ["high", "medium"],
+                "boundary_status": ["complete", "provisional"],
+            }
+        )
+    )
+
+    figure = timeline_figure(monthly, analysis)
+    boundaries = {
+        shape["x0"]
+        for shape in figure["layout"]["shapes"]
+        if shape.get("type") == "line" and shape.get("name", "").startswith("HY ")
+    }
+
+    assert "2024-12-01" in boundaries
+    assert "2024-11-01" in boundaries
+
+
+def test_timeline_does_not_duplicate_a_shared_cycle_boundary():
+    """Consecutive years sharing a boundary date must draw it once."""
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-10-01", "2024-11-01", "2024-12-01"]),
+            "extent_pct": [0.05, 0.03, 0.07],
+            "invalid_pct": [1.0, 1.0, 1.0],
+            "phase": ["recession", "dry", "wet"],
+            "hy_year": [2024, 2024, 2025],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2024, 2025],
+                "hy_start": [pd.Timestamp("2024-02-01"), pd.Timestamp("2024-11-01")],
+                "hy_end": [pd.Timestamp("2024-11-01"), pd.Timestamp("2025-11-01")],
+                "trough_month": [
+                    pd.Timestamp("2024-11-01"),
+                    pd.Timestamp("2025-11-01"),
+                ],
+                "confidence": ["high", "medium"],
+                "boundary_status": ["complete", "provisional"],
+            }
+        )
+    )
+
+    figure = timeline_figure(monthly, analysis)
+    lines = [
+        shape
+        for shape in figure["layout"]["shapes"]
+        if shape.get("type") == "line" and shape.get("name", "").startswith("HY ")
+    ]
+
+    assert [shape["x0"] for shape in lines].count("2024-11-01") == 1
 
 
 def test_timeline_extent_hover_has_month_context_with_and_without_markers():
