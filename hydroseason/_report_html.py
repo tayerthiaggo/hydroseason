@@ -196,6 +196,11 @@ _STATUS_REASON_TEXT = {
     "boundary_low_quality": "Boundary months failed the data-quality threshold.",
     "boundary_provisional": "Boundary is provisional and was not confirmed.",
     "peak_low_quality": "The peak month failed the data-quality threshold.",
+    "insufficient_cycle_coverage": (
+        "The record's start didn't have enough usable months before the "
+        "first trough to assemble a full cycle, so this year's detail "
+        "metrics could not be computed."
+    ),
 }
 
 
@@ -270,14 +275,18 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
         amplitude = _row_value(row, "drawdown_pct", "amplitude_pct")
         confidence = str(_row_value(row, "confidence") or "unassigned").lower()
         status_reason = str(_row_value(row, "status_reason") or "").lower()
+        if status_reason == "record_start_boundary":
+            note_text = (
+                "This year&#39;s start is inferred from the record&#39;s first "
+                "observed month, not a detected trough — there is no data before "
+                "it to confirm where the previous dry season ended."
+            )
+        elif status_reason in _STATUS_REASON_TEXT:
+            note_text = _escape(_STATUS_REASON_TEXT[status_reason])
+        else:
+            note_text = ""
         inferred_start_note = (
-            '<p class="year-card-note">'
-            "This year&#39;s start is inferred from the record&#39;s first "
-            "observed month, not a detected trough — there is no data before "
-            "it to confirm where the previous dry season ended."
-            "</p>"
-            if status_reason == "record_start_boundary"
-            else ""
+            f'<p class="year-card-note">{note_text}</p>' if note_text else ""
         )
         segment = monthly_frame.loc[(monthly_frame.index >= start) & (monthly_frame.index <= end)]
         detail_rows: list[str] = []

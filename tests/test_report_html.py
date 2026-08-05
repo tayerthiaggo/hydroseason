@@ -137,3 +137,36 @@ def test_year_cards_flag_record_start_boundary_years_as_inferred():
     assert "HY 2005" in html
     assert "year-card-unbounded" not in html
     assert "inferred from the record" in html.lower()
+
+
+def test_year_cards_explain_insufficient_cycle_coverage_on_bounded_card():
+    """A too-short opening cycle (e.g. only 3 months of data before the first
+    trough) now gets non-null hy_start/hy_end, so it takes the bounded-card
+    path instead of _unbounded_year_card. It must not silently lose its
+    explanatory text just because it has real dates -- the card shows a LOW
+    confidence badge and N/A metrics, and a manager needs to know why.
+    """
+    monthly = _monthly()
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2005,
+                "hy_start": pd.Timestamp("2005-08-01"),
+                "hy_end": pd.Timestamp("2005-10-01"),
+                "peak_month": pd.NaT,
+                "trough_month": pd.Timestamp("2005-10-01"),
+                "cycle_months": float("nan"),
+                "drawdown_pct": float("nan"),
+                "confidence": "low",
+                "status": "partial",
+                "status_reason": "insufficient_cycle_coverage",
+            }
+        ]
+    )
+
+    html = _year_cards(monthly, hydro_years)
+
+    assert html.count("<details class=") == 1
+    assert "HY 2005" in html
+    assert "year-card-unbounded" not in html
+    assert "enough usable months" in html.lower()
