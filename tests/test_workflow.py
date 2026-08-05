@@ -177,6 +177,57 @@ def test_malformed_supplied_rainfall_is_nonfatal(tmp_path):
     assert 'id="rainfall-context-figure"' not in provided_failure_html
 
 
+def test_disjoint_supplied_rainfall_is_a_nonfatal_provided_failure(tmp_path):
+    extent = _seasonal_extent()
+    disjoint_index = pd.date_range("1990-01-01", periods=12, freq="MS")
+    rain_path = _rainfall_csv(tmp_path / "rain.csv", disjoint_index)
+
+    with pytest.warns(UserWarning, match="no months overlapping"):
+        result = run_hydroseason(
+            extent,
+            output_dir=tmp_path / "report",
+            rainfall_csv_path=rain_path,
+            analysis_options=ANALYSIS_OPTIONS,
+        )
+
+    assert result.rainfall_status == "provided_failed"
+    assert result.rainfall is None
+    assert result.rainfall_comparison is None
+    monthly = pd.read_csv(result.artifacts.monthly_csv)
+    assert "rainfall_mm" not in monthly.columns
+
+
+def test_disjoint_fetched_rainfall_is_a_nonfatal_fetch_failure(monkeypatch, tmp_path):
+    extent = _seasonal_extent()
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
+
+    def fake_silo(gdf, start_year, end_year):
+        disjoint_index = pd.date_range("1990-01-01", periods=12, freq="MS")
+        return pd.DataFrame(
+            {
+                "date": disjoint_index,
+                "rainfall_mm": np.linspace(1, 100, len(disjoint_index)),
+            }
+        )
+
+    monkeypatch.setattr("hydroseason.workflow.get_monthly_silo_rainfall", fake_silo)
+
+    with pytest.warns(UserWarning, match="no months overlapping"):
+        result = run_hydroseason(
+            extent,
+            output_dir=tmp_path,
+            aoi="aoi.geojson",
+            fetch_rainfall=True,
+            analysis_options=ANALYSIS_OPTIONS,
+        )
+
+    assert result.rainfall_status == "fetch_failed"
+    assert result.rainfall is None
+    assert result.rainfall_comparison is None
+    monthly = pd.read_csv(result.artifacts.monthly_csv)
+    assert "rainfall_mm" not in monthly.columns
+
+
 def test_comparison_failure_retains_loaded_rainfall(monkeypatch, tmp_path):
     extent = _seasonal_extent()
     rain_path = _rainfall_csv(tmp_path / "rain.csv", extent.index)

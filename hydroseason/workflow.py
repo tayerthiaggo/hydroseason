@@ -135,7 +135,10 @@ def run_hydroseason(
         rain_source = "csv"
         try:
             loaded = load_monthly_rainfall_csv(rainfall_csv_path)
-            rainfall = align_monthly_rainfall(loaded, resolved.extent.index)
+            aligned = align_monthly_rainfall(loaded, resolved.extent.index)
+            if not aligned["rainfall_mm"].notna().any():
+                raise ValueError("no months overlapping the water record.")
+            rainfall = aligned
             status = "provided"
         except Exception as exc:
             status = "provided_failed"
@@ -153,7 +156,10 @@ def run_hydroseason(
                 int(resolved.extent.index.max().year),
             )
             normalised = normalise_monthly_rainfall(raw)
-            rainfall = align_monthly_rainfall(normalised, resolved.extent.index)
+            aligned = align_monthly_rainfall(normalised, resolved.extent.index)
+            if not aligned["rainfall_mm"].notna().any():
+                raise ValueError("no months overlapping the water record.")
+            rainfall = aligned
             status = "fetched"
         except Exception as exc:
             status = "fetch_failed"
