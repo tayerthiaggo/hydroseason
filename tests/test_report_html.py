@@ -105,3 +105,35 @@ def test_year_cards_unbounded_year_reports_unmapped_reason_verbatim():
     html = _year_cards(monthly, hydro_years)
 
     assert "Some new reason" in html
+
+
+def test_year_cards_flag_record_start_boundary_years_as_inferred():
+    """A year starting at the record's edge renders as a normal bounded
+    card, but must say its start is inferred -- a manager comparing it
+    against other years needs to know its left edge is not independently
+    verified.
+    """
+    monthly = _monthly()
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2005,
+                "hy_start": pd.Timestamp("2005-01-01"),
+                "hy_end": pd.Timestamp("2005-10-01"),
+                "peak_month": pd.Timestamp("2005-03-01"),
+                "trough_month": pd.Timestamp("2005-10-01"),
+                "cycle_months": 10.0,
+                "drawdown_pct": 0.0945,
+                "confidence": "medium",
+                "status": "partial",
+                "status_reason": "record_start_boundary",
+            }
+        ]
+    )
+
+    html = _year_cards(monthly, hydro_years)
+
+    assert html.count("<details class=") == 1
+    assert "HY 2005" in html
+    assert "year-card-unbounded" not in html
+    assert "inferred from the record" in html.lower()

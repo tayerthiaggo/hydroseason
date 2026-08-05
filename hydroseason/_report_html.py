@@ -269,6 +269,16 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
         cycle = _row_value(row, "cycle_months", "n_months_cycle")
         amplitude = _row_value(row, "drawdown_pct", "amplitude_pct")
         confidence = str(_row_value(row, "confidence") or "unassigned").lower()
+        status_reason = str(_row_value(row, "status_reason") or "").lower()
+        inferred_start_note = (
+            '<p class="year-card-note">'
+            "This year&#39;s start is inferred from the record&#39;s first "
+            "observed month, not a detected trough — there is no data before "
+            "it to confirm where the previous dry season ended."
+            "</p>"
+            if status_reason == "record_start_boundary"
+            else ""
+        )
         segment = monthly_frame.loc[(monthly_frame.index >= start) & (monthly_frame.index <= end)]
         detail_rows: list[str] = []
         for date, month in segment.iterrows():
@@ -314,6 +324,7 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             f'<div class="detail-kpi-card"><span class="detail-kpi-label">Mid-Dry Target</span><span class="detail-kpi-value value-mid">{_escape(_fmt_date(mid_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "temporal_mid_dry_extent_pct", "mid_extent_pct")))} extent</span></div>'
             f'<div class="detail-kpi-card"><span class="detail-kpi-label">End Dry Month</span><span class="detail-kpi-value value-dry">{_escape(_fmt_date(trough_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "trough_extent_pct", "end_extent_pct")))} extent</span></div>'
             '</div>'
+            f'{inferred_start_note}'
             '<table class="nested-table"><thead><tr><th>Month</th><th>Phase</th><th>Water Extent</th><th>Invalid/Cloud Cover</th><th>Key Event</th></tr></thead>'
             f'<tbody>{"".join(detail_rows)}</tbody></table>'
             '</div></details>'
