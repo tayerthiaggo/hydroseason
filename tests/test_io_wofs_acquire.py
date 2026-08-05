@@ -195,14 +195,20 @@ def test_acquisition_reports_query_and_graph_counts_to_diagnostics_callback(monk
         diagnostics_callback=diagnostics.append,
     )
 
-    assert diagnostics == [{
-        "query_count": 1,
-        "graph_count": 2,
-        "task_count": 2,
-        "chunks_considered": 24,
-        "chunks_written": 24,
-        "loaded_pixels": 384,
-    }]
+    assert len(diagnostics) == 1
+    payload = diagnostics[0]
+    assert payload["query_count"] == 1
+    assert payload["graph_count"] == 2
+    assert payload["task_count"] == 2
+    assert payload["chunks_considered"] == 24
+    assert payload["chunks_written"] == 24
+    assert payload["loaded_pixels"] == 384
+    # Task 5 additive diagnostics -- new keys, existing keys unchanged above.
+    for new_key in (
+        "statistics_prepare_seconds", "stac_read_seconds", "active_window_count",
+        "planned_native_pixels", "local_reduction_seconds",
+    ):
+        assert new_key in payload
 
 
 def test_completed_year_is_not_rebuilt(monkeypatch, tmp_path):
@@ -384,11 +390,93 @@ def test_empty_year_mask_uses_bounded_spatial_chunks(monkeypatch):
     geobox = SimpleNamespace(
         shape=(600, 600), coordinates=_Coords(), crs="EPSG:3577", affine=transform
     )
-    monkeypatch.setattr("hydroseason._io_geo._clip_to_aoi", lambda mask, _aoi: mask)
+    monkeypatch.setattr(
+        "hydroseason._io_geo._clip_to_aoi",
+        lambda mask, _aoi, **_kwargs: mask,
+    )
 
     mask = _empty_year_mask(geobox, "2015-01-01", "2015-01-31", _aoi())
 
     assert max(mask.data.chunksize[1:]) <= 512
+
+
+def _historical_mask_for_empty_year_grid(*, transform, shape, exclude_cells=()):
+    """A real HistoricalWaterMask matching the 4x4 EPSG:3577/30m grid
+    test_empty_year_mask_is_invalid_inside_and_outside_aoi_elsewhere builds,
+    with every cell True except ``exclude_cells`` (row, col) pairs."""
+    from hydroseason._historical_water_mask import HistoricalWaterMask
+
+    values = np.ones(shape, dtype=bool)
+    for row, col in exclude_cells:
+        values[row, col] = False
+    return HistoricalWaterMask(
+        mask=values,
+        crs="EPSG:3577",
+        transform=tuple(transform)[:6],
+        shape=tuple(shape),
+        resolution=(abs(transform.a), abs(transform.e)),
+        pixel_count=int(values.sum()),
+        source_product="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_item_ids=("item-1",),
+        source_lineage=("ga_ls_wo_fq_myear_3",),
+        coverage_start="1987-01-01",
+        coverage_end="2024-12-31",
+        aoi_sha256="a" * 64,
+        mask_sha256="b" * 64,
+    )
+
+
+def test_empty_year_mask_applies_historical_water_mask_as_constant_denominator():
+    """A year with zero STAC items must still report the SAME n_aoi as a
+    normal year: every historical-mask cell reads -1 (invalid, no source
+    data), every other cell (including inside the AOI polygon but outside
+    the exact historical mask) reads -2, so n_aoi == pixel_count and
+    n_invalid == n_aoi -- never the full user-AOI pixel count."""
+    from hydroseason._io_wofs_acquire import _empty_year_mask
+    from hydroseason.hydro_year import monthly_water_extent
+
+    transform = Affine(30, 0, 0, 0, -30, 120)
+
+    class _Coord:
+        def __init__(self, values):
+            self.values = values
+
+    class _Coords:
+        def values(self):
+            return (
+                _Coord(transform.f + (np.arange(4) + 0.5) * transform.e),
+                _Coord(transform.c + (np.arange(4) + 0.5) * transform.a),
+            )
+
+    geobox = SimpleNamespace(
+        shape=(4, 4),
+        coordinates=_Coords(),
+        crs="EPSG:3577",
+        affine=transform,
+    )
+    # AOI covers the whole 4x4 grid, so without a historical mask every
+    # cell would be -1 (n_aoi == 16). The historical mask excludes exactly
+    # one cell -- that cell must read -2, not -1, and the reduction's n_aoi
+    # must equal the mask's pixel_count (15), not the full AOI (16).
+    aoi = gpd.GeoDataFrame(geometry=[box(0, 0, 120, 120)], crs="EPSG:3577")
+    historical_mask = _historical_mask_for_empty_year_grid(
+        transform=transform, shape=(4, 4), exclude_cells=[(0, 0)]
+    )
+
+    mask = _empty_year_mask(
+        geobox, "2015-01-01", "2015-01-31", aoi, historical_water_mask=historical_mask
+    )
+    values = mask.compute().values
+
+    assert values[0, 0, 0] == -2
+    assert set(np.unique(values)) == {-2, -1}
+    assert int((values[0] == -1).sum()) == historical_mask.pixel_count
+
+    summary = monthly_water_extent(mask.chunk({"time": 1, "y": 4, "x": 4}))
+    row = summary.iloc[0]
+    assert row["n_aoi"] == historical_mask.pixel_count
+    assert row["n_invalid"] == row["n_aoi"]
 
 
 def _canonical_year_cube(*, shape: tuple[int, int, int], fill: int, year: int) -> xr.DataArray:
@@ -1317,3 +1405,345 @@ def test_acquire_wofs_cache_persists_identical_aoi_pixel_count_across_pruned_and
     assert unpruned_footprints.analysis_pixel_count == 16
     assert pruned_footprints.analysis_pixel_count == 8
     assert pruned_footprints.analysis_pixel_count != unpruned_footprints.analysis_pixel_count
+
+
+# ---------------------------------------------------------------------------
+# Task 5: integrate the scientific (historical_water_mask) and planning
+# (planning_footprint) masks into acquire_wofs_cache.
+# ---------------------------------------------------------------------------
+
+
+def _historical_mask(*, exclude_cells=(), pixel_count=None):
+    """A real HistoricalWaterMask on the SAME 4x4/30m/EPSG:3577 grid as
+    _aoi() (box(0, 0, 120, 120)), with every cell True except
+    ``exclude_cells`` (row, col) pairs. Matches the grid
+    _historical_mask_for_empty_year_grid already builds for _empty_year_mask
+    tests, but exposed here (shape=(4, 4)) for the acquire_wofs_cache
+    integration tests below.
+
+    ``mask_sha256`` is computed with the REAL _mask_digest function (not a
+    placeholder) -- Task 5's acquire_wofs_cache actually calls
+    record_cache_analysis_mask, which re-hashes the on-disk bytes and raises
+    if they disagree with the manifest, so a placeholder digest here would
+    make every real acquire_wofs_cache call fail verification immediately."""
+    from hydroseason._historical_water_mask import HistoricalWaterMask, _mask_digest
+
+    transform = Affine(30.0, 0.0, 0.0, 0.0, -30.0, 120.0)
+    shape = (4, 4)
+    values = np.ones(shape, dtype=bool)
+    for row, col in exclude_cells:
+        values[row, col] = False
+    resolution = (abs(transform.a), abs(transform.e))
+    transform_tuple = tuple(transform)[:6]
+    count = int(values.sum()) if pixel_count is None else pixel_count
+    mask_sha256 = _mask_digest(
+        values, crs="EPSG:3577", transform=transform_tuple, shape=shape, resolution=resolution,
+    )
+    return HistoricalWaterMask(
+        mask=values,
+        crs="EPSG:3577",
+        transform=transform_tuple,
+        shape=shape,
+        resolution=resolution,
+        pixel_count=count,
+        source_product="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_item_ids=("item-1",),
+        source_lineage=("ga_ls_wo_fq_myear_3",),
+        coverage_start="1987-01-01",
+        coverage_end="2024-12-31",
+        aoi_sha256="a" * 64,
+        mask_sha256=mask_sha256,
+    )
+
+
+def _footprint_from(historical_mask, *, factor=1, safety_cells=0):
+    """A real WetPlanningFootprint genuinely derived from ``historical_mask``
+    via build_planning_footprint_from_historical_mask (Task 1) -- the actual
+    production derivation, not a hand-rolled digest, so the tests below
+    exercise the real "derives from" contract acquire_wofs_cache must check."""
+    from hydroseason._io_dea_stats import build_planning_footprint_from_historical_mask
+
+    return build_planning_footprint_from_historical_mask(
+        historical_mask, factor=factor, safety_cells=safety_cells,
+    )
+
+
+def test_acquire_wofs_cache_accepts_historical_water_mask_and_planning_footprint_kwargs(
+    monkeypatch, tmp_path,
+):
+    """The new lower-level signature: acquire_wofs_cache(..., historical_water_mask=,
+    planning_footprint=) must be accepted together, with the planning
+    footprint genuinely derived from the historical mask (real production
+    derivation via build_planning_footprint_from_historical_mask)."""
+    historical_mask = _historical_mask()
+    footprint = _footprint_from(historical_mask)
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        historical_water_mask=historical_mask, planning_footprint=footprint,
+    )
+
+    assert handle is not None
+
+
+def test_planned_windows_limit_reads_while_exact_historical_mask_sets_stored_pixels_and_counts(
+    monkeypatch, tmp_path,
+):
+    """Planned windows (from the coarse/dilated planning_footprint) may be a
+    SUPERSET of the exact historical mask -- they only gate which storage
+    windows are read. What actually lands in stored -2 pixels and counts
+    must come from the EXACT historical_water_mask, not the planning
+    superset: one cell excluded from the historical mask (but still inside
+    the planning footprint's coarse/native mask) must read -2 and must be
+    excluded from n_aoi, even though the planning-driven windows still cover
+    it (nothing to prune away at the coarse level for a single excluded
+    native cell)."""
+
+    historical_mask = _historical_mask(exclude_cells=[(0, 0)])
+    footprint = _footprint_from(historical_mask)
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+
+    graph_calls = []
+
+    def _fake_graph(*args, **kwargs):
+        graph_calls.append(kwargs)
+        return _cube(2015)
+
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", _fake_graph)
+    writer = Mock(return_value=_stats())
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", writer)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        historical_water_mask=historical_mask, planning_footprint=footprint,
+    )
+
+    assert graph_calls, "build_wofs_year_graph must be called"
+    assert graph_calls[0].get("historical_water_mask") is historical_mask
+    # Planning-derived wet_aoi (windows/diagnostics only) must still be
+    # threaded too, but it is NOT what determines the exact -2/count
+    # denominator -- that is historical_water_mask, asserted above.
+    assert graph_calls[0].get("wet_aoi") is not None
+
+
+def test_no_source_months_preserve_constant_n_aoi(monkeypatch, tmp_path):
+    """A year with zero STAC items (no source observations at all) must
+    still report n_aoi == historical_water_mask.pixel_count -- the SAME
+    fixed denominator a normal (item-bearing) year would report -- not the
+    larger, unpruned full-AOI pixel count. Exercised through the real
+    write_empty_annual_group (not mocked away), so the n_aoi invariant is
+    checked by production code, not by this test re-deriving it."""
+    from hydroseason._io_wofs_zarr import open_completed_extent_counts
+
+    historical_mask = _historical_mask(exclude_cells=[(0, 0)])
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=([], _aoi())),
+    )
+
+    handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        historical_water_mask=historical_mask,
+    )
+
+    df = open_completed_extent_counts(handle, "2015-01-01", "2015-12-31")
+    assert df is not None
+    assert (df["n_aoi"] == historical_mask.pixel_count).all()
+    assert (df["n_aoi"] == 15).all()
+
+
+def test_planning_dilation_does_not_increase_n_aoi(monkeypatch, tmp_path):
+    """A planning_footprint built with a wide safety-cell dilation (a much
+    larger coarse/native pruning superset than the exact historical mask)
+    must never leak into the stored n_aoi denominator -- n_aoi must still
+    equal historical_water_mask.pixel_count exactly, proving the planning
+    mask never supplies n_aoi/counts, only active-window selection."""
+
+    historical_mask = _historical_mask(exclude_cells=[(0, 0), (0, 1)])
+    # A wide dilation halo: the planning footprint's coarse/native mask
+    # covers far more than the exact historical mask, but n_aoi must not move.
+    footprint = _footprint_from(historical_mask, factor=1, safety_cells=3)
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        historical_water_mask=historical_mask, planning_footprint=footprint,
+    )
+
+    from hydroseason._io_wofs_zarr import _handle_request_dict
+
+    request_dict = _handle_request_dict(handle)
+    assert request_dict.get("historical_mask_pixel_count") == 14
+    assert request_dict.get("historical_mask_sha256") == historical_mask.mask_sha256
+
+
+def test_mask_source_coverage_mismatch_errors_before_any_monthly_wofs_call(monkeypatch, tmp_path):
+    """A planning_footprint that does NOT derive from the supplied
+    historical_water_mask (independently supplied, mismatched artifacts)
+    must be rejected before any STAC access / monthly WOfS call -- neither
+    _query_wofs_items nor build_wofs_year_graph may ever be invoked."""
+    historical_mask = _historical_mask()
+    other_mask = _historical_mask(exclude_cells=[(1, 1)])
+    mismatched_footprint = _footprint_from(other_mask)
+
+    query = Mock(side_effect=AssertionError("must not query STAC on a mask mismatch"))
+    graph = Mock(side_effect=AssertionError("must not build a graph on a mask mismatch"))
+    monkeypatch.setattr("hydroseason._io_wofs_acquire._query_wofs_items", query)
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", graph)
+
+    with pytest.raises(ValueError, match="(?i)does not derive from|mismatch"):
+        acquire_wofs_cache(
+            "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+            "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+            historical_water_mask=historical_mask, planning_footprint=mismatched_footprint,
+        )
+
+    query.assert_not_called()
+    graph.assert_not_called()
+
+
+def test_record_cache_analysis_mask_is_called_before_annual_writes(monkeypatch, tmp_path):
+    """record_cache_analysis_mask() (Task 4) must actually be invoked by
+    acquire_wofs_cache -- nothing called it before this task. Verified via
+    the real on-disk sidecar it creates (verify_cache_analysis_mask), not a
+    mock of record_cache_analysis_mask itself, so this proves the sidecar is
+    genuinely persisted and independently verifiable, not merely that some
+    function was called."""
+    from hydroseason._io_wofs_zarr import verify_cache_analysis_mask
+
+    historical_mask = _historical_mask()
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        historical_water_mask=historical_mask,
+    )
+
+    analysis_mask = verify_cache_analysis_mask(handle)
+    assert analysis_mask.mask_sha256 == historical_mask.mask_sha256
+    assert analysis_mask.pixel_count == historical_mask.pixel_count
+
+
+def test_resume_path_verifies_cache_analysis_mask_before_accepting_completed_years(
+    monkeypatch, tmp_path,
+):
+    """On a resumed (already-completed) request, acquire_wofs_cache must
+    call verify_cache_analysis_mask() before accepting the completed years /
+    count sidecars -- a store whose on-disk analysis-mask sidecar has been
+    tampered with must not be silently trusted just because completed_years
+    reports every requested year done."""
+    import hydroseason._io_wofs_acquire as acquire_mod
+
+    historical_mask = _historical_mask()
+    items = [_item("2015-01-15", "a")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(return_value=_cube(2015)),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        historical_water_mask=historical_mask,
+    )
+
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.completed_years", Mock(return_value={2015})
+    )
+    verify_mock = Mock(wraps=acquire_mod.verify_cache_analysis_mask)
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.verify_cache_analysis_mask", verify_mock)
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+        historical_water_mask=historical_mask,
+    )
+
+    verify_mock.assert_called()
+
+
+def test_diagnostics_callback_gains_five_new_fields_without_changing_existing_keys(
+    monkeypatch, tmp_path,
+):
+    """New diagnostic fields (statistics_prepare_seconds, stac_read_seconds,
+    active_window_count, planned_native_pixels, local_reduction_seconds) must
+    be added additively -- every existing callback key/value stays exactly
+    as before."""
+    items = [_item("2015-01-15", "a"), _item("2016-02-15", "b")]
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=(items, _aoi())),
+    )
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire.build_wofs_year_graph",
+        Mock(side_effect=[_cube(2015), _cube(2016)]),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
+    diagnostics = []
+
+    acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2015-01-01", "2016-12-31", cache_root=tmp_path, resolution=30,
+        diagnostics_callback=diagnostics.append,
+    )
+
+    assert len(diagnostics) == 1
+    payload = diagnostics[0]
+    existing = {
+        "query_count": 1,
+        "graph_count": 2,
+        "task_count": 2,
+        "chunks_considered": 24,
+        "chunks_written": 24,
+        "loaded_pixels": 384,
+    }
+    for key, value in existing.items():
+        assert payload[key] == value
+    for new_key in (
+        "statistics_prepare_seconds", "stac_read_seconds", "active_window_count",
+        "planned_native_pixels", "local_reduction_seconds",
+    ):
+        assert new_key in payload

@@ -162,7 +162,7 @@ def _legacy_timeline(monthly: pd.DataFrame) -> dict[str, Any]:
                     "name": name,
                     "x": [dates[i] for i, keep in enumerate(mask) if keep],
                     "y": [y[i] for i, keep in enumerate(mask) if keep],
-                    "marker": {"size": 10, "color": color, "symbol": symbol},
+                    "marker": {"size": 8, "color": color, "symbol": symbol},
                 }
             )
     return {
@@ -294,7 +294,7 @@ def generate_catchment_report(
         subtitle=subtitle,
         quality_note=quality_note,
         verdict=verdict,
-        kpis=select_kpis(analysis),
+        kpis=select_kpis(analysis, extent=monthly),
         monthly=monthly,
         hydro_years=hydro_years,
         events=events,
@@ -302,6 +302,7 @@ def generate_catchment_report(
         summary=summary,
         timeline_figure=timeline_figure(monthly, analysis),
         secondary_figure=secondary_figure(monthly, analysis),
+        quality_threshold=analysis.max_invalid_pct,
         rainfall_context=rain_context,
         rainfall_figure=rain_figure,
         rainfall_warning=rainfall_warning,

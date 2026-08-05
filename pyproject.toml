@@ -79,6 +79,7 @@ dev = [
   "build>=1.2",
   "twine>=6.1",
   "check-wheel-contents>=0.6",
+  "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.urls]
@@ -110,6 +111,27 @@ markers = [
   "experimental: promotion-gate comparison, may fail without blocking release",
   "network: requires external DEA/STAC access",
   "performance: opt-in wall-clock performance gate",
+]
+
+[tool.coverage.run]
+# Core CI runs without optional raster/STAC dependencies. Those modules are
+# exercised by the all-extras job instead of lowering the pandas-only gate.
+omit = [
+  "hydroseason/_historical_water_mask.py",
+  "hydroseason/_io_dea_stats.py",
+  "hydroseason/_io_extent_cache.py",
+  "hydroseason/_io_geo.py",
+  "hydroseason/_io_resolution.py",
+  "hydroseason/_io_stac_cache.py",
+  "hydroseason/_io_wofs_acquire.py",
+  "hydroseason/_io_wofs_coarsen.py",
+  "hydroseason/_io_wofs_compare.py",
+  "hydroseason/_io_wofs_zarr.py",
+  "hydroseason/_report_svg.py",
+  "hydroseason/_spatial_plan.py",
+  "hydroseason/_study_aois.py",
+  "hydroseason/_wet_aoi.py",
+  "hydroseason/io.py",
 ]
 
 [tool.ruff]

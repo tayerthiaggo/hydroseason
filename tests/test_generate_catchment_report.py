@@ -1,5 +1,8 @@
 import json
 import re
+import shutil
+import subprocess
+import textwrap
 
 import numpy as np
 import pandas as pd
@@ -7,6 +10,7 @@ import pytest
 
 from hydroseason import CatchmentReportPaths, analyze_catchment, generate_catchment_report
 from hydroseason._regime_compare import compare_rainfall_to_extent_regime
+from hydroseason._report_html import render_report_html
 from hydroseason.report import generate_html_report
 
 
@@ -39,6 +43,24 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert "plotly-basic-3.6.0" in html
     assert "cdn.plot.ly" not in html
     assert "<script src=" not in html
+    assert 'id="timeline-scale-linear"' in html
+    assert 'id="timeline-scale-log"' in html
+    assert 'id="timeline"' in html
+    assert '<div id="timeline" class="plot-canvas"></div>' in html
+    assert '<div id="secondary" class="plot-canvas"></div>' in html
+    assert html.count('class="kpi"') == 10
+    assert html.index("hydrological years") < html.index("mean annual amplitude")
+    assert html.index("average invalid/cloud cover") > html.index("high confidence years")
+    assert ".plot > .plot-canvas {" in html
+    assert ".plot-primary > .plot-canvas {" in html
+    assert ".plot > div {" not in html
+    assert ".plot-primary > div {" not in html
+    assert html.count('class="plot plot-primary"') == 1
+    assert "Hydrological Year Extent" not in html
+    assert html.index("Monthly Surface Water Extent") < html.index("Seasonal Context")
+    assert "function synchronize(" not in html
+    assert "Invalid Coverage (%)" not in html
+    assert '"hydro_year"' not in html
     assert 'data-theme="light"' in html
     assert "prefers-color-scheme" not in html
     assert paths.monthly_csv.exists()
@@ -67,6 +89,83 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert {"start_date", "peak_date", "trough_date"} <= set(hydro_years.columns)
     assert {"start_date", "end_date", "peak_date", "baseline_extent_pct"} <= set(events.columns)
     assert {"low_spell_id", "start_date", "end_date", "baseline_extent_pct"} <= set(low_spells.columns)
+
+
+def test_report_interactions_restore_scale_without_secondary_range_sync(tmp_path):
+    """Execute emitted scale and phase interactions against a minimal Plotly DOM."""
+    node = shutil.which("node")
+    assert node is not None, "Node.js 20+ is required for the report interaction test"
+    version = subprocess.run([node, "--version"], capture_output=True, text=True, check=False)
+    assert version.returncode == 0, version.stderr
+    assert int(version.stdout.strip().removeprefix("v").split(".", 1)[0]) >= 20
+    timeline = {
+        "data": [
+            {"name": "Reference Median", "x": ["2020-01-01", "2020-02-01"], "y": [-1, 2], "customdata": [-1, 2], "hovertemplate": "Reference Median: %{customdata}%", "meta": {"original_y": [-1, 2], "log_floor": 0.02, "log_safe_y": [0.02, 2]}},
+            {"name": "Extent", "x": ["2020-01-01", "2020-02-01"], "y": [0, 4], "customdata": [[0, -1, 7, "dry", 2020, "HY End Dry"], [4, 2, 0, "recovery", 2021, "None"]], "meta": {"original_y": [0, 4], "log_floor": 0.02, "log_safe_y": [0.02, 4]}},
+            {"name": "Invalid", "x": ["2020-01-01"], "y": [7], "yaxis": "y2"},
+        ],
+        "layout": {"xaxis": {"range": ["2019-01-01", "2019-12-01"]}, "yaxis": {"type": "linear"}, "yaxis2": {"type": "linear"}},
+        "config": {"responsive": True},
+    }
+    html = render_report_html(
+        name="Test",
+        title="Test",
+        subtitle=None,
+        quality_note=None,
+        verdict="Test verdict",
+        kpis=[],
+        monthly=pd.DataFrame(),
+        hydro_years=pd.DataFrame(),
+        events=pd.DataFrame(),
+        low_spells=pd.DataFrame(),
+        summary=pd.DataFrame(),
+        timeline_figure=timeline,
+        secondary_figure={"data": [], "layout": {}, "config": {"responsive": True}},
+    )
+    interaction = re.findall(r"<script>\s*(\(\(\) => .*?)</script>", html, flags=re.DOTALL)[-1]
+    script = tmp_path / "report-interactions.js"
+    script.write_text(
+        textwrap.dedent(
+            f"""
+            const assert = require("node:assert/strict");
+            const vm = require("node:vm");
+            const clone = value => structuredClone(value);
+            class Element {{
+              constructor(id) {{ this.id = id; this.listeners = {{}}; this.attrs = {{}}; this.classList = {{ active: false, toggle: (name, on) => this.classList[name] = on }}; }}
+              on(name, fn) {{ this.listeners[name] = fn; }}
+              emit(name, event) {{ this.listeners[name](event); }}
+              addEventListener(name, fn) {{ this.listeners[name] = fn; }}
+              setAttribute(name, value) {{ this.attrs[name] = value; }}
+            }}
+            const elements = Object.fromEntries(["timeline", "secondary", "timeline-scale-linear", "timeline-scale-log"].map(id => [id, new Element(id)]));
+            const Plotly = {{
+              newPlot(target, data, layout) {{ target.data = clone(data); target.layout = clone(layout); return Promise.resolve(target); }},
+              restyle(target, update, indices) {{ indices.forEach((index, position) => target.data[index].y = clone(update.y[position])); return Promise.resolve(target); }},
+                relayout(target, update) {{
+                    if (update["yaxis.type"]) target.layout.yaxis.type = update["yaxis.type"];
+                    return Promise.resolve(target);
+                }},
+            }};
+            const context = {{ window: {{ HydroSeasonReport: {html.split('window.HydroSeasonReport = ', 1)[1].split(';</script>', 1)[0]} }}, document: {{ getElementById: id => elements[id] }}, Plotly, Promise, Array, Number, String }};
+            vm.runInNewContext({interaction!r}, context);
+            (async () => {{
+              await Promise.resolve(); await Promise.resolve();
+              elements["timeline-scale-log"].listeners.click();
+              assert.deepEqual(elements.timeline.data[0].y, [0.02, 2]);
+              assert.deepEqual(elements.timeline.data[0].customdata, [-1, 2]);
+              assert.equal(elements.timeline.data[0].hovertemplate, "Reference Median: %{{customdata}}%");
+              elements["timeline-scale-linear"].listeners.click();
+              assert.deepEqual(elements.timeline.data[0].y, [-1, 2]);
+              assert.deepEqual(elements.timeline.data[1].y, [0, 4]);
+              assert.equal(elements.timeline.layout.yaxis2.type, "linear");
+              assert.equal(elements.timeline.listeners.plotly_relayout, undefined);
+            }})().catch(error => {{ console.error(error); process.exitCode = 1; }});
+            """
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run([node, str(script)], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
 
 
 def test_generate_catchment_report_uses_default_name_for_blank_aoi(tmp_path, seasonal_extent):
@@ -134,6 +233,8 @@ def test_compatibility_report_uses_light_shell_without_csv_bundle(tmp_path, seas
     assert result == output.resolve()
     assert "Plotly.newPlot" in html
     assert "cdn.plot.ly" not in html
+    assert 'id="timeline"' in html
+    assert 'id="hydro-year"' not in html
     assert "&lt;b&gt;title&lt;/b&gt;" in html
     assert list(tmp_path.glob("*.csv")) == []
 

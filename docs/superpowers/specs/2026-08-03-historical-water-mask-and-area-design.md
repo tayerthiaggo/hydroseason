@@ -1,18 +1,20 @@
-# Historical Maximum-Water Mask and Absolute Area Design
+# Historical Maximum-Water Mask Design
 
-**Status:** Approved in conversation on 2026-08-03.
+**Status:** Approved in conversation on 2026-08-03. Amended same day to drop
+the absolute-area (km²) scope after Task 1 implementation showed that making
+pixel area CRS-strict broke fixtures project-wide for no benefit the project
+currently needs; the user decided absolute area is out of scope entirely.
 
 ## Purpose
 
 Change the default HydroSeason workflow so a user-supplied AOI remains the
 acquisition boundary, while the scientific analysis footprint is the exact
 historical maximum-water mask from DEA Water Observations Multi-Year
-Statistics. Use that one fixed mask for every monthly observation, calculate
-absolute observed water extent in square kilometres during extraction, and
-carry the area values through the user-facing CSV results.
+Statistics. Use that one fixed mask for every monthly observation.
 
-This work changes CSV and extraction semantics only. HTML reports remain
-unchanged until a later design.
+This work changes extraction semantics only (the denominator used for
+`n_aoi`, `invalid_pct`, and percentage-based classification). It does not add
+any new CSV columns and does not touch HTML reports.
 
 ## Decisions
 
@@ -30,13 +32,17 @@ unchanged until a later design.
   denominator.
 - Pixels outside the exact mask are canonical outside pixels (`-2`). Inside
   the mask, water is `1`, dry is `0`, and invalid is `-1`.
-- Absolute water extent is calculated from water pixels, not all valid pixels:
-  `water_extent_km2 = n_water * pixel_area_m2 / 1_000_000`.
-- Only water area is added. No `valid_observed_area_km2` field is added because
-  existing invalid-percentage and quality columns already describe support.
 - Regime classification, hydrological-year detection, phases, wet events, and
-  low spells remain percentage-based. The km2 values are parallel absolute
-  descriptions of the same selected dates and intervals.
+  low spells remain percentage-based, unchanged in formula. Only the pixel
+  population behind `n_aoi`/`n_valid`/`n_invalid` changes.
+- No absolute area (km²) field is added anywhere. This was explored and
+  reverted: making pixel area available required a CRS-strict primitive that
+  raised on any fixture lacking real CRS metadata, which broke 32 unrelated
+  tests across 5 files for a value the project does not currently need (WOfS
+  pixel resolution is already known/expected; the project is not
+  reprojecting or handling mixed grids that would make computed area
+  necessary). Do not reintroduce `water_extent_km2`, `pixel_area_m2`, or any
+  derived area/km² field without a fresh design decision.
 - Benchmarks use `data/fitzroy_kimberley_aoi.geojson` and
   `data/Gilbert_river_buffer.geojson`, never the full catchments.
 
@@ -54,10 +60,6 @@ remains the full AOI. The default extraction command also leaves DEA pruning
 off. The new design promotes the exact native raster to an explicit scientific
 artifact and derives the planning windows from it, so one statistics load
 serves both correctness and performance without conflating their masks.
-
-The current CSVs also report only percentage water extent. This prevents users
-from seeing whether a percentage represents a small wetland or hundreds of
-square kilometres of inundation.
 
 ## Domain Model
 
@@ -86,7 +88,7 @@ scientific by implication. The value object carries:
 
 - the exact boolean `xarray.DataArray` mask;
 - CRS, affine transform, shape, and resolution;
-- fixed pixel count and area in km2;
+- fixed pixel count;
 - source product, version, item IDs, lineage, and coverage period;
 - AOI digest and exact mask digest.
 
@@ -109,7 +111,6 @@ n_valid     = count(mask == 0 or mask == 1)
 n_invalid   = count(mask == -1)
 extent_pct  = 100 * n_water / n_valid
 invalid_pct = 100 * n_invalid / n_aoi
-water_extent_km2 = n_water * pixel_area_m2 / 1_000_000
 ```
 
 `n_aoi` must equal the historical-mask pixel count in every month, including a
@@ -125,7 +126,7 @@ User AOI + monthly start/end dates
   -> derive conservative storage-window planning mask
   -> retrieve and classify monthly WOfS data only in planned windows
   -> apply exact mask: outside = -2
-  -> calculate monthly counts, percentages, quality, and water_extent_km2
+  -> calculate monthly counts, percentages, and quality
   -> classify regime and choose the analysis route
   -> detect HY boundaries, peak, mid-dry, trough, phases, events, and spells
   -> write the four user-facing CSVs
@@ -135,83 +136,20 @@ The historical mask is known before monthly acquisition. The workflow does
 not load and union every DEA Calendar Year summary and does not need a second
 network pass to discover the analysis footprint.
 
-## Grid and Area Contract
+## Grid Contract
 
-The default grid remains EPSG:3577 at 30 m. Pixel area is derived from the
-absolute determinant of the affine transform rather than hard-coded as 900
-square metres, so rotated metric grids and supported non-default metric
-resolutions remain mathematically correct.
-
-Area calculation requires a projected metric CRS. A geographic or non-metric
-analysis grid fails with a clear validation error instead of emitting an
-incorrect km2 value.
-
-`water_extent_km2` is observed classified water area. It is not expanded to
-estimate water hidden by invalid pixels. `invalid_pct`, `quality_state`, and
-confidence remain the evidence needed to interpret incomplete observation.
+The default grid remains EPSG:3577 at 30 m. This design does not require
+pixel-area or metric-CRS validation; it only requires the historical mask and
+every monthly raster to share the same grid (CRS, transform, shape,
+resolution) so cell-for-cell masking is valid.
 
 ## CSV Schema
 
-The default bundle remains four CSVs. Existing fields retain their meanings.
-
-### Monthly CSV
-
-Add:
-
-- `water_extent_km2`: observed monthly water pixels multiplied by pixel area;
-- `baseline_water_extent_km2`: median usable monthly water area used as the
-  absolute companion to `baseline_extent_pct`.
-
-### Hydro-years CSV
-
-Add:
-
-- `peak_water_extent_km2` from the selected `peak_date`;
-- `mid_dry_water_extent_km2` from the selected `mid_dry_date`;
-- `trough_water_extent_km2` from the selected `trough_date`;
-- `drawdown_km2 = peak_water_extent_km2 - trough_water_extent_km2`.
-
-The selected dates do not change. A quality-flagged selected date retains its
-observed area and its existing confidence fields.
-
-### Wet-event CSV
-
-Add:
-
-- `baseline_water_extent_km2`, the median usable monthly water area;
-- `peak_water_extent_km2`, from the percentage-selected `peak_date`;
-- `mean_water_extent_km2`, the mean observed water area over the event window;
-- `magnitude_km2_months`, the area-time equivalent of
-  `magnitude_pp_months`.
-
-Event membership and the exit threshold remain percentage-based. For month
-`m`, the absolute exit threshold is:
-
-```text
-exit_threshold_water_km2[m]
-  = exit_threshold_pct / 100
-    * n_valid[m]
-    * pixel_area_m2 / 1_000_000
-```
-
-The event magnitude is:
-
-```text
-magnitude_km2_months
-  = sum(max(water_extent_km2[m] - exit_threshold_water_km2[m], 0))
-```
-
-This preserves the existing event threshold while expressing integrated
-excess in absolute observed area-time.
-
-### Low-spells CSV
-
-Add:
-
-- `baseline_water_extent_km2`;
-- `min_water_extent_km2`, taken from the same month that supplies
-  `min_extent_pct` within the spell. Percentage ties resolve to the first
-  matching month, consistent with pandas' current `idxmin` behavior.
+The default bundle remains four CSVs (monthly, hydro-years, wet-event,
+low-spells). No new columns are added by this design. Existing fields retain
+their meanings; only the pixel population behind `n_aoi`, `n_valid`,
+`n_invalid`, and the percentage fields derived from them changes, because the
+denominator is now the historical mask instead of the full user AOI.
 
 ### HTML
 
@@ -219,15 +157,12 @@ No HTML columns, plots, KPIs, or copy change in this work.
 
 ## API and Compatibility
 
-The extraction path adds `water_extent_km2` to the monthly count frame and
-preserves all existing columns. Core analysis continues to consume
-`extent_pct` and `invalid_pct`; it carries the area column as aligned context
-for exports.
+The extraction path preserves all existing CSV columns and formulas. Core
+analysis continues to consume `extent_pct` and `invalid_pct` exactly as
+before; only their underlying pixel counts change.
 
-Lower-level percentage-only analysis remains supported. The default
-extraction/report workflow is the supported path for complete absolute-area
-results and always supplies `water_extent_km2`. No synthetic area is inferred
-from percentage alone.
+Lower-level percentage-only analysis remains supported and is the only
+analysis mode — there is no absolute-area mode to fall back to or opt into.
 
 The legacy polygon `wet_aoi` and planning-only APIs remain available for
 compatibility, but documentation and the default workflow use
@@ -248,8 +183,8 @@ The cache identity includes:
 - planning factor and safety-cell parameters;
 - monthly analysis start and end dates.
 
-The manifest records historical-mask pixel count and area independently of
-the full user-AOI count. Annual/monthly extent sidecars are valid only when
+The manifest records the historical-mask pixel count independently of the
+full user-AOI count. Annual/monthly extent sidecars are valid only when
 their historical-mask digest matches the root manifest. A mismatch invalidates
 derived counts and rebuilds them from verified cached source masks.
 
@@ -290,30 +225,24 @@ scientific-mask discovery pass is required.
   `invalid_pct`.
 - Prove `n_aoi` is constant through normal, all-invalid, and missing-source
   months.
-- Prove affine pixel-area calculation and the 30 m result of 0.0009 km2 per
-  water pixel.
-- Prove metric-CRS validation and mask-grid mismatch errors.
+- Prove mask-grid CRS/shape/transform/resolution mismatch errors.
 - Prove cache identity changes with mask digest or DEA source lineage.
 - Prove incompatible source lineage or insufficient temporal coverage fails
   closed before monthly acquisition.
 
 ### Analysis and export tests
 
-- Prove existing regime and HY/event selection is unchanged when the aligned
-  area column is added.
-- Prove monthly and baseline km2 fields.
-- Prove HY peak, mid-dry, trough, and drawdown km2 fields use the selected
-  monthly dates.
-- Prove event peak, mean, baseline, and integrated `magnitude_km2_months`.
-- Prove low-spell minimum area comes from the percentage-minimum month.
-- Prove populated and empty CSVs have the stable approved headers.
+- Prove existing regime and HY/event selection is unchanged in formula;
+  only the pixel counts feeding them change.
+- Prove populated and empty CSVs have the stable existing headers (no new
+  columns).
 - Keep the Fitzroy and Gilbert manual-review regression tests green.
 
 ### Integration tests
 
 - Compare an unmasked synthetic/full-AOI run with a historical-mask run and
-  prove `n_water` and `water_extent_km2` are identical while `invalid_pct`
-  changes only because the denominator intentionally changes.
+  prove `n_water` is identical while `invalid_pct` changes only because the
+  denominator intentionally changes.
 - In the bounded full-AOI benchmark fixtures, prove every primary monthly
   water pixel is contained in the Multi-Year mask. This is an explicit audit,
   not a production check that would negate I/O pruning.
@@ -347,7 +276,7 @@ Measure cold and warm runs where meaningful and record:
 - local reduction seconds;
 - peak resident memory;
 - cache bytes;
-- exact `n_water` and `water_extent_km2` equality against the full-AOI run.
+- exact `n_water` equality against the full-AOI run.
 
 The benchmark publishes measured results even when the expected speedup is not
 observed. Documentation may claim a speed improvement only from those results.
@@ -364,8 +293,7 @@ Update the user guide and report-column reference to distinguish:
 - planning mask: performance-only superset.
 
 Document the Multi-Year source coverage, unfiltered nature, exact `count_wet >
-0` rule, fixed-mask comparability, area formula, and fail-closed coverage
-contract.
+0` rule, fixed-mask comparability, and fail-closed coverage contract.
 
 Re-extract and rebuild the case-study CSVs before treating them as final. Remove
 stale artifacts using the existing four-CSV bundle policy. HTML remains outside
@@ -376,7 +304,9 @@ this work.
 - Calendar-year mask unions or user-selectable mask-source modes.
 - Confidence or frequency thresholds applied to DEA Multi-Year Statistics.
 - Buffered scientific masks.
-- Estimated water area under invalid pixels.
-- `valid_observed_area_km2` output.
+- Absolute/observed water area in any unit (`water_extent_km2`,
+  `pixel_area_m2`, or any derived area/km² field), and any CRS-strictness
+  this would require. Explicitly reverted after Task 1 implementation; see
+  Decisions.
 - HTML report changes.
 - Full-catchment performance benchmarks.

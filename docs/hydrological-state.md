@@ -36,8 +36,21 @@ cycle boundaries. The default `phase_model="none"` returns the stable
 
 Set `phase_model="rule_based"` on `DynamicHydroYearConfig` to label months
 inside complete robust-extrema cycles as `recovery`, `wet`, `recession`, then
-`dry`. Labels are anchored to the selected robust trough boundaries,
-`peak_month`, and `half_loss_month`; months outside complete cycles remain
+`dry`. Phase boundaries use the month-specific Reference Median baseline,
+computed as the median of usable observations for each calendar month:
+
+- `recovery`: detected trough until the extent crosses the baseline while rising;
+- `wet`: baseline crossing through the peak until half the peak anomaly is lost;
+- `recession`: half-anomaly crossing until the extent falls back through baseline;
+- `dry`: below-baseline extent until the detected trough.
+
+The half-anomaly threshold is `baseline(t) + 0.5 * (peak - baseline(peak))`;
+it is deliberately not half of the raw peak extent. The annual
+`half_loss_month` field remains the separate peak-to-trough diagnostic. These
+are descriptive surface-water phases, not discharge or baseflow separation.
+
+Labels are anchored to the selected robust trough boundaries and `peak_month`;
+months outside complete cycles remain
 `unspecified` with `phase_status="outside_cycle"`, and months in partial cycles
 are marked `phase_status="unresolved_cycle"`. Unusable months keep their
 positional phase label for continuity, but use `phase_status="unusable"` with
@@ -154,6 +167,13 @@ annual[[
 ## Quality and aggregation
 
 `invalid_pct` is a percentage: observed fraction is `1 - invalid_pct / 100`.
+For default high-level DEA acquisition, `n_aoi` is the constant pixel count of
+the fixed `(Multi-Year count_wet > 0) AND user AOI` historical mask, and
+`invalid_pct = 100 * n_invalid / n_aoi`. Pixels outside that exact raster are
+outside (`-2`), so cloud, shadow, or no-data values there cannot change
+`invalid_pct`. `extent_pct` remains `100 * n_water / n_valid` among valid
+observations inside the mask.
+
 Observed extrema from low-quality months remain visible for auditability, but
 they are flagged `low_quality`, reduce support, and cannot produce a confirmed
 annual boundary. Use `quality_policy="flag"` when finite observations with
@@ -161,7 +181,10 @@ partial invalid coverage should remain `candidate_usable`/`usable_month` for
 cycle identification; their invalid counts still lower confidence. A 100%
 invalid month (or a month with no observed extent) remains ineligible. Aggregate
 basins with summed `n_water` and `n_valid` counts, or explicit AOI area weights;
-unweighted percentage means are rejected.
+unweighted percentage means are rejected. Regime routing, hydrological-year
+boundaries, peaks, mid-dry markers, troughs, phases, wet events, and low spells
+remain selected from percentages; the workflow does not derive area or km2
+values.
 
 ## Limitations
 

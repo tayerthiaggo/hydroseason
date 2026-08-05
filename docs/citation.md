@@ -1,4 +1,4 @@
-﻿# Citation
+# Citation
 
 If you use HydroSeason in research, cite the **software release** and the
 associated **methodological paper**.
