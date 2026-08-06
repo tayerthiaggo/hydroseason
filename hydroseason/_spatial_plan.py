@@ -351,6 +351,8 @@ def active_windows_from_mask(
         raise ValueError(f"native_shape must have positive dimensions, got {native_shape!r}")
 
     mask = np.asarray(coarse_mask, dtype=bool)
+    if mask.ndim != 2:
+        raise ValueError(f"coarse_mask must be 2D, got shape {mask.shape!r}")
     rows, cols = np.nonzero(mask)
     if rows.size == 0:
         return ()
