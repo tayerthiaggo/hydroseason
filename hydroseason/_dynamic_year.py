@@ -499,10 +499,10 @@ def _assemble_dynamic_years(
             else "confirmed"
         )
         status_reason = (
-            "peak_low_quality"
-            if peak_low_quality
-            else "record_start_boundary"
+            "record_start_boundary"
             if used_record_start
+            else "peak_low_quality"
+            if peak_low_quality
             else "ok"
             if boundary_status == "confirmed"
             else "boundary_provisional"
