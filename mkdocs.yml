@@ -56,4 +56,3 @@ markdown_extensions:
 exclude_docs: |
   plans/**
   superpowers/**
-  wet_aoi_precompute_plan.md
