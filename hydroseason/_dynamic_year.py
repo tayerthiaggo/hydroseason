@@ -427,17 +427,32 @@ def _assemble_dynamic_years(
     amplitude_pp, noise_pp = robust_scale(frame)
     rows = []
     previous = None
-    for _, opportunity in opportunities.iterrows():
+    for position, (_, opportunity) in enumerate(opportunities.iterrows()):
         row = _blank_cycle(opportunity)
+        used_record_start = False
         if pd.isna(opportunity["trough_month"]):
             previous = None
             rows.append(row)
             continue
         if previous is None:
-            row.update(status="partial", status_reason="no_previous_boundary")
-            previous = opportunity
-            rows.append(row)
-            continue
+            if position == 0:
+                # Nothing precedes this opportunity at all, so the record's
+                # own first observed month is a legitimate stand-in for the
+                # previous trough. A mid-record reset (position > 0) is a
+                # different situation: a gap broke the chain there, and
+                # synthesizing a boundary would invent data across it.
+                synthetic_previous = opportunity.copy()
+                synthetic_previous["trough_month"] = (
+                    frame.index.min() - pd.DateOffset(months=1)
+                )
+                previous = synthetic_previous
+                used_record_start = True
+                # Fall through into the normal assembly branch below.
+            else:
+                row.update(status="partial", status_reason="no_previous_boundary")
+                previous = opportunity
+                rows.append(row)
+                continue
         start = pd.Timestamp(previous["trough_month"]) + pd.DateOffset(months=1)
         end = pd.Timestamp(opportunity["trough_month"])
         cycle = frame.loc[start:end]
@@ -478,11 +493,15 @@ def _assemble_dynamic_years(
         peak_low_quality = peak_selection.selection_status == "low_quality"
         boundary_status = (
             "provisional"
-            if peak_low_quality or opportunity["boundary_status"] != "confirmed"
+            if peak_low_quality
+            or used_record_start
+            or opportunity["boundary_status"] != "confirmed"
             else "confirmed"
         )
         status_reason = (
-            "peak_low_quality"
+            "record_start_boundary"
+            if used_record_start
+            else "peak_low_quality"
             if peak_low_quality
             else "ok"
             if boundary_status == "confirmed"

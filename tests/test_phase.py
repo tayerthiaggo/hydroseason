@@ -6,7 +6,12 @@ from hydroseason._dynamic_year import (
     DynamicHydroYearConfig,
     detect_dynamic_hydrological_years,
 )
-from hydroseason._phase import PHASES, assign_monthly_phases, empty_monthly_phase
+from hydroseason._phase import (
+    PHASES,
+    assign_monthly_phases,
+    assign_rule_based_phases,
+    empty_monthly_phase,
+)
 from hydroseason._state_input import prepare_monthly_extent
 from hydroseason.hydrological_state import analyze_hydrological_state
 
@@ -133,6 +138,46 @@ def test_rule_based_phases_use_baseline_and_half_peak_anomaly():
         "recovery", "recovery", "wet", "wet", "wet", "recession",
         "recession", "recession", "dry", "dry", "dry", "dry",
     ]
+
+
+def test_record_start_boundary_cycle_receives_monthly_phases():
+    """An opening cycle bounded from the record start must be phaseable.
+
+    assign_rule_based_phases skips rows whose hy_start/hy_end/peak_month
+    is None, so before the opening-boundary fix the record's first months
+    stayed "unspecified"/"outside_cycle" and left the timeline unshaded
+    there. Once those fields are populated the months must get real
+    phases like any other partial cycle.
+    """
+    index = pd.date_range("2005-01-01", periods=10, freq="MS")
+    raw = pd.DataFrame(
+        {
+            "extent_pct": [90.0, 78.0, 66.0, 54.0, 42.0, 30.0, 22.0, 16.0, 11.0, 8.0],
+            "invalid_pct": 0.0,
+        },
+        index=index,
+    )
+    prepared = prepare_monthly_extent(raw)
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2005,
+                "status": "partial",
+                "status_reason": "record_start_boundary",
+                "hy_start": pd.Timestamp("2005-01-01"),
+                "hy_end": pd.Timestamp("2005-10-01"),
+                "peak_month": pd.Timestamp("2005-01-01"),
+                "peak_extent_pct": 90.0,
+                "trough_extent_pct": 8.0,
+            }
+        ]
+    )
+
+    out = assign_rule_based_phases(prepared, hydro_years, noise_pp=1.0)
+
+    assert (out["phase_status"] != "outside_cycle").any()
+    assert (out["hy_year"] == 2005).any()
+    assert set(out["phase"].unique()) - {"unspecified"}
 
 
 def test_monthly_phase_boundary_basis_matches_actual_annual_boundary_detector(monsonal_extent):
