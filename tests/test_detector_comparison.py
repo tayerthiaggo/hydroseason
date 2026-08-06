@@ -3,9 +3,8 @@
 
 This test is intentionally allowed to fail: real promotion of the semi-Markov
 challenger requires untouched climate/sensor holdouts this repository does not
-have (see docs/superpowers/specs/2026-07-15-transferable-hydrological-boundary-design.md
-section 6.2). It is marked ``experimental`` so it never blocks release; robust
-stays the shipped default regardless of the outcome printed here.
+have. It is marked ``experimental`` so it never blocks release; robust stays
+the shipped default regardless of the outcome printed here.
 """
 from __future__ import annotations
 
@@ -16,9 +15,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason import DynamicHydroYearConfig, detect_dynamic_hydrological_years
+from hydroseason import DynamicHydroYearConfig
 from hydroseason._boundary_validation import align_events_by_interval, summarize_timing
 from hydroseason._dynamic_year import (
+    _detect_dynamic_hydrological_years_experimental,
     _find_robust_trough_opportunities,
     _find_semi_markov_trough_opportunities,
 )
@@ -84,9 +84,11 @@ _SITES = {
 
 
 def _run_detector(monthly: pd.DataFrame, config: DynamicHydroYearConfig, detector: str) -> pd.DataFrame:
-    from dataclasses import replace
-
-    return detect_dynamic_hydrological_years(monthly, config=replace(config, detector=detector))
+    # Internal-only dispatch: the public detect_dynamic_hydrological_years is
+    # robust-extrema only, so this experimental comparison harness reaches the
+    # semi-Markov challenger through _detect_dynamic_hydrological_years_experimental
+    # instead (never through DynamicHydroYearConfig.detector).
+    return _detect_dynamic_hydrological_years_experimental(monthly, config=config, detector=detector)
 
 
 def _aligned_with_support(actual: pd.DataFrame, truth: pd.DataFrame) -> pd.DataFrame:

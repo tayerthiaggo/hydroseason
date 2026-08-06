@@ -1,196 +1,216 @@
-# Usage guide
+# Usage Guide
 
-## Canonical mask shape
+## Canonical Mask Shape
 
-Every raster loader converges on the same canonical values before detection
-ever sees the data (`time`/`y`/`x`, `int8`):
+Every raster loader converges on the same canonical values before detection sees the data (`time`/`y`/`x`, `int8`):
 
 | Value | Meaning |
 |---:|---|
-| `1` | water |
-| `0` | dry |
-| `-1` | invalid (cloud, shadow, no-data, out-of-domain code) |
-| `-2` | outside AOI |
+| `1` | Water |
+| `0` | Dry |
+| `-1` | Invalid (cloud, shadow, no-data, out-of-domain code) |
+| `-2` | Outside AOI |
 
-`monthly_water_extent` summarises a canonical cube into a monthly
-`extent_pct`/`invalid_pct` DataFrame — `n_valid` only counts pixels explicitly
-equal to `0` or `1`; anything else (unknown codes, `NaN`, values that bypassed
-a classifier) counts as invalid rather than silently inflating the valid
-denominator or reading as dry.
+`monthly_water_extent` summarizes a canonical cube into a monthly `extent_pct`/`invalid_pct` DataFrame. Only pixels explicitly equal to `0` or `1` count as valid observations (`n_valid`). In the default high-level DEA workflow, `n_aoi` is the fixed historical-water-mask pixel count; invalid pixels outside that mask are `-2` and do not contribute to `invalid_pct`.
 
-## AOI is required for raster/STAC input
+---
 
-`load_monthly_masks` and `load_wofs_from_stac` both require an AOI
-(`aoi=`, a vector path or `geopandas.GeoDataFrame`, validated by `load_aoi`).
-If AOI clipping or rasterization fails, the loader raises rather than
-processing an unclipped raster. `load_monthly_masks_zarr` has no AOI
-parameter — it assumes the Zarr cube is already canonical and AOI-clipped.
-CSV extent input has no AOI parameter either: extent values are assumed to
-already belong to a known AOI computed upstream.
+## AOI and Input Requirements
 
-## Gapfill before detecting
+`load_monthly_masks` and `load_wofs_from_stac` both require an AOI (`aoi=`, a vector path or `geopandas.GeoDataFrame`, validated by `load_aoi`). If AOI clipping or rasterization fails, the loader raises rather than processing an unclipped raster. `load_monthly_masks_zarr` assumes the Zarr cube is already canonical and AOI-clipped.
 
-Water-mask gaps, cloud/shadow contamination, and missing months can shift the
-wet/dry boundaries `detect_hydrological_years` finds. **Strongly run
-WaterMask-TSFill gapfilling on raw/incomplete masks before running hydro-year
-detection.** `detect_hydrological_years` still rejects (by default) any month
-with more than `max_invalid_pct=20.0`% invalid coverage, and duplicate or
-missing months raise unless you opt into a permissive policy — but that guard
-is a safety net, not a substitute for gapfilling. `load_extent_csv` does not
-gapfill or quality-screen; a CSV path is only safe input when the upstream
-extent series has already been completed and quality-screened.
+---
 
-## Path 1: extent CSV
+## Gapfilling Recommendation
 
-The lightweight path — no raster dependencies. Use it if you already have a
-completed, quality-screened monthly extent series (e.g. computed elsewhere,
-or exported from WaterMask-TSFill).
+Water-mask gaps, cloud/shadow contamination, and missing months can shift wet/dry boundaries. **Strongly run gapfilling (e.g. WaterMask-TSFill) on raw/incomplete masks before running hydro-year detection.** The robust detector still reports an observed extremum when its month exceeds `max_invalid_pct=20.0`% invalid coverage, but marks that extremum `low_quality` and the annual cycle `provisional`; low-quality cycles cannot anchor historical condition baselines.
+
+For review-oriented mapping where every finite observation should contribute to
+the cycle search, pass `quality_policy="flag"` (the main case-study build uses
+this mode). Months with partial invalid coverage remain `usable_month=True`,
+while `invalid_pct`, `quality_state="low"`, support, and confidence expose the
+uncertainty. A month with 100% invalid coverage or no observed extent remains
+unusable.
+
+---
+
+## Digital Earth Australia (DEA) & Cache Contracts
+
+HydroSeason provides direct interfaces for Digital Earth Australia (DEA) Water Observations (`ga_ls_wo_3`) and local Zarr caching:
+
+### 1. Fixed Historical Water Mask
+
+The default high-level route is:
+
+`user AOI acquisition boundary -> cached DEA Multi-Year Statistics -> fixed unfiltered count_wet > 0 raster -> separate planning superset -> monthly WOfS -> percentage-based analysis -> four CSVs`
+
+HydroSeason queries or reuses exactly one pinned `ga_ls_wo_fq_myear_3` artifact. The scientific mask is exactly `(count_wet > 0) AND rasterized user AOI` on the analysis grid. It has no frequency threshold, closing, buffer, Calendar Year union, or polygon round trip. The same raster is used for every requested month.
+
+The verified manifest pins source product/version, item IDs, lineage, and coverage start/end. The source observed at design time was unfiltered and covered 1987--2025; use the manifest's exact values as authority. If `coverage_end` predates the requested analysis end, or no verified cache exists in offline mode, loading fails closed and never substitutes the full AOI.
+
+`open_wo_statistics` remains available for direct inspection:
+```python
+from hydroseason import open_wo_statistics
+
+stats = open_wo_statistics(stac_url="https://explorer.dea.ga.gov.au/stac", aoi="aoi.geojson")
+```
+
+### 2. Conservative Planning Footprint (`WetPlanningFootprint`)
+To optimize tile acquisition and I/O without shrinking the scientific denominator, generate a conservative max-pooled planning footprint:
+```python
+from hydroseason import build_wet_planning_footprint, acquire_wofs_cache
+
+footprint = build_wet_planning_footprint(aoi="aoi.geojson", resolution_m=30)
+
+# Pass footprint as performance-only I/O filter
+handle = acquire_wofs_cache(
+    stac_url="https://explorer.dea.ga.gov.au/stac",
+    aoi="aoi.geojson",
+    planning_footprint=footprint,
+)
+```
+
+> [!IMPORTANT]
+> **Superset Guarantee:** `WetPlanningFootprint` expands native wet pixels via max pooling. All historical-mask pixels remain inside the planning footprint. The exact historical raster, not this performance-only superset, determines `n_aoi` and `invalid_pct`.
+
+> [!NOTE]
+> **Legacy Compatibility:** Pass `use_historical_water_mask=False`, or use `--full-aoi` in the extraction script, only when an explicit full-AOI diagnostic/reference result is required.
+
+### 3. Mask Cache Integrity & Dual Composite Bundles
+Local cache stores record persistent metadata to prevent tamper or mismatched parameters:
+- **`verify_cache_footprints`**: Validates cache footprint integrity against full AOI metadata.
+- **`open_completed_mask_cache`**: Opens completed Zarr mask cache handles.
+- **`open_completed_dual_extent_counts`**: Retrieves dual max-water and median-water extent count sidecars when `composite_bundle="hydrofragments_v1"` is enabled.
+
+---
+
+## Main Workflow Orchestrator
+
+`run_hydroseason` is the supported one-call workflow. It resolves water
+input, runs the authoritative water-only `analyze_catchment` route, optionally
+adds ancillary rainfall, and writes the self-contained HTML/CSV bundle.
+
+| `water_source` | Resolution |
+|---|---|
+| `None` | Fetch DEA WOfS; requires `aoi`, `start_date`, and `end_date` |
+| CSV path or `pandas.DataFrame` | Use precomputed monthly `extent_pct`; optional `invalid_pct` defaults to `0.0` as an already-screened series |
+| NetCDF or Zarr path | Select and summarize one canonical mask variable |
+| `xarray.Dataset` or `xarray.DataArray` | Summarize the canonical mask in memory |
+
+Core CSV/DataFrame workflows require the base install. NetCDF, Zarr, xarray,
+and SILO require `hydroseason[raster]`; DEA fetching requires
+`hydroseason[stac]`.
 
 ```python
-from hydroseason import load_extent_csv, detect_hydrological_years, label_hydrological_months
+from hydroseason import run_hydroseason
+
+# Local NetCDF plus supplied rainfall CSV
+result = run_hydroseason(
+    "monthly_masks.nc",
+    output_dir="output/local",
+    water_mask_variable="water_mask",
+    aoi_name="Local AOI",
+    rainfall_csv_path="monthly_rainfall.csv",
+)
+
+# DEA fetch without rainfall
+result = run_hydroseason(
+    output_dir="output/dea",
+    aoi="aoi.geojson",
+    start_date="2005-01-01",
+    end_date="2025-12-01",
+)
+```
+
+Rainfall is off by default. `rainfall_csv_path` takes precedence over
+`fetch_rainfall=True`; otherwise the flag fetches SILO over the resolved
+water-extent years. Rainfall never enters `analyze_catchment` and cannot
+change the water regime, route, boundaries, phases, events, or low spells.
+
+`result.rainfall_status` is `disabled`, `provided`, `fetched`,
+`provided_failed`, or `fetch_failed`. Supplied/fetched load failures and
+comparison failures emit a warning and are recorded on the result, but the
+water-only report bundle is still written. Water loading, analysis, and
+report-writing failures remain fatal.
+
+---
+
+## Input Paths
+
+### Path 1: Extent CSV (Lightweight / Core Only)
+
+```python
+from hydroseason import analyze_catchment, load_extent_csv
 
 extent = load_extent_csv("monthly_extent.csv", date_col="date", value_col="extent_pct")
-hydro_years = detect_hydrological_years(extent)
-labels = label_hydrological_months(extent.index, hydro_years)
+analysis = analyze_catchment(extent, phase_model="rule_based")
 ```
 
-The CSV needs a date column and a value column (names configurable via
-`date_col`/`value_col`); an optional `invalid_pct` column, if present, is
-honoured by `detect_hydrological_years`.
+### Path 2: Generic Rasters or Local Zarr
 
-## Path 2: generic water-mask rasters
-
-Requires `pip install hydroseason[raster]`. Loads `water_*.tif`-style files
-from a directory (`load_monthly_masks`) or an already-canonical Zarr cube
-(`load_monthly_masks_zarr`), clips to the AOI, and returns a lazy,
-Dask-backed `xarray.DataArray` — no raster is fully materialized until
-`monthly_water_extent` computes its small monthly summaries.
-
-`load_monthly_masks` requires an explicit `encoding` (or a `classifier=`
-callable) — it never guesses WOfS-vs-binary from dtype:
+Requires `pip install "hydroseason[raster]"`.
 
 ```python
-from hydroseason import load_monthly_masks, monthly_water_extent, detect_hydrological_years
+from hydroseason import load_monthly_masks, monthly_water_extent
 
 masks = load_monthly_masks(
-    "masks/", "2015-01-01", "2020-12-31",
-    aoi="aoi.geojson", encoding="binary",  # or "canonical", or classifier=my_fn
+    "masks_dir/", "2015-01-01", "2020-12-31",
+    aoi="aoi.geojson", encoding="binary",
 )
 extent = monthly_water_extent(masks)
-hydro_years = detect_hydrological_years(extent)
 ```
 
-### Canonical local WOfS cache
+### Path 3: WOfS / STAC Acquisition
 
-The extraction CLI uses the internal canonical mask cache at
-`output/wofs_cache` by default. It is not a public Zarr-input mode; use the
-loader APIs above for supported inputs. A request's cache identity covers its
-AOI content, date range, CRS, resolution, source, and cache schema settings,
-so incompatible requests never share a store.
-
-```powershell
-python scripts\extract_water_extent_csv.py --aoi data\Gilbert_river_buffer.geojson --resolution 30
-python scripts\extract_water_extent_csv.py --aoi data\Gilbert_river_buffer.geojson --resolution 30 --offline
-python scripts\extract_water_extent_csv.py --aoi data\Gilbert_river_buffer.geojson --resolution 30 --legacy-remote-path
-```
-
-Acquisition records completion one calendar year at a time. An interrupted
-run resumes completed annual groups, while a concurrent writer for the same
-store is rejected. `--offline` makes no STAC request: a missing matching cache
-is reported explicitly. `--legacy-remote-path` opts out of the canonical cache
-for direct STAC loading.
-
-### Opt-in WOfS cache benchmark
-
-The real DEA/STAC cache benchmark is intentionally excluded from normal test
-runs because it is network and wall-clock dependent. It compares the current
-tiled remote path against a cold canonical cache for the Gilbert and Fitzroy
-2015 AOIs, then verifies Gilbert offline cache reads. It writes raw runs,
-medians, output digests, cache/read diagnostics, memory when available, and
-GDAL `VSI_CACHE` A/B results to JSON.
-
-```powershell
-$env:HYDROSEASON_RUN_WOFS_PERF = "1"
-python -m pytest tests\test_wofs_cache_performance.py -m "network and performance" -v
-```
-
-For an investigation without pytest, run
-`python scripts\benchmark_wofs_cache.py --output output\wofs_cache_benchmark.json --runs 3`.
-The 20% Gilbert cold-cache, 10% Fitzroy cold-cache-regression, 80% Gilbert
-offline-cache, exact-output, and zero-offline-STAC-call checks are hard gates;
-the 35% target and 40% stretch results are recorded but do not fail a passing
-hard gate.
-
-For a pre-built canonical Zarr cube (already AOI-clipped):
+Requires `pip install "hydroseason[stac]"`.
 
 ```python
-from hydroseason import load_monthly_masks_zarr, monthly_water_extent
-
-masks = load_monthly_masks_zarr("masks.zarr", "2015-01-01", "2020-12-31")
-extent = monthly_water_extent(masks)
-```
-
-## Path 3: WOfS / STAC
-
-Requires `pip install hydroseason[stac]`. Queries a STAC catalog, groups
-items by month, classifies WOfS pixel flags, and clips to the AOI — lazy and
-Dask-backed end to end.
-
-For long-running analyses, use the resumable loader below. It batches STAC
-reads by calendar year, aligns Dask computation to 12-month chunks, and caches
-the small extent table so reruns resume from completed years.
-
-```python
-from hydroseason import load_wofs_monthly_extent, detect_hydrological_years
+from hydroseason import load_wofs_monthly_extent
 
 extent = load_wofs_monthly_extent(
-    stac_url="<your-stac-catalog-url>",
-    collection="<wofs-collection-id>",
+    stac_url="https://explorer.dea.ga.gov.au/stac",
+    collection="ga_ls_wo_3",
     aoi="aoi.geojson",
-    start_date="2015-01-01",
-    end_date="2020-12-31",
-    cache_dir="output/extent_cache/my_aoi",
-    time_block=12,
+    start_date="2005-01-01",
+    end_date="2025-12-01",
+    cache_dir="output/extent_cache",
+    mask_cache_dir="output/wofs_cache",
 )
-hydro_years = detect_hydrological_years(extent)
 ```
 
-## Detection configuration
+This default resolves the fixed historical mask and separate planning superset. Regime, hydrological-year, phase, wet-event, and low-spell logic continues to select from `extent_pct`; no absolute-area columns are added.
 
-`HydroYearConfig` controls the wet/dry search windows and confidence
-thresholds. The default assumes a cross-year wet season and a same-year dry
-season (`wet_start_month=11`, `wet_end_month=4`, `dry_start_month=7`,
-`dry_end_month=12`); unsupported window geometry (non-cross-year wet season,
-cross-year dry season, or a dry season that doesn't follow the wet season)
-fails fast at config construction, rather than producing a wrong answer.
+---
+
+## Catchment Routing Authority
+
+`analyze_catchment` assesses water regime and automatically assigns the supported analysis route:
+
+- **`per_year_detection`**: Applied when SNR > 1.5. Anchors hydrological year boundaries to climatological troughs.
+- **`event_characterisation`**: Applied when SNR ≤ 1.5. Characterizes inundation events and low-water spells without forcing hydrological year partitions.
+
+---
+
+## HTML & CSV Report Bundle Export
+
+Generate manager-ready self-contained HTML reports and the four matching CSV exports (`monthly`, `hydro_years`, `wet_event`, and `low_spells`):
 
 ```python
-from hydroseason import HydroYearConfig, detect_hydrological_years
+from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv
 
-config = HydroYearConfig(wet_start_month=10, wet_end_month=3, dry_start_month=6, dry_end_month=9)
-hydro_years = detect_hydrological_years(extent, config=config)
+extent = load_extent_csv("monthly_extent.csv")
+analysis = analyze_catchment(extent, phase_model="rule_based")
+
+paths = generate_catchment_report(
+    extent,
+    output_dir="output/report",
+    name="fitzroy_river_wa",  # optional AOI label
+    analysis=analysis,
+    title="Fitzroy River (WA)",
+    subtitle="Surface-water hydrological analysis",
+)
 ```
 
-Duplicate and missing months raise by default
-(`duplicate_month_policy="raise"`, `missing_month_policy="raise"`); pass
-`"warn"` (duplicates) or `"ignore"` (missing months) only if you have
-deliberately chosen a permissive policy.
-
-## Not in this release
-
-The detection core and loaders above are the whole current public surface.
-Not yet built (tracked as follow-up work, not silently missing):
-
-- a config-driven pipeline/orchestration layer connecting a source straight
-  through to a validated, reported output;
-- an HTML report for the new water-extent data model (the previous
-  rainfall-based report lives, unmodified, on `legacy/rainfall`, as a design
-  reference for a future rebuild);
-- a water-mask-equivalent validation module.
-
-## Legacy rainfall implementation
-
-The rainfall-based season/hydro-year detection that shipped in `0.1.0`
-(fetchers for CHIRPS/SILO/ERA5/BoM, the rainfall pipeline, CLI, and HTML
-report) is preserved, unmodified, on the `legacy/rainfall` branch (tag
-`v0-rainfall-legacy`). It is not maintained on `main` going forward.
+`name` is optional and can be any AOI label (it does not need to be a named
+catchment). If omitted or blank, the report uses **HydroSeason results** and
+the files use the `hydroseason-results` stem.

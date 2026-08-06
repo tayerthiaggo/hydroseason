@@ -19,8 +19,14 @@ theme:
 
 nav:
   - Home: index.md
-  - Usage guide: guide.md
-  - Dynamic hydrological state: hydrological-state.md
+  - Usage Guide: guide.md
+  - Dynamic Hydrological State: hydrological-state.md
+  - Case Studies:
+      - Overview: case-studies/index.md
+      - Main Catchment Workflow: case-studies/main-workflow.md
+      - Resolution and Acquisition: case-studies/resolution-and-acquisition.md
+  - Export Columns: report-columns.md
+  - API Reference: api.md
   - Citation: citation.md
 
 plugins:
@@ -31,6 +37,9 @@ plugins:
           options:
             members_order: source
             show_source: false
+            docstring_style: numpy
+            separate_signature: true
+            show_signature_annotations: true
 
 markdown_extensions:
   - admonition
@@ -43,3 +52,7 @@ markdown_extensions:
       generic: true
   - pymdownx.details
   - pymdownx.superfences
+
+exclude_docs: |
+  plans/**
+  superpowers/**

@@ -182,6 +182,15 @@ def derive_resolution_cache(
             derived_vars[var_name] = derived_da
             
         ds_derived = xr.Dataset(derived_vars)
+        for var in ds_derived.variables.values():
+            # Coordinates recomputed by ``coarsen(...).sum()`` are float64 in
+            # memory but, when the source array came from ``xr.open_zarr``,
+            # still carry the source's on-disk int64 coordinate encoding --
+            # writing float data under a stale int encoding is what triggers
+            # xarray's fill-value warning, for coordinates as well as data.
+            var.encoding.clear()
+            if np.issubdtype(var.dtype, np.integer):
+                var.encoding["_FillValue"] = None
         ds_derived.to_zarr(target_handle.path, group=year_str, mode="a")
 
     return target_handle

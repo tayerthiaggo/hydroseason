@@ -10,11 +10,13 @@ import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 import numpy as np
 import pandas as pd
 
+from hydroseason._historical_water_mask import HistoricalWaterMask
+from hydroseason._io_dea_stats import DEFAULT_WO_STATISTICS_STAC_URL
 from hydroseason.hydro_year import monthly_water_extent
 
 
@@ -157,6 +159,7 @@ def _cache_path(
     majority: bool,
     wet_aoi_hash: str = "",
     wet_mask: str = "off",
+    historical_mask_identity: str = "",
 ) -> Path:
     identity = {
         "schema": _CACHE_SCHEMA_VERSION,
@@ -177,6 +180,12 @@ def _cache_path(
         # WOfSCacheRequest.wet_mask_sha256 is omitted from its digest
         # payload when None (see hydroseason/_io_wofs_zarr.py).
         identity["wet_mask"] = wet_mask
+    if historical_mask_identity:
+        # The fixed scientific denominator is distinct from the caller's
+        # full AOI, so a CSV written under legacy/full-AOI semantics must
+        # never satisfy a historical-mask request. Include provenance as
+        # well as the raster digest so a source update cannot collide.
+        identity["historical_mask"] = historical_mask_identity
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     return cache_dir / f"extent_{start:%Y%m%d}_{end:%Y%m%d}_{digest}.csv"
 
@@ -221,6 +230,7 @@ def _write_requested_annual_extent_parts(
     wet_aoi_hash: str,
     force: bool,
     wet_mask: str = "off",
+    historical_mask_identity: str = "",
 ) -> None:
     """Persist only missing (or forced) annual CSV extent cache parts."""
     if cache_root is None:
@@ -243,6 +253,7 @@ def _write_requested_annual_extent_parts(
             majority=majority,
             wet_aoi_hash=wet_aoi_hash,
             wet_mask=wet_mask,
+            historical_mask_identity=historical_mask_identity,
         )
         cached = None if force or not cache_path.exists() else _read_cached_extent(cache_path)
         if cached is None or not cached.index.equals(expected_index):
@@ -262,6 +273,7 @@ def _read_requested_annual_extent_parts(
     majority: bool,
     wet_aoi_hash: str,
     wet_mask: str = "off",
+    historical_mask_identity: str = "",
 ) -> pd.DataFrame | None:
     """Return the complete requested legacy CSV cache, if every part is valid."""
     parts = []
@@ -283,6 +295,7 @@ def _read_requested_annual_extent_parts(
             majority=majority,
             wet_aoi_hash=wet_aoi_hash,
             wet_mask=wet_mask,
+            historical_mask_identity=historical_mask_identity,
         )
         cached = _read_cached_extent(cache_path) if cache_path.exists() else None
         if cached is None or not cached.index.equals(expected_index):
@@ -291,19 +304,25 @@ def _read_requested_annual_extent_parts(
     return pd.concat(parts).sort_index()
 
 
-def _missing_year_extent(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+def _missing_year_extent(
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    *,
+    historical_water_mask: HistoricalWaterMask | None = None,
+) -> pd.DataFrame:
     index = pd.date_range(
         start.to_period("M").to_timestamp(), end.to_period("M").to_timestamp(), freq="MS"
     )
+    n_aoi = 0 if historical_water_mask is None else int(historical_water_mask.pixel_count)
     return pd.DataFrame(
         {
             "n_water": 0,
-            "n_aoi": 0,
+            "n_aoi": n_aoi,
             "n_valid": 0,
-            "n_invalid": 0,
+            "n_invalid": n_aoi,
             "n_wet_aoi": 0,
             "extent_pct": float("nan"),
-            "invalid_pct": float("nan"),
+            "invalid_pct": float("nan") if n_aoi == 0 else 100.0,
             "wet_fill_pct": float("nan"),
         },
         index=index,
@@ -389,6 +408,192 @@ def _reconcile_pruned_tile_denominator(tiled_extent, full_ts, year_start, year_e
     return reconciled
 
 
+def _historical_mask_identity(mask: HistoricalWaterMask | None) -> str:
+    """Return the cache-key identity for one exact scientific mask."""
+    if mask is None:
+        return ""
+    return "|".join(
+        (
+            str(mask.mask_sha256),
+            str(mask.source_product),
+            str(mask.source_version),
+            str(mask.coverage_start),
+            str(mask.coverage_end),
+        )
+    )
+
+
+def _validate_historical_mask_coverage(mask: HistoricalWaterMask, end_date: str) -> None:
+    if pd.Timestamp(mask.coverage_end).tz_localize(None) < pd.Timestamp(end_date).tz_localize(None):
+        raise ValueError(
+            "historical water mask does not cover requested end_date "
+            f"{end_date!r} (coverage ends {mask.coverage_end!r})"
+        )
+
+
+def _validate_supplied_historical_water_mask(
+    mask: HistoricalWaterMask,
+    *,
+    aoi,
+    collection: str,
+    crs: int | str | None,
+    resolution: float | None,
+    end_date: str,
+) -> None:
+    """Fail closed before a public mask can bypass the exact-mask builder."""
+    import numpy as np
+
+    from hydroseason._historical_water_mask import (
+        HISTORICAL_MASK_SOURCE_PRODUCT,
+        MONTHLY_WOFS_COLLECTION,
+        _aoi_digest,
+        _mask_digest,
+        _version_token,
+    )
+    from hydroseason._io_geo import load_aoi
+
+    if not isinstance(mask, HistoricalWaterMask):
+        raise ValueError("historical_water_mask must be a HistoricalWaterMask")
+    values = np.asarray(mask.mask)
+    if values.dtype != np.dtype(bool) or values.ndim != 2:
+        raise ValueError("historical_water_mask.mask must be a two-dimensional boolean array")
+    if tuple(values.shape) != tuple(int(v) for v in mask.shape):
+        raise ValueError("historical_water_mask shape does not match mask values")
+    if int(mask.pixel_count) <= 0 or int(values.sum()) != int(mask.pixel_count):
+        raise ValueError("historical_water_mask pixel_count does not match mask values")
+    if len(mask.transform) != 6 or len(mask.resolution) != 2:
+        raise ValueError("historical_water_mask has invalid grid metadata")
+    transform = tuple(float(value) for value in mask.transform)
+    mask_resolution = tuple(float(value) for value in mask.resolution)
+    if not np.isfinite(transform).all() or not np.isfinite(mask_resolution).all():
+        raise ValueError("historical_water_mask has non-finite grid metadata")
+    if mask_resolution[0] <= 0 or mask_resolution[1] <= 0 or not np.allclose(
+        (abs(transform[0]), abs(transform[4])), mask_resolution, rtol=1e-9, atol=1e-9
+    ):
+        raise ValueError("historical_water_mask resolution does not match transform")
+
+    if collection != MONTHLY_WOFS_COLLECTION:
+        raise ValueError(
+            f"historical_water_mask is only compatible with {MONTHLY_WOFS_COLLECTION!r}, "
+            f"not {collection!r}"
+        )
+    if mask.source_product != HISTORICAL_MASK_SOURCE_PRODUCT:
+        raise ValueError("historical_water_mask has incompatible source product")
+    expected_version = _version_token(HISTORICAL_MASK_SOURCE_PRODUCT)
+    if str(mask.source_version) != expected_version:
+        raise ValueError("historical_water_mask has incompatible source version")
+    item_ids = tuple(sorted(str(item_id) for item_id in mask.source_item_ids))
+    if tuple(mask.source_item_ids) != item_ids:
+        raise ValueError("historical_water_mask source_item_ids are not canonical")
+    expected_lineage = tuple(sorted({mask.source_product, *item_ids})) if item_ids else (mask.source_product,)
+    if tuple(mask.source_lineage) != expected_lineage:
+        raise ValueError("historical_water_mask source_lineage is incompatible")
+
+    try:
+        coverage_start = pd.Timestamp(mask.coverage_start).tz_localize(None)
+        coverage_end = pd.Timestamp(mask.coverage_end).tz_localize(None)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("historical_water_mask has invalid coverage provenance") from exc
+    if pd.isna(coverage_start) or pd.isna(coverage_end):
+        raise ValueError("historical_water_mask has invalid coverage provenance")
+    if coverage_end < coverage_start:
+        raise ValueError("historical_water_mask coverage provenance is inverted")
+    _validate_historical_mask_coverage(mask, end_date)
+
+    expected_digest = _mask_digest(
+        values,
+        crs=str(mask.crs),
+        transform=transform,
+        shape=tuple(int(value) for value in mask.shape),
+        resolution=mask_resolution,
+    )
+    if mask.mask_sha256 != expected_digest:
+        raise ValueError("historical_water_mask digest does not match mask values and grid")
+
+    requested_crs = f"EPSG:{crs}" if isinstance(crs, int) else (crs or "EPSG:3577")
+    if str(mask.crs) != str(requested_crs):
+        raise ValueError("historical_water_mask crs does not match requested grid")
+    if resolution is not None and not np.allclose(
+        mask_resolution, (float(resolution), float(resolution)), rtol=1e-9, atol=1e-9
+    ):
+        raise ValueError("historical_water_mask resolution does not match requested grid")
+    aoi_gdf = load_aoi(aoi)
+    expected_aoi_digest = _aoi_digest(aoi_gdf.to_crs(mask.crs))
+    if mask.aoi_sha256 != expected_aoi_digest:
+        raise ValueError("historical_water_mask AOI provenance does not match requested AOI")
+
+
+def _resolve_historical_water_mask(
+    *,
+    aoi,
+    collection: str,
+    end_date: str,
+    cache_root: Path | None,
+    offline: bool,
+    statistics_stac_url: str,
+    crs: int | str | None,
+    resolution: float | None,
+    historical_water_mask: HistoricalWaterMask | None,
+    io_facade,
+) -> HistoricalWaterMask:
+    """Resolve one exact Multi-Year mask, cache-first when a root is available."""
+    if historical_water_mask is not None:
+        _validate_supplied_historical_water_mask(
+            historical_water_mask,
+            aoi=aoi,
+            collection=collection,
+            crs=crs,
+            resolution=resolution,
+            end_date=end_date,
+        )
+        return historical_water_mask
+
+    statistics_crs = f"EPSG:{crs}" if isinstance(crs, int) else (crs or "EPSG:3577")
+    statistics_resolution = 30.0 if resolution is None else float(resolution)
+    if cache_root is not None:
+        mask = io_facade.load_or_build_historical_water_mask(
+            aoi,
+            analysis_end=end_date,
+            cache_root=cache_root,
+            offline=offline,
+            stac_url=statistics_stac_url,
+            crs=statistics_crs,
+            resolution=statistics_resolution,
+        )
+    else:
+        if offline:
+            from hydroseason._io_dea_stats import DEAStatsUnavailable
+
+            raise DEAStatsUnavailable(
+                "no cached historical water mask is available while offline=True "
+                "and no historical-mask cache root was supplied"
+            )
+        # No filesystem root was requested: retain the same exact-Multi-Year
+        # semantics, but leave the artifact entirely in memory.
+        statistics = io_facade.open_wo_statistics(
+            aoi,
+            stac_url=statistics_stac_url,
+            crs=statistics_crs,
+            resolution=statistics_resolution,
+        )
+        mask = io_facade.build_historical_water_mask(
+            statistics, aoi, analysis_end=end_date
+        )
+    _validate_historical_mask_coverage(mask, end_date)
+    return mask
+
+
+def _apply_historical_water_mask(water_mask, *, aoi, historical_water_mask, io_facade):
+    """Apply the exact raster to a legacy per-year cube before reduction."""
+    if historical_water_mask is None:
+        return water_mask
+    return io_facade._clip_to_aoi(
+        water_mask,
+        io_facade.load_aoi(aoi),
+        historical_water_mask=historical_water_mask,
+    )
+
+
 def load_wofs_monthly_extent(
     stac_url: str,
     collection: str,
@@ -421,6 +626,10 @@ def load_wofs_monthly_extent(
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
     year_workers: int = 1,
     wet_mask: Literal["off", "dea_stats"] = "off",
+    use_historical_water_mask: bool = True,
+    historical_water_mask: HistoricalWaterMask | None = None,
+    historical_mask_cache_dir: str | os.PathLike[str] | None = None,
+    statistics_stac_url: str = DEFAULT_WO_STATISTICS_STAC_URL,
 ) -> pd.DataFrame:
     """Compute monthly WOfS extent in resumable calendar-year pieces.
 
@@ -549,6 +758,16 @@ def load_wofs_monthly_extent(
     start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
     if end < start:
         raise ValueError("end_date must be on or after start_date.")
+    if not use_historical_water_mask and historical_water_mask is not None:
+        raise ValueError(
+            "historical_water_mask cannot be supplied when "
+            "use_historical_water_mask=False"
+        )
+    if use_historical_water_mask and (wet_aoi is not None or precompute_wet_aoi):
+        raise ValueError(
+            "wet_aoi and precompute_wet_aoi are legacy full-AOI options; pass "
+            "use_historical_water_mask=False to use them"
+        )
 
     # Auto-degrade to the untiled path when the AOI's bounding box provably
     # fits inside a single load tile. Tiling then produces exactly one tile,
@@ -583,6 +802,31 @@ def load_wofs_monthly_extent(
     # monkeypatch seam and keep this module independent of optional STAC deps.
     import hydroseason.io as _io
 
+    resolved_historical_mask = None
+    planning_footprint = None
+    if use_historical_water_mask:
+        historical_cache_root = (
+            Path(historical_mask_cache_dir)
+            if historical_mask_cache_dir is not None
+            else (Path(mask_cache_dir) if mask_cache_dir is not None else cache_root)
+        )
+        resolved_historical_mask = _resolve_historical_water_mask(
+            aoi=aoi,
+            collection=collection,
+            end_date=end_date,
+            cache_root=historical_cache_root,
+            offline=offline,
+            statistics_stac_url=statistics_stac_url,
+            crs=crs,
+            resolution=resolution,
+            historical_water_mask=historical_water_mask,
+            io_facade=_io,
+        )
+        planning_footprint = _io.build_planning_footprint_from_historical_mask(
+            resolved_historical_mask
+        )
+    historical_mask_identity = _historical_mask_identity(resolved_historical_mask)
+
     if mask_cache_dir is not None or offline:
         wet_aoi_hash = _aoi_digest(wet_aoi) if (cache_root is not None and wet_aoi is not None) else ""
         if cache_root is not None and not force and (wet_aoi is not None or not precompute_wet_aoi):
@@ -598,6 +842,7 @@ def load_wofs_monthly_extent(
                 majority=majority,
                 wet_aoi_hash=wet_aoi_hash,
                 wet_mask=wet_mask,
+                historical_mask_identity=historical_mask_identity,
             )
             if cached_extent is not None:
                 return cached_extent
@@ -627,12 +872,14 @@ def load_wofs_monthly_extent(
                 resampling_policy=resampling_policy,
                 year_workers=year_workers,
                 wet_mask=wet_mask,
+                historical_water_mask=resolved_historical_mask,
+                planning_footprint=planning_footprint,
             )
         except FileNotFoundError as exc:
             if offline:
                 raise FileNotFoundError(f"offline WOfS cache miss: {exc}") from exc
             raise
-        if wet_aoi is None and not precompute_wet_aoi:
+        if resolved_historical_mask is not None or (wet_aoi is None and not precompute_wet_aoi):
             fast_extent = _io.open_completed_extent_counts(
                 handle, start_date, end_date, read_workers=read_workers
             )
@@ -651,8 +898,17 @@ def load_wofs_monthly_extent(
                     wet_aoi_hash=wet_aoi_hash,
                     force=force,
                     wet_mask=wet_mask,
+                    historical_mask_identity=historical_mask_identity,
                 )
                 return fast_extent
+        from hydroseason._io_wofs_zarr import cache_request_uses_pruning
+
+        if cache_request_uses_pruning(handle):
+            raise ValueError(
+                "pruned WOfS cache does not contain exact full-AOI "
+                "monthly extent counts; refusing to infer denominators "
+                "from pruned masks"
+            )
         masks = _io.open_completed_mask_cache(
             handle, start_date, end_date,
             chunk_x=chunk_x, chunk_y=chunk_y, time_chunk=time_block,
@@ -683,6 +939,7 @@ def load_wofs_monthly_extent(
             wet_aoi_hash=wet_aoi_hash,
             force=force,
             wet_mask=wet_mask,
+            historical_mask_identity=historical_mask_identity,
         )
         return extent
 
@@ -749,6 +1006,7 @@ def load_wofs_monthly_extent(
                 majority=majority,
                 wet_aoi_hash=wet_aoi_hash,
                 wet_mask=wet_mask,
+                historical_mask_identity=historical_mask_identity,
             )
             cached = None if force or not cache_path.exists() else _read_cached_extent(cache_path)
             if cached is not None and not cached.index.equals(expected_index):
@@ -799,7 +1057,9 @@ def load_wofs_monthly_extent(
             except ValueError as exc:
                 if "No STAC items found" not in str(exc):
                     raise
-                extent = _missing_year_extent(year_start, year_end)
+                extent = _missing_year_extent(
+                    year_start, year_end, historical_water_mask=resolved_historical_mask
+                )
                 if cache_path is not None:
                     _write_extent_atomic(extent, cache_path)
                 parts.append(extent)
@@ -810,7 +1070,13 @@ def load_wofs_monthly_extent(
             with _phase(f"tiled load {year_start:%Y} (loading tiles)"):
                 for tile_id, water_mask in remaining_tiles:
                     tile_extent = monthly_water_extent(
-                        water_mask, time_block=time_block, wet_aoi=wet_aoi,
+                        _apply_historical_water_mask(
+                            water_mask,
+                            aoi=aoi,
+                            historical_water_mask=resolved_historical_mask,
+                            io_facade=_io,
+                        ),
+                        time_block=time_block, wet_aoi=wet_aoi,
                         read_workers=read_workers,
                     )
                     if not tile_extent.index.equals(expected_index):
@@ -860,10 +1126,18 @@ def load_wofs_monthly_extent(
         except ValueError as exc:
             if "No STAC items found" not in str(exc):
                 raise
-            extent = _missing_year_extent(year_start, year_end)
+            extent = _missing_year_extent(
+                year_start, year_end, historical_water_mask=resolved_historical_mask
+            )
         else:
             extent = monthly_water_extent(
-                water_mask, time_block=time_block, wet_aoi=wet_aoi,
+                _apply_historical_water_mask(
+                    water_mask,
+                    aoi=aoi,
+                    historical_water_mask=resolved_historical_mask,
+                    io_facade=_io,
+                ),
+                time_block=time_block, wet_aoi=wet_aoi,
                 read_workers=read_workers,
             )
         if cache_path is not None:

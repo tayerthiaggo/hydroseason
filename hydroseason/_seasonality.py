@@ -8,7 +8,6 @@ import pandas as pd
 
 from ._state_input import prepare_monthly_extent
 
-
 Pattern = Literal["unimodal_annual", "bimodal_or_complex", "weak_or_irregular", "low_variability", "insufficient_record"]
 
 

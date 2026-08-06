@@ -11,51 +11,257 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package with dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run ruff
+        run: python -m ruff check hydroseason tests scripts
+
+      - name: Run actionlint
+        uses: reviewdog/action-actionlint@9fb38160fb27ba5d8ac0d96feeb7cec67f01e761 # v1.73.0
+
+  lock:
+    name: Lockfile check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+
+      - name: Check uv.lock is up to date
+        run: uv lock --check
+
+  core:
+    name: Core (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    needs: [lint, lock]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package with dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run test suite with coverage
+        env:
+          OMP_NUM_THREADS: "1"
+        run: python -m pytest -q -m "not experimental and not network and not performance" --cov=hydroseason --cov-report=term-missing --cov-fail-under=80
+
+  all-extras:
+    name: All extras (Python ${{ matrix.python-version }})
+    needs: [lint, lock]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install package with test dependencies
+      - name: Install package with all extras and dev dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[raster,stac,dev]"
+          python -m pip install -e ".[all,dev]"
 
       - name: Run test suite
         env:
           OMP_NUM_THREADS: "1"
-        run: python -m pytest -q -m "not experimental" --cov=hydroseason --cov-report=term-missing
+        run: python -m pytest -q -m "not experimental and not network and not performance"
 
-  test-raster-extras:
+  minimum-floor:
+    name: Minimum dependency floor
+    needs: [lint, lock]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install declared minimum pandas and NumPy
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pandas==2.0.*" "numpy==1.24.*"
+
+      - name: Install package with dev dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run core test suite
+        env:
+          OMP_NUM_THREADS: "1"
+        run: python -m pytest -q -m "not experimental and not network and not performance"
+
+  docs:
+    name: Docs (strict build)
+    needs: [lint, lock]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
 
-      - name: Install package with raster/stac/dev extras
+      - name: Install package with docs and dev dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[raster,stac,dev]"
+          python -m pip install -e ".[all,docs,dev]"
 
-      - name: Run test suite with raster/STAC dependencies present
-        env:
-          OMP_NUM_THREADS: "1"
-        run: python -m pytest -q -m "not experimental"
+      - name: Check case-study data is reproducible
+        run: python scripts/prepare_case_study_data.py --check
+
+      - name: Check main workflow case study matches checked results
+        run: python scripts/_build_study_case_offline.py --check
+
+      - name: Check rainfall-augmented case study matches checked results
+        run: python scripts/_build_study_case_rainfall.py --check
+
+      - name: Check resolution case study matches checked results
+        run: python scripts/run_resolution_case_study.py --check --output-dir case_studies/results/resolution
+
+      - name: Check rendered docs match checked results
+        run: python scripts/render_case_study_docs.py --check
+
+      - name: Build docs strictly
+        run: python -m mkdocs build --strict
+
+  build:
+    name: Build and verify artifacts
+    needs: [core, all-extras, minimum-floor, docs]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build twine check-wheel-contents
+
+      - name: Validate release metadata
+        run: python scripts/check_release_metadata.py
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Check wheel contents
+        run: check-wheel-contents dist/*.whl
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+
+      - name: Core smoke - install wheel, CSV analysis and report
+        run: |
+          python -m venv /tmp/smoke-core
+          /tmp/smoke-core/bin/python -m pip install --upgrade pip
+          /tmp/smoke-core/bin/python -m pip install dist/*.whl
+          /tmp/smoke-core/bin/python -c "
+          import hydroseason
+          assert hydroseason.__version__ == '0.1.0', hydroseason.__version__
+          import pandas as pd
+          from hydroseason import analyze_catchment
+          idx = pd.date_range('2020-01-01', periods=24, freq='MS')
+          extent = pd.DataFrame({'extent_pct': [10.0 + (i % 12)] * 1 for i in range(24)}, index=idx)
+          analysis = analyze_catchment(extent, phase_model='rule_based')
+          assert analysis is not None
+          print('core smoke OK')
+          "
+
+      - name: All-extras smoke - import DEA/cache surfaces without network
+        run: |
+          python -m venv /tmp/smoke-all
+          /tmp/smoke-all/bin/python -m pip install --upgrade pip
+          /tmp/smoke-all/bin/python -m pip install "dist/$(ls dist | grep .whl)[all]"
+          /tmp/smoke-all/bin/python -c "
+          from hydroseason import (
+              open_wo_statistics,
+              acquire_wofs_cache,
+              open_completed_mask_cache,
+              open_completed_dual_extent_counts,
+              verify_cache_footprints,
+              generate_catchment_report,
+              CatchmentReportPaths,
+          )
+          print('all-extras import smoke OK')
+          "
+
+      - name: Rebuild wheel from sdist and repeat core smoke
+        run: |
+          mkdir -p /tmp/sdist-src /tmp/sdist-dist
+          tar -xzf dist/*.tar.gz -C /tmp/sdist-src --strip-components=1
+          python -m venv /tmp/sdist-build
+          /tmp/sdist-build/bin/python -m pip install --upgrade pip build
+          /tmp/sdist-build/bin/python -m build --wheel --outdir /tmp/sdist-dist /tmp/sdist-src
+          python -m venv /tmp/smoke-sdist
+          /tmp/smoke-sdist/bin/python -m pip install --upgrade pip
+          /tmp/smoke-sdist/bin/python -m pip install /tmp/sdist-dist/*.whl
+          /tmp/smoke-sdist/bin/python -c "
+          import hydroseason
+          assert hydroseason.__version__ == '0.1.0', hydroseason.__version__
+          import pandas as pd
+          from hydroseason import analyze_catchment
+          idx = pd.date_range('2020-01-01', periods=24, freq='MS')
+          extent = pd.DataFrame({'extent_pct': [10.0 + (i % 12)] * 1 for i in range(24)}, index=idx)
+          analysis = analyze_catchment(extent, phase_model='rule_based')
+          assert analysis is not None
+          print('sdist-rebuilt core smoke OK')
+          "

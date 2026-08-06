@@ -58,3 +58,15 @@ def test_flag_quality_policy_keeps_high_invalid_observed_values_usable():
 
     assert prepared["quality_state"].tolist() == ["usable", "low"]
     assert prepared["candidate_usable"].tolist() == [True, True]
+
+
+def test_flag_quality_policy_rejects_month_with_no_valid_pixels():
+    frame = pd.DataFrame(
+        {"extent_pct": [10.0], "invalid_pct": [100.0]},
+        index=pd.to_datetime(["2020-01-01"]),
+    )
+
+    prepared = prepare_monthly_extent(frame, quality_policy="flag")
+
+    assert prepared.iloc[0]["quality_state"] == "low"
+    assert not bool(prepared.iloc[0]["candidate_usable"])

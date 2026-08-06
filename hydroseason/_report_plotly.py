@@ -54,20 +54,23 @@ def _iso_date(value: Any) -> str | None:
 
 
 def _base_layout(*, rangeslider: bool) -> dict[str, Any]:
+    # Axis titles are {"text": ...} objects, not bare strings, throughout this
+    # module: the vendored Plotly.js build silently drops a bare-string axis
+    # title (no error, no fallback -- the axis just renders untitled), so
+    # every axis dict below follows this form even where it looks verbose.
     return {
         "paper_bgcolor": "#ffffff",
         "plot_bgcolor": "#f8fafc",
         "margin": {"l": 50, "r": 50, "t": 35, "b": 138},
         "dragmode": "pan",
         "xaxis": {
-            "title": "Date",
             "showgrid": True,
             "gridcolor": "#e2e8f0",
             "zeroline": False,
             "rangeslider": {"visible": bool(rangeslider)},
         },
         "yaxis": {
-            "title": "Water Extent (%)",
+            "title": {"text": "Water Extent (%)"},
             "type": "linear",
             "showgrid": True,
             "gridcolor": "#e2e8f0",
@@ -174,8 +177,25 @@ def _monthly_hover_data(
     ]
 
 
+def _is_imposed(analysis: CatchmentAnalysis) -> bool:
+    """Whether annual boundaries were imposed from climatology, not detected.
+
+    Imposed and detected boundaries are drawn on the same axes so catchments
+    stay comparable, but they are not the same kind of claim: an imposed window
+    is one average phase applied to every year, and rendering it identically to
+    a per-year detection would erase the distinction the regime gate exists to
+    make. Read from ``boundary_basis`` on the rows themselves rather than from
+    the route name, so the provenance travels with the data.
+    """
+    rows = getattr(analysis, "hydro_years", pd.DataFrame())
+    if rows is None or rows.empty or "boundary_basis" not in rows.columns:
+        return False
+    return bool((rows["boundary_basis"] == "imposed_fixed_window").any())
+
+
 def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
     dates = _dates(monthly)
+    imposed = _is_imposed(analysis)
     monthly_values = {
         _iso_date(date): _clean_val(extent)
         for date, extent in zip(
@@ -202,20 +222,23 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
                     _clean_val(row.get("hy_year")), date, extent,
                     _clean_val(row.get("confidence")), _clean_val(row.get("boundary_status")),
                 ])
+        marker = {
+            "size": 8,
+            "color": color,
+            "symbol": symbol,
+            "line": {"color": "#ffffff", "width": 1},
+        }
         traces.append({
-            "type": "scatter", "mode": "markers", "name": name, "x": x, "y": y,
+            "type": "scatter", "mode": "markers",
+            "name": f"{name} (imposed)" if imposed else name,
+            "x": x, "y": y,
             "customdata": customdata,
             "hovertemplate": (
                 "HY %{customdata[0]}<br>Date: %{customdata[1]}<br>"
                 "Extent: %{customdata[2]}%<br>"
                 "Confidence level: %{customdata[3]}<br>Boundary: %{customdata[4]}<extra></extra>"
             ),
-            "marker": {
-                "size": 8,
-                "color": color,
-                "symbol": symbol,
-                "line": {"color": "#ffffff", "width": 1},
-            },
+            "marker": marker,
             "meta": _scale_meta(y),
         })
     return traces
@@ -227,6 +250,10 @@ def _phase_shapes(
     analysis: CatchmentAnalysis,
 ) -> list[dict[str, Any]]:
     phases = monthly.get("phase", pd.Series(index=monthly.index, dtype=object)).tolist()
+    # Phases inside an imposed window are read from the observations, but the
+    # cycle bounding them is an assumption; a lighter band keeps them legible
+    # without asserting the same confidence as a detected cycle.
+    opacity = 0.28 if _is_imposed(analysis) else 0.48
     rows = getattr(analysis, "hydro_years", pd.DataFrame())
     trough_dates = set()
     if rows is not None and not rows.empty:
@@ -259,7 +286,7 @@ def _phase_shapes(
             shapes.append({
                 "name": f"phase:{phase}", "type": "rect", "xref": "x", "yref": "paper",
                 "x0": _iso_date(phase_start), "x1": _iso_date(boundary), "y0": 0, "y1": 1,
-                "fillcolor": PHASE_COLORS[phase], "opacity": 0.48, "line": {"width": 0},
+                "fillcolor": PHASE_COLORS[phase], "opacity": opacity, "line": {"width": 0},
                 "layer": "below",
             })
         start = end
@@ -274,24 +301,48 @@ def _hydro_year_context(analysis: CatchmentAnalysis) -> tuple[list[dict[str, Any
     shapes: list[dict[str, Any]] = []
     annotations: list[dict[str, Any]] = []
     seen_boundaries: set[str] = set()
+
+    def add_boundary(date: str | None, label: str) -> None:
+        # A cycle boundary is only drawn once, whichever year references it
+        # first: consecutive years share a boundary, and on a dashed grey line
+        # a duplicate is invisible but doubles the rendered opacity.
+        if date is None or date in seen_boundaries:
+            return
+        seen_boundaries.add(date)
+        shapes.append({
+            "name": f"HY {label} {date}",
+            "type": "line",
+            "xref": "x",
+            "yref": "paper",
+            "x0": date,
+            "x1": date,
+            "y0": 0,
+            "y1": 1,
+            "line": {"color": "#94a3b8", "dash": "dash", "width": 0.6},
+            "layer": "below",
+        })
+
+    prev_trough: pd.Timestamp | None = None
     for _, row in rows.iterrows():
         start = _iso_date(row.get("hy_start"))
         end = _iso_date(row.get("hy_end"))
         trough = _iso_date(row.get("trough_month"))
-        if trough is not None and trough not in seen_boundaries:
-            seen_boundaries.add(trough)
-            shapes.append({
-                "name": f"HY trough {trough}",
-                "type": "line",
-                "xref": "x",
-                "yref": "paper",
-                "x0": trough,
-                "x1": trough,
-                "y0": 0,
-                "y1": 1,
-                "line": {"color": "#94a3b8", "dash": "dash", "width": 0.6},
-                "layer": "below",
-            })
+        # A year's start is one month after the previous year's trough, so
+        # both lines mark the same real-world boundary -- draw only the
+        # trough line there. Draw the start line only when there is no
+        # previous trough to anchor it (record-start or post-gap year),
+        # otherwise it renders with no left-hand edge at all.
+        start_ts = pd.Timestamp(start) if start is not None else None
+        anchored = (
+            prev_trough is not None
+            and start_ts is not None
+            and start_ts == prev_trough + pd.DateOffset(months=1)
+        )
+        if not anchored:
+            add_boundary(start, "start")
+        add_boundary(trough, "trough")
+        if trough is not None:
+            prev_trough = pd.Timestamp(trough)
 
         if start is not None and end is not None:
             midpoint = pd.Timestamp(start) + (pd.Timestamp(end) - pd.Timestamp(start)) / 2
@@ -399,7 +450,7 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
     layout["annotations"] = hydro_annotations
     layout["margin"]["t"] = 52
     if has_rainfall:
-        layout["yaxis2"] = {"title": "Rainfall (mm)", "type": "linear", "overlaying": "y", "side": "right", "showgrid": False, "zeroline": False}
+        layout["yaxis2"] = {"title": {"text": "Rainfall (mm)"}, "type": "linear", "overlaying": "y", "side": "right", "showgrid": False, "zeroline": False}
     return {"data": data, "layout": layout, "config": _config()}
 
 
@@ -427,48 +478,212 @@ def hydro_year_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dic
     return {"data": data, "layout": layout, "config": _config()}
 
 
-def secondary_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[str, Any]:
-    """Generate secondary light-theme plain-dict Plotly figure (climatology or event durations)."""
-    data: list[dict[str, Any]] = []
+def _secondary_config() -> dict[str, Any]:
+    return {
+        "responsive": True,
+        "displaylogo": False,
+        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+    }
 
-    if analysis.route in ("per_year_detection", "climatological_fixed"):
-        months = range(1, 13)
-        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        m_indices = pd.to_datetime(monthly["date"]).dt.month if "date" in monthly.columns else monthly.index.month
-        grouped = monthly.assign(_month=m_indices).groupby("_month")["extent_pct"]
-        means = grouped.mean().reindex(months)
-        stds = grouped.std().fillna(0.0).reindex(months).fillna(0.0)
-        lower = (means - stds).clip(lower=0.0)
-        upper = means + stds
-        data.extend([
+
+def secondary_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[str, Any]:
+    """Generate the long-term monthly water-extent climatology.
+
+    Rendered for every catchment regardless of route. Averaging each calendar
+    month over the record is a description of the observations, not a claim
+    that a reproducible annual cycle exists -- and where none does, a flat or
+    ragged profile with wide bands *is* the evidence for that, which a reader
+    can only weigh if it is drawn. Routing this panel on ``analysis.route``
+    previously withheld it from exactly the catchments whose seasonality was
+    most in question, and substituted an event histogram whose axes answer an
+    unrelated question under a "Seasonal Context" heading.
+    """
+    months = range(1, 13)
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    m_indices = pd.to_datetime(monthly["date"]).dt.month if "date" in monthly.columns else monthly.index.month
+    grouped = monthly.assign(_month=m_indices).groupby("_month")["extent_pct"]
+    means = grouped.mean().reindex(months)
+    stds = grouped.std().fillna(0.0).reindex(months).fillna(0.0)
+    lower = (means - stds).clip(lower=0.0)
+    upper = means + stds
+    data: list[dict[str, Any]] = [
+        {
+            "type": "scatter", "mode": "lines", "name": "Mean - 1 std",
+            "x": month_names, "y": _clean_list(lower), "showlegend": False,
+            "line": {"width": 0}, "hoverinfo": "skip",
+        },
+        {
+            "type": "scatter", "mode": "lines", "name": "Mean + 1 std",
+            "x": month_names, "y": _clean_list(upper), "showlegend": False,
+            "line": {"width": 0}, "fill": "tonexty",
+            "fillcolor": "rgba(2, 132, 199, 0.16)", "hoverinfo": "skip",
+        },
+        {
+            "type": "scatter", "mode": "lines+markers",
+            "name": "Long-term monthly water extent (+/-1 std)",
+            "x": month_names, "y": _clean_list(means),
+            "customdata": [[_clean_val(mean), _clean_val(std)] for mean, std in zip(means, stds)],
+            "hovertemplate": "Month: %{x}<br>Mean: %{customdata[0]}%<br>Std: %{customdata[1]}%<extra></extra>",
+            "line": {"color": "#0284c7", "width": 2},
+            "marker": {"size": 6, "color": "#0284c7"},
+        },
+    ]
+    layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 58, "b": 40}, "title": {"text": "Long-term monthly water extent (+/-1 std)", "x": 0.02, "xanchor": "left", "font": {"size": 13, "color": "#334155"}}, "xaxis": {"title": {"text": "Month"}, "showgrid": False}, "yaxis": {"title": {"text": "Mean Extent (%)"}, "showgrid": True, "gridcolor": "#e2e8f0"}}
+    return {"data": data, "layout": layout, "config": _secondary_config()}
+
+
+def event_duration_figure(analysis: CatchmentAnalysis) -> dict[str, Any] | None:
+    """Generate a one-bar-per-event duration chart, or None when there are none.
+
+    A histogram bins values as though they were samples from a continuous
+    distribution. Wet events are not that: a record can hold as few as five of
+    them, unevenly spaced across twenty years (Lachlan: 2010, 2011, 2012, 2016,
+    2021), so auto-binning scatters them across mostly-empty bins that read as
+    noise rather than a shape. Charting one bar per actual event instead, in
+    the order it occurred, shows what is actually there: how long each event
+    lasted and how the events are spaced through the record -- the thing a
+    duration histogram cannot show at all.
+
+    This is its own panel rather than an alternative to the climatology: the
+    two answer different questions and a catchment may need both. Returning
+    None (instead of an empty-axes placeholder) lets the caller omit the
+    section entirely rather than render a chart with nothing in it.
+    """
+    events = analysis.events.events
+    if events.empty or "duration_months" not in events.columns:
+        return None
+    starts = pd.to_datetime(events["start"])
+    ends = pd.to_datetime(events["end"])
+    peak_extent = events.get("peak_extent_pct", pd.Series(index=events.index, dtype=float))
+    magnitude = events.get("magnitude_pp_months", pd.Series(index=events.index, dtype=float))
+    customdata = [
+        [start.strftime("%b %Y"), end.strftime("%b %Y"), _clean_val(peak), _clean_val(mag)]
+        for start, end, peak, mag in zip(starts, ends, peak_extent, magnitude)
+    ]
+    return {
+        "data": [{
+            "type": "bar",
+            "name": "Wet event duration",
+            "x": [start.strftime("%b %Y") for start in starts],
+            "y": _clean_list(events["duration_months"]),
+            "customdata": customdata,
+            "hovertemplate": (
+                "Event: %{customdata[0]} to %{customdata[1]}<br>"
+                "Duration: %{y} months<br>"
+                "Peak extent: %{customdata[2]}%<br>"
+                "Magnitude: %{customdata[3]} pp-months<extra></extra>"
+            ),
+            "marker": {"color": "#0ea5e9"},
+        }],
+        "layout": {
+            "paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc",
+            "margin": {"l": 50, "r": 30, "t": 30, "b": 60},
+            "xaxis": {"title": {"text": "Event start"}, "type": "category", "showgrid": False},
+            "yaxis": {"title": {"text": "Duration (months)"}, "showgrid": True, "gridcolor": "#e2e8f0"},
+        },
+        "config": _secondary_config(),
+    }
+
+
+def low_spell_duration_figure(analysis: CatchmentAnalysis) -> dict[str, Any] | None:
+    """Generate a one-bar-per-spell duration chart, or None when there are none.
+
+    Mirrors ``event_duration_figure`` for the same reason: a low-extent spell
+    count can be small and unevenly spaced, so one bar per actual spell (in
+    the order it occurred) is legible where a histogram would not be.
+    """
+    low_spells = analysis.events.low_spells
+    if low_spells.empty or "duration_months" not in low_spells.columns:
+        return None
+    starts = pd.to_datetime(low_spells["start"])
+    ends = pd.to_datetime(low_spells["end"])
+    min_extent = low_spells.get("min_extent_pct", pd.Series(index=low_spells.index, dtype=float))
+    customdata = [
+        [start.strftime("%b %Y"), end.strftime("%b %Y"), _clean_val(minimum)]
+        for start, end, minimum in zip(starts, ends, min_extent)
+    ]
+    return {
+        "data": [{
+            "type": "bar",
+            "name": "Low-extent spell duration",
+            "x": [start.strftime("%b %Y") for start in starts],
+            "y": _clean_list(low_spells["duration_months"]),
+            "customdata": customdata,
+            "hovertemplate": (
+                "Spell: %{customdata[0]} to %{customdata[1]}<br>"
+                "Duration: %{y} months<br>"
+                "Lowest extent: %{customdata[2]}%<extra></extra>"
+            ),
+            "marker": {"color": "#f97316"},
+        }],
+        "layout": {
+            "paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc",
+            "margin": {"l": 50, "r": 30, "t": 30, "b": 60},
+            "xaxis": {"title": {"text": "Spell start"}, "type": "category", "showgrid": False},
+            "yaxis": {"title": {"text": "Duration (months)"}, "showgrid": True, "gridcolor": "#e2e8f0"},
+        },
+        "config": _secondary_config(),
+    }
+
+
+def rainfall_context_figure(monthly: pd.DataFrame) -> dict[str, Any] | None:
+    """Generate paired monthly climatology figure for rainfall and extent.
+
+    Returns None if rainfall data is not present; otherwise returns a strict-JSON
+    serializable Plotly figure dict with rainfall (bar) and extent (scatter) traces.
+    """
+    if "rainfall_mm" not in monthly or not monthly["rainfall_mm"].notna().any():
+        return None
+
+    month_number = pd.to_datetime(monthly["date"]).dt.month
+    labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    rain_means = [
+        _clean_val(monthly.loc[month_number == month, "rainfall_mm"].mean())
+        for month in range(1, 13)
+    ]
+    extent_means = [
+        _clean_val(monthly.loc[month_number == month, "extent_pct"].mean())
+        for month in range(1, 13)
+    ]
+
+    return {
+        "data": [
             {
-                "type": "scatter", "mode": "lines", "name": "Mean - 1 std",
-                "x": month_names, "y": _clean_list(lower), "showlegend": False,
-                "line": {"width": 0}, "hoverinfo": "skip",
+                "type": "bar",
+                "name": "Mean Monthly Rainfall (mm)",
+                "x": labels,
+                "y": rain_means,
+                "yaxis": "y2",
+                "marker": {"color": "rgba(16, 185, 129, 0.42)"},
             },
             {
-                "type": "scatter", "mode": "lines", "name": "Mean + 1 std",
-                "x": month_names, "y": _clean_list(upper), "showlegend": False,
-                "line": {"width": 0}, "fill": "tonexty",
-                "fillcolor": "rgba(2, 132, 199, 0.16)", "hoverinfo": "skip",
-            },
-            {
-                "type": "scatter", "mode": "lines+markers",
-                "name": "Long-term monthly water extent (+/-1 std)",
-                "x": month_names, "y": _clean_list(means),
-                "customdata": [[_clean_val(mean), _clean_val(std)] for mean, std in zip(means, stds)],
-                "hovertemplate": "Month: %{x}<br>Mean: %{customdata[0]}%<br>Std: %{customdata[1]}%<extra></extra>",
+                "type": "scatter",
+                "mode": "lines+markers",
+                "name": "Mean Monthly Extent (%)",
+                "x": labels,
+                "y": extent_means,
                 "line": {"color": "#0284c7", "width": 2},
-                "marker": {"size": 6, "color": "#0284c7"},
+                "marker": {"color": "#0284c7", "size": 6},
             },
-        ])
-        layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 58, "b": 40}, "title": {"text": "Long-term monthly water extent (+/-1 std)", "x": 0.02, "xanchor": "left", "font": {"size": 13, "color": "#334155"}}, "xaxis": {"title": "Month", "showgrid": False}, "yaxis": {"title": "Mean Extent (%)", "showgrid": True, "gridcolor": "#e2e8f0"}}
-    else:
-        events = analysis.events.events
-        if not events.empty and "duration_months" in events.columns:
-            data.append({"type": "histogram", "name": "Event Duration (months)", "x": _clean_list(events["duration_months"]), "marker": {"color": "#0ea5e9"}})
-            layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 30, "b": 40}, "xaxis": {"title": "Duration (months)", "showgrid": True, "gridcolor": "#e2e8f0"}, "yaxis": {"title": "Count", "showgrid": True, "gridcolor": "#e2e8f0"}}
-        else:
-            data.append({"type": "bar", "x": [], "y": []})
-            layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 30, "b": 40}, "xaxis": {"title": "No Events"}, "yaxis": {"title": "Count"}}
-    return {"data": data, "layout": layout, "config": {"responsive": True, "displaylogo": False, "modeBarButtonsToRemove": ["lasso2d", "select2d"]}}
+        ],
+        "layout": {
+            "paper_bgcolor": "#ffffff",
+            "plot_bgcolor": "#f8fafc",
+            "margin": {"l": 50, "r": 50, "t": 20, "b": 40},
+            "xaxis": {"title": {"text": "Calendar month"}, "showgrid": False},
+            "yaxis": {"title": {"text": "Water Extent (%)"}, "gridcolor": "#e2e8f0"},
+            "yaxis2": {
+                "title": {"text": "Rainfall (mm)"},
+                "overlaying": "y",
+                "side": "right",
+                "showgrid": False,
+            },
+            "legend": {"orientation": "h", "y": -0.22, "x": 0.5, "xanchor": "center"},
+        },
+        "config": {
+            "responsive": True,
+            "displaylogo": False,
+            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+        },
+    }

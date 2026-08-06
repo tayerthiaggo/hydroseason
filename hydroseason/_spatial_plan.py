@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
 from affine import Affine
 from rasterio.transform import array_bounds
 from shapely.geometry import box
@@ -304,5 +305,97 @@ def plan_storage_aligned_slices(
     )
 
 
-__all__ = ["GridWindow", "CandidateScore", "SpatialPlan", "plan_spatial_slices", "plan_storage_aligned_slices"]
+def active_windows_from_mask(
+    coarse_mask,
+    *,
+    factor: int,
+    native_shape: tuple[int, int],
+    storage_chunk: int,
+) -> tuple[GridWindow, ...]:
+    """Storage-aligned native-grid ``GridWindow``s covering the True cells of a coarse mask.
+
+    ``coarse_mask`` is a 2D boolean array (or anything ``numpy.asarray``
+    coerces to one) at ``factor``-times coarser resolution than the native
+    grid described by ``native_shape``. Each True coarse cell corresponds to
+    one ``factor``x``factor`` block of native pixels, clipped to
+    ``native_shape`` so a trailing partial coarse cell (from ``coarsen(...,
+    boundary="pad")``) never overhangs the native raster.
+    ``GridWindow`` coordinates are in NATIVE pixel space throughout -- this
+    is a raster/chunk predicate, not a polygon: no Shapely geometry is
+    built here.
+
+    ``storage_chunk`` snaps the resulting windows onto that stride's grid
+    (matching :func:`plan_storage_aligned_slices`'s tiling unit) before
+    deduplicating, so two True coarse cells that both fall inside the same
+    on-disk storage chunk collapse into one window rather than two
+    overlapping reads of the same chunk. ``storage_chunk`` must be a
+    positive multiple of ``factor`` for every coarse cell to land on exactly
+    one storage-aligned block edge.
+
+    Returns an empty tuple for an all-False mask (or a mask with no True
+    cells) -- callers must treat that as "no active windows", not an error;
+    :func:`build_wet_planning_footprint` is the one place a genuinely-empty
+    wet mask is treated as a fail-open condition, not this helper.
+    """
+    if factor < 1:
+        raise ValueError(f"factor must be at least 1, got {factor!r}")
+    if storage_chunk < 1:
+        raise ValueError(f"storage_chunk must be at least 1, got {storage_chunk!r}")
+    if storage_chunk % factor != 0:
+        raise ValueError(
+            f"storage_chunk must be a positive multiple of factor, got "
+            f"storage_chunk={storage_chunk!r}, factor={factor!r}"
+        )
+    height, width = native_shape
+    if height < 1 or width < 1:
+        raise ValueError(f"native_shape must have positive dimensions, got {native_shape!r}")
+
+    mask = np.asarray(coarse_mask, dtype=bool)
+    if mask.ndim != 2:
+        raise ValueError(f"coarse_mask must be 2D, got shape {mask.shape!r}")
+    rows, cols = np.nonzero(mask)
+    if rows.size == 0:
+        return ()
+
+    blocks = set()
+    for row, col in zip(rows.tolist(), cols.tolist()):
+        y_start = min(row * factor, height)
+        y_stop = min(y_start + factor, height)
+        x_start = min(col * factor, width)
+        x_stop = min(x_start + factor, width)
+        if y_start >= y_stop or x_start >= x_stop:
+            continue
+        # Snap onto the storage_chunk grid so True cells sharing a chunk
+        # dedup to a single window rather than staying as separate,
+        # potentially overlapping native-pixel blocks.
+        block_y = y_start // storage_chunk
+        block_x = x_start // storage_chunk
+        blocks.add((block_y, block_x))
+
+    windows = []
+    for block_y, block_x in sorted(blocks):
+        y_start = block_y * storage_chunk
+        x_start = block_x * storage_chunk
+        y_stop = min(y_start + storage_chunk, height)
+        x_stop = min(x_start + storage_chunk, width)
+        windows.append(
+            GridWindow(
+                tile_id=f"r{block_y}c{block_x}",
+                y_start=y_start,
+                y_stop=y_stop,
+                x_start=x_start,
+                x_stop=x_stop,
+            )
+        )
+    return tuple(windows)
+
+
+__all__ = [
+    "GridWindow",
+    "CandidateScore",
+    "SpatialPlan",
+    "plan_spatial_slices",
+    "plan_storage_aligned_slices",
+    "active_windows_from_mask",
+]
 

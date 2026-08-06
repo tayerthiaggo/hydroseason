@@ -8,8 +8,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._rainfall import monthly_rainfall_to_frame
-from hydroseason._regime_compare import compare_extent_and_rainfall_regimes
+from hydroseason import assess_water_regime
+from hydroseason._rainfall import (
+    align_monthly_rainfall,
+    load_monthly_rainfall_csv,
+    monthly_rainfall_to_frame,
+    normalise_monthly_rainfall,
+)
+from hydroseason._regime_compare import (
+    compare_extent_and_rainfall_regimes,
+    compare_rainfall_to_extent_regime,
+)
 
 
 def _monthly(values, start="1990-01-01", col="rainfall_mm"):
@@ -161,3 +170,74 @@ def test_missing_rainfall_yields_an_extent_only_result():
     assert result.rainfall_regime is None
     assert result.divergence == "no_rainfall"
     assert result.extent_regime == "seasonal"
+
+
+# --- rainfall CSV normalization/alignment -----------------------------------
+
+def test_load_monthly_rainfall_csv_normalises_dates_and_values(tmp_path):
+    path = tmp_path / "rain.csv"
+    pd.DataFrame(
+        {"date": ["2020-01-18", "2020-03-22"], "rainfall_mm": ["10", "30"]}
+    ).to_csv(path, index=False)
+
+    rainfall = load_monthly_rainfall_csv(path)
+
+    assert rainfall.index.tolist() == [
+        pd.Timestamp("2020-01-01"),
+        pd.Timestamp("2020-03-01"),
+    ]
+    assert rainfall["rainfall_mm"].tolist() == [10, 30]
+
+
+def test_rainfall_rejects_duplicate_months_and_missing_columns():
+    duplicate = pd.DataFrame(
+        {
+            "date": ["2020-01-01", "2020-01-20"],
+            "rainfall_mm": [1.0, 2.0],
+        }
+    )
+    with pytest.raises(ValueError, match="duplicate months"):
+        normalise_monthly_rainfall(duplicate)
+    with pytest.raises(ValueError, match="date.*rainfall_mm"):
+        normalise_monthly_rainfall(pd.DataFrame({"rain": [1.0]}))
+
+
+def test_align_rainfall_preserves_extent_axis_and_missing_months():
+    rainfall = normalise_monthly_rainfall(
+        pd.DataFrame(
+            {"date": ["2020-01-01", "2020-03-01"], "rainfall_mm": [10.0, 30.0]}
+        )
+    )
+    axis = pd.date_range("2020-01-01", "2020-03-01", freq="MS")
+    aligned = align_monthly_rainfall(rainfall, axis)
+
+    assert aligned.index.equals(axis)
+    assert pd.isna(aligned.loc["2020-02-01", "rainfall_mm"])
+
+
+# --- authoritative comparison ------------------------------------------------
+
+def test_comparison_reuses_authoritative_extent_assessment():
+    extent = _seasonal_extent(peak_month=2)
+    authoritative = assess_water_regime(extent)
+    result = compare_rainfall_to_extent_regime(
+        authoritative,
+        _seasonal_rain(peak_month=1),
+    )
+
+    assert result.extent is authoritative
+    assert result.rainfall_regime == "seasonal"
+    assert result.peak_lag_months == 1
+
+
+def test_existing_comparison_wrapper_remains_compatible():
+    extent = _seasonal_extent(peak_month=2)
+    rainfall = _seasonal_rain(peak_month=1)
+    wrapped = compare_extent_and_rainfall_regimes(extent, rainfall)
+    direct = compare_rainfall_to_extent_regime(
+        assess_water_regime(extent), rainfall
+    )
+
+    assert wrapped.divergence == direct.divergence
+    assert wrapped.peak_lag_months == direct.peak_lag_months
+    assert wrapped.interpretation == direct.interpretation

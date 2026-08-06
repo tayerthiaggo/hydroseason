@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 
 from ._boundary import (
-    _RAW_MINIMUM_REL_TOLERANCE,
     RobustBoundaryConfig,
     robust_scale,
     select_boundary_sequence,
@@ -44,7 +43,8 @@ class DynamicHydroYearConfig:
     low_percentile: float = 20.0
     high_percentile: float = 80.0
     measurement_tolerance_pct: float = 1.0
-    detector: Literal["robust_extrema", "semi_markov"] = "robust_extrema"
+    detector: Literal["robust_extrema"] = "robust_extrema"
+    phase_model: Literal["none", "rule_based"] = "none"
 
     def __post_init__(self) -> None:
         if self.expected_trough_month not in range(1, 13):
@@ -65,8 +65,15 @@ class DynamicHydroYearConfig:
             raise ValueError("condition percentiles must satisfy 0 <= low < high <= 100.")
         if self.measurement_tolerance_pct < 0:
             raise ValueError("measurement_tolerance_pct must be non-negative.")
-        if self.detector not in {"robust_extrema", "semi_markov"}:
-            raise ValueError("detector must be 'robust_extrema' or 'semi_markov'")
+        if self.detector != "robust_extrema":
+            raise ValueError(
+                "detector must be 'robust_extrema'; it is the only publicly "
+                "supported boundary detector for released dynamic hydrological "
+                "years (the semi-Markov challenger is internal-only, see "
+                "hydroseason._dynamic_year._find_semi_markov_trough_opportunities)"
+            )
+        if self.phase_model not in {"none", "rule_based"}:
+            raise ValueError("phase_model must be 'none' or 'rule_based'")
         if self.sustained_rise_months is not None or self.pulse_rejection_window_months is not None:
             warnings.warn(
                 "recovery-window fields (sustained_rise_months, pulse_rejection_window_months) "
@@ -129,16 +136,10 @@ def _find_robust_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroY
 
     Robust scale is estimated once over the whole record. For each expected
     trough window the raw observed minimum, its contiguous equivalent low run,
-    and coverage evidence come from ``select_window_minimum`` (the raw extremum
-    is never silently replaced). A globally consistent boundary date is then
-    chosen per year by ``select_boundary_sequence`` over each year's equivalent
-    low run only. That run is built from ``select_window_minimum``'s *absolute*
-    noise-band epsilon, which two independent real rivers showed is too loose
-    relative to near-zero troughs (a sub-noise 0.01pp gap can still be a 50%
-    jump above a 0.02pp minimum). We therefore hand the sequence optimizer a
-    *relative* fidelity tolerance so a cycle-coherent shift can only move onto
-    months that are within measurement noise of the year's raw minimum, never
-    onto a materially higher month.
+    and coverage evidence come from ``select_window_minimum``. The public
+    detector keeps that observed minimum authoritative; sequence coherence is
+    allowed to break only exact-value ties, and any resulting date change is
+    labelled ``coherence_adjusted`` rather than reported as a raw selection.
     """
     amplitude_pp, noise_pp = robust_scale(frame)
     boundary_config = RobustBoundaryConfig(min_usable_candidates=config.min_usable_trough_candidates)
@@ -161,18 +162,26 @@ def _find_robust_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroY
         expecteds.append(expected)
         if selection.run_start is not None and selection.run_end is not None:
             run = frame.loc[selection.run_start:selection.run_end]
-            run = run.loc[run["candidate_usable"]]
+            run = run.loc[run["extent_pct"].notna() & run["invalid_pct"].lt(100.0)]
             candidates = [(pd.Timestamp(month), float(value)) for month, value in run["extent_pct"].items()]
         else:
             candidates = []
         sequence_input.append({"year": year, "expected": expected, "candidates": candidates})
 
     selected_dates = select_boundary_sequence(
-        sequence_input, raw_minimum_rel_tolerance=_RAW_MINIMUM_REL_TOLERANCE
+        sequence_input, raw_minimum_rel_tolerance=0.0
     )
 
     rows = []
     for year, expected, selection, selected in zip(years, expecteds, selections, selected_dates):
+        selection_status = selection.selection_status
+        if (
+            selected is not None
+            and selection.raw_month is not None
+            and pd.Timestamp(selected) != pd.Timestamp(selection.raw_month)
+            and selection_status != "low_quality"
+        ):
+            selection_status = "coherence_adjusted"
         row = {
             "hy_year": year,
             "status": "unresolved",
@@ -187,7 +196,7 @@ def _find_robust_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroY
             "low_run_start_month": selection.run_start if selection.run_start is not None else pd.NaT,
             "low_run_end_month": selection.run_end if selection.run_end is not None else pd.NaT,
             "window_status": selection.window_status,
-            "selection_status": selection.selection_status,
+            "selection_status": selection_status,
             "selection_support": selection.support,
             "window_n_expected": selection.n_expected,
             "window_n_usable": selection.n_usable,
@@ -199,7 +208,7 @@ def _find_robust_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroY
         observed = frame.loc[selected]
         confirmed = (
             selection.window_status == "full"
-            and selection.selection_status == "raw"
+            and selection_status == "raw"
             and selection.support >= boundary_config.support_threshold
         )
         row.update(
@@ -363,30 +372,87 @@ def _blank_cycle(opportunity: pd.Series) -> dict:
 
 
 def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig, value_col: str = "extent_pct", date_col: str | None = None, pattern: SeasonalPatternResult | None = None) -> pd.DataFrame:
+    """Public, released entry point: robust-extrema is the sole boundary authority.
+
+    ``config.detector`` only ever accepts ``"robust_extrema"`` (enforced by
+    ``DynamicHydroYearConfig.__post_init__``), so this always dispatches to
+    ``_find_robust_trough_opportunities``. The semi-Markov challenger stays
+    reachable only through the internal
+    ``_detect_dynamic_hydrological_years_experimental`` dispatcher used by
+    experimental/internal tests (see tests/test_detector_comparison.py).
+    """
     frame = prepare_monthly_extent(
         extent, value_col=value_col, date_col=date_col,
         max_invalid_pct=config.max_invalid_pct,
         allow_unknown_quality=config.allow_unknown_quality,
         quality_policy=config.quality_policy,
     )
-    if config.detector == "robust_extrema":
+    opportunities = _find_robust_trough_opportunities(frame, config)
+    return _assemble_dynamic_years(frame, opportunities, config, pattern)
+
+
+def _detect_dynamic_hydrological_years_experimental(
+    extent, *, config: DynamicHydroYearConfig, detector: Literal["robust_extrema", "semi_markov"],
+    value_col: str = "extent_pct", date_col: str | None = None, pattern: SeasonalPatternResult | None = None,
+) -> pd.DataFrame:
+    """Internal-only dispatcher that allows the semi-Markov challenger.
+
+    Not part of the public API and not reachable through
+    ``DynamicHydroYearConfig``/``detect_dynamic_hydrological_years`` (which are
+    robust-extrema only per the release contract). Exists solely for the
+    experimental promotion-gate comparison harness
+    (tests/test_detector_comparison.py) and must never be imported from
+    released, public code paths.
+    """
+    frame = prepare_monthly_extent(
+        extent, value_col=value_col, date_col=date_col,
+        max_invalid_pct=config.max_invalid_pct,
+        allow_unknown_quality=config.allow_unknown_quality,
+        quality_policy=config.quality_policy,
+    )
+    if detector == "robust_extrema":
         opportunities = _find_robust_trough_opportunities(frame, config)
-    else:
+    elif detector == "semi_markov":
         opportunities = _find_semi_markov_trough_opportunities(frame, config)
+    else:
+        raise ValueError(f"unknown detector {detector!r}")
+    return _assemble_dynamic_years(frame, opportunities, config, pattern)
+
+
+def _assemble_dynamic_years(
+    frame: pd.DataFrame, opportunities: pd.DataFrame, config: DynamicHydroYearConfig,
+    pattern: SeasonalPatternResult | None,
+) -> pd.DataFrame:
+    """Shared, detector-agnostic annual-cycle assembly from trough opportunities."""
     amplitude_pp, noise_pp = robust_scale(frame)
     rows = []
     previous = None
-    for _, opportunity in opportunities.iterrows():
+    for position, (_, opportunity) in enumerate(opportunities.iterrows()):
         row = _blank_cycle(opportunity)
+        used_record_start = False
         if pd.isna(opportunity["trough_month"]):
             previous = None
             rows.append(row)
             continue
         if previous is None:
-            row.update(status="partial", status_reason="no_previous_boundary")
-            previous = opportunity
-            rows.append(row)
-            continue
+            if position == 0:
+                # Nothing precedes this opportunity at all, so the record's
+                # own first observed month is a legitimate stand-in for the
+                # previous trough. A mid-record reset (position > 0) is a
+                # different situation: a gap broke the chain there, and
+                # synthesizing a boundary would invent data across it.
+                synthetic_previous = opportunity.copy()
+                synthetic_previous["trough_month"] = (
+                    frame.index.min() - pd.DateOffset(months=1)
+                )
+                previous = synthetic_previous
+                used_record_start = True
+                # Fall through into the normal assembly branch below.
+            else:
+                row.update(status="partial", status_reason="no_previous_boundary")
+                previous = opportunity
+                rows.append(row)
+                continue
         start = pd.Timestamp(previous["trough_month"]) + pd.DateOffset(months=1)
         end = pd.Timestamp(opportunity["trough_month"])
         cycle = frame.loc[start:end]
@@ -408,7 +474,7 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         peak = pd.Timestamp(peak_selection.selected_month)
         post_peak = usable.loc[peak:end]
         trough = end
-        peak_value, trough_value = float(usable.loc[peak]), float(frame.loc[trough, "extent_pct"])
+        peak_value, trough_value = float(frame.loc[peak, "extent_pct"]), float(frame.loc[trough, "extent_pct"])
         target = (peak_value + trough_value) / 2.0
         half_candidates = post_peak.loc[post_peak <= target]
         half = pd.Timestamp(half_candidates.index[0]) if len(half_candidates) else pd.NaT
@@ -424,21 +490,38 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         pulses = int((rise & ~rise.shift(fill_value=False)).sum())
         secondary = _secondary_extrema(usable, peak, trough) if pattern is not None and pattern.pattern == "bimodal_or_complex" else (None, np.nan, None, np.nan)
         peak_invalid = frame.loc[peak, "invalid_pct"]
+        peak_low_quality = peak_selection.selection_status == "low_quality"
+        boundary_status = (
+            "provisional"
+            if peak_low_quality
+            or used_record_start
+            or opportunity["boundary_status"] != "confirmed"
+            else "confirmed"
+        )
+        status_reason = (
+            "record_start_boundary"
+            if used_record_start
+            else "peak_low_quality"
+            if peak_low_quality
+            else "ok"
+            if boundary_status == "confirmed"
+            else "boundary_provisional"
+        )
         row.update(
-            status="complete" if opportunity["boundary_status"] == "confirmed" else "partial",
-            status_reason="ok" if opportunity["boundary_status"] == "confirmed" else "boundary_provisional",
+            status="complete" if boundary_status == "confirmed" else "partial",
+            status_reason=status_reason,
             hy_start=start, hy_end=end, cycle_months=len(cycle),
             peak_month=peak, peak_extent_pct=peak_value,
             peak_invalid_pct=float(peak_invalid) if pd.notna(peak_invalid) else np.nan,
             temporal_mid_dry_month=midpoint, temporal_mid_dry_extent_pct=float(frame.loc[midpoint, "extent_pct"]),
             half_loss_month=half, half_loss_extent_pct=float(frame.loc[half, "extent_pct"]) if pd.notna(half) else np.nan,
             half_loss_target_pct=target, trough_month=trough, trough_extent_pct=trough_value,
-            trough_invalid_pct=opportunity["trough_invalid_pct"], boundary_status=opportunity["boundary_status"],
+            trough_invalid_pct=opportunity["trough_invalid_pct"], boundary_status=boundary_status,
             drawdown_pct=peak_value - trough_value,
             persistence_ratio=trough_value / peak_value if peak_value > 0 else np.nan,
             recession_months=_month_delta(trough, peak),
             half_loss_months=_month_delta(half, peak) if pd.notna(half) else np.nan,
-            n_rewetting_pulses=pulses, n_usable_months=len(usable), confidence=_confidence(cycle, opportunity["boundary_status"]),
+            n_rewetting_pulses=pulses, n_usable_months=len(usable), confidence=_confidence(cycle, boundary_status),
             secondary_peak_month=secondary[0], secondary_peak_extent_pct=secondary[1],
             secondary_trough_month=secondary[2], secondary_trough_extent_pct=secondary[3],
             raw_peak_month=peak_selection.raw_month if peak_selection.raw_month is not None else pd.NaT,

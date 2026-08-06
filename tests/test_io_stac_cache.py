@@ -1,5 +1,6 @@
 import dataclasses
 import json
+
 import pytest
 
 pytest.importorskip("pystac")
@@ -132,7 +133,8 @@ def test_query_caches_per_year_so_a_narrower_rerun_hits(tmp_path, monkeypatch):
         def open(url):
             return _FakeClient()
 
-    import sys, types
+    import sys
+    import types
     fake_module = types.ModuleType("pystac_client")
     fake_module.Client = _FakeClient
     monkeypatch.setitem(sys.modules, "pystac_client", fake_module)

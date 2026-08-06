@@ -1,17 +1,14 @@
-"""Extract monthly WOfS water-extent time series from STAC and dump one CSV
-per catchment to output/water_extent_csv/.
+"""Extract monthly WOfS water-extent time series to one CSV per AOI.
 
-Uses the fast path: tiled STAC load (``tile_pixels``) with a precomputed
-wet-AOI prune (``precompute_wet_aoi``) so tiles the AOI never gets wet in are
-skipped entirely. This is the same loader `run_multi_catchment_report.py`
-uses, minus the hydrological-state analysis and HTML report -- just the raw
-extent series, for timing/benchmarking the STAC extraction step in
-isolation.
+The default uses HydroSeason's high-level historical-water-mask workflow: a
+fixed, unfiltered DEA Multi-Year ``count_wet > 0`` raster supplies the
+scientific denominator and a separate planning superset limits remote reads.
+Use ``--full-aoi`` only for explicit compatibility diagnostics.
 
 Usage:
     python scripts/extract_water_extent_csv.py
     python scripts/extract_water_extent_csv.py --only gilbert_river_qld,daly_river_nt
-    python scripts/extract_water_extent_csv.py --no-tiling   # legacy whole-AOI path, for comparison
+    python scripts/extract_water_extent_csv.py --full-aoi    # legacy denominator, for comparison
 
     # arbitrary AOI file (not a fixture catchment), with phase timing:
     python scripts/extract_water_extent_csv.py --aoi data/Gilbert_river_buffer.geojson \
@@ -21,7 +18,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -35,23 +31,12 @@ os.environ.pop("PROJ_DATA", None)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from hydroseason.io import acquire_wofs_cache, load_aoi, load_wofs_monthly_extent  # noqa: E402
-from hydroseason._io_geo import _crs_value  # noqa: E402
-from hydroseason._io_wofs_acquire import (  # noqa: E402
-    _aoi_digest,
-    _probe_local_wet_aoi_handle,
-    _resolve_wet_aoi,
-)
-from hydroseason._io_wofs_zarr import (  # noqa: E402
-    WOFS_CACHE_SCHEMA_VERSION,
-    WOFS_CLASSIFIER_VERSION,
-    WOFS_PLANNER_VERSION,
-)
+from hydroseason.io import load_wofs_monthly_extent  # noqa: E402
 
 STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 COLLECTION = "ga_ls_wo_3"
 START_DATE = "1986-05-01"
-END_DATE = "2026-06-01"
+END_DATE = "2025-12-01"
 OUTPUT_CRS = 3577
 TIME_BLOCK = 12
 TILE_PIXELS = 2048
@@ -85,13 +70,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force", action="store_true", help="ignore extent cache, refetch from STAC")
     parser.add_argument(
         "--no-tiling", action="store_true",
-        help="use the legacy whole-AOI load instead of tiled+wet-AOI-pruned (for A/B timing)",
+        help="use an untiled load instead of the tiled acquisition path (for A/B timing)",
     )
     parser.add_argument(
         "--tile-pixels",
         type=int,
         default=TILE_PIXELS,
-        help="tile size in pixels for legacy direct path (default: 1024; canonical cache uses 512-aligned execution grid)",
+        help=f"tile size in pixels for the direct path (default: {TILE_PIXELS}; canonical cache uses a 512-aligned execution grid)",
     )
     parser.add_argument("--resolution", type=float, default=30.0, help="load resolution (metres; default: 30)")
     parser.add_argument(
@@ -99,6 +84,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_MASK_CACHE_DIR,
         help="internal canonical WOfS mask cache directory (default: output/wofs_cache)",
+    )
+    parser.add_argument(
+        "--full-aoi",
+        action="store_true",
+        help="use the legacy full-AOI scientific denominator for compatibility diagnostics",
     )
     cache_mode = parser.add_mutually_exclusive_group()
     cache_mode.add_argument(
@@ -136,22 +126,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="number of concurrent worker threads for parallel multi-year acquisition (default: 1)",
     )
     parser.add_argument(
-        "--wet-mask",
-        choices=("off", "dea_stats"),
-        default="off",
-        help="prune reads to an ever-wet mask. 'dea_stats' derives it from DEA Water "
-             "Observation Statistics (ga_ls_wo_fq_myear_3 + ga_ls_wo_fq_cyear_3). "
-             "NOTE: a pruned run writes to a DIFFERENT cache store than a full-coverage "
-             "run, so it will not reuse years already acquired without the mask "
-             "(default: off)",
-    )
-    parser.add_argument(
         "--output-csv", type=str, default=None,
         help="explicit path for output CSV (default: output/water_extent_csv/{name}_{res}m_water_extent.csv)",
     )
     parser.add_argument(
         "--profile", action="store_true",
-        help="print per-phase timing (precompute vs tiled, per-year, tile-skip counts) to stderr",
+        help="print available acquisition and reduction phase timings to stderr",
     )
     return parser
 
@@ -202,88 +182,12 @@ def _process_job(job: tuple[str, Path], args, tile_kwargs: dict, position: int =
         read_workers=args.read_workers if args.read_workers > 0 else None,
         resampling_policy=args.resampling_policy,
         year_workers=args.year_workers,
-        wet_mask=args.wet_mask,
+        use_historical_water_mask=not args.full_aoi,
         **tile_kwargs,
     )
     elapsed = time.monotonic() - t0
     extent.to_csv(out_csv)
     print(f"[{name}] {len(extent)} months written in {elapsed:.1f}s -> {out_csv}", flush=True)
-
-    if args.profile and not args.legacy_remote_path:
-        # offline=True never touches the network, so it can only derive
-        # wet_mask_sha256 from an explicit wet_aoi (see
-        # hydroseason._io_wofs_acquire.acquire_wofs_cache's `if offline:`
-        # branch). Passing wet_mask straight through here would silently
-        # resolve to the unpruned store identity and 404 against the pruned
-        # store the main call above just wrote. Resolve the mask ourselves
-        # first (same preference order the main call uses) and pass the
-        # resolved wet_aoi instead.
-        aoi_gdf = load_aoi(boundary_path)
-        profile_years = list(range(pd.Timestamp(args.start_date).year, pd.Timestamp(args.end_date).year + 1))
-        # Every field of WOfSCacheRequest except wet_mask_sha256, built the
-        # same way hydroseason._io_wofs_acquire.acquire_wofs_cache builds its
-        # own base_request_kwargs -- must match the main (non-profile) call
-        # above exactly, or the local-store probe below looks up the wrong
-        # request and always misses.
-        base_request_kwargs = dict(
-            stac_url=STAC_URL,
-            collection=COLLECTION,
-            aoi_sha256=_aoi_digest(aoi_gdf),
-            start_date=pd.Timestamp(args.start_date).strftime("%Y-%m-%d"),
-            end_date=pd.Timestamp(args.end_date).strftime("%Y-%m-%d"),
-            crs=str(_crs_value(OUTPUT_CRS)),
-            resolution=float(args.resolution),
-            classifier_version=WOFS_CLASSIFIER_VERSION,
-            groupby="solar_day",
-            majority=True,
-            planner_version=WOFS_PLANNER_VERSION,
-            schema_version=WOFS_CACHE_SCHEMA_VERSION,
-        )
-        local_wet_aoi_handle = _probe_local_wet_aoi_handle(
-            args.mask_cache_dir,
-            base_request_kwargs,
-            wet_aoi=None,
-            wet_mask=args.wet_mask,
-        )
-        resolved_wet_aoi, _resolved_digest = _resolve_wet_aoi(
-            STAC_URL,
-            aoi_gdf,
-            profile_years,
-            wet_aoi=None,
-            wet_mask=args.wet_mask,
-            crs=OUTPUT_CRS,
-            resolution=args.resolution,
-            progress=False,
-            aoi_name=name,
-            local_wet_aoi_handle=local_wet_aoi_handle,
-        )
-        handle = acquire_wofs_cache(
-            STAC_URL,
-            COLLECTION,
-            boundary_path,
-            args.start_date,
-            args.end_date,
-            cache_root=args.mask_cache_dir,
-            crs=OUTPUT_CRS,
-            resolution=args.resolution,
-            offline=True,
-            resampling_policy=args.resampling_policy,
-            year_workers=args.year_workers,
-            wet_aoi=resolved_wet_aoi,
-        )
-        manifest_path = Path(handle.path) / "manifest.json"
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        diagnostics = manifest.get("acquisition", {}).get("plan_diagnostics", [])
-        print(
-            f"[{name}] canonical cache: identity={handle.identity} store={handle.path}",
-            file=sys.stderr,
-            flush=True,
-        )
-        print(
-            f"[{name}] planner diagnostics: {json.dumps(diagnostics, sort_keys=True)}",
-            file=sys.stderr,
-            flush=True,
-        )
 
     return {
         "catchment": name,

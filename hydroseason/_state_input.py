@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
 from typing import Literal
 
+import numpy as np
+import pandas as pd
 
 QualityPolicy = Literal["exclude", "flag"]
 
@@ -37,6 +37,9 @@ def prepare_monthly_extent(
     if frame.empty:
         return pd.DataFrame(columns=[value_col, "invalid_pct", "observed_fraction", "quality_state", "candidate_usable"])
     frame = frame.reindex(pd.date_range(frame.index.min(), frame.index.max(), freq="MS"))
+
+    if "n_invalid" not in frame.columns and "n_aoi" in frame.columns and "n_valid" in frame.columns:
+        frame["n_invalid"] = frame["n_aoi"] - frame["n_valid"]
 
     count_cols = ["n_water", "n_valid", "n_invalid", "n_aoi"]
     present = set(count_cols).intersection(frame.columns)
@@ -73,7 +76,12 @@ def prepare_monthly_extent(
         default="usable",
     )
     if quality_policy == "flag":
-        frame["candidate_usable"] = frame[value_col].notna()
+        # A finite extent with partial invalid coverage remains an observed
+        # candidate under ``flag``.  At 100% invalid there are no valid pixels
+        # supporting the extent, so it remains unusable even in flag mode.
+        frame["candidate_usable"] = frame[value_col].notna() & (
+            frame["invalid_pct"].isna() | frame["invalid_pct"].lt(100.0)
+        )
     else:
         frame["candidate_usable"] = (frame["quality_state"] == "usable") | (
             allow_unknown_quality & (frame["quality_state"] == "unknown")

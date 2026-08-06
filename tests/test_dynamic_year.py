@@ -6,6 +6,7 @@ import pytest
 
 from hydroseason._dynamic_year import (
     DynamicHydroYearConfig,
+    _detect_dynamic_hydrological_years_experimental,
     _find_robust_trough_opportunities,
     _find_semi_markov_trough_opportunities,
     detect_dynamic_hydrological_years,
@@ -213,6 +214,92 @@ def test_unresolved_nominal_year_breaks_cycles_instead_of_merging():
     assert (resolved_lengths <= 18).all()
 
 
+def test_first_opportunity_uses_record_start_as_opening_boundary():
+    """The record's own first observed month anchors the opening cycle.
+
+    The very first hydrological-year opportunity has no preceding trough,
+    but when enough real data precedes its trough there is a genuine
+    partial cycle to report. Before this fix that row was a blank stub
+    (status_reason="no_previous_boundary", no hy_start/hy_end/peak at
+    all), which rendered as an unbounded "no data" card and left the
+    start of the timeline unshaded.
+    """
+    index = pd.date_range("2005-01-01", periods=36, freq="MS")
+    # Descending Jan..Oct 2005 -- the record opens mid-cycle, so its peak
+    # is its first month -- then two clean cycles troughing in October.
+    # The +30/-20 offset keeps every later month above the opening trough
+    # of 8.0, so Oct 2005 stays the first resolved trough.
+    opening = [90.0, 78.0, 66.0, 54.0, 42.0, 30.0, 22.0, 16.0, 11.0, 8.0]
+    following = list(
+        30.0 + 20.0 * np.cos(2 * np.pi * (index[10:].month - 4) / 12)
+    )
+    raw = pd.DataFrame(
+        {"extent_pct": opening + following, "invalid_pct": 0.0}, index=index
+    )
+    config = DynamicHydroYearConfig(expected_trough_month=10)
+
+    result = detect_dynamic_hydrological_years(raw, config=config)
+
+    first_row = result.iloc[0]
+    assert first_row["status_reason"] == "record_start_boundary"
+    assert first_row["hy_start"] == pd.Timestamp("2005-01-01")
+    assert first_row["hy_end"] == pd.Timestamp("2005-10-01")
+    # The record's own first month must be peak-eligible: select_cycle_peak
+    # is given the synthetic pre-record trough, not hy_start, precisely so
+    # that January is not excluded as a boundary month.
+    assert first_row["peak_month"] == pd.Timestamp("2005-01-01")
+    assert pd.notna(first_row["drawdown_pct"])
+    assert first_row["boundary_status"] == "provisional"
+
+
+def test_first_opportunity_too_short_still_falls_back_to_insufficient_coverage():
+    """A record starting only 3 months before its first trough has no
+    cycle to report, even with the record-start boundary. It must fail
+    the same min_usable_months_per_cycle check as any other cycle rather
+    than being waved through on a synthetic boundary.
+    """
+    index = pd.date_range("2005-08-01", periods=24, freq="MS")
+    opening = [30.0, 20.0, 10.0]  # Aug, Sep, Oct 2005 -- 3 months only
+    following = list(
+        20.0 + 15.0 * np.cos(2 * np.pi * (index[3:].month - 12) / 12)
+    )
+    raw = pd.DataFrame(
+        {"extent_pct": opening + following, "invalid_pct": 0.0}, index=index
+    )
+    config = DynamicHydroYearConfig(
+        expected_trough_month=10, min_usable_months_per_cycle=8
+    )
+
+    result = detect_dynamic_hydrological_years(raw, config=config)
+
+    first_row = result.iloc[0]
+    assert first_row["status_reason"] == "insufficient_cycle_coverage"
+    assert first_row["hy_start"] == pd.Timestamp("2005-08-01")
+    assert pd.isna(first_row["peak_month"])
+
+
+def test_mid_record_reset_after_gap_still_reports_no_previous_boundary():
+    """Only the record's first opportunity may synthesize a boundary.
+
+    A year that resets the chain mid-record (because an earlier year's
+    trough was unresolvable) must keep reporting no_previous_boundary --
+    synthesizing a start there would invent cycle data spanning a real
+    data gap.
+    """
+    raw = _candidate_frame(start="2017-01-01", periods=84)
+    raw.loc["2020-06-01":"2020-12-01", "invalid_pct"] = 100.0
+    config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle")
+
+    result = detect_dynamic_hydrological_years(raw, config=config)
+
+    assert result.loc[result["hy_year"] == 2020, "status"].item() == "unresolved"
+    assert (
+        result.loc[result["hy_year"] == 2021, "status_reason"].item()
+        == "no_previous_boundary"
+    )
+    assert pd.isna(result.loc[result["hy_year"] == 2021, "hy_start"].item())
+
+
 def test_temporary_rewetting_after_half_loss_is_counted():
     raw = _candidate_frame(start="2017-01-01", periods=72)
     raw.loc["2020-06-01":"2020-09-01", "extent_pct"] = [8.0, 14.0, 7.0, 4.0]
@@ -274,9 +361,24 @@ def test_detector_field_rejects_unknown_value():
         DynamicHydroYearConfig(expected_trough_month=9, detector="not_a_real_detector")
 
 
-def test_detector_field_accepts_semi_markov():
-    config = DynamicHydroYearConfig(expected_trough_month=9, detector="semi_markov")
-    assert config.detector == "semi_markov"
+def test_detector_field_rejects_semi_markov_as_a_public_choice():
+    # The semi-Markov challenger must never be selectable through the public
+    # DynamicHydroYearConfig contract; released dynamic hydrological years are
+    # robust-extrema only. The challenger stays reachable only through the
+    # internal _detect_dynamic_hydrological_years_experimental dispatcher.
+    with pytest.raises(ValueError, match="robust_extrema"):
+        DynamicHydroYearConfig(expected_trough_month=9, detector="semi_markov")
+
+
+def test_phase_model_does_not_change_annual_hydrological_years():
+    raw = _candidate_frame(start="2017-01-01", periods=84)
+    without_phases = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, phase_model="none")
+    )
+    with_rule_based_axis = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, phase_model="rule_based")
+    )
+    pd.testing.assert_frame_equal(with_rule_based_axis, without_phases)
 
 
 def test_explicit_zero_pulse_rejection_window_still_rejected():
@@ -309,19 +411,34 @@ def test_peak_diagnostic_columns_populated_for_resolved_cycle():
     assert pd.notna(complete["raw_peak_month"])
     assert complete["raw_peak_month"] == complete["peak_month"]
     assert complete["raw_peak_extent_pct"] == pytest.approx(complete["peak_extent_pct"])
-    assert complete["peak_selection_status"] in {"raw", "ambiguous", "quality_adjusted"}
+    assert complete["peak_selection_status"] in {"raw", "ambiguous", "quality_adjusted", "low_quality"}
     assert pd.notna(complete["peak_selection_support"])
     assert 0.0 <= complete["peak_selection_support"] <= 1.0
 
 
+def test_observed_high_invalid_peak_is_reported_but_cycle_is_provisional():
+    raw = _post_trough_peak_frame()
+    raw.loc["2018-10-01", "invalid_pct"] = 60.0
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, max_invalid_pct=20.0)
+    )
+    row = result.loc[result["hy_year"] == 2019].iloc[0]
+    assert row["peak_month"] == pd.Timestamp("2018-10-01")
+    assert row["peak_invalid_pct"] == pytest.approx(60.0)
+    assert row["peak_selection_status"] == "low_quality"
+    assert row["boundary_status"] == "provisional"
+    assert row["status"] == "partial"
+    assert row["confidence"] != "high"
+
+
 def test_both_detectors_return_identical_columns():
+    # The public detect_dynamic_hydrological_years is robust-extrema only; the
+    # semi-Markov side of this comparison goes through the internal-only
+    # experimental dispatcher, never through DynamicHydroYearConfig.detector.
     raw = _candidate_frame(start="2017-01-01", periods=84)
-    robust = detect_dynamic_hydrological_years(
-        raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector="robust_extrema")
-    )
-    semi = detect_dynamic_hydrological_years(
-        raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector="semi_markov")
-    )
+    config = DynamicHydroYearConfig(expected_trough_month=9)
+    robust = detect_dynamic_hydrological_years(raw, config=config)
+    semi = _detect_dynamic_hydrological_years_experimental(raw, config=config, detector="semi_markov")
     assert list(semi.columns) == list(robust.columns)
     assert semi["trough_month"].notna().any()
 
@@ -353,10 +470,11 @@ def test_additive_diagnostic_columns_present_and_populated_for_both_detectors():
     # populated" check for that detector only.
     always_populated = [c for c in additive_columns if c not in {"low_run_start_month", "low_run_end_month", "window_n_expected", "window_n_usable"}]
 
+    # The public detect_dynamic_hydrological_years is robust-extrema only; the
+    # semi-Markov side goes through the internal-only experimental dispatcher.
+    config = DynamicHydroYearConfig(expected_trough_month=9)
     for detector in ("robust_extrema", "semi_markov"):
-        result = detect_dynamic_hydrological_years(
-            raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector=detector)
-        )
+        result = _detect_dynamic_hydrological_years_experimental(raw, config=config, detector=detector)
         assert list(result.columns) == ANNUAL_COLUMNS
         complete = result.loc[result["status"] == "complete"]
         assert not complete.empty, f"no resolved cycle for detector={detector}"
@@ -364,7 +482,10 @@ def test_additive_diagnostic_columns_present_and_populated_for_both_detectors():
         for column in always_populated:
             assert pd.notna(row[column]), f"{column} is NaN for detector={detector}"
         assert row["window_status"] in {"full", "left_truncated", "right_truncated", "internal_gap"}
-        assert row["selection_status"] in {"raw", "ambiguous", "quality_adjusted", "unresolved"}
+        assert row["selection_status"] in {
+            "raw", "ambiguous", "quality_adjusted", "low_quality",
+            "coherence_adjusted", "unresolved",
+        }
         assert 0.0 <= row["selection_support"] <= 1.0
         assert row["boundary_status"] in {"confirmed", "provisional"}
 
@@ -372,7 +493,7 @@ def test_additive_diagnostic_columns_present_and_populated_for_both_detectors():
     # column, including the window/run diagnostics the semi-Markov engine
     # cannot provide.
     robust_row = detect_dynamic_hydrological_years(
-        raw, config=DynamicHydroYearConfig(expected_trough_month=9, detector="robust_extrema")
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9)
     ).pipe(lambda df: df.loc[df["status"] == "complete"]).iloc[0]
     for column in additive_columns:
         assert pd.notna(robust_row[column]), f"{column} is NaN for robust_extrema"
@@ -391,3 +512,26 @@ def test_peak_diagnostic_columns_are_nan_for_unresolved_cycles():
         assert pd.isna(row["raw_peak_extent_pct"])
         assert pd.isna(row["peak_selection_status"])
         assert pd.isna(row["peak_selection_support"])
+
+
+def test_record_start_boundary_cycle_is_never_high_confidence():
+    """A cycle opened at the record's edge is an assumption, not a
+    detection, and must never be scored "high". Task 1 forces
+    boundary_status="provisional" for these, which caps _confidence's
+    score at 0.75 -- below the 0.80 "high" threshold.
+    """
+    index = pd.date_range("2005-01-01", periods=36, freq="MS")
+    opening = [90.0, 78.0, 66.0, 54.0, 42.0, 30.0, 22.0, 16.0, 11.0, 8.0]
+    following = list(
+        30.0 + 20.0 * np.cos(2 * np.pi * (index[10:].month - 4) / 12)
+    )
+    raw = pd.DataFrame(
+        {"extent_pct": opening + following, "invalid_pct": 0.0}, index=index
+    )
+    config = DynamicHydroYearConfig(expected_trough_month=10)
+
+    result = detect_dynamic_hydrological_years(raw, config=config)
+
+    first_row = result.iloc[0]
+    assert first_row["status_reason"] == "record_start_boundary"
+    assert first_row["confidence"] in {"medium", "low"}

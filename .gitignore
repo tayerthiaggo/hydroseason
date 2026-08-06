@@ -84,3 +84,13 @@ dev/
 .superpowers/
 .uv-cache/
 .worktrees/
+
+overnight-wofs_2.ps1
+overnight-wofs_resume.ps1
+overnight-wofs.ps1
+
+# ── Agent / session scratch (never part of a release) ─────────────────────────
+pipelines/
+preview_report/
+docs/plans/
+docs/superpowers/

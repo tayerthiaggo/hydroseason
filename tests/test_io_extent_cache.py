@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -47,6 +48,454 @@ def _fake_wet_aoi():
     return gpd.GeoDataFrame({"geometry": [box(-10, -10, 10, 10)]}, geometry="geometry", crs=None)
 
 
+def _historical_water_mask(*, aoi=None, coverage_end="2021-12-31"):
+    from hydroseason._historical_water_mask import HistoricalWaterMask, _aoi_digest, _mask_digest
+
+    if aoi is None:
+        aoi_digest = "aoi-digest"
+    else:
+        import hydroseason.io as hio
+
+        aoi_on_mask_grid = hio.load_aoi(aoi).to_crs("EPSG:3577")
+        aoi_digest = _aoi_digest(aoi_on_mask_grid)
+
+    mask = np.array([[True, False], [True, True]])
+    transform = (30.0, 0.0, 0.0, 0.0, -30.0, 60.0)
+    resolution = (30.0, 30.0)
+    return HistoricalWaterMask(
+        mask=mask,
+        crs="EPSG:3577",
+        transform=transform,
+        shape=(2, 2),
+        resolution=resolution,
+        pixel_count=3,
+        source_product="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_item_ids=("multi-year-item",),
+        source_lineage=("ga_ls_wo_fq_myear_3", "multi-year-item"),
+        coverage_start="1987-01-01",
+        coverage_end=coverage_end,
+        aoi_sha256=aoi_digest,
+        mask_sha256=_mask_digest(
+            mask,
+            crs="EPSG:3577",
+            transform=transform,
+            shape=(2, 2),
+            resolution=resolution,
+        ),
+    )
+
+
+def _completed_extent(start: str, end: str):
+    index = pd.date_range(start, end, freq="MS")
+    return pd.DataFrame(
+        {
+            "n_water": 1,
+            "n_aoi": 3,
+            "n_valid": 3,
+            "n_invalid": 0,
+            "n_wet_aoi": 3,
+            "extent_pct": 100.0 / 3.0,
+            "invalid_pct": 0.0,
+            "wet_fill_pct": 100.0 / 3.0,
+        },
+        index=index,
+    )
+
+
+def _synthetic_historical_mask_reduction_inputs():
+    """A real, georeferenced cube with invalid land beyond the wet mask.
+
+    A regression here catches either a reduction over the planning/full AOI
+    instead of the exact historical mask, or a mask application that leaves
+    excluded invalid cells in the denominator.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("geopandas")
+    pytest.importorskip("rioxarray")
+    import geopandas as gpd
+    import rioxarray  # noqa: F401  (registers the .rio accessor)
+    from affine import Affine
+    from shapely.geometry import box
+
+    from hydroseason._historical_water_mask import HistoricalWaterMask, _mask_digest
+
+    transform = (30.0, 0.0, 0.0, 0.0, -30.0, 90.0)
+    values = np.array(
+        [
+            # Two wet pixels and four dry pixels within the exact mask;
+            # invalid land occupies the entire excluded final column.
+            [[1, 0, -1], [1, 0, -1], [0, 0, -1]],
+            # A source month with no valid observations anywhere.
+            [[-1, -1, -1], [-1, -1, -1], [-1, -1, -1]],
+        ],
+        dtype=np.int8,
+    )
+    cube = xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.to_datetime(["2020-01-01", "2020-02-01"]),
+            "y": [75.0, 45.0, 15.0],
+            "x": [15.0, 45.0, 75.0],
+        },
+    )
+    cube = (
+        cube.rio.set_spatial_dims(x_dim="x", y_dim="y")
+        .rio.write_crs("EPSG:3577")
+        .rio.write_transform(Affine(*transform))
+    )
+    mask_values = np.array(
+        [[True, True, False], [True, True, False], [True, True, False]]
+    )
+    historical_mask = HistoricalWaterMask(
+        mask=mask_values,
+        crs="EPSG:3577",
+        transform=transform,
+        shape=(3, 3),
+        resolution=(30.0, 30.0),
+        pixel_count=6,
+        source_product="ga_ls_wo_fq_myear_3",
+        source_version="3",
+        source_item_ids=("synthetic-item",),
+        source_lineage=("ga_ls_wo_fq_myear_3", "synthetic-item"),
+        coverage_start="1987-01-01",
+        coverage_end="2021-12-31",
+        aoi_sha256="synthetic-aoi",
+        mask_sha256=_mask_digest(
+            mask_values,
+            crs="EPSG:3577",
+            transform=transform,
+            shape=(3, 3),
+            resolution=(30.0, 30.0),
+        ),
+    )
+    aoi = gpd.GeoDataFrame(
+        {"geometry": [box(0, 0, 90, 90)]}, geometry="geometry", crs="EPSG:3577"
+    )
+    return cube, aoi, historical_mask
+
+
+def test_exact_historical_mask_changes_only_the_intended_reduction_population():
+    """Excluded invalid land must not change in-mask water or extent percent."""
+    from hydroseason.hydro_year import monthly_water_extent
+    from hydroseason.io import _clip_to_aoi
+
+    cube, aoi, historical_mask = _synthetic_historical_mask_reduction_inputs()
+    full_aoi = monthly_water_extent(cube, time_block=2)
+    historical = monthly_water_extent(
+        _clip_to_aoi(cube, aoi, historical_water_mask=historical_mask), time_block=2
+    )
+
+    january = pd.Timestamp("2020-01-01")
+    assert full_aoi.loc[january, "n_water"] == historical.loc[january, "n_water"] == 2
+    assert full_aoi.loc[january, "n_valid"] == historical.loc[january, "n_valid"] == 6
+    assert full_aoi.loc[january, "n_aoi"] == 9
+    assert historical.loc[january, "n_aoi"] == historical_mask.pixel_count == 6
+    assert full_aoi.loc[january, "extent_pct"] == historical.loc[january, "extent_pct"] == pytest.approx(100.0 / 3.0)
+    assert full_aoi.loc[january, "invalid_pct"] == pytest.approx(100.0 * 3.0 / 9.0)
+    assert historical.loc[january, "invalid_pct"] == 0.0
+
+
+def test_historical_mask_denominator_is_fixed_for_normal_invalid_and_no_source_months():
+    """A pinned historical pixel count survives every source-availability state."""
+    from hydroseason._io_extent_cache import _missing_year_extent
+    from hydroseason.hydro_year import monthly_water_extent
+    from hydroseason.io import _clip_to_aoi
+
+    cube, aoi, historical_mask = _synthetic_historical_mask_reduction_inputs()
+    observed = monthly_water_extent(
+        _clip_to_aoi(cube, aoi, historical_water_mask=historical_mask), time_block=2
+    )
+    no_source = _missing_year_extent(
+        pd.Timestamp("2020-03-01"),
+        pd.Timestamp("2020-03-31"),
+        historical_water_mask=historical_mask,
+    )
+    result = pd.concat([observed, no_source])
+
+    assert (result["n_aoi"] == historical_mask.pixel_count).all()
+    assert result.loc["2020-01-01", "n_valid"] == 6  # normal source month
+    assert result.loc["2020-02-01", "n_invalid"] == 6  # all-invalid source month
+    assert result.loc["2020-03-01", "n_invalid"] == 6  # no source month
+    assert result.loc["2020-02-01", "invalid_pct"] == 100.0
+    assert result.loc["2020-03-01", "invalid_pct"] == 100.0
+
+
+def test_cache_path_passes_exact_mask_and_dilated_planning_footprint_without_changing_counts(
+    monkeypatch, tmp_path,
+):
+    """Planning dilation is passed to acquisition, never used as analysis area."""
+    import hydroseason.io as hio
+    from hydroseason._io_dea_stats import build_planning_footprint_from_historical_mask
+
+    aoi = _aoi()
+    historical_mask = _historical_water_mask(aoi=aoi)
+    footprints = []
+
+    def build_dilated_footprint(mask):
+        footprint = build_planning_footprint_from_historical_mask(
+            mask, factor=1, safety_cells=1
+        )
+        footprints.append(footprint)
+        return footprint
+
+    acquire = Mock(return_value=SimpleNamespace(path=tmp_path / "store.zarr"))
+    expected = _completed_extent("2020-01-01", "2020-12-31")
+    monkeypatch.setattr(hio, "build_planning_footprint_from_historical_mask", build_dilated_footprint)
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+    monkeypatch.setattr(hio, "open_completed_extent_counts", Mock(return_value=expected))
+
+    result = hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac",
+        "ga_ls_wo_3",
+        aoi,
+        "2020-01-01",
+        "2020-12-31",
+        resolution=30,
+        mask_cache_dir=tmp_path / "cache",
+        historical_water_mask=historical_mask,
+    )
+
+    footprint = footprints[0]
+    native = np.asarray(getattr(footprint.native_mask, "values", footprint.native_mask), dtype=bool)
+    coarse = np.asarray(getattr(footprint.coarse_mask, "values", footprint.coarse_mask), dtype=bool)
+    assert np.array_equal(native, historical_mask.mask)
+    assert coarse.sum() > native.sum()  # the planning halo is a true superset
+    assert acquire.call_args.kwargs["historical_water_mask"] is historical_mask
+    assert acquire.call_args.kwargs["planning_footprint"] is footprint
+    pd.testing.assert_frame_equal(result, expected)
+    assert (result["n_aoi"] == historical_mask.pixel_count).all()
+    assert (result["n_valid"] == historical_mask.pixel_count).all()
+    assert (result["n_water"] == 1).all()
+    assert (result["n_invalid"] == 0).all()
+
+
+def test_default_historical_mask_keeps_fixed_denominator_for_no_source_year(monkeypatch):
+    import hydroseason.io as hio
+
+    aoi = _aoi()
+    monkeypatch.setattr(
+        hio,
+        "load_wofs_from_stac",
+        Mock(side_effect=ValueError("No STAC items found for the requested AOI")),
+    )
+
+    result = hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac",
+        "ga_ls_wo_3",
+        aoi,
+        "2020-01-01",
+        "2020-12-31",
+        resolution=30,
+        historical_water_mask=_historical_water_mask(aoi=aoi),
+    )
+
+    assert (result["n_aoi"] == 3).all()
+    assert (result["n_valid"] == 0).all()
+    assert (result["n_invalid"] == 3).all()
+    assert result["extent_pct"].isna().all()
+    assert (result["invalid_pct"] == 100.0).all()
+
+
+def test_invalid_supplied_historical_mask_fails_before_acquisition(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    aoi = _aoi()
+    invalid_mask = replace(_historical_water_mask(aoi=aoi), pixel_count=4)
+    acquire = Mock()
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+
+    with pytest.raises(ValueError, match="pixel_count"):
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            aoi,
+            "2020-01-01",
+            "2020-12-31",
+            resolution=30,
+            mask_cache_dir=tmp_path,
+            historical_water_mask=invalid_mask,
+        )
+
+    acquire.assert_not_called()
+
+
+def test_supplied_historical_mask_rejects_nat_coverage_before_acquisition(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    aoi = _aoi()
+    invalid_mask = replace(_historical_water_mask(aoi=aoi), coverage_start=None)
+    acquire = Mock(side_effect=AssertionError("acquisition"))
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+
+    with pytest.raises(ValueError, match="invalid coverage provenance"):
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            aoi,
+            "2020-01-01",
+            "2020-12-31",
+            resolution=30,
+            mask_cache_dir=tmp_path,
+            historical_water_mask=invalid_mask,
+        )
+
+    acquire.assert_not_called()
+
+
+def test_default_historical_mask_is_resolved_once_and_reused_across_start_dates(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    mask = _historical_water_mask()
+    resolve = Mock(return_value=mask)
+    acquire = Mock(side_effect=lambda *_args, **_kwargs: SimpleNamespace(path=tmp_path / "store.zarr"))
+    monkeypatch.setattr(hio, "load_or_build_historical_water_mask", resolve)
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+    monkeypatch.setattr(
+        hio,
+        "open_completed_extent_counts",
+        lambda _handle, start, end, **_kwargs: _completed_extent(start, end),
+    )
+
+    common = dict(
+        stac_url="https://example.invalid/monthly",
+        collection="ga_ls_wo_3",
+        aoi=_aoi(),
+        end_date="2021-12-31",
+        resolution=30,
+        mask_cache_dir=tmp_path / "wofs-cache",
+        historical_mask_cache_dir=tmp_path / "historical-cache",
+        statistics_stac_url="https://example.invalid/statistics",
+    )
+    hio.load_wofs_monthly_extent(start_date="2020-01-01", **common)
+    hio.load_wofs_monthly_extent(start_date="2021-01-01", **common)
+
+    assert resolve.call_count == 2
+    assert {call.kwargs["analysis_end"] for call in resolve.call_args_list} == {"2021-12-31"}
+    assert {call.kwargs["cache_root"] for call in resolve.call_args_list} == {
+        tmp_path / "historical-cache"
+    }
+    assert all(call.kwargs["historical_water_mask"] is mask for call in acquire.call_args_list)
+    assert all(call.kwargs["planning_footprint"] is not None for call in acquire.call_args_list)
+
+
+def test_historical_mask_coverage_must_reach_requested_end_date(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    aoi = _aoi()
+    mask = _historical_water_mask(aoi=aoi, coverage_end="2021-12-31")
+    acquire = Mock(return_value=SimpleNamespace(path=tmp_path / "store.zarr"))
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+    monkeypatch.setattr(
+        hio,
+        "open_completed_extent_counts",
+        lambda _handle, start, end, **_kwargs: _completed_extent(start, end),
+    )
+
+    for end_date in ("2020-12-31", "2021-12-31"):
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            aoi,
+            "2020-01-01",
+            end_date,
+            resolution=30,
+            mask_cache_dir=tmp_path,
+            historical_water_mask=mask,
+        )
+
+    with pytest.raises(ValueError, match="does not cover requested end_date"):
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            aoi,
+            "2020-01-01",
+            "2022-01-01",
+            resolution=30,
+            mask_cache_dir=tmp_path,
+            historical_water_mask=mask,
+        )
+
+    assert acquire.call_count == 2
+    assert all(call.kwargs["historical_water_mask"] is mask for call in acquire.call_args_list)
+
+
+def test_offline_historical_mask_replay_never_calls_statistics_stac(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+
+    mask = _historical_water_mask()
+    resolve = Mock(return_value=mask)
+    monkeypatch.setattr(hio, "load_or_build_historical_water_mask", resolve)
+    monkeypatch.setattr(hio, "acquire_wofs_cache", Mock(return_value=SimpleNamespace(path=tmp_path / "store.zarr")))
+    monkeypatch.setattr(
+        hio,
+        "open_completed_extent_counts",
+        lambda _handle, start, end, **_kwargs: _completed_extent(start, end),
+    )
+    monkeypatch.setattr(hio, "open_wo_statistics", Mock(side_effect=AssertionError("statistics STAC")))
+
+    hio.load_wofs_monthly_extent(
+        "https://example.invalid/monthly",
+        "ga_ls_wo_3",
+        _aoi(),
+        "2020-01-01",
+        "2020-12-31",
+        resolution=30,
+        mask_cache_dir=tmp_path / "wofs-cache",
+        offline=True,
+    )
+
+    assert resolve.call_args.kwargs["offline"] is True
+    assert resolve.call_args.kwargs["cache_root"] == tmp_path / "wofs-cache"
+
+
+def test_offline_historical_mask_without_cache_root_never_calls_statistics_stac(monkeypatch):
+    import hydroseason.io as hio
+    from hydroseason._io_dea_stats import DEAStatsUnavailable
+
+    statistics = Mock(side_effect=AssertionError("statistics STAC"))
+    monkeypatch.setattr(hio, "open_wo_statistics", statistics)
+
+    with pytest.raises(DEAStatsUnavailable, match="no cached historical water mask"):
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/monthly",
+            "ga_ls_wo_3",
+            _aoi(),
+            "2020-01-01",
+            "2020-12-31",
+            resolution=30,
+            offline=True,
+        )
+
+    statistics.assert_not_called()
+
+
+def test_explicit_full_aoi_mode_preserves_legacy_loading_and_rejects_mask(monkeypatch):
+    pytest.importorskip("dask")
+    import hydroseason.io as hio
+    from hydroseason.hydro_year import monthly_water_extent
+
+    cube = _fake_monthly_cube("2020-01-01", "2020-12-01")
+    load = Mock(return_value=cube)
+    monkeypatch.setattr(hio, "load_wofs_from_stac", load)
+
+    actual = hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2020-01-01", "2020-12-31", resolution=30,
+        use_historical_water_mask=False,
+    )
+
+    pd.testing.assert_frame_equal(actual, monthly_water_extent(cube, time_block=12))
+    with pytest.raises(ValueError, match="use_historical_water_mask=False"):
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+            "2020-01-01", "2020-12-31", resolution=30,
+            use_historical_water_mask=False,
+            historical_water_mask=_historical_water_mask(),
+        )
+
+
 def test_offline_cache_hit_performs_zero_stac_calls(monkeypatch, tmp_path):
     pytest.importorskip("dask")
     import hydroseason.io as hio
@@ -60,7 +509,7 @@ def test_offline_cache_hit_performs_zero_stac_calls(monkeypatch, tmp_path):
     result = hio.load_wofs_monthly_extent(
         "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
         "2020-01-01", "2020-12-31", resolution=30,
-        mask_cache_dir=tmp_path, offline=True,
+        mask_cache_dir=tmp_path, offline=True, use_historical_water_mask=False,
     )
 
     assert len(result) == 12
@@ -73,7 +522,7 @@ def test_offline_cache_miss_is_explicit(tmp_path):
         hio.load_wofs_monthly_extent(
             "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
             "2020-01-01", "2020-12-31", resolution=30,
-            mask_cache_dir=tmp_path, offline=True,
+            mask_cache_dir=tmp_path, offline=True, use_historical_water_mask=False,
         )
 
 
@@ -84,6 +533,7 @@ def test_offline_without_mask_cache_dir_is_explicit():
         hio.load_wofs_monthly_extent(
             "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
             "2020-01-01", "2020-12-31", resolution=30, offline=True,
+            use_historical_water_mask=False,
         )
 
 
@@ -104,6 +554,7 @@ def test_offline_without_mask_cache_dir_still_uses_complete_csv_cache(monkeypatc
         end_date="2020-12-31",
         resolution=30,
         cache_dir=tmp_path / "extent_cache",
+        use_historical_water_mask=False,
     )
     expected = hio.load_wofs_monthly_extent(**kwargs)
 
@@ -132,7 +583,7 @@ def test_canonical_cache_extent_is_exactly_equal_to_legacy(monkeypatch, tmp_path
     actual = hio.load_wofs_monthly_extent(
         "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
         "2020-01-01", "2020-12-31", resolution=30,
-        mask_cache_dir=tmp_path,
+        mask_cache_dir=tmp_path, use_historical_water_mask=False,
     )
 
     pd.testing.assert_frame_equal(actual, expected)
@@ -168,6 +619,7 @@ def test_derived_wet_aoi_identity_reaches_extent_csv_cache(monkeypatch, tmp_path
         mask_cache_dir=tmp_path / "masks",
         tile_pixels=512,
         precompute_wet_aoi=True,
+        use_historical_water_mask=False,
     )
 
     assert writes[0]["wet_aoi_hash"] == "derived-content-and-params"
@@ -195,6 +647,7 @@ def test_cached_extent_reuses_completed_calendar_years(monkeypatch, tmp_path):
         end_date="2021-02-28",
         cache_dir=tmp_path / "cache",
         resolution=100,
+        use_historical_water_mask=False,
     )
     first = load_wofs_monthly_extent(**kwargs)
     second = load_wofs_monthly_extent(**kwargs)
@@ -223,6 +676,7 @@ def test_cached_extent_is_invalidated_when_resolution_changes(monkeypatch, tmp_p
         start_date="2020-01-01",
         end_date="2020-12-31",
         cache_dir=tmp_path / "cache",
+        use_historical_water_mask=False,
     )
     load_wofs_monthly_extent(**common, resolution=100)
     load_wofs_monthly_extent(**common, resolution=30)
@@ -245,6 +699,7 @@ def test_year_without_stac_items_becomes_unusable_months(monkeypatch):
     extent = load_wofs_monthly_extent(
         "https://example.invalid/stac", "wofs", object(),
         "2020-01-01", "2021-12-31", resolution=100,
+        use_historical_water_mask=False,
     )
 
     assert len(extent) == 24
@@ -320,6 +775,7 @@ def test_tiled_extent_resume_skips_completed_tiles(monkeypatch, tmp_path):
         crs=3577,
         resolution=30,
         tile_pixels=1024,
+        use_historical_water_mask=False,
     )
 
     with pytest.raises(RuntimeError, match="interrupted"):
@@ -351,6 +807,7 @@ def test_tiled_extent_no_data_year_continues_to_next_year(monkeypatch, tmp_path)
         crs=3577,
         resolution=30,
         tile_pixels=1024,
+        use_historical_water_mask=False,
     )
 
     assert len(result) == 24
@@ -379,6 +836,7 @@ def test_tiled_extent_zero_tiles_yielded_raises_and_does_not_cache(monkeypatch, 
         crs=3577,
         resolution=30,
         tile_pixels=1024,
+        use_historical_water_mask=False,
     )
 
     with pytest.raises(ValueError, match="no tiles were produced"):
@@ -408,6 +866,7 @@ def test_tiled_extent_per_tile_value_error_propagates_uncached(monkeypatch, tmp_
         crs=3577,
         resolution=30,
         tile_pixels=1024,
+        use_historical_water_mask=False,
     )
 
     with pytest.raises(ValueError, match="unexpected monthly index"):
@@ -436,6 +895,7 @@ def test_tiled_extent_force_ignores_annual_and_tile_caches(monkeypatch, tmp_path
         crs=3577,
         resolution=30,
         tile_pixels=1024,
+        use_historical_water_mask=False,
     )
 
     hio.load_wofs_monthly_extent(**kwargs)
@@ -534,8 +994,8 @@ def test_load_wofs_monthly_extent_does_not_share_csv_cache_across_wet_mask(monke
         cache_dir=tmp_path / "cache",
         resolution=100,
     )
-    load_wofs_monthly_extent(**common, wet_mask="off")
-    load_wofs_monthly_extent(**common, wet_mask="dea_stats")
+    load_wofs_monthly_extent(**common, wet_mask="off", use_historical_water_mask=False)
+    load_wofs_monthly_extent(**common, wet_mask="dea_stats", use_historical_water_mask=False)
 
     # If the two wet_mask values shared a cache key, the second call would
     # hit the first call's cached CSV and load_wofs_from_stac would only be
@@ -554,6 +1014,7 @@ def test_precompute_requires_tile_pixels(tmp_path):
             "https://example.invalid/stac", "wofs", aoi, "2020-01-01", "2020-12-31",
             cache_dir=tmp_path / "cache", resolution=30.0,
             precompute_wet_aoi=True,  # no tile_pixels -> error
+            use_historical_water_mask=False,
         )
 
 
@@ -593,6 +1054,7 @@ def test_precompute_wet_aoi_runs_full_ts_pass_and_threads_into_tiles(monkeypatch
         persistence_min=0.25,
         close_m=100.0,
         buffer_m=200.0,
+        use_historical_water_mask=False,
     )
 
     # One full-time-series pass over the whole requested window.
@@ -659,6 +1121,7 @@ def test_wet_aoi_passed_explicitly_skips_precompute_pass_but_does_not_prune_tile
         resolution=30,
         tile_pixels=1024,
         wet_aoi=explicit_wet_aoi,
+        use_historical_water_mask=False,
     )
 
     assert full_ts_calls == []
@@ -718,6 +1181,7 @@ def test_untiled_path_threads_caller_supplied_wet_aoi_into_wet_fill_pct(monkeypa
         crs=3577,
         resolution=30,
         wet_aoi=wet_aoi,
+        use_historical_water_mask=False,
     )
 
     row = result.loc[pd.Timestamp("2020-01-01")]
@@ -752,10 +1216,10 @@ def test_different_wet_aoi_produces_different_cache_file(monkeypatch, tmp_path):
         tile_pixels=1024,
     )
 
-    hio.load_wofs_monthly_extent(**kwargs, wet_aoi=None)
+    hio.load_wofs_monthly_extent(**kwargs, wet_aoi=None, use_historical_water_mask=False)
     files_without_wet_aoi = set(cache_dir.glob("extent_*.csv"))
 
-    hio.load_wofs_monthly_extent(**kwargs, wet_aoi=_fake_wet_aoi())
+    hio.load_wofs_monthly_extent(**kwargs, wet_aoi=_fake_wet_aoi(), use_historical_water_mask=False)
     files_with_wet_aoi = set(cache_dir.glob("extent_*.csv")) - files_without_wet_aoi
 
     assert files_with_wet_aoi  # a new, distinct annual cache file was written
@@ -792,6 +1256,7 @@ def test_auto_tiling_degrades_single_tile_aoi_to_untiled_path(monkeypatch, tmp_p
         "https://example.invalid/stac", "wofs", aoi,
         "2020-01-01", "2020-12-31",
         crs=3577, resolution=30, tile_pixels=2048, precompute_wet_aoi=True,
+        use_historical_water_mask=False,
     )
 
     assert untiled.called  # took the untiled whole-AOI read
@@ -820,6 +1285,7 @@ def test_auto_tiling_keeps_tiled_path_for_multi_tile_aoi(monkeypatch, tmp_path):
         "https://example.invalid/stac", "wofs", aoi,
         "2020-01-01", "2020-12-31",
         crs=3577, resolution=30, tile_pixels=2048, precompute_wet_aoi=True,
+        use_historical_water_mask=False,
     )
 
     assert tiles.called  # kept the tiled path for a genuinely multi-tile AOI
@@ -847,6 +1313,7 @@ def test_auto_tiling_false_forces_tiled_path_even_for_small_aoi(monkeypatch, tmp
         "2020-01-01", "2020-12-31",
         crs=3577, resolution=30, tile_pixels=2048, precompute_wet_aoi=True,
         auto_tiling=False,
+        use_historical_water_mask=False,
     )
 
     assert tiles.called  # opt-out respected: tiled path forced
@@ -880,6 +1347,7 @@ def test_read_workers_threads_into_reduction_and_leaves_result_unchanged(monkeyp
     kwargs = dict(
         stac_url="https://example.invalid/stac", collection="wofs", aoi=aoi,
         start_date="2020-11-01", end_date="2021-02-28", resolution=100,
+        use_historical_water_mask=False,
     )
     default_run = load_wofs_monthly_extent(**kwargs)
     tuned_run = load_wofs_monthly_extent(**kwargs, read_workers=8)
@@ -898,6 +1366,7 @@ def test_wet_aoi_disk_cache_sidecar_persistence(tmp_path):
     pytest.importorskip("shapely")
     import geopandas as gpd
     from shapely.geometry import box
+
     from hydroseason._io_extent_cache import _aoi_digest
 
     wet_gdf = gpd.GeoDataFrame({"geometry": [box(0, 0, 10, 10)]}, crs="EPSG:3577")

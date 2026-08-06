@@ -312,6 +312,7 @@ def test_no_runtime_warning_on_fully_invalid_month(recwarn):
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
     import warnings
+
     import xarray as xr
 
     from hydroseason.hydro_year import monthly_water_extent
@@ -332,8 +333,8 @@ def test_completed_missing_month_is_rejected_not_dry():
     pytest.importorskip("dask")
     import xarray as xr
 
-    from hydroseason.io import complete_monthly_axis
     from hydroseason.hydro_year import detect_hydrological_years, monthly_water_extent
+    from hydroseason.io import complete_monthly_axis
 
     masks = xr.DataArray(
         np.array([[[1, 0]] * 2] * 2, dtype=np.int8),
@@ -518,6 +519,7 @@ def test_monthly_water_extent_static_aoi_equivalence():
     pytest.importorskip("xarray")
     pytest.importorskip("dask")
     import xarray as xr
+
     from hydroseason.hydro_year import monthly_water_extent
 
     # Create 3D test DataArray: (time=3, y=2, x=2)

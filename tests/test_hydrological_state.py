@@ -19,6 +19,8 @@ def test_orchestrator_returns_all_public_products():
     assert isinstance(result, HydrologicalStateResult)
     assert not result.hydro_years.empty
     assert len(result.monthly_condition) == 15 * 12
+    assert len(result.monthly_phase) == 15 * 12
+    assert result.monthly_phase["phase_status"].eq("disabled").all()
     assert result.data_quality["n_usable"] == 15 * 12
 
 
@@ -32,6 +34,7 @@ def test_user_configuration_is_authoritative_over_advisory_pattern():
 def test_analyze_threads_noise_pp_and_rolling_columns():
     import numpy as np
     import pandas as pd
+
     from hydroseason import analyze_hydrological_state
 
     # 15 years of monthly monsoonal extent so the detector yields several HYs.

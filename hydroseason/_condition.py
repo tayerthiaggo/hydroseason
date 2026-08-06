@@ -5,7 +5,6 @@ import pandas as pd
 
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
-
 _JOINT_STATE_MAP: dict[tuple[str, str], str] = {
     ("high", "high"): "wet_persistent",
     ("high", "low"): "recharged_then_contracting",

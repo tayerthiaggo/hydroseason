@@ -19,9 +19,10 @@ each file lazily and only the AOI's slice of bytes is ever transferred.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-
 
 SILO_S3_BUCKET = "silo-open-data"
 SILO_MONTHLY_RAIN_PREFIX = "Official/annual/monthly_rain"
@@ -76,6 +77,70 @@ def monthly_rainfall_to_frame(
         frame["extent_pct"] = raw.fillna(0.0)
     frame["invalid_pct"] = 0.0
     return frame.sort_index()
+
+
+def normalise_monthly_rainfall(
+    rainfall: pd.DataFrame,
+    *,
+    date_col: str = "date",
+    value_col: str = "rainfall_mm",
+) -> pd.DataFrame:
+    """Normalise a tidy ``date``/``rainfall_mm`` frame to a monthly index.
+
+    Dates are floored to the first of their calendar month so a record
+    dated anywhere in a month aligns with the extent record's own
+    month-start index (see ``align_monthly_rainfall``). Duplicate months
+    and a malformed input shape are rejected outright rather than silently
+    aggregated or coerced -- ambiguity here should surface to the caller,
+    not be resolved by a guess.
+    """
+    missing = {date_col, value_col}.difference(rainfall.columns)
+    if missing:
+        raise ValueError(
+            f"Rainfall input requires {date_col!r} and {value_col!r} columns; missing: {sorted(missing)}."
+        )
+    out = rainfall[[date_col, value_col]].copy()
+    out.index = pd.DatetimeIndex(
+        pd.to_datetime(out.pop(date_col), errors="raise")
+    ).to_period("M").to_timestamp()
+    if out.index.has_duplicates:
+        duplicates = sorted(out.index[out.index.duplicated()].strftime("%Y-%m").unique())
+        raise ValueError(f"Rainfall input contains duplicate months: {duplicates}.")
+    out[value_col] = pd.to_numeric(out[value_col], errors="raise")
+    out = out.rename(columns={value_col: "rainfall_mm"}).sort_index()
+    if out.empty:
+        raise ValueError("Rainfall input is empty.")
+    return out
+
+
+def load_monthly_rainfall_csv(path: str | Path) -> pd.DataFrame:
+    """Load a ``date``/``rainfall_mm`` CSV and normalise it to a monthly index.
+
+    The CSV format is deliberately narrow -- two columns, ``date`` and
+    ``rainfall_mm`` -- matching what ``get_monthly_silo_rainfall`` produces
+    and what ``normalise_monthly_rainfall`` accepts, so a user-supplied file
+    and a SILO fetch are interchangeable ancillary rainfall sources.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Rainfall CSV not found: {path}")
+    return normalise_monthly_rainfall(pd.read_csv(path))
+
+
+def align_monthly_rainfall(
+    rainfall: pd.DataFrame,
+    extent_index: pd.DatetimeIndex,
+) -> pd.DataFrame:
+    """Reindex a normalised rainfall frame onto an extent record's month axis.
+
+    Months present in ``extent_index`` but absent from ``rainfall`` become
+    NaN rows rather than being dropped or interpolated -- callers decide how
+    to treat gaps, this function only aligns the axes.
+    """
+    axis = pd.DatetimeIndex(extent_index).to_period("M").to_timestamp()
+    if axis.has_duplicates:
+        raise ValueError("Extent month axis contains duplicate months.")
+    return rainfall.reindex(axis)
 
 
 def _silo_rain_var_name(dataset) -> str:
@@ -196,6 +261,11 @@ def _affine_from_coords(lon_values: np.ndarray, lat_values: np.ndarray):
 
 
 __all__ = [
-    "SILO_S3_BUCKET", "SILO_MONTHLY_RAIN_PREFIX",
-    "get_monthly_silo_rainfall", "monthly_rainfall_to_frame",
+    "SILO_S3_BUCKET",
+    "SILO_MONTHLY_RAIN_PREFIX",
+    "align_monthly_rainfall",
+    "get_monthly_silo_rainfall",
+    "load_monthly_rainfall_csv",
+    "monthly_rainfall_to_frame",
+    "normalise_monthly_rainfall",
 ]

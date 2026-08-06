@@ -132,8 +132,12 @@ def test_coarsen_updates_transform_and_coords():
 
 
 def test_derived_cache_identity():
-    from hydroseason._io_wofs_zarr import WOfSCacheIdentity, WOfSCacheRequest, WOFS_CACHE_SCHEMA_VERSION
     from hydroseason._io_wofs_coarsen import DerivedCacheIdentity
+    from hydroseason._io_wofs_zarr import (
+        WOFS_CACHE_SCHEMA_VERSION,
+        WOfSCacheIdentity,
+        WOfSCacheRequest,
+    )
 
     req = WOfSCacheRequest(
         stac_url="test",
@@ -181,10 +185,16 @@ def test_derived_cache_identity():
 
 
 def test_derive_resolution_cache_lifecycle(tmp_path):
+
     import zarr
-    import json
-    from hydroseason._io_wofs_zarr import WOfSCacheRequest, WOfSCacheIdentity, create_cache_handle, WOFS_CACHE_SCHEMA_VERSION
+
     from hydroseason._io_wofs_coarsen import derive_resolution_cache
+    from hydroseason._io_wofs_zarr import (
+        WOFS_CACHE_SCHEMA_VERSION,
+        WOfSCacheIdentity,
+        WOfSCacheRequest,
+        create_cache_handle,
+    )
 
     source_root = tmp_path / "source"
     target_root = tmp_path / "target"
