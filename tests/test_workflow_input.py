@@ -91,13 +91,26 @@ def _mask_array():
     )
 
 
+def _netcdf_writer_engine():
+    """Return an installed xarray NetCDF writer engine, skipping if there is none."""
+    import importlib.util
+
+    for engine, module in (("h5netcdf", "h5netcdf"), ("netcdf4", "netCDF4"), ("scipy", "scipy")):
+        if importlib.util.find_spec(module) is not None:
+            return engine
+    pytest.skip("no NetCDF writer engine installed (h5netcdf, netCDF4, or scipy)")
+
+
 def test_dataarray_dataset_netcdf_and_zarr_match(tmp_path):
     pytest.importorskip("xarray")
     mask = _mask_array()
     dataset = mask.to_dataset(name="water_mask")
     netcdf_path = tmp_path / "masks.nc"
     zarr_path = tmp_path / "masks.zarr"
-    dataset.to_netcdf(netcdf_path)
+    # xarray's default writer engine order is netcdf4 then scipy, neither of
+    # which this project declares; the `raster` extra ships h5netcdf instead.
+    # Pick whichever writer the environment actually resolved.
+    dataset.to_netcdf(netcdf_path, engine=_netcdf_writer_engine())
     dataset.to_zarr(zarr_path, mode="w")
 
     resolved = [
