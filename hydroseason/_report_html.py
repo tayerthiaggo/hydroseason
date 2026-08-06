@@ -391,9 +391,9 @@ def render_report_html(
         '<details class="report-section">'
         "<summary>Wet Event Characterisation</summary>"
         '<div class="report-section-content">'
-        "<p>Distribution of wet-event durations. Events are defined without "
-        "reference to any annual cycle, so this view is available whether or "
-        "not the catchment has a hydrological year.</p>"
+        "<p>Duration of each wet event, in order of occurrence. Events are "
+        "defined without reference to any annual cycle, so this view is "
+        "available whether or not the catchment has a hydrological year.</p>"
         '<div class="plot"><div id="events" class="plot-canvas"></div></div>'
         "</div></details>"
         if event_figure is not None

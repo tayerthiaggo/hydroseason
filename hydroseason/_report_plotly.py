@@ -225,15 +225,6 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
             "symbol": symbol,
             "line": {"color": "#ffffff", "width": 1},
         }
-        if imposed:
-            # Hollow marker with a coloured rim: same position, same colour,
-            # visibly not the same evidential status as a filled one.
-            marker = {
-                "size": 8,
-                "color": "rgba(255, 255, 255, 0.85)",
-                "symbol": f"{symbol}-open" if symbol != "circle" else "circle-open",
-                "line": {"color": color, "width": 2},
-            }
         traces.append({
             "type": "scatter", "mode": "markers",
             "name": f"{name} (imposed)" if imposed else name,
@@ -539,7 +530,16 @@ def secondary_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict
 
 
 def event_duration_figure(analysis: CatchmentAnalysis) -> dict[str, Any] | None:
-    """Generate the wet-event duration histogram, or None when there are none.
+    """Generate a one-bar-per-event duration chart, or None when there are none.
+
+    A histogram bins values as though they were samples from a continuous
+    distribution. Wet events are not that: a record can hold as few as five of
+    them, unevenly spaced across twenty years (Lachlan: 2010, 2011, 2012, 2016,
+    2021), so auto-binning scatters them across mostly-empty bins that read as
+    noise rather than a shape. Charting one bar per actual event instead, in
+    the order it occurred, shows what is actually there: how long each event
+    lasted and how the events are spaced through the record -- the thing a
+    duration histogram cannot show at all.
 
     This is its own panel rather than an alternative to the climatology: the
     two answer different questions and a catchment may need both. Returning
@@ -549,18 +549,34 @@ def event_duration_figure(analysis: CatchmentAnalysis) -> dict[str, Any] | None:
     events = analysis.events.events
     if events.empty or "duration_months" not in events.columns:
         return None
+    starts = pd.to_datetime(events["start"])
+    ends = pd.to_datetime(events["end"])
+    peak_extent = events.get("peak_extent_pct", pd.Series(index=events.index, dtype=float))
+    magnitude = events.get("magnitude_pp_months", pd.Series(index=events.index, dtype=float))
+    customdata = [
+        [start.strftime("%b %Y"), end.strftime("%b %Y"), _clean_val(peak), _clean_val(mag)]
+        for start, end, peak, mag in zip(starts, ends, peak_extent, magnitude)
+    ]
     return {
         "data": [{
-            "type": "histogram",
-            "name": "Event Duration (months)",
-            "x": _clean_list(events["duration_months"]),
+            "type": "bar",
+            "name": "Wet event duration",
+            "x": [start.strftime("%b %Y") for start in starts],
+            "y": _clean_list(events["duration_months"]),
+            "customdata": customdata,
+            "hovertemplate": (
+                "Event: %{customdata[0]} to %{customdata[1]}<br>"
+                "Duration: %{y} months<br>"
+                "Peak extent: %{customdata[2]}%<br>"
+                "Magnitude: %{customdata[3]} pp-months<extra></extra>"
+            ),
             "marker": {"color": "#0ea5e9"},
         }],
         "layout": {
             "paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc",
-            "margin": {"l": 50, "r": 30, "t": 30, "b": 40},
-            "xaxis": {"title": "Duration (months)", "showgrid": True, "gridcolor": "#e2e8f0"},
-            "yaxis": {"title": "Count", "showgrid": True, "gridcolor": "#e2e8f0"},
+            "margin": {"l": 50, "r": 30, "t": 30, "b": 60},
+            "xaxis": {"title": "Event start", "type": "category", "showgrid": False},
+            "yaxis": {"title": "Duration (months)", "showgrid": True, "gridcolor": "#e2e8f0"},
         },
         "config": _secondary_config(),
     }

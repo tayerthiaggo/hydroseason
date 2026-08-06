@@ -450,9 +450,12 @@ def test_event_duration_figure_is_its_own_panel():
     monthly = build_monthly_export(extent, analysis=analysis)
 
     assert not analysis.events.events.empty
+    n_events = len(analysis.events.events)
     figure = event_duration_figure(analysis)
     assert figure is not None
-    assert figure["data"][0]["type"] == "histogram"
+    assert figure["data"][0]["type"] == "bar"
+    assert len(figure["data"][0]["x"]) == n_events
+    assert len(figure["data"][0]["y"]) == n_events
     json.dumps(figure, allow_nan=False)
     # The climatology is still produced for the same analysis.
     assert secondary_figure(monthly, analysis)["data"][-1]["name"] == _CLIMATOLOGY_TRACE
@@ -468,8 +471,13 @@ def test_event_duration_figure_is_none_without_events(marginal_data):
     assert event_duration_figure(detached) is None
 
 
-def test_imposed_boundaries_render_distinctly_from_detected(seasonal_data, marginal_data):
-    """An imposed window must not be indistinguishable from a per-year detection."""
+def test_imposed_boundaries_labelled_but_drawn_like_detected(seasonal_data, marginal_data):
+    """The legend names an imposed window; the marker glyph itself is unchanged.
+
+    Markers stay visually identical across routes so a reader scanning the
+    Monthly Surface Water Extent chart sees one consistent marker language;
+    the "(imposed)" legend text is what carries the provenance distinction.
+    """
     _, marginal_analysis = marginal_data
     assert marginal_analysis.route == "fixed_climatological_window"
 
@@ -481,9 +489,14 @@ def test_imposed_boundaries_render_distinctly_from_detected(seasonal_data, margi
 
     assert imposed_markers, "imposed run should still draw markers"
     assert all("(imposed)" in trace["name"] for trace in imposed_markers)
-    assert all("open" in trace["marker"]["symbol"] for trace in imposed_markers)
     assert all("(imposed)" not in trace["name"] for trace in detected_markers)
-    assert all("open" not in trace["marker"]["symbol"] for trace in detected_markers)
+
+    imposed_by_base_name = {trace["name"].replace(" (imposed)", ""): trace for trace in imposed_markers}
+    detected_by_name = {trace["name"]: trace for trace in detected_markers}
+    for base_name, imposed_trace in imposed_by_base_name.items():
+        detected_trace = detected_by_name[base_name]
+        assert imposed_trace["marker"]["symbol"] == detected_trace["marker"]["symbol"]
+        assert imposed_trace["marker"]["color"] == detected_trace["marker"]["color"]
 
 
 def test_imposed_phase_bands_are_lighter_than_detected(seasonal_data, marginal_data):
