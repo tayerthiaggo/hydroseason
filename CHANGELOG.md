@@ -5,6 +5,10 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-06
+
+First public release: the remote-sensing-first rewrite of HydroSeason.
+
 ### Added
 - Public `run_hydroseason` orchestration for extent CSV/DataFrame, canonical
   NetCDF/Zarr/xarray masks, or DEA WOfS fetching. Optional supplied-CSV or

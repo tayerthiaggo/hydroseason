@@ -3,6 +3,7 @@ message: "If you use HydroSeason in your research, please cite both this softwar
 title: "HydroSeason: Remote-sensing-first hydrological year and season detection"
 type: software
 version: "0.1.0"
+date-released: "2026-08-06"
 authors:
   - family-names: "Tayer"
     given-names: "Thiaggo C."

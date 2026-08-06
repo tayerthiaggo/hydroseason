@@ -54,12 +54,39 @@ automated by this repository's workflows.
 
 ## Release steps
 
-### 1. Prepare the release candidate (Task 15, automated + local)
+### 1. Prepare the release candidate — local
 
-Freeze `CHANGELOG.md` and `CITATION.cff` release dates, run the complete
-local gate, and commit the release candidate. See Task 15 of the release
-readiness plan for the exact commands. Do not proceed past this point until
-that commit is pushed and CI is green on it.
+Freeze the release metadata and run the complete local gate:
+
+```bash
+# 1. Freeze metadata: pyproject version, CITATION.cff `version` +
+#    `date-released`, and a dated `## [<version>] - YYYY-MM-DD` CHANGELOG
+#    heading must all agree. Verify with:
+python scripts/check_release_metadata.py --tag "v<version>" --require-released
+
+# 2. Lint, lockfile, and tests
+python -m ruff check hydroseason tests scripts
+uv lock --check
+python -m pytest -q -m "not experimental and not network and not performance" \
+  --cov=hydroseason --cov-report=term-missing --cov-fail-under=80
+
+# 3. Reproducibility gates (require the [all,docs] extras)
+python scripts/prepare_case_study_data.py --check
+python scripts/_build_study_case_offline.py --check
+python scripts/_build_study_case_rainfall.py --check
+python scripts/run_resolution_case_study.py --check --output-dir case_studies/results/resolution
+python scripts/render_case_study_docs.py --check
+python -m mkdocs build --strict
+
+# 4. Build and verify artifacts
+python -m build
+python -m twine check dist/*
+check-wheel-contents dist/*.whl
+```
+
+If any `--check` reports drift, re-run the same script without `--check` to
+regenerate the checked results, review the diff, and commit it. Do not proceed
+past this point until the release candidate is pushed and CI is green on it.
 
 ### 2. Publish and verify the TestPyPI candidate — human action
 
@@ -136,8 +163,6 @@ Once PyPI publishing completes:
 - Check GitHub Release assets (wheel, sdist, case-studies zip) download and
   hash-match.
 - Check the deployed docs site (`docs.yml`) reflects the released version.
-- Run the exact-wheel HydroFragments integration check (Task 15, Step 3) if
-  not already done against this artifact.
 - Check Zenodo creator, version, and license metadata against
   `CITATION.cff` once the archive appears
   (https://zenodo.org/account/settings/github/) — this can take a few

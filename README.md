@@ -141,17 +141,27 @@ Full API documentation: [docs/api.md](docs/api.md).
 
 ## Citation
 
-If you use HydroSeason in your research, please cite `CITATION.cff` and:
+If you use HydroSeason in your research, please cite both the **software
+release** (see [`CITATION.cff`](CITATION.cff)) and the **methodological paper**:
 
 ```bibtex
-@article{Tayer2026,
-  author = {Tayer, Thiaggo C. and others},
-  title = {Remote-Sensing-First Hydrological Year Detection from Surface Water Extent},
+@article{tayer2026mapping,
+  author  = {Tayer, Thiaggo C. and Beesley, Leah S. and Stewart-Koster, Ben
+             and Bond, Nick and Douglas, Michael M. and Rossi, Maria J.
+             and McGregor, Glenn B. and Marshall, Jonathan C.},
+  title   = {Mapping resilience: A framework for analysing surface-water
+             dynamics and persistent pools in non-perennial rivers using
+             remote sensing, rainfall and river discharge data},
   journal = {Journal of Hydrology},
-  year = {2026},
-  doi = {10.1016/j.jhydrol.2025.134750}
+  volume  = {666},
+  pages   = {134750},
+  year    = {2026},
+  doi     = {10.1016/j.jhydrol.2025.134750}
 }
 ```
+
+Full citation guidance, including the software BibTeX entry and the Zenodo DOI
+policy, is in [docs/citation.md](docs/citation.md).
 
 ---
 
