@@ -29,33 +29,74 @@ def aseasonal_analysis():
     return analyze_catchment(df, phase_model="rule_based", n_bootstrap=40)
 
 
+_KPI_LABELS = [
+    "hydrological regime",
+    "amplitude signal-to-noise ratio",
+    "peak timing spread",
+    "analytical route",
+    "hydrological years",
+    "mean annual amplitude",
+    "mean cycle length",
+    "Typical peak month",
+    "Typical trough month",
+    "lower water extent at end of dry season",
+    "higher water extent in wet season",
+    "average water extent at end of dry season",
+    "high confidence years",
+    "wet events",
+    "longest low-extent spell",
+    "years without a wet event",
+    "average invalid/cloud cover",
+]
+
+
 def test_aseasonal_copy_never_mentions_hydrological_year(aseasonal_analysis):
     sentence = verdict_sentence(aseasonal_analysis).casefold()
     assert "no stable annual cycle" in sentence
     assert "use wet events" in sentence
     assert "hydrological-year boundaries" not in sentence
-    assert len(select_kpis(aseasonal_analysis)) == 13
+    assert len(select_kpis(aseasonal_analysis)) == len(_KPI_LABELS)
 
 
 def test_seasonal_kpis_include_complete_year_count(seasonal_analysis):
     kpis = select_kpis(seasonal_analysis)
-    labels = [item["label"] for item in kpis]
-    assert labels == [
-        "hydrological regime",
-        "amplitude signal-to-noise ratio",
-        "analytical route",
-        "hydrological years",
-        "mean annual amplitude",
-        "mean cycle length",
-        "Typical peak month",
-        "Typical trough month",
-        "lower water extent at end of dry season",
-        "higher water extent in wet season",
-        "average water extent at end of dry season",
-        "high confidence years",
-        "average invalid/cloud cover",
-    ]
-    assert len(kpis) == 13
+    assert [item["label"] for item in kpis] == _KPI_LABELS
+
+
+def test_kpi_deck_is_identical_across_regimes(seasonal_analysis, aseasonal_analysis):
+    """Cards stay in the same order and count so reports compare side by side."""
+    seasonal = [item["label"] for item in select_kpis(seasonal_analysis)]
+    aseasonal = [item["label"] for item in select_kpis(aseasonal_analysis)]
+    assert seasonal == aseasonal == _KPI_LABELS
+
+
+def test_aseasonal_cycle_kpis_state_why_they_are_absent(aseasonal_analysis):
+    """A withheld number explains itself instead of rendering a bare N/A."""
+    cards = {item["label"]: item for item in select_kpis(aseasonal_analysis)}
+    withheld = cards["Typical peak month"]
+    assert withheld["value"] == "Not defined"
+    assert "no reproducible annual cycle" in withheld["detail"]
+    assert "N/A" not in withheld["value"]
+
+
+def test_event_kpis_are_populated_without_a_cycle(aseasonal_analysis):
+    """Event descriptors presume no annual cycle, so they survive the aseasonal route."""
+    cards = {item["label"]: item for item in select_kpis(aseasonal_analysis)}
+    assert cards["wet events"]["value"] != "Not defined"
+    assert cards["longest low-extent spell"]["value"].endswith("mo")
+
+
+def test_snr_card_states_the_thresholds_it_is_judged_against(seasonal_analysis):
+    """The number alone cannot tell a reader whether it passed."""
+    cards = {item["label"]: item for item in select_kpis(seasonal_analysis)}
+    assert "2.0" in cards["amplitude signal-to-noise ratio"]["detail"]
+    assert "1.5 months" in cards["peak timing spread"]["detail"]
+
+
+def test_route_labels_are_short_enough_for_a_card(seasonal_analysis):
+    value = {item["label"]: item for item in select_kpis(seasonal_analysis)}["analytical route"]["value"]
+    assert value == "Per-Year Detection"
+    assert "Characterisation" not in value
 
 
 def test_seasonal_copy_has_regime_verdict(seasonal_analysis):

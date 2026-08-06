@@ -29,6 +29,7 @@ from ._report_export import (
 )
 from ._report_html import render_report_html
 from ._report_plotly import (
+    event_duration_figure,
     rainfall_context_figure,
     secondary_figure,
     timeline_figure,
@@ -302,6 +303,7 @@ def generate_catchment_report(
         summary=summary,
         timeline_figure=timeline_figure(monthly, analysis),
         secondary_figure=secondary_figure(monthly, analysis),
+        event_figure=event_duration_figure(analysis),
         quality_threshold=analysis.max_invalid_pct,
         rainfall_context=rain_context,
         rainfall_figure=rain_figure,

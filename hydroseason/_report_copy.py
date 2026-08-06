@@ -9,6 +9,7 @@ import pandas as pd
 if TYPE_CHECKING:
     from hydroseason._catchment import CatchmentAnalysis
 
+from ._regime import REGIME_THRESHOLDS
 from ._regime_compare import RegimeComparison
 
 _DIVERGENCE_LABELS = {
@@ -64,6 +65,27 @@ def verdict_sentence(analysis: CatchmentAnalysis) -> str:
         return (
             "Data record is insufficient to establish hydrological regime or seasonal boundaries."
         )
+
+
+# Display names for analytical routes. The raw identifiers title-cased into
+# strings like "Event Characterisation" that overflowed their card; these are
+# also plainer language for a reader who has not read the routing docstring.
+_ROUTE_LABELS = {
+    "per_year_detection": "Per-Year Detection",
+    "fixed_climatological_window": "Fixed Window",
+    "event_characterisation": "Event-Based",
+    "insufficient_record": "Insufficient Record",
+}
+
+_WITHHELD_VALUE = "Not defined"
+_WITHHELD_REASONS = {
+    "aseasonal": "no reproducible annual cycle",
+    "insufficient_record": "too few usable years to assess",
+}
+
+
+def _route_label(route: Any) -> str:
+    return _ROUTE_LABELS.get(str(route), str(route).replace("_", " ").title())
 
 
 def _metric_column(frame: pd.DataFrame, *names: str) -> pd.Series:
@@ -131,73 +153,124 @@ def select_kpis(
     )
 
     assessment = analysis.regime
+    event_summary = analysis.events.summary if analysis.events is not None else {}
+
+    # Every catchment keeps the same cards in the same order so two reports can
+    # be read side by side. Where a regime cannot support a number, the card
+    # says why it is absent rather than showing a bare "N/A": a deck of blanks
+    # reads as a broken run, when it is in fact the finding.
+    withheld_reason = _WITHHELD_REASONS.get(str(assessment.regime))
+    if withheld_reason is None and n_years == 0:
+        withheld_reason = "no hydrological years were resolved"
+
+    def cycle_metric(value: str, detail: str) -> dict[str, str]:
+        """A card whose number only exists if an annual cycle was defined."""
+        if n_years == 0 and withheld_reason is not None:
+            return {"value": _WITHHELD_VALUE, "detail": f"withheld: {withheld_reason}"}
+        return {"value": value, "detail": detail}
+
+    def card(label: str, value: str, detail: str) -> dict[str, str]:
+        return {"label": label, "value": value, "detail": detail}
+
+    snr_detail = (
+        f"seasonal >= {REGIME_THRESHOLDS['seasonal_min_snr']:.1f}, "
+        f"aseasonal < {REGIME_THRESHOLDS['aseasonal_max_snr']:.1f}"
+    )
+    iqr_detail = (
+        f"spread of per-year peak timing; seasonal <= "
+        f"{REGIME_THRESHOLDS['seasonal_max_phase_iqr_months']:.1f} months"
+    )
 
     return [
-        {
-            "label": "hydrological regime",
-            "value": str(assessment.regime).replace("_", " ").title(),
-            "detail": "assessed seasonal strength",
-        },
-        {
-            "label": "amplitude signal-to-noise ratio",
-            "value": _number(assessment.amplitude_snr, decimals=2),
-            "detail": "higher means a more reproducible annual cycle",
-        },
-        {
-            "label": "analytical route",
-            "value": str(analysis.route).replace("_", " ").title(),
-            "detail": "how hydro-year boundaries were derived",
-        },
-        {
-            "label": "hydrological years",
-            "value": str(n_years),
-            "detail": _date_range_label(extent),
-        },
-        {
-            "label": "mean annual amplitude",
-            "value": _number(amplitude.mean(), suffix="%"),
-            "detail": "difference between peak and end dry",
-        },
-        {
-            "label": "mean cycle length",
-            "value": _number(cycle_length.mean()),
-            "detail": "months per hydro-year",
-        },
-        {
-            "label": "Typical peak month",
-            "value": _month_name(analysis.climatological_peak_month),
-            "detail": "climatological maximum",
-        },
-        {
-            "label": "Typical trough month",
-            "value": _month_name(analysis.climatological_trough_month),
-            "detail": "climatological minimum",
-        },
-        {
-            "label": "lower water extent at end of dry season",
-            "value": _extent_number(trough.min()),
-            "detail": "minimum across all hydro-years",
-        },
-        {
-            "label": "higher water extent in wet season",
-            "value": _extent_number(peak.max()),
-            "detail": "maximum across all hydro-years",
-        },
-        {
-            "label": "average water extent at end of dry season",
-            "value": _extent_number(trough.mean()),
-            "detail": "mean across all hydro-years",
-        },
-        {
-            "label": "high confidence years",
-            "value": str(high_confidence),
-            "detail": f"out of {n_years} total years",
-        },
-        {
-            "label": "average invalid/cloud cover",
-            "value": _number(average_invalid, suffix="%"),
-            "detail": f"mean across {len(extent) if extent is not None else 0} months of observations",
-        },
+        card(
+            "hydrological regime",
+            str(assessment.regime).replace("_", " ").title(),
+            "assessed seasonal strength",
+        ),
+        card(
+            "amplitude signal-to-noise ratio",
+            _number(assessment.amplitude_snr, decimals=2),
+            snr_detail,
+        ),
+        # Both gates are shown because either one alone is misleading: a
+        # catchment can clear the amplitude threshold comfortably and still be
+        # denied per-year boundaries on timing spread, which is exactly the
+        # case a reader shown only the SNR would mistake for a bug.
+        card(
+            "peak timing spread",
+            _number(assessment.peak_phase_iqr_months, decimals=1, suffix=" mo"),
+            iqr_detail,
+        ),
+        card(
+            "analytical route",
+            _route_label(analysis.route),
+            "how hydro-year boundaries were derived",
+        ),
+        card("hydrological years", str(n_years), _date_range_label(extent)),
+        card(
+            "mean annual amplitude",
+            **cycle_metric(
+                _number(amplitude.mean(), suffix="%"),
+                "difference between peak and end dry",
+            ),
+        ),
+        card(
+            "mean cycle length",
+            **cycle_metric(_number(cycle_length.mean()), "months per hydro-year"),
+        ),
+        card(
+            "Typical peak month",
+            **cycle_metric(
+                _month_name(analysis.climatological_peak_month),
+                "climatological maximum",
+            ),
+        ),
+        card(
+            "Typical trough month",
+            **cycle_metric(
+                _month_name(analysis.climatological_trough_month),
+                "climatological minimum",
+            ),
+        ),
+        card(
+            "lower water extent at end of dry season",
+            **cycle_metric(_extent_number(trough.min()), "minimum across all hydro-years"),
+        ),
+        card(
+            "higher water extent in wet season",
+            **cycle_metric(_extent_number(peak.max()), "maximum across all hydro-years"),
+        ),
+        card(
+            "average water extent at end of dry season",
+            **cycle_metric(_extent_number(trough.mean()), "mean across all hydro-years"),
+        ),
+        card(
+            "high confidence years",
+            **cycle_metric(str(high_confidence), f"out of {n_years} total years"),
+        ),
+        # Event descriptors presume no cycle, so they are populated on every
+        # route. They carry the description for aseasonal catchments, where the
+        # cycle cards above are deliberately empty.
+        card(
+            "wet events",
+            str(event_summary.get("n_events", 0)),
+            "episodes above the record's 75th percentile",
+        ),
+        card(
+            "longest low-extent spell",
+            _number(event_summary.get("longest_low_spell_months"), decimals=0, suffix=" mo"),
+            "longest continuous run below baseline",
+        ),
+        card(
+            "years without a wet event",
+            str(assessment.years_without_wet_event),
+            f"out of {assessment.n_usable_years} usable years",
+        ),
+        card(
+            "average invalid/cloud cover",
+            _number(average_invalid, suffix="%"),
+            f"mean across {len(extent) if extent is not None else 0} months of observations",
+        ),
     ]
 
 

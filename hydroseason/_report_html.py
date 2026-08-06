@@ -356,6 +356,7 @@ def render_report_html(
     summary: pd.DataFrame,
     timeline_figure: dict[str, Any],
     secondary_figure: dict[str, Any],
+    event_figure: dict[str, Any] | None = None,
     quality_threshold: float | None = None,
     rainfall_context: dict[str, Any] | None = None,
     rainfall_figure: dict[str, Any] | None = None,
@@ -384,6 +385,20 @@ def render_report_html(
     }
     if rainfall_figure is not None:
         data_payload["figures"]["rainfall"] = rainfall_figure
+    if event_figure is not None:
+        data_payload["figures"]["events"] = event_figure
+    event_section = (
+        '<details class="report-section">'
+        "<summary>Wet Event Characterisation</summary>"
+        '<div class="report-section-content">'
+        "<p>Distribution of wet-event durations. Events are defined without "
+        "reference to any annual cycle, so this view is available whether or "
+        "not the catchment has a hydrological year.</p>"
+        '<div class="plot"><div id="events" class="plot-canvas"></div></div>'
+        "</div></details>"
+        if event_figure is not None
+        else ""
+    )
     quality = ""
     if quality_note:
         quality = (
@@ -461,7 +476,18 @@ def render_report_html(
       border-radius: 8px;
       box-shadow: 0 1px 3px rgba(0,0,0,.05);
     }}
-    .kpi-value {{ display: block; margin: 0 0 4px; font-size: 1.65rem; line-height: 1.15; }}
+    /* KPI values are mostly short numbers but some are multi-word labels
+       ("Fixed Window", "Event-Based"). Without wrapping, a long value runs
+       past the card edge instead of breaking; the clamp lets the type shrink
+       on narrow cards before it has to wrap at all. */
+    .kpi-value {{
+      display: block;
+      margin: 0 0 4px;
+      font-size: clamp(1.1rem, 1rem + 1.1vw, 1.65rem);
+      line-height: 1.15;
+      overflow-wrap: anywhere;
+      hyphens: auto;
+    }}
     .kpi-label {{ display: block; color: var(--muted); font-size: .78rem; line-height: 1.3; }}
     .kpi-label small {{ font-size: .72rem; }}
     .plot, details {{
@@ -595,6 +621,7 @@ def render_report_html(
       <div class="plot"><div id="secondary" class="plot-canvas"></div></div>
     </div>
   </details>
+  {event_section}
   <details class="report-section">
     <summary>Yearly Cycle Details</summary>
     <div class="report-section-content">
@@ -633,6 +660,7 @@ def render_report_html(
   const figures = window.HydroSeasonReport.figures;
   const timeline = document.getElementById("timeline");
   const secondary = document.getElementById("secondary");
+  const eventsPlot = document.getElementById("events");
   const linearButton = document.getElementById("timeline-scale-linear");
   const logButton = document.getElementById("timeline-scale-log");
   const rawRows = window.HydroSeasonReport.raw_rows || [];
@@ -743,10 +771,24 @@ def render_report_html(
     timeline.on("plotly_legendclick", togglePhaseLegend);
     if (document.querySelectorAll) document.querySelectorAll("details.report-section").forEach(section => {{
       section.addEventListener("toggle", () => {{
-        if (section.open && section.contains(secondary)) Plotly.Plots.resize(secondary);
+        if (!section.open) return;
+        // Plotly sizes a chart to its container at draw time; inside a closed
+        // <details> that container is zero-height, so every collapsed panel
+        // needs a resize when it first opens or it renders as a sliver.
+        [secondary, eventsPlot].forEach(node => {{
+          if (node && section.contains(node)) Plotly.Plots.resize(node);
+        }});
       }});
     }});
     populateRawBrowser();
+    if (figures.events && eventsPlot) {{
+      Plotly.newPlot(
+        eventsPlot,
+        figures.events.data,
+        figures.events.layout,
+        figures.events.config
+      );
+    }}
     if (figures.rainfall) {{
       Plotly.newPlot(
         "rainfall-context-figure",

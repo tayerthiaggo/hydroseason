@@ -58,6 +58,17 @@ _SEASONAL_MAX_PHASE_IQR = 1.5
 _ASEASONAL_MAX_SNR = 0.7
 _ASEASONAL_MIN_PHASE_IQR = 3.5
 
+# Published so the report can state the cut-offs it is judging against. A
+# reader shown "SNR 2.46" and nothing else cannot tell a strong number from a
+# weak one, and a second copy of these values in the report layer would
+# eventually disagree with the classifier that actually decides the regime.
+REGIME_THRESHOLDS: dict[str, float] = {
+    "seasonal_min_snr": _SEASONAL_MIN_SNR,
+    "seasonal_max_phase_iqr_months": _SEASONAL_MAX_PHASE_IQR,
+    "aseasonal_max_snr": _ASEASONAL_MAX_SNR,
+    "aseasonal_min_phase_iqr_months": _ASEASONAL_MIN_PHASE_IQR,
+}
+
 _SCOPE_CAVEAT = (
     "extent_pct measures observed surface water (water availability), not "
     "rainfall and not a climate variable"
@@ -271,4 +282,9 @@ def assess_water_regime(
     )
 
 
-__all__ = ["Regime", "WaterRegimeAssessment", "assess_water_regime"]
+__all__ = [
+    "REGIME_THRESHOLDS",
+    "Regime",
+    "WaterRegimeAssessment",
+    "assess_water_regime",
+]

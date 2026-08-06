@@ -34,8 +34,10 @@ from typing import Literal
 
 import pandas as pd
 
+from ._boundary import robust_scale
 from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
+from ._phase import assign_rule_based_phases
 from ._regime import WaterRegimeAssessment, assess_water_regime
 from ._state_input import QualityPolicy, prepare_monthly_extent
 from .hydro_year import HydroYearConfig, detect_hydrological_years
@@ -56,6 +58,12 @@ class CatchmentAnalysis:
     monthly: pd.DataFrame
     climatological_peak_month: int | None = None
     climatological_trough_month: int | None = None
+    # Phase labels for routes that carry annual cycles but no
+    # ``HydrologicalStateResult`` to hang them off. The seasonal route reaches
+    # its phases through ``state.monthly_phase``; the imposed-window route has
+    # no state object, so without this field its phases had nowhere to live and
+    # the report fell back to a fully ``unspecified`` monthly frame.
+    monthly_phase: pd.DataFrame | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
     state: HydrologicalStateResult | None = None
     # Retain the quality policy used to construct this analysis so report
@@ -172,6 +180,14 @@ def _annotate_fixed_window_quality(
     out["trough_invalid_pct"] = trough_invalid
     out["temporal_mid_dry_month"] = out["mid_dry_month"]
     out["temporal_mid_dry_extent_pct"] = out["mid_extent_pct"]
+    # The fixed-window detector names the cycle's closing boundary
+    # ``end_dry_month``; the dynamic schema every consumer downstream reads
+    # calls it ``trough_month``. Without the alias the report silently drops
+    # the End Dry marker, phase labelling cannot resolve an amplitude, and
+    # ``is_hy_trough`` stays False for every row -- all three failing quietly
+    # because a missing column reads as "no such boundary" rather than an error.
+    out["trough_month"] = out["end_dry_month"]
+    out["trough_extent_pct"] = out["end_extent_pct"]
     bad = [
         any(pd.isna(value) or float(value) > max_invalid_pct for value in values)
         for values in zip(peak_invalid, mid_invalid, trough_invalid)
@@ -345,6 +361,7 @@ def analyze_catchment(
         f"{regime.peak_phase_iqr_months:.1f} months): per-year timing is not "
         "reproducible, so one fixed climatological window is imposed on every year"
     )
+    monthly_phase: pd.DataFrame | None = None
     if not years.empty:
         years = years.copy()
         years["boundary_basis"] = basis
@@ -356,6 +373,26 @@ def analyze_catchment(
             max_invalid_pct=max_invalid_pct,
             quality_policy=quality_policy,
         )
+        # Phases describe observed within-cycle structure, so they are as
+        # available here as on the seasonal route: the cycle they subdivide is
+        # imposed, but recovery/wet/recession/dry are still read off the data.
+        # ``boundary_basis`` carries the imposed provenance forward so a
+        # consumer can tell the two apart.
+        if phase_model == "rule_based":
+            phase_input = prepare_monthly_extent(
+                extent,
+                value_col=value_col,
+                date_col=date_col,
+                max_invalid_pct=max_invalid_pct,
+                quality_policy=quality_policy,
+            )
+            _, noise_pp = robust_scale(phase_input)
+            monthly_phase = assign_rule_based_phases(
+                phase_input,
+                years,
+                noise_pp=noise_pp,
+                boundary_basis=basis,
+            )
 
     return CatchmentAnalysis(
         regime=regime,
@@ -367,6 +404,7 @@ def analyze_catchment(
         state=None,
         climatological_peak_month=regime.climatological_peak_month,
         climatological_trough_month=regime.climatological_trough_month,
+        monthly_phase=monthly_phase,
         warnings=tuple(warnings),
         quality_policy=quality_policy,
         max_invalid_pct=max_invalid_pct,

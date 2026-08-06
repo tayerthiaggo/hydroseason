@@ -152,7 +152,15 @@ def build_monthly_export(
             max_invalid_pct=analysis.max_invalid_pct,
             quality_policy=analysis.quality_policy,
         )
-        phase_df = empty_monthly_phase(prepared)
+        # Routes without a state object may still carry phases (the imposed
+        # fixed window does). Reindex onto the export's own month grid so a
+        # phase frame built from a differently-trimmed record cannot shift
+        # labels by a row.
+        if analysis.monthly_phase is not None:
+            phase_df = analysis.monthly_phase.reindex(prepared.index)
+            phase_df["phase"] = phase_df["phase"].fillna("unspecified")
+        else:
+            phase_df = empty_monthly_phase(prepared)
 
     out = pd.DataFrame(index=prepared.index)
     out["date"] = prepared.index

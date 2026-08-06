@@ -8,11 +8,47 @@ import pytest
 from hydroseason._catchment import analyze_catchment
 from hydroseason._report_export import build_monthly_export
 from hydroseason._report_plotly import (
+    event_duration_figure,
     hydro_year_figure,
     rainfall_context_figure,
     secondary_figure,
     timeline_figure,
 )
+
+_CLIMATOLOGY_TRACE = "Long-term monthly water extent (+/-1 std)"
+
+
+def _marginal_frames():
+    """A record with strong amplitude but per-year peak timing that wanders.
+
+    Clears the SNR gate while failing the phase-IQR gate, which is the case
+    that routes to an imposed fixed climatological window.
+    """
+    rng = np.random.default_rng(0)
+    dates = pd.date_range("2004-01-01", periods=12 * 20, freq="MS")
+    peak_by_year = {year: 1 + rng.integers(-2, 3) for year in range(2004, 2025)}
+    values = [
+        max(
+            0.05,
+            6.0
+            + 5.0 * np.cos(2 * np.pi * (date.month - peak_by_year[date.year]) / 12)
+            + rng.normal(0, 0.8),
+        )
+        for date in dates
+    ]
+    extent = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
+    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
+    # Assert the premise: these values are drawn from a seeded generator, and a
+    # change in draw order would quietly turn this into a seasonal record,
+    # leaving every test below asserting nothing about the imposed-window path.
+    assert analysis.regime.regime == "marginal"
+    assert analysis.route == "fixed_climatological_window"
+    return build_monthly_export(extent, analysis=analysis), analysis
+
+
+@pytest.fixture
+def marginal_data():
+    return _marginal_frames()
 
 
 @pytest.fixture
@@ -173,12 +209,13 @@ def test_extent_trace_preserves_non_positive_values_for_log_mode_hover(seasonal_
     assert "%{customdata[0]}" in extent["hovertemplate"]
 
 
-def test_timeline_draws_opening_boundary_for_year_starting_off_a_trough():
-    """A hydro-year whose start is not a trough still needs a left-hand edge.
+def test_timeline_draws_one_line_at_the_shared_trough_boundary():
+    """A year's start (trough+1 month) shares its boundary with the prior
+    year's trough -- only the trough line is drawn, not both.
 
-    Boundaries used to be drawn only at trough months, so the final partial
-    cycle -- which opens the month after the previous trough -- rendered with
-    no opening line and visually merged into the preceding year.
+    Boundaries used to be drawn at both the trough and the following year's
+    start month, rendering two dashed lines a month apart for what is
+    really one cycle boundary.
     """
     monthly = pd.DataFrame(
         {
@@ -214,8 +251,8 @@ def test_timeline_draws_opening_boundary_for_year_starting_off_a_trough():
         if shape.get("type") == "line" and shape.get("name", "").startswith("HY ")
     }
 
-    assert "2024-12-01" in boundaries
     assert "2024-11-01" in boundaries
+    assert "2024-12-01" not in boundaries
 
 
 def test_timeline_does_not_duplicate_a_shared_cycle_boundary():
@@ -253,6 +290,42 @@ def test_timeline_does_not_duplicate_a_shared_cycle_boundary():
     ]
 
     assert [shape["x0"] for shape in lines].count("2024-11-01") == 1
+
+
+def test_timeline_draws_start_line_when_no_previous_trough_anchors_it():
+    """The record's opening year has no prior trough, so its start month
+    still needs its own boundary line (e.g. a record starting Jan 2005)."""
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-10-01", "2024-11-01", "2024-12-01"]),
+            "extent_pct": [0.05, 0.03, 0.07],
+            "invalid_pct": [1.0, 1.0, 1.0],
+            "phase": ["recession", "dry", "wet"],
+            "hy_year": [2024, 2024, 2025],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2024],
+                "hy_start": [pd.Timestamp("2024-10-01")],
+                "hy_end": [pd.Timestamp("2024-11-01")],
+                "trough_month": [pd.Timestamp("2024-11-01")],
+                "confidence": ["high"],
+                "boundary_status": ["complete"],
+            }
+        )
+    )
+
+    figure = timeline_figure(monthly, analysis)
+    boundaries = {
+        shape["x0"]
+        for shape in figure["layout"]["shapes"]
+        if shape.get("type") == "line" and shape.get("name", "").startswith("HY ")
+    }
+
+    assert "2024-10-01" in boundaries
+    assert "2024-11-01" in boundaries
 
 
 def test_timeline_extent_hover_has_month_context_with_and_without_markers():
@@ -337,3 +410,100 @@ def test_rainfall_context_figure_pairs_monthly_climatologies(
 def test_rainfall_context_figure_is_none_without_rainfall(seasonal_data):
     monthly, _ = seasonal_data
     assert rainfall_context_figure(monthly) is None
+
+
+def test_secondary_figure_is_climatology_on_every_route(seasonal_data, marginal_data):
+    """Seasonal Context describes the observations, so no route may withhold it."""
+    for monthly, analysis in (seasonal_data, marginal_data):
+        figure = secondary_figure(monthly, analysis)
+        assert _CLIMATOLOGY_TRACE in [trace["name"] for trace in figure["data"]]
+        assert len(figure["data"][-1]["x"]) == 12
+        json.dumps(figure, allow_nan=False)
+
+
+def test_aseasonal_route_still_gets_a_climatology():
+    """The flat profile is itself the evidence for aseasonality; drawing it is the point."""
+    rng = np.random.default_rng(3)
+    dates = pd.date_range("2010-01-01", periods=120, freq="MS")
+    extent = pd.DataFrame(
+        {"extent_pct": np.abs(rng.normal(0.15, 0.12, 120)), "invalid_pct": 0.0},
+        index=dates,
+    )
+    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
+    monthly = build_monthly_export(extent, analysis=analysis)
+
+    assert analysis.route == "event_characterisation"
+    figure = secondary_figure(monthly, analysis)
+    assert figure["data"][-1]["name"] == _CLIMATOLOGY_TRACE
+    assert len(figure["data"][-1]["x"]) == 12
+
+
+def test_event_duration_figure_is_its_own_panel():
+    """Events no longer displace the climatology; both panels can coexist."""
+    rng = np.random.default_rng(3)
+    dates = pd.date_range("2010-01-01", periods=120, freq="MS")
+    extent = pd.DataFrame(
+        {"extent_pct": np.abs(rng.normal(0.15, 0.12, 120)), "invalid_pct": 0.0},
+        index=dates,
+    )
+    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
+    monthly = build_monthly_export(extent, analysis=analysis)
+
+    assert not analysis.events.events.empty
+    figure = event_duration_figure(analysis)
+    assert figure is not None
+    assert figure["data"][0]["type"] == "histogram"
+    json.dumps(figure, allow_nan=False)
+    # The climatology is still produced for the same analysis.
+    assert secondary_figure(monthly, analysis)["data"][-1]["name"] == _CLIMATOLOGY_TRACE
+
+
+def test_event_duration_figure_is_none_without_events(marginal_data):
+    """A record with no wet events omits the panel rather than drawing empty axes."""
+    _, analysis = marginal_data
+    assert analysis.events.events.empty
+    assert event_duration_figure(analysis) is None
+
+    detached = SimpleNamespace(events=SimpleNamespace(events=pd.DataFrame()))
+    assert event_duration_figure(detached) is None
+
+
+def test_imposed_boundaries_render_distinctly_from_detected(seasonal_data, marginal_data):
+    """An imposed window must not be indistinguishable from a per-year detection."""
+    _, marginal_analysis = marginal_data
+    assert marginal_analysis.route == "fixed_climatological_window"
+
+    imposed = timeline_figure(*marginal_data)
+    detected = timeline_figure(*seasonal_data)
+
+    imposed_markers = [t for t in imposed["data"] if str(t.get("name", "")).startswith("HY")]
+    detected_markers = [t for t in detected["data"] if str(t.get("name", "")).startswith("HY")]
+
+    assert imposed_markers, "imposed run should still draw markers"
+    assert all("(imposed)" in trace["name"] for trace in imposed_markers)
+    assert all("open" in trace["marker"]["symbol"] for trace in imposed_markers)
+    assert all("(imposed)" not in trace["name"] for trace in detected_markers)
+    assert all("open" not in trace["marker"]["symbol"] for trace in detected_markers)
+
+
+def test_imposed_phase_bands_are_lighter_than_detected(seasonal_data, marginal_data):
+    def opacity(figure):
+        shapes = [
+            shape
+            for shape in figure["layout"]["shapes"]
+            if str(shape.get("name", "")).startswith("phase:")
+        ]
+        assert shapes, "expected phase bands"
+        return shapes[0]["opacity"]
+
+    assert opacity(timeline_figure(*marginal_data)) < opacity(timeline_figure(*seasonal_data))
+
+
+def test_marginal_route_labels_phases_and_troughs(marginal_data):
+    """The imposed window carries the same monthly products as a detected one."""
+    monthly, analysis = marginal_data
+    assert analysis.monthly_phase is not None
+    assert set(monthly["phase"].unique()) - {"unspecified"}
+    assert analysis.hydro_years["trough_month"].notna().all()
+    assert (analysis.hydro_years["boundary_basis"] == "imposed_fixed_window").all()
+    assert monthly["is_hy_trough"].sum() > 0
