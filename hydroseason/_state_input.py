@@ -79,7 +79,9 @@ def prepare_monthly_extent(
         # A finite extent with partial invalid coverage remains an observed
         # candidate under ``flag``.  At 100% invalid there are no valid pixels
         # supporting the extent, so it remains unusable even in flag mode.
-        frame["candidate_usable"] = frame[value_col].notna() & frame["invalid_pct"].lt(100.0)
+        frame["candidate_usable"] = frame[value_col].notna() & (
+            frame["invalid_pct"].isna() | frame["invalid_pct"].lt(100.0)
+        )
     else:
         frame["candidate_usable"] = (frame["quality_state"] == "usable") | (
             allow_unknown_quality & (frame["quality_state"] == "unknown")
