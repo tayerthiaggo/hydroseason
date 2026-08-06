@@ -825,6 +825,23 @@ def load_wofs_monthly_extent(
         planning_footprint = _io.build_planning_footprint_from_historical_mask(
             resolved_historical_mask
         )
+        if resolution is None:
+            # A caller-omitted `resolution` reaching `_load_wofs_items` drops
+            # "resolution" from its odc.stac.stac_load kwargs entirely, which
+            # switches that load onto odc.stac's `_auto_load_params`
+            # native-item-alignment grid -- a different, not-guaranteed-to-
+            # agree anchor than the fixed EDGE-anchored grid
+            # `open_wo_statistics` always uses to build the historical mask
+            # (it always receives an explicit resolution, defaulting to 30.0
+            # -- see `_resolve_historical_water_mask`). Left as None, this is
+            # exactly the half-pixel GeoreferencingError
+            # `_assert_historical_mask_grid_matches` catches on the
+            # documented, uncached `run_hydroseason(aoi=...)` path, where
+            # `resolution` is never given explicitly. Only fills the gap when
+            # the caller left `resolution` unset -- an explicit caller
+            # resolution (e.g. a coarser probe read before the final
+            # resolution is chosen) is never overridden.
+            resolution = float(resolved_historical_mask.resolution[0])
     historical_mask_identity = _historical_mask_identity(resolved_historical_mask)
 
     if mask_cache_dir is not None or offline:
