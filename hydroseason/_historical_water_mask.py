@@ -6,8 +6,7 @@ scientific artifact from :class:`hydroseason._io_dea_stats.WetPlanningFootprint`
 (performance-only, coarsened/dilated). The mask built here is never closed,
 buffered, dilated, or round-tripped through polygons -- it is the raw,
 grid-aligned boolean raster used exactly as-is as the fixed denominator for
-every requested month (see
-``docs/superpowers/specs/2026-08-03-historical-water-mask-and-area-design.md``).
+every requested month.
 
 This module does no I/O of its own: :func:`build_historical_water_mask` takes
 an already-loaded ``stats`` dataset (whatever

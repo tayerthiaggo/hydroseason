@@ -3,9 +3,8 @@
 
 This test is intentionally allowed to fail: real promotion of the semi-Markov
 challenger requires untouched climate/sensor holdouts this repository does not
-have (see docs/superpowers/specs/2026-07-15-transferable-hydrological-boundary-design.md
-section 6.2). It is marked ``experimental`` so it never blocks release; robust
-stays the shipped default regardless of the outcome printed here.
+have. It is marked ``experimental`` so it never blocks release; robust stays
+the shipped default regardless of the outcome printed here.
 """
 from __future__ import annotations
 
