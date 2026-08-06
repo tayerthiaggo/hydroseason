@@ -179,14 +179,15 @@ class WOfSCacheRequest:
     footprint_factor: int | None = None
     footprint_safety_cells: int | None = None
     footprint_covered_years: tuple[int, ...] | None = None
-    # "legacy" (the default) preserves every existing hydroseason result and
-    # cache identity byte-for-byte, so it is omitted from the digest payload
-    # like other absent/default provenance fields. "hydrofragments_v1" is new
-    # behaviour (task W2.2's dual-composite extent counts, not implemented by
-    # this field alone) that must never share a store with a "legacy" run of
-    # otherwise-identical parameters, so non-legacy values remain digest
-    # inputs.
-    composite_bundle: str = "legacy"
+    # "single_mask" (the default; "legacy" is an accepted alias for caches
+    # written before this rename) preserves every existing hydroseason
+    # result and cache identity byte-for-byte, so it is omitted from the
+    # digest payload like other absent/default provenance fields.
+    # "hydrofragments_v1" is new behaviour (task W2.2's dual-composite
+    # extent counts, not implemented by this field alone) that must never
+    # share a store with a "single_mask"/"legacy" run of otherwise-identical
+    # parameters, so that value remains a digest input.
+    composite_bundle: str = "single_mask"
     # The exact historical maximum-water mask's identity/provenance (Task 4),
     # threaded independently of wet_mask_sha256/footprint_* -- a scientific
     # analysis mask and a planning-only footprint are two different
@@ -223,7 +224,10 @@ class WOfSCacheRequest:
             # JSON encoding needs a list -- keep the payload JSON-serialisable
             # like every other field.
             payload["footprint_covered_years"] = list(payload["footprint_covered_years"])
-        if payload.get("composite_bundle") == "legacy":
+        if payload.get("composite_bundle") in ("single_mask", "legacy"):
+            # Both the current default and its pre-rename alias omit from
+            # the digest, so caches written under either string share one
+            # request_digest.
             payload.pop("composite_bundle", None)
         for historical_mask_field in (
             "historical_mask_sha256", "historical_mask_product", "historical_mask_version",
@@ -932,7 +936,7 @@ def write_annual_group(
     :data:`WOFS_CACHE_SCHEMA_VERSION`/:func:`_sha256_digest`, same
     conventions as ``extent_counts.json``). ``dual_counts=None`` (the
     default, and the ONLY value ever passed for
-    ``composite_bundle="legacy"``) performs zero extra computation and
+    ``composite_bundle="single_mask"``/``"legacy"``) performs zero extra computation and
     writes no such file -- this function's every other output stays
     byte-for-byte identical to before ``dual_counts`` existed.
     """
@@ -1294,8 +1298,8 @@ def write_empty_annual_group(
     observations for EITHER composite, so both are legitimately all-zero,
     keeping the artifact's presence consistent whether or not a given year
     actually had source items. ``dual_extent_counts=False`` (the default,
-    and the only value ever passed for ``composite_bundle="legacy"``) writes
-    no such file.
+    and the only value ever passed for
+    ``composite_bundle="single_mask"``/``"legacy"``) writes no such file.
     """
     import shutil as _shutil
 
@@ -2800,7 +2804,7 @@ def open_completed_dual_extent_counts(
     for any requested year returns ``None`` rather than approximating one.
     Returns ``None`` if any requested year is not completed, the sidecar is
     missing/malformed for any requested year (e.g. the cache was acquired
-    with ``composite_bundle="legacy"``, which never writes this file), the
+    with ``composite_bundle="single_mask"``, which never writes this file), the
     per-year ``content_digest`` does not match, or the resulting range has
     no rows.
     """

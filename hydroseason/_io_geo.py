@@ -363,7 +363,7 @@ def _load_wofs_items(
     resampling=None,
     wet_aoi=None,
     historical_water_mask=None,
-    composite_bundle: Literal["legacy", "hydrofragments_v1"] = "legacy",
+    composite_bundle: Literal["single_mask", "legacy", "hydrofragments_v1"] = "single_mask",
 ):
     """Load WOfS items, classify, compose monthly, and clip to AOI.
 
@@ -385,10 +385,10 @@ def _load_wofs_items(
     ``xr.Dataset`` with ``wet_count``/``clear_count`` variables, parallel to
     (and matching the dtype convention of) the ``wet_count``/``clear_count``
     arrays :func:`hydroseason._io_wofs_zarr.write_annual_group` already
-    derives for the primary composite. ``composite_bundle="legacy"`` (the
-    default) performs none of this: zero extra computation, and the return
-    value carries no such attribute, matching every caller's pre-existing
-    behaviour byte-for-byte.
+    derives for the primary composite. ``composite_bundle="single_mask"`` (the
+    default; ``"legacy"`` is an accepted alias) performs none of this: zero
+    extra computation, and the return value carries no such attribute,
+    matching every caller's pre-existing behaviour byte-for-byte.
 
     ``groupby`` controls how ``odc.stac.stac_load`` places items onto pixel
     planes before this function classifies and monthly-composites them:
@@ -735,7 +735,7 @@ def build_wofs_year_graph(
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
     wet_aoi=None,
     historical_water_mask=None,
-    composite_bundle: Literal["legacy", "hydrofragments_v1"] = "legacy",
+    composite_bundle: Literal["single_mask", "legacy", "hydrofragments_v1"] = "single_mask",
 ):
     """Build one shared lazy WOfS cube for a single calendar year onto a fixed grid.
 
@@ -783,7 +783,8 @@ def build_wofs_year_graph(
     attaches a second, any-day-wet composite's per-month pixel counts as
     ``.attrs["hydrofragments_dual_counts"]`` on the returned mask, computed
     from the exact same per-day observations this call already loads and
-    classifies. ``"legacy"`` (the default) performs no extra computation.
+    classifies. ``"single_mask"`` (the default; ``"legacy"`` is an accepted
+    alias) performs no extra computation.
     """
     if geobox is None:
         raise ValueError("build_wofs_year_graph requires a parent geobox.")

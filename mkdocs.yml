@@ -25,8 +25,14 @@ nav:
       - Overview: case-studies/index.md
       - Main Catchment Workflow: case-studies/main-workflow.md
       - Resolution and Acquisition: case-studies/resolution-and-acquisition.md
+      - Rainfall Context: case-studies/rainfall-context.md
   - Export Columns: report-columns.md
-  - API Reference: api.md
+  - API Reference:
+      - Overview: api/index.md
+      - Workflow: api/workflow.md
+      - Loading Data: api/io.md
+      - Analysis: api/analysis.md
+      - Reporting: api/report.md
   - Citation: citation.md
 
 plugins:

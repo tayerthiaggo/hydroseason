@@ -81,52 +81,6 @@ First public release: the remote-sensing-first rewrite of HydroSeason.
   water-mask rasters (incl. Zarr cubes), and WOfS/STAC.
 - Core runtime dependencies are now only `pandas`/`numpy`; raster/STAC
   dependencies moved to the `raster`/`stac`/`all` extras.
-
-### Removed
-- Rainfall-first public APIs removed; ancillary rainfall comparison remains
-  internal and never sets boundaries. The previous rainfall implementation is
-  preserved, unmodified, on the `legacy/rainfall` branch (tag
-  [`v0-rainfall-legacy`]).
-
-## Pre-release rainfall prototype
-
-Legacy rainfall prototype, preserved at [`v0-rainfall-legacy`].
-
-### Added
-- Rainfall-based Wet/Dry season and hydrological-year delineation
-  (`classify_rainfall`), building upon and extending the workflow introduced
-  in Tayer et al. (2026).
-- Adaptive parameter resolution: `smooth_window`, `min_core_length`, and
-  `onset_window_months` resolve from the circular concentration `R` when left at
-  their sentinel defaults; explicit overrides always take precedence.
-- Circular-climatology fixed-season detection (default) with a legacy KMeans
-  method retained for parity.
-- STL seasonality strength and Walsh-Lawler Seasonality Index diagnostics, with a
-  rainfall-SI override for borderline monsoonal regimes.
-- Pandas `df.hydroseason` accessor for inline workflows.
-- YAML-driven CLI (`hydroseason run | demo | fetch | rainfall`) with a
-  `--version` flag.
-- Local rainfall readers for BoM and SILO formats (`read_rainfall`).
-- ERA5 and SILO AOI-averaged monthly rainfall fetch helpers.
-- Interactive Plotly plots and a self-contained HTML report
-  (`generate_html_report`, `export_bundle`).
-- Validation with imputation controls, data-confidence reporting, and a
-  diagnostics sidecar (`<output>.HydroSeason.json`).
-- MkDocs Material documentation site.
-
-### Changed
-- Validation errors are now more actionable (missing-column errors list the
-  available columns; conflicting-duplicate errors show example dates).
-
-### Notes for advanced users (breaking)
-- Algorithm building blocks are no longer re-exported from the top-level
-  package. Import them from their submodules instead:
-  - `circular_climatology`, `circular_stats`, `CircularStats` →
-    `hydroseason.fixed_season`
-  - `segment_main_wet_season_fixed_threshold`,
-    `harmonize_with_zero_preservation`, `refine_season_tails` →
-    `hydroseason.dynamic_season`
-  - `PLOTLY_CONFIG` → `hydroseason.plot`
-- Removed the unused `matplotlib` runtime dependency.
-
-[`v0-rainfall-legacy`]: https://github.com/tayerthiaggo/hydroseason/releases/tag/v0-rainfall-legacy
+- Rainfall is ancillary only: `run_hydroseason` can fetch or accept rainfall
+  as additive context, but rainfall never sets water routing, boundaries,
+  phases, events, or low spells.

@@ -536,7 +536,7 @@ def acquire_wofs_cache(
     wet_mask: Literal["off", "dea_stats"] = "off",
     historical_water_mask: "Any | None" = None,
     planning_footprint: WetPlanningFootprint | None = None,
-    composite_bundle: Literal["legacy", "hydrofragments_v1"] = "legacy",
+    composite_bundle: Literal["single_mask", "legacy", "hydrofragments_v1"] = "single_mask",
     compute_batch_size: int = 16,
     read_workers: int | None = None,
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
@@ -582,17 +582,18 @@ def acquire_wofs_cache(
     function's existing single-source-of-pruning contract.
 
     ``composite_bundle`` selects the acquisition's output semantics.
-    ``"legacy"`` (the default) preserves every existing hydroseason result
-    and cache identity byte-for-byte: no extra computation, no new file.
-    ``"hydrofragments_v1"`` additionally computes a SECOND (any-day-wet
-    ``max_water``) composite's per-month pixel counts from the exact same
-    per-day classified observations the primary composite is already built
-    from (never a second STAC query or a second classification pass -- see
+    ``"single_mask"`` (the default; ``"legacy"`` is an accepted alias)
+    preserves every existing hydroseason result and cache identity
+    byte-for-byte: no extra computation, no new file. ``"hydrofragments_v1"``
+    additionally computes a SECOND (any-day-wet ``max_water``) composite's
+    per-month pixel counts from the exact same per-day classified
+    observations the primary composite is already built from (never a second
+    STAC query or a second classification pass -- see
     :func:`hydroseason._io_geo._load_wofs_items`), and persists them into a
     parallel ``years/<year>/dual_extent_counts.json`` artifact (see
     :func:`hydroseason._io_wofs_zarr.write_annual_group`), alongside the
     existing ``extent_counts.json``. It is also recorded in cache identity
-    here so a ``"legacy"`` and a ``"hydrofragments_v1"`` run of
+    here so a ``"single_mask"`` and a ``"hydrofragments_v1"`` run of
     otherwise-identical parameters never share a store.
 
     ``historical_water_mask`` accepts an already-built
@@ -1404,7 +1405,7 @@ def _write_acquisition_manifest(
     elapsed_phases: dict[str, float],
     year_diagnostics: list[dict[str, Any]] = (),
     planning_footprint: "WetPlanningFootprint | None" = None,
-    composite_bundle: str = "legacy",
+    composite_bundle: str = "single_mask",
 ) -> None:
     """Record acquisition provenance into the store's root manifest.json.
 

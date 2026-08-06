@@ -1,6 +1,6 @@
 # Resolution Fidelity and Acquisition Evidence Study
 
-This study evaluates the scientific impact of spatial resolution coarsening, the performance benefits of conservative wet-mask planning footprints, and the semantic distinction between legacy and dual composite bundles across five Australian catchments.
+This study evaluates the scientific impact of spatial resolution coarsening, the performance benefits of conservative wet-mask planning footprints, and the semantic distinction between the default single-mask and dual composite bundles across five Australian catchments.
 
 ## Key Findings
 
@@ -12,7 +12,7 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
    historical-water-mask workflow. Planning remains performance-only and does
    not set a scientific denominator; only historical-mask mode applies the
    exact mask as that denominator.
-3. **Composite Bundle Semantics:** `composite_bundle="legacy"` produces default single-mask outputs. `composite_bundle="hydrofragments_v1"` adds dual sidecar metrics (max-water vs. median-water counts) derived from a single source graph build without modifying the primary mask contract or increasing tile fetch iterations.
+3. **Composite Bundle Semantics:** `composite_bundle="single_mask"` (the default) produces single-mask outputs. `composite_bundle="hydrofragments_v1"` adds dual sidecar metrics (max-water vs. median-water counts) derived from a single source graph build without modifying the primary mask contract or increasing tile fetch iterations.
 
 ## Scientific Resolution Fidelity
 
@@ -48,5 +48,5 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 
 | Bundle | Primary Mask Contract | Dual Sidecars | Single Source Graph | Full AOI Denominator | Status |
 |---|---|---|---|---|---|
-| `legacy` | `wofs_frequency_or_wet` | No | Yes | Yes | Validated |
+| `single_mask` | `wofs_frequency_or_wet` | No | Yes | Yes | Validated |
 | `hydrofragments_v1` | `wofs_frequency_or_wet` | Yes (Max / Median) | Yes | Yes | Validated |

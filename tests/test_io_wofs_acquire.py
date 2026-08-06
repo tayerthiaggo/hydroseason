@@ -1196,9 +1196,9 @@ def test_hydrofragments_v1_writes_zeroed_dual_counts_for_an_empty_year(monkeypat
     assert empty_writer.call_args.kwargs["dual_extent_counts"] is True
 
 
-def test_legacy_composite_bundle_never_requests_dual_extent_counts_for_empty_year(monkeypatch, tmp_path):
-    """The default 'legacy' bundle must pass dual_extent_counts=False for an
-    empty year, matching its 'no new file, ever' guarantee."""
+def test_default_composite_bundle_never_requests_dual_extent_counts_for_empty_year(monkeypatch, tmp_path):
+    """The default 'single_mask' bundle must pass dual_extent_counts=False
+    for an empty year, matching its 'no new file, ever' guarantee."""
     monkeypatch.setattr(
         "hydroseason._io_wofs_acquire._query_wofs_items",
         Mock(return_value=([], _aoi())),
@@ -1215,10 +1215,10 @@ def test_legacy_composite_bundle_never_requests_dual_extent_counts_for_empty_yea
     assert empty_writer.call_args.kwargs["dual_extent_counts"] is False
 
 
-def test_default_composite_bundle_is_legacy_with_no_footprint_recorded(monkeypatch, tmp_path):
+def test_default_composite_bundle_is_single_mask_with_no_footprint_recorded(monkeypatch, tmp_path):
     """A caller that never mentions composite_bundle or planning_footprint
-    must get the byte-identical legacy manifest shape (composite_bundle
-    recorded as "legacy", planning_footprint recorded as None)."""
+    must get the byte-identical default manifest shape (composite_bundle
+    recorded as "single_mask", planning_footprint recorded as None)."""
     import json
 
     items = [_item("2015-01-15", "a")]
@@ -1239,7 +1239,7 @@ def test_default_composite_bundle_is_legacy_with_no_footprint_recorded(monkeypat
 
     manifest = json.loads((handle.path / "manifest.json").read_text(encoding="utf-8"))
     acq = manifest["acquisition"]
-    assert acq["composite_bundle"] == "legacy"
+    assert acq["composite_bundle"] == "single_mask"
     assert acq["planning_footprint"] is None
 
 

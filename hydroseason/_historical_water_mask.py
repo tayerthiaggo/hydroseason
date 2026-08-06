@@ -169,6 +169,7 @@ def build_historical_water_mask(
       message contains ``"no historically observed water"``.
     """
     import numpy as np
+    import rioxarray  # noqa: F401  (registers the .rio accessor used below)
 
     from hydroseason._io_dea_stats import DEAStatsUnavailable
     from hydroseason._io_geo import _inside_aoi_mask_like, load_aoi

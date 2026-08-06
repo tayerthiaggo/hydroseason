@@ -140,7 +140,7 @@ def open_completed_dual_extent_counts(*args, **kwargs):
     full-AOI/analysis-mask pixel-count denominators -- or ``None`` if any
     requested year is incomplete, the sidecar is missing/malformed for any
     requested year (including a store acquired with the default
-    ``composite_bundle="legacy"``, which never writes this file), or the
+    ``composite_bundle="single_mask"``, which never writes this file), or the
     resulting range has no rows. See
     :func:`hydroseason._io_wofs_zarr.open_completed_dual_extent_counts` for
     the full contract.

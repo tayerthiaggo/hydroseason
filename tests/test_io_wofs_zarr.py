@@ -161,15 +161,17 @@ def test_absent_footprint_fields_preserve_the_legacy_request_digest():
     assert "footprint_covered_years" not in payload
 
 
-def test_legacy_composite_bundle_is_the_default_and_preserves_request_digest():
-    """composite_bundle="legacy" is the default and must not perturb the
-    digest of a request that never mentions it -- legacy callers' caches
-    stay reachable byte-for-byte."""
+def test_single_mask_composite_bundle_is_the_default_and_preserves_request_digest():
+    """composite_bundle="single_mask" is the default and must not perturb
+    the digest of a request that never mentions it -- pre-rename "legacy"
+    callers' caches stay reachable byte-for-byte via the accepted alias."""
     request = _base_request()
-    assert request.composite_bundle == "legacy"
+    assert request.composite_bundle == "single_mask"
     assert "composite_bundle" not in request._digest_payload()
-    explicit_legacy = _base_request(composite_bundle="legacy")
-    assert explicit_legacy.request_digest() == request.request_digest()
+    explicit_default = _base_request(composite_bundle="single_mask")
+    assert explicit_default.request_digest() == request.request_digest()
+    explicit_legacy_alias = _base_request(composite_bundle="legacy")
+    assert explicit_legacy_alias.request_digest() == request.request_digest()
 
 
 def test_footprint_digest_changes_request_digest():
@@ -204,9 +206,9 @@ def test_footprint_covered_years_changes_request_digest():
 
 
 def test_composite_bundle_changes_request_digest():
-    legacy = _base_request(composite_bundle="legacy")
+    single_mask = _base_request(composite_bundle="single_mask")
     hydrofragments = _base_request(composite_bundle="hydrofragments_v1")
-    assert legacy.request_digest() != hydrofragments.request_digest()
+    assert single_mask.request_digest() != hydrofragments.request_digest()
 
 
 def test_worker_counts_never_change_request_digest():
@@ -228,7 +230,7 @@ def test_footprint_and_composite_bundle_are_independent_of_each_other():
     base = _base_request(
         footprint_digest="d" * 64, footprint_factor=4,
         footprint_safety_cells=1, footprint_covered_years=(2015,),
-        composite_bundle="legacy",
+        composite_bundle="single_mask",
     )
     only_bundle_changed = dataclasses.replace(base, composite_bundle="hydrofragments_v1")
     only_factor_changed = dataclasses.replace(base, footprint_factor=8)
