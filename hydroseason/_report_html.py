@@ -357,6 +357,9 @@ def render_report_html(
     timeline_figure: dict[str, Any],
     secondary_figure: dict[str, Any],
     event_figure: dict[str, Any] | None = None,
+    event_explainer: str | None = None,
+    low_spell_figure: dict[str, Any] | None = None,
+    low_spell_explainer: str | None = None,
     quality_threshold: float | None = None,
     rainfall_context: dict[str, Any] | None = None,
     rainfall_figure: dict[str, Any] | None = None,
@@ -387,16 +390,26 @@ def render_report_html(
         data_payload["figures"]["rainfall"] = rainfall_figure
     if event_figure is not None:
         data_payload["figures"]["events"] = event_figure
+    if low_spell_figure is not None:
+        data_payload["figures"]["low_spells"] = low_spell_figure
     event_section = (
         '<details class="report-section">'
         "<summary>Wet Event Characterisation</summary>"
         '<div class="report-section-content">'
-        "<p>Duration of each wet event, in order of occurrence. Events are "
-        "defined without reference to any annual cycle, so this view is "
-        "available whether or not the catchment has a hydrological year.</p>"
+        f"<p>{_escape(event_explainer)}</p>"
         '<div class="plot"><div id="events" class="plot-canvas"></div></div>'
         "</div></details>"
         if event_figure is not None
+        else ""
+    )
+    low_spell_section = (
+        '<details class="report-section">'
+        "<summary>Low-Extent Spells</summary>"
+        '<div class="report-section-content">'
+        f"<p>{_escape(low_spell_explainer)}</p>"
+        '<div class="plot"><div id="low-spells" class="plot-canvas"></div></div>'
+        "</div></details>"
+        if low_spell_figure is not None
         else ""
     )
     quality = ""
@@ -622,6 +635,7 @@ def render_report_html(
     </div>
   </details>
   {event_section}
+  {low_spell_section}
   <details class="report-section">
     <summary>Yearly Cycle Details</summary>
     <div class="report-section-content">
@@ -661,6 +675,7 @@ def render_report_html(
   const timeline = document.getElementById("timeline");
   const secondary = document.getElementById("secondary");
   const eventsPlot = document.getElementById("events");
+  const lowSpellsPlot = document.getElementById("low-spells");
   const linearButton = document.getElementById("timeline-scale-linear");
   const logButton = document.getElementById("timeline-scale-log");
   const rawRows = window.HydroSeasonReport.raw_rows || [];
@@ -775,7 +790,7 @@ def render_report_html(
         // Plotly sizes a chart to its container at draw time; inside a closed
         // <details> that container is zero-height, so every collapsed panel
         // needs a resize when it first opens or it renders as a sliver.
-        [secondary, eventsPlot].forEach(node => {{
+        [secondary, eventsPlot, lowSpellsPlot].forEach(node => {{
           if (node && section.contains(node)) Plotly.Plots.resize(node);
         }});
       }});
@@ -787,6 +802,14 @@ def render_report_html(
         figures.events.data,
         figures.events.layout,
         figures.events.config
+      );
+    }}
+    if (figures.low_spells && lowSpellsPlot) {{
+      Plotly.newPlot(
+        lowSpellsPlot,
+        figures.low_spells.data,
+        figures.low_spells.layout,
+        figures.low_spells.config
       );
     }}
     if (figures.rainfall) {{

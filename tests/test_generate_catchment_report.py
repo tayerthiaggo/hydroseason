@@ -250,6 +250,40 @@ def test_aseasonal_bundle_has_no_hydrological_year_claims(tmp_path, aseasonal_ex
     assert "wet events" in html
 
 
+def test_report_renders_event_and_low_spell_panels_with_grounded_explainers(
+    tmp_path, aseasonal_extent
+):
+    """The event/low-spell charts and their above-the-graph prose both appear,
+    and the prose states this record's own resolved threshold numbers rather
+    than generic boilerplate."""
+    analysis = analyze_catchment(aseasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    assert analysis.events.summary["n_events"] > 0
+    assert analysis.events.summary["n_low_spells"] > 0
+
+    paths = generate_catchment_report(
+        aseasonal_extent, tmp_path, name="Event test", analysis=analysis
+    )
+    html = paths.html.read_text(encoding="utf-8")
+    app_payload = html.split("window.HydroSeasonReport = ", 1)[1].split(";</script>", 1)[0]
+    report_data = json.loads(app_payload)
+
+    assert "Wet Event Characterisation" in html
+    assert "Low-Extent Spells" in html
+    assert 'id="events"' in html
+    assert 'id="low-spells"' in html
+    assert "events" in report_data["figures"]
+    assert "low_spells" in report_data["figures"]
+
+    enter_pct = round(analysis.events.summary["enter_threshold_pct"], 1)
+    low_pct = round(analysis.events.summary["low_threshold_pct"], 1)
+    assert f"{enter_pct}" in html
+    assert f"{low_pct}" in html
+    assert "hysteresis" in html
+    assert "independently of wet events" in html
+    # The old static, catchment-agnostic caption must be gone.
+    assert "Duration of each wet event, in order of occurrence." not in html
+
+
 def test_report_adds_collapsible_rainfall_context(
     tmp_path, seasonal_extent
 ):

@@ -119,6 +119,64 @@ def _extent_number(value: float | int | None) -> str:
     return "<0.001%" if value > 0 else ">-0.001%"
 
 
+def _threshold_basis(summary: dict, *, plural: bool = False) -> str:
+    """Describe how a threshold was set, in the same terms _events.py used to set it."""
+    if str(summary.get("threshold_mode", "")).startswith("noise"):
+        scale = "the same noise scale" if plural else "this record's own month-to-month noise"
+        return f"a margin sized to {scale}"
+    return "this record's own observed quantiles"
+
+
+def wet_event_explainer(analysis: CatchmentAnalysis) -> str:
+    """Catchment-specific prose for what counts as a wet event here.
+
+    Placed above the duration chart rather than a generic "these are wet
+    events" caption: the actual entry/exit thresholds differ by catchment (a
+    percentage-point margin on Daly means something numerically different
+    than the same margin on Lachlan), so grounding the explanation in this
+    record's own resolved numbers is what makes it informative rather than
+    boilerplate.
+    """
+    summary = analysis.events.summary if analysis.events is not None else {}
+    if not summary or not summary.get("n_events"):
+        return (
+            "No wet event cleared this record's entry threshold: extent never "
+            "rose far enough above its typical level, for long enough, to count."
+        )
+    baseline = _extent_number(summary.get("baseline_pct"))
+    enter = _extent_number(summary.get("enter_threshold_pct"))
+    exit_level = _extent_number(summary.get("exit_threshold_pct"))
+    min_event = int(summary.get("min_event_months", 1))
+    min_separation = int(summary.get("min_separation_months", 1))
+    return (
+        f"A wet event begins once extent climbs above {enter} (baseline {baseline} "
+        f"plus {_threshold_basis(summary)}) and continues until it falls back below "
+        f"{exit_level} -- hysteresis, so a wobbling recession is not counted as "
+        f"several separate floods. Events shorter than {min_event} month(s) are "
+        f"dropped; episodes closer than {min_separation} month(s) apart are merged "
+        "into one."
+    )
+
+
+def low_spell_explainer(analysis: CatchmentAnalysis) -> str:
+    """Catchment-specific prose for what counts as a low-extent spell here."""
+    summary = analysis.events.summary if analysis.events is not None else {}
+    if not summary or not summary.get("n_low_spells"):
+        return "No run of low extent lasted long enough to count as a spell in this record."
+    baseline = _extent_number(summary.get("baseline_pct"))
+    low = _extent_number(summary.get("low_threshold_pct"))
+    min_low = int(summary.get("min_low_months", 2))
+    below_pct = _number(summary.get("months_below_low_pct"), suffix="%")
+    return (
+        f"A low-extent spell is a run of at least {min_low} consecutive months "
+        f"below {low} (baseline {baseline} minus {_threshold_basis(summary, plural=True)}), "
+        "counted independently of wet events -- a catchment that never floods can "
+        f"still have long low-extent spells. About {below_pct} of this record's "
+        "months sit below that line, so a spell describes a sustained "
+        "below-typical period, not an absence of water."
+    )
+
+
 def _date_range_label(extent: pd.DataFrame | None) -> str:
     if extent is None or extent.empty:
         return "Source record"

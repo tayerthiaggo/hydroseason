@@ -13,7 +13,13 @@ import pandas as pd
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import _empty_events, _empty_low_spells
 from ._regime_compare import RegimeComparison
-from ._report_copy import build_rainfall_context, select_kpis, verdict_sentence
+from ._report_copy import (
+    build_rainfall_context,
+    low_spell_explainer,
+    select_kpis,
+    verdict_sentence,
+    wet_event_explainer,
+)
 from ._report_export import (
     build_events_export,
     build_hydro_years_export,
@@ -30,6 +36,7 @@ from ._report_export import (
 from ._report_html import render_report_html
 from ._report_plotly import (
     event_duration_figure,
+    low_spell_duration_figure,
     rainfall_context_figure,
     secondary_figure,
     timeline_figure,
@@ -304,6 +311,9 @@ def generate_catchment_report(
         timeline_figure=timeline_figure(monthly, analysis),
         secondary_figure=secondary_figure(monthly, analysis),
         event_figure=event_duration_figure(analysis),
+        event_explainer=wet_event_explainer(analysis),
+        low_spell_figure=low_spell_duration_figure(analysis),
+        low_spell_explainer=low_spell_explainer(analysis),
         quality_threshold=analysis.max_invalid_pct,
         rainfall_context=rain_context,
         rainfall_figure=rain_figure,

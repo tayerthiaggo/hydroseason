@@ -10,6 +10,7 @@ from hydroseason._report_export import build_monthly_export
 from hydroseason._report_plotly import (
     event_duration_figure,
     hydro_year_figure,
+    low_spell_duration_figure,
     rainfall_context_figure,
     secondary_figure,
     timeline_figure,
@@ -49,6 +50,20 @@ def _marginal_frames():
 @pytest.fixture
 def marginal_data():
     return _marginal_frames()
+
+
+@pytest.fixture
+def aseasonal_with_events_data():
+    """An aseasonal record with a handful of real wet events (not zero)."""
+    rng = np.random.default_rng(3)
+    dates = pd.date_range("2010-01-01", periods=120, freq="MS")
+    extent = pd.DataFrame(
+        {"extent_pct": np.abs(rng.normal(0.15, 0.12, 120)), "invalid_pct": 0.0},
+        index=dates,
+    )
+    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
+    assert not analysis.events.events.empty
+    return build_monthly_export(extent, analysis=analysis), analysis
 
 
 @pytest.fixture
@@ -189,7 +204,7 @@ def test_timeline_uses_single_rainfall_secondary_axis(seasonal_data_with_rainfal
 
     figure = timeline_figure(monthly, analysis)
 
-    assert figure["layout"]["yaxis2"]["title"] == "Rainfall (mm)"
+    assert figure["layout"]["yaxis2"]["title"] == {"text": "Rainfall (mm)"}
     assert "yaxis3" not in figure["layout"]
     assert "domain" not in figure["layout"]["xaxis"]
 
@@ -438,27 +453,39 @@ def test_aseasonal_route_still_gets_a_climatology():
     assert len(figure["data"][-1]["x"]) == 12
 
 
-def test_event_duration_figure_is_its_own_panel():
+def test_event_duration_figure_is_its_own_panel(aseasonal_with_events_data):
     """Events no longer displace the climatology; both panels can coexist."""
-    rng = np.random.default_rng(3)
-    dates = pd.date_range("2010-01-01", periods=120, freq="MS")
-    extent = pd.DataFrame(
-        {"extent_pct": np.abs(rng.normal(0.15, 0.12, 120)), "invalid_pct": 0.0},
-        index=dates,
-    )
-    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
-    monthly = build_monthly_export(extent, analysis=analysis)
-
-    assert not analysis.events.events.empty
+    monthly, analysis = aseasonal_with_events_data
     n_events = len(analysis.events.events)
     figure = event_duration_figure(analysis)
     assert figure is not None
     assert figure["data"][0]["type"] == "bar"
     assert len(figure["data"][0]["x"]) == n_events
     assert len(figure["data"][0]["y"]) == n_events
+    assert figure["layout"]["yaxis"]["title"] == {"text": "Duration (months)"}
     json.dumps(figure, allow_nan=False)
     # The climatology is still produced for the same analysis.
     assert secondary_figure(monthly, analysis)["data"][-1]["name"] == _CLIMATOLOGY_TRACE
+
+
+def test_low_spell_duration_figure_is_one_bar_per_spell(marginal_data):
+    """Low-extent spells get the same discrete-event treatment as wet events."""
+    _, analysis = marginal_data
+    n_spells = len(analysis.events.low_spells)
+    assert n_spells > 0
+    figure = low_spell_duration_figure(analysis)
+    assert figure is not None
+    assert figure["data"][0]["type"] == "bar"
+    assert len(figure["data"][0]["x"]) == n_spells
+    assert len(figure["data"][0]["y"]) == n_spells
+    assert figure["layout"]["yaxis"]["title"] == {"text": "Duration (months)"}
+    json.dumps(figure, allow_nan=False)
+
+
+def test_low_spell_duration_figure_is_none_without_spells(seasonal_data):
+    _, analysis = seasonal_data
+    assert analysis.events.low_spells.empty
+    assert low_spell_duration_figure(analysis) is None
 
 
 def test_event_duration_figure_is_none_without_events(marginal_data):
@@ -520,3 +547,55 @@ def test_marginal_route_labels_phases_and_troughs(marginal_data):
     assert analysis.hydro_years["trough_month"].notna().all()
     assert (analysis.hydro_years["boundary_basis"] == "imposed_fixed_window").all()
     assert monthly["is_hy_trough"].sum() > 0
+
+
+def test_every_axis_carries_a_unit(
+    seasonal_data, marginal_data, seasonal_data_with_rainfall, aseasonal_with_events_data
+):
+    """Every rendered axis states its unit -- a bare 'Duration' or 'Extent' invites misreading."""
+    monthly, analysis = seasonal_data
+    _, marginal_analysis = marginal_data
+    rain_monthly, _ = seasonal_data_with_rainfall
+    _, event_analysis = aseasonal_with_events_data
+
+    event_fig = event_duration_figure(event_analysis)
+    low_spell_fig = low_spell_duration_figure(marginal_analysis)
+    assert event_fig is not None
+    assert low_spell_fig is not None
+
+    figures = [
+        # Monthly Surface Water Extent's x-axis is deliberately untitled (the
+        # dates are self-evident from the tick labels); its y-axis still
+        # needs one, so it stays in this check via a dedicated skip below.
+        secondary_figure(monthly, analysis),
+        event_fig,
+        low_spell_fig,
+        rainfall_context_figure(rain_monthly),
+    ]
+    timeline = timeline_figure(monthly, analysis)
+    assert timeline["layout"]["xaxis"].get("title") is None
+    assert timeline["layout"]["yaxis"]["title"] == {"text": "Water Extent (%)"}
+
+    for figure in figures:
+        for axis_key in ("xaxis", "yaxis", "yaxis2"):
+            axis = figure["layout"].get(axis_key)
+            if axis is None:
+                continue
+            title = axis.get("title")
+            trace_names = [t.get("name") for t in figure["data"]]
+            assert title, f"{axis_key} on {trace_names} has no title"
+            # The vendored Plotly.js build silently drops a bare-string axis
+            # title (renders untitled, no error), so every axis title in this
+            # module must be the {"text": ...} object form -- a plain string
+            # here is a real bug, not an equivalent shorthand.
+            assert isinstance(title, dict) and "text" in title, (
+                f"{axis_key} title {title!r} on {trace_names} is not a "
+                '{"text": ...} object; a bare string silently renders as no title'
+            )
+            text = title["text"]
+            if axis_key == "xaxis":
+                # X-axes here are Date/Month/category labels, not measured
+                # quantities -- a title is required, but not a unit suffix.
+                continue
+            unit_bearing = any(marker in text for marker in ("%", "mm", "month"))
+            assert unit_bearing, f"{axis_key} title {text!r} on {trace_names} does not state a unit"

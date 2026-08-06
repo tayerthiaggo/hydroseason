@@ -4,7 +4,13 @@ import pytest
 
 from hydroseason._catchment import analyze_catchment
 from hydroseason._regime_compare import compare_extent_and_rainfall_regimes
-from hydroseason._report_copy import build_rainfall_context, select_kpis, verdict_sentence
+from hydroseason._report_copy import (
+    build_rainfall_context,
+    low_spell_explainer,
+    select_kpis,
+    verdict_sentence,
+    wet_event_explainer,
+)
 
 
 @pytest.fixture
@@ -103,6 +109,60 @@ def test_seasonal_copy_has_regime_verdict(seasonal_analysis):
     sentence = verdict_sentence(seasonal_analysis)
     assert isinstance(sentence, str)
     assert len(sentence) > 0
+
+
+def test_wet_event_explainer_states_this_catchments_own_thresholds(aseasonal_analysis):
+    """The explanation is grounded in resolved numbers, not generic boilerplate."""
+    summary = aseasonal_analysis.events.summary
+    text = wet_event_explainer(aseasonal_analysis)
+    assert str(round(summary["enter_threshold_pct"], 1)) in text or "%" in text
+    assert "hysteresis" in text
+    assert f"{summary['min_event_months']} month" in text
+    assert f"{summary['min_separation_months']} month" in text
+
+
+def test_wet_event_explainer_handles_no_events(seasonal_analysis):
+    assert seasonal_analysis.events.summary["n_events"] == 0
+    text = wet_event_explainer(seasonal_analysis)
+    assert "no wet event" in text.casefold()
+
+
+def test_low_spell_explainer_states_this_catchments_own_thresholds(aseasonal_analysis):
+    summary = aseasonal_analysis.events.summary
+    text = low_spell_explainer(aseasonal_analysis)
+    assert f"{summary['min_low_months']} consecutive month" in text
+    assert "independently of wet events" in text
+    assert "%" in text
+
+
+def test_low_spell_explainer_handles_no_spells(seasonal_analysis):
+    assert seasonal_analysis.events.summary["n_low_spells"] == 0
+    text = low_spell_explainer(seasonal_analysis)
+    assert "no run of low extent" in text.casefold()
+
+
+def test_explainers_differ_by_catchment():
+    """Two catchments with different thresholds must not get the same prose."""
+    rng_a = np.random.default_rng(3)
+    dates = pd.date_range("2010-01-01", periods=120, freq="MS")
+    low = analyze_catchment(
+        pd.DataFrame(
+            {"extent_pct": np.abs(rng_a.normal(0.15, 0.12, 120)), "invalid_pct": 0.0},
+            index=dates,
+        ),
+        phase_model="rule_based",
+        n_bootstrap=20,
+    )
+    rng_b = np.random.default_rng(7)
+    high = analyze_catchment(
+        pd.DataFrame(
+            {"extent_pct": np.abs(rng_b.normal(15.0, 12.0, 120)), "invalid_pct": 0.0},
+            index=dates,
+        ),
+        phase_model="rule_based",
+        n_bootstrap=20,
+    )
+    assert wet_event_explainer(low) != wet_event_explainer(high)
 
 
 def _seasonal_extent_for_context(years=30, peak_month=2, seed=2, noise=0.02):

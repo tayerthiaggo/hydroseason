@@ -54,20 +54,23 @@ def _iso_date(value: Any) -> str | None:
 
 
 def _base_layout(*, rangeslider: bool) -> dict[str, Any]:
+    # Axis titles are {"text": ...} objects, not bare strings, throughout this
+    # module: the vendored Plotly.js build silently drops a bare-string axis
+    # title (no error, no fallback -- the axis just renders untitled), so
+    # every axis dict below follows this form even where it looks verbose.
     return {
         "paper_bgcolor": "#ffffff",
         "plot_bgcolor": "#f8fafc",
         "margin": {"l": 50, "r": 50, "t": 35, "b": 138},
         "dragmode": "pan",
         "xaxis": {
-            "title": "Date",
             "showgrid": True,
             "gridcolor": "#e2e8f0",
             "zeroline": False,
             "rangeslider": {"visible": bool(rangeslider)},
         },
         "yaxis": {
-            "title": "Water Extent (%)",
+            "title": {"text": "Water Extent (%)"},
             "type": "linear",
             "showgrid": True,
             "gridcolor": "#e2e8f0",
@@ -447,7 +450,7 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
     layout["annotations"] = hydro_annotations
     layout["margin"]["t"] = 52
     if has_rainfall:
-        layout["yaxis2"] = {"title": "Rainfall (mm)", "type": "linear", "overlaying": "y", "side": "right", "showgrid": False, "zeroline": False}
+        layout["yaxis2"] = {"title": {"text": "Rainfall (mm)"}, "type": "linear", "overlaying": "y", "side": "right", "showgrid": False, "zeroline": False}
     return {"data": data, "layout": layout, "config": _config()}
 
 
@@ -525,7 +528,7 @@ def secondary_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict
             "marker": {"size": 6, "color": "#0284c7"},
         },
     ]
-    layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 58, "b": 40}, "title": {"text": "Long-term monthly water extent (+/-1 std)", "x": 0.02, "xanchor": "left", "font": {"size": 13, "color": "#334155"}}, "xaxis": {"title": "Month", "showgrid": False}, "yaxis": {"title": "Mean Extent (%)", "showgrid": True, "gridcolor": "#e2e8f0"}}
+    layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 58, "b": 40}, "title": {"text": "Long-term monthly water extent (+/-1 std)", "x": 0.02, "xanchor": "left", "font": {"size": 13, "color": "#334155"}}, "xaxis": {"title": {"text": "Month"}, "showgrid": False}, "yaxis": {"title": {"text": "Mean Extent (%)"}, "showgrid": True, "gridcolor": "#e2e8f0"}}
     return {"data": data, "layout": layout, "config": _secondary_config()}
 
 
@@ -575,8 +578,49 @@ def event_duration_figure(analysis: CatchmentAnalysis) -> dict[str, Any] | None:
         "layout": {
             "paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc",
             "margin": {"l": 50, "r": 30, "t": 30, "b": 60},
-            "xaxis": {"title": "Event start", "type": "category", "showgrid": False},
-            "yaxis": {"title": "Duration (months)", "showgrid": True, "gridcolor": "#e2e8f0"},
+            "xaxis": {"title": {"text": "Event start"}, "type": "category", "showgrid": False},
+            "yaxis": {"title": {"text": "Duration (months)"}, "showgrid": True, "gridcolor": "#e2e8f0"},
+        },
+        "config": _secondary_config(),
+    }
+
+
+def low_spell_duration_figure(analysis: CatchmentAnalysis) -> dict[str, Any] | None:
+    """Generate a one-bar-per-spell duration chart, or None when there are none.
+
+    Mirrors ``event_duration_figure`` for the same reason: a low-extent spell
+    count can be small and unevenly spaced, so one bar per actual spell (in
+    the order it occurred) is legible where a histogram would not be.
+    """
+    low_spells = analysis.events.low_spells
+    if low_spells.empty or "duration_months" not in low_spells.columns:
+        return None
+    starts = pd.to_datetime(low_spells["start"])
+    ends = pd.to_datetime(low_spells["end"])
+    min_extent = low_spells.get("min_extent_pct", pd.Series(index=low_spells.index, dtype=float))
+    customdata = [
+        [start.strftime("%b %Y"), end.strftime("%b %Y"), _clean_val(minimum)]
+        for start, end, minimum in zip(starts, ends, min_extent)
+    ]
+    return {
+        "data": [{
+            "type": "bar",
+            "name": "Low-extent spell duration",
+            "x": [start.strftime("%b %Y") for start in starts],
+            "y": _clean_list(low_spells["duration_months"]),
+            "customdata": customdata,
+            "hovertemplate": (
+                "Spell: %{customdata[0]} to %{customdata[1]}<br>"
+                "Duration: %{y} months<br>"
+                "Lowest extent: %{customdata[2]}%<extra></extra>"
+            ),
+            "marker": {"color": "#f97316"},
+        }],
+        "layout": {
+            "paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc",
+            "margin": {"l": 50, "r": 30, "t": 30, "b": 60},
+            "xaxis": {"title": {"text": "Spell start"}, "type": "category", "showgrid": False},
+            "yaxis": {"title": {"text": "Duration (months)"}, "showgrid": True, "gridcolor": "#e2e8f0"},
         },
         "config": _secondary_config(),
     }
@@ -627,10 +671,10 @@ def rainfall_context_figure(monthly: pd.DataFrame) -> dict[str, Any] | None:
             "paper_bgcolor": "#ffffff",
             "plot_bgcolor": "#f8fafc",
             "margin": {"l": 50, "r": 50, "t": 20, "b": 40},
-            "xaxis": {"title": "Calendar month", "showgrid": False},
-            "yaxis": {"title": "Water Extent (%)", "gridcolor": "#e2e8f0"},
+            "xaxis": {"title": {"text": "Calendar month"}, "showgrid": False},
+            "yaxis": {"title": {"text": "Water Extent (%)"}, "gridcolor": "#e2e8f0"},
             "yaxis2": {
-                "title": "Rainfall (mm)",
+                "title": {"text": "Rainfall (mm)"},
                 "overlaying": "y",
                 "side": "right",
                 "showgrid": False,
