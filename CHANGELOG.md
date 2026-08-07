@@ -60,6 +60,31 @@ First public release: the remote-sensing-first rewrite of HydroSeason.
   Public trough sequence selection now preserves the true observed minimum,
   allowing only exact-value ties to receive `coherence_adjusted` provenance.
 
+### Fixed
+- **DEA WOfS fetching for an AOI no longer fails with a grid-misalignment
+  error.** `run_hydroseason(aoi=..., start_date=..., end_date=...)` and
+  `load_wofs_monthly_extent` left `resolution` unset by default, which made
+  the monthly WOfS load fall back to the STAC items' own native pixel
+  alignment while the historical water mask was always built on an
+  explicitly-anchored grid. The two did not line up, raising
+  `GeoreferencingError: historical water mask transform ... does not match
+  raster transform ...`. The monthly load is now pinned to the historical
+  mask's own grid whenever the caller does not request a resolution; an
+  explicit `resolution` is still honoured unchanged.
+- `build_historical_water_mask` used the `.rio` accessor without importing
+  `rioxarray` itself, so it only worked when another module happened to
+  import it first, and crashed in a fresh process.
+- **`open_wo_statistics` no longer re-arms a broken PROJ database on the
+  lazy cube it returns.** It restored the caller's `PROJ_LIB`/`PROJ_DATA` on
+  the way out, but the cube it returns is lazy — the reprojection that reads
+  that PROJ database runs later, on compute. On a machine with a system-wide
+  `PROJ_LIB` (a PostGIS install sets one on Windows) pointing at a `proj.db`
+  too old for `pyproj`, every lazy read then failed with
+  `pyproj.exceptions.ProjError: Error creating Transformer from CRS`. The
+  known-good database the loader installs is now left in place; the GDAL/AWS
+  variables are still restored, since `odc.stac.configure_rio` carries those
+  into the lazy reads independently.
+
 ### Deprecated
 - `DynamicHydroYearConfig.sustained_rise_months`,
   `pulse_rejection_window_months`, and `dry_plateau_rule="last_before_confirmed_recovery"`

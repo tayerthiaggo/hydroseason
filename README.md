@@ -16,12 +16,17 @@
 
 [![HydroSeason report preview](https://raw.githubusercontent.com/tayerthiaggo/hydroseason/main/docs/assets/report-preview.png)](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa.html)
 
-One self-contained HTML report, plus four CSVs, per catchment — from a
-single function call. Click the image, or try a live example:
+One function call gives you one self-contained HTML report — an interactive
+water-extent timeline with each hydrological year, its wet and dry phases,
+and the flood events and low spells found in the record — plus four CSVs
+carrying the same numbers for your own analysis: `_monthly`, `_hydro_years`,
+`_wet_event`, and `_low_spells`.
 
-- [Fitzroy River (WA)](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa.html) — seasonal regime
-- [Lachlan River (NSW)](https://tayerthiaggo.github.io/hydroseason/examples/lachlan-river-nsw.html) — aseasonal (no forced hydrological years)
-- [Fitzroy River + rainfall context](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa-rainfall.html)
+Open a real one (no install needed):
+
+- [Fitzroy River (WA)](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa.html) — a strongly seasonal monsoonal catchment
+- [Lachlan River (NSW)](https://tayerthiaggo.github.io/hydroseason/examples/lachlan-river-nsw.html) — an aseasonal one, characterized by flood events and dry spells instead of forced hydrological years
+- [Fitzroy River, with rainfall context](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa-rainfall.html) — the same water analysis, with rainfall added purely as annotation
 
 ---
 

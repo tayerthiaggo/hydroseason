@@ -35,7 +35,7 @@ return types are on each linked page.
 | `WetPlanningFootprint` | A prepared planning footprint's identity/geometry | [Loading Data](io.md) |
 | `acquire_wofs_cache` | Fill or reuse a local WOfS Zarr cache store | [Loading Data](io.md) |
 | `open_completed_mask_cache` | Lazily open a completed cache store's water-mask cube | [Loading Data](io.md) |
-| `open_completed_dual_extent_counts` | Read back dual max/median-water pixel counts (`composite_bundle="hydrofragments_v1"`) | [Loading Data](io.md) |
+| `open_completed_dual_extent_counts` | Read back dual max/median-water pixel counts (`composite_bundle="dual_composite_v1"`) | [Loading Data](io.md) |
 | `verify_cache_footprints` | Verify a cache's persisted AOI/analysis footprints | [Loading Data](io.md) |
 | `WOfSCacheHandle` | Pointer to a (possibly complete) on-disk WOfS cache store | [Loading Data](io.md) |
 | `analyze_catchment` | Assess regime, then run the analysis that regime supports (routing authority) | [Analysis](analysis.md) |

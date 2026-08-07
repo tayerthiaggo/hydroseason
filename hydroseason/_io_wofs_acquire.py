@@ -536,7 +536,7 @@ def acquire_wofs_cache(
     wet_mask: Literal["off", "dea_stats"] = "off",
     historical_water_mask: "Any | None" = None,
     planning_footprint: WetPlanningFootprint | None = None,
-    composite_bundle: Literal["single_mask", "legacy", "hydrofragments_v1"] = "single_mask",
+    composite_bundle: Literal["single_mask", "legacy", "dual_composite_v1"] = "single_mask",
     compute_batch_size: int = 16,
     read_workers: int | None = None,
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
@@ -584,7 +584,7 @@ def acquire_wofs_cache(
     ``composite_bundle`` selects the acquisition's output semantics.
     ``"single_mask"`` (the default; ``"legacy"`` is an accepted alias)
     preserves every existing hydroseason result and cache identity
-    byte-for-byte: no extra computation, no new file. ``"hydrofragments_v1"``
+    byte-for-byte: no extra computation, no new file. ``"dual_composite_v1"``
     additionally computes a SECOND (any-day-wet ``max_water``) composite's
     per-month pixel counts from the exact same per-day classified
     observations the primary composite is already built from (never a second
@@ -593,7 +593,7 @@ def acquire_wofs_cache(
     parallel ``years/<year>/dual_extent_counts.json`` artifact (see
     :func:`hydroseason._io_wofs_zarr.write_annual_group`), alongside the
     existing ``extent_counts.json``. It is also recorded in cache identity
-    here so a ``"single_mask"`` and a ``"hydrofragments_v1"`` run of
+    here so a ``"single_mask"`` and a ``"dual_composite_v1"`` run of
     otherwise-identical parameters never share a store.
 
     ``historical_water_mask`` accepts an already-built
@@ -972,7 +972,7 @@ def acquire_wofs_cache(
                     parent_geobox, year_start, year_end, target,
                     historical_water_mask=historical_water_mask,
                 )
-            # hydrofragments_v1's secondary (max_water) composite counts ride
+            # dual_composite_v1's secondary (max_water) composite counts ride
             # as a side-channel attribute on `mask` (see
             # hydroseason._io_geo._load_wofs_items) rather than changing this
             # function's return type -- so build_wofs_year_graph's return
@@ -980,7 +980,7 @@ def acquire_wofs_cache(
             # that never requests the dual bundle. Popped off here (not left
             # on `mask.attrs`) so it survives independently of whatever
             # write_annual_group/write_empty_annual_group later do to `mask`.
-            dual_counts = mask.attrs.pop("hydrofragments_dual_counts", None)
+            dual_counts = mask.attrs.pop("dual_composite_counts", None)
 
             p_diag = {
                 "year": year,
@@ -1021,7 +1021,7 @@ def acquire_wofs_cache(
                     # only to write none of them.
                     stats = write_empty_annual_group(
                         handle, year, mask, overwrite=overwrite,
-                        dual_extent_counts=(composite_bundle == "hydrofragments_v1"),
+                        dual_extent_counts=(composite_bundle == "dual_composite_v1"),
                     )
             finally:
                 del mask, dual_counts

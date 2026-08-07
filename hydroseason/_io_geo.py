@@ -363,14 +363,14 @@ def _load_wofs_items(
     resampling=None,
     wet_aoi=None,
     historical_water_mask=None,
-    composite_bundle: Literal["single_mask", "legacy", "hydrofragments_v1"] = "single_mask",
+    composite_bundle: Literal["single_mask", "legacy", "dual_composite_v1"] = "single_mask",
 ):
     """Load WOfS items, classify, compose monthly, and clip to AOI.
 
     Items are processed in annual batches with monthly composition,
     returning a lazy xarray.DataArray.
 
-    ``composite_bundle="hydrofragments_v1"`` additionally computes a SECOND
+    ``composite_bundle="dual_composite_v1"`` additionally computes a SECOND
     composite -- the any-day-wet ``max_water`` rule (``majority=False``'s
     semantics: ``series.max("time")``) -- from the SAME resident per-day
     ``observations`` this function already classifies for the PRIMARY
@@ -381,7 +381,7 @@ def _load_wofs_items(
     already sitting in memory for that month. It is reduced immediately to
     small per-month ``(y, x)`` wet/clear pixel COUNTS (never a second full
     ``(time, y, x)`` raster) and attached to the returned primary mask's
-    ``.attrs["hydrofragments_dual_counts"]`` as a lazy ``(time, y, x)``
+    ``.attrs["dual_composite_counts"]`` as a lazy ``(time, y, x)``
     ``xr.Dataset`` with ``wet_count``/``clear_count`` variables, parallel to
     (and matching the dtype convention of) the ``wet_count``/``clear_count``
     arrays :func:`hydroseason._io_wofs_zarr.write_annual_group` already
@@ -454,7 +454,7 @@ def _load_wofs_items(
     for month, month_items in sorted(groups.items()):
         annual_groups.setdefault(month.year, []).append((month, month_items))
 
-    dual_composite = composite_bundle == "hydrofragments_v1"
+    dual_composite = composite_bundle == "dual_composite_v1"
     target = aoi_gdf.to_crs(_crs_value(crs)) if crs is not None else aoi_gdf
     masks, dates, reference = [], [], None
     secondary_masks: list = []
@@ -541,7 +541,7 @@ def _load_wofs_items(
             # dual_composite) so the primary composite's existing
             # `_clip_to_aoi` call above stays byte-for-byte the original
             # single call/call-signature legacy callers and tests rely on;
-            # only hydrofragments_v1 pays this second rasterization cost, in
+            # only dual_composite_v1 pays this second rasterization cost, in
             # exchange for never re-reading STAC or re-running _classify().
             # `historical_water_mask` is threaded through here too (mirroring
             # the primary call above exactly) so pixels outside the exact
@@ -602,7 +602,7 @@ def _load_wofs_items(
             "x": chunk_x,
             "y": chunk_y,
         })
-        result.attrs["hydrofragments_dual_counts"] = dual_counts
+        result.attrs["dual_composite_counts"] = dual_counts
     return result
 
 
@@ -735,7 +735,7 @@ def build_wofs_year_graph(
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
     wet_aoi=None,
     historical_water_mask=None,
-    composite_bundle: Literal["single_mask", "legacy", "hydrofragments_v1"] = "single_mask",
+    composite_bundle: Literal["single_mask", "legacy", "dual_composite_v1"] = "single_mask",
 ):
     """Build one shared lazy WOfS cube for a single calendar year onto a fixed grid.
 
@@ -779,9 +779,9 @@ def build_wofs_year_graph(
     counted.
 
     ``composite_bundle`` is threaded straight through to
-    :func:`_load_wofs_items` (see its docstring): ``"hydrofragments_v1"``
+    :func:`_load_wofs_items` (see its docstring): ``"dual_composite_v1"``
     attaches a second, any-day-wet composite's per-month pixel counts as
-    ``.attrs["hydrofragments_dual_counts"]`` on the returned mask, computed
+    ``.attrs["dual_composite_counts"]`` on the returned mask, computed
     from the exact same per-day observations this call already loads and
     classifies. ``"single_mask"`` (the default; ``"legacy"`` is an accepted
     alias) performs no extra computation.
@@ -1176,7 +1176,7 @@ def _resolve_aoi_inside_mask(mask, aoi_gdf, *, wet_aoi=None, historical_water_ma
 
     Factored out of :func:`_clip_to_aoi` so a caller that needs to clip a
     SECOND cube sharing ``mask``'s exact grid (e.g. :func:`_load_wofs_items`'s
-    ``hydrofragments_v1`` secondary composite) can rasterize the AOI once and
+    ``dual_composite_v1`` secondary composite) can rasterize the AOI once and
     reuse the same ``inside`` mask for both cubes via
     :func:`_apply_aoi_inside_mask`, instead of rasterizing the identical AOI
     geometry a second time.

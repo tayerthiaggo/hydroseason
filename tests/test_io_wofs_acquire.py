@@ -1126,21 +1126,21 @@ def test_planning_footprint_and_composite_bundle_are_recorded_in_manifest(monkey
     handle = acquire_wofs_cache(
         "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
         "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
-        planning_footprint=footprint, composite_bundle="hydrofragments_v1",
+        planning_footprint=footprint, composite_bundle="dual_composite_v1",
     )
 
     manifest = json.loads((handle.path / "manifest.json").read_text(encoding="utf-8"))
     acq = manifest["acquisition"]
-    assert acq["composite_bundle"] == "hydrofragments_v1"
+    assert acq["composite_bundle"] == "dual_composite_v1"
     assert acq["planning_footprint"]["digest"] == footprint.digest
     assert acq["planning_footprint"]["factor"] == 4
     assert acq["planning_footprint"]["safety_cells"] == 1
     assert acq["planning_footprint"]["covered_years"] == [2015]
 
 
-def test_hydrofragments_v1_threads_dual_counts_from_graph_to_writer(monkeypatch, tmp_path):
+def test_dual_composite_v1_threads_dual_counts_from_graph_to_writer(monkeypatch, tmp_path):
     """Step 3 (W2.2) wiring: build_wofs_year_graph's
-    ``.attrs["hydrofragments_dual_counts"]`` side-channel must reach
+    ``.attrs["dual_composite_counts"]`` side-channel must reach
     write_annual_group's ``dual_counts`` keyword unchanged, and must be
     popped off the mask (never left sitting on the object passed to
     write_annual_group as `mask`, which only expects the primary
@@ -1155,7 +1155,7 @@ def test_hydrofragments_v1_threads_dual_counts_from_graph_to_writer(monkeypatch,
 
     def fake_graph(*_args, **_kwargs):
         cube = _cube(2015)
-        cube.attrs["hydrofragments_dual_counts"] = sentinel_dual_counts
+        cube.attrs["dual_composite_counts"] = sentinel_dual_counts
         return cube
 
     monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", fake_graph)
@@ -1165,16 +1165,16 @@ def test_hydrofragments_v1_threads_dual_counts_from_graph_to_writer(monkeypatch,
     acquire_wofs_cache(
         "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
         "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
-        composite_bundle="hydrofragments_v1",
+        composite_bundle="dual_composite_v1",
     )
 
     writer.assert_called_once()
     assert writer.call_args.kwargs["dual_counts"] is sentinel_dual_counts
     written_mask = writer.call_args.args[2]
-    assert "hydrofragments_dual_counts" not in written_mask.attrs
+    assert "dual_composite_counts" not in written_mask.attrs
 
 
-def test_hydrofragments_v1_writes_zeroed_dual_counts_for_an_empty_year(monkeypatch, tmp_path):
+def test_dual_composite_v1_writes_zeroed_dual_counts_for_an_empty_year(monkeypatch, tmp_path):
     """An empty year (no STAC items at all) must still get
     dual_extent_counts.json when the dual bundle is requested -- both
     composites are legitimately all-zero, not simply absent, keeping the
@@ -1189,7 +1189,7 @@ def test_hydrofragments_v1_writes_zeroed_dual_counts_for_an_empty_year(monkeypat
     acquire_wofs_cache(
         "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
         "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
-        composite_bundle="hydrofragments_v1",
+        composite_bundle="dual_composite_v1",
     )
 
     empty_writer.assert_called_once()

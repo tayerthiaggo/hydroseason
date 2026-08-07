@@ -1,3 +1,3 @@
 bundle,primary_mask,dual_sidecar,single_source_graph,full_aoi_denominator,status
 single_mask,wofs_frequency_or_wet,False,True,True,validated
-hydrofragments_v1,wofs_frequency_or_wet,True,True,True,validated
+dual_composite_v1,wofs_frequency_or_wet,True,True,True,validated

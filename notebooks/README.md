@@ -10,7 +10,4 @@ extras, network access) and how long it takes.
 | [03_rainfall_context.ipynb](03_rainfall_context.ipynb) | Attaching rainfall as ancillary context; proves it never changes the route | none | core install |
 | [04_under_the_hood.ipynb](04_under_the_hood.ipynb) | Every lower-level building block `run_hydroseason` wraps, called directly | none by default | core install (`[stac]` if you flip `RUN_REMOTE_STAC`) |
 
-`dev/` holds developer QA notebooks (detector validation harnesses) — not
-user-facing examples; see [dev/boundary_detection_testing.ipynb](dev/boundary_detection_testing.ipynb).
-
 Full narrative documentation: [Usage Guide](https://tayerthiaggo.github.io/hydroseason/guide/).

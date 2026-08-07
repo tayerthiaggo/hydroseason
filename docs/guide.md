@@ -307,6 +307,6 @@ coverage or no observed extent remains unusable.
     Local cache stores record persistent metadata to prevent tamper or mismatched parameters:
     - **`verify_cache_footprints`**: Validates cache footprint integrity against full AOI metadata.
     - **`open_completed_mask_cache`**: Opens completed Zarr mask cache handles.
-    - **`open_completed_dual_extent_counts`**: Retrieves dual max-water and median-water extent count sidecars when `composite_bundle="hydrofragments_v1"` is enabled.
+    - **`open_completed_dual_extent_counts`**: Retrieves dual max-water and median-water extent count sidecars when `composite_bundle="dual_composite_v1"` is enabled.
 
-    `composite_bundle` selects the acquisition's output semantics: `"single_mask"` (the default) preserves every existing result and cache identity byte-for-byte; `"hydrofragments_v1"` additionally computes dual max-water/median-water composites for downstream fragment analysis.
+    `composite_bundle` selects the acquisition's output semantics: `"single_mask"` (the default) preserves every existing result and cache identity byte-for-byte; `"dual_composite_v1"` additionally computes dual max-water/median-water composites for downstream fragment analysis.

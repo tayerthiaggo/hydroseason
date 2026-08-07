@@ -369,6 +369,48 @@ def test_open_wo_statistics_scopes_unsigned_cog_env_and_restores_it(monkeypatch)
     assert "AWS_NO_SIGN_REQUEST" not in os.environ
 
 
+def test_open_wo_statistics_does_not_restore_a_hostile_proj_database(monkeypatch):
+    """``PROJ_LIB``/``PROJ_DATA`` must NOT be restored, unlike the GDAL/AWS keys.
+
+    This loader returns a LAZY dask graph: the reprojection that needs a
+    usable PROJ database happens long after the function returns, when the
+    caller computes. ``_configure_cog_read_env`` deliberately repoints
+    ``PROJ_LIB``/``PROJ_DATA`` at a known-good bundled database precisely
+    because a system-wide value (e.g. from a PostGIS install, which sets
+    ``PROJ_LIB`` machine-wide on Windows) makes that reprojection fail with
+    ``pyproj.exceptions.ProjError: Error creating Transformer from CRS``.
+    Restoring the hostile value on the way out re-arms that failure for
+    every lazy read of the returned cube.
+
+    The GDAL/AWS keys are a different case and are still restored (see
+    ``test_open_wo_statistics_scopes_unsigned_cog_env_and_restores_it``):
+    ``odc.stac.configure_rio`` installs odc-stac's own rasterio environment
+    for the lazy reads, so those do not need to survive in ``os.environ``.
+    """
+    import os
+
+    import hydroseason._io_dea_stats as mod
+
+    hostile = str(tmp_hostile_proj_dir())
+    monkeypatch.setenv("PROJ_LIB", hostile)
+    monkeypatch.setenv("PROJ_DATA", hostile)
+
+    items = [_FakeItem("item-1", "2020-06-01T00:00:00Z")]
+    _install_stac_fakes(monkeypatch, items, _dask_dataset, module=mod)
+
+    open_wo_statistics(_aoi())
+
+    assert os.environ.get("PROJ_LIB") != hostile
+    assert os.environ.get("PROJ_DATA") != hostile
+
+
+def tmp_hostile_proj_dir():
+    """A path standing in for an incompatible system-wide proj.db directory."""
+    from pathlib import Path
+
+    return Path("C:/Program Files/PostgreSQL/16/share/contrib/postgis-3.4/proj")
+
+
 def test_open_wo_statistics_passes_chunks_through(monkeypatch):
     import hydroseason._io_dea_stats as mod
 

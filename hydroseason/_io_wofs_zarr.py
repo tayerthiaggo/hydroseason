@@ -183,7 +183,7 @@ class WOfSCacheRequest:
     # written before this rename) preserves every existing hydroseason
     # result and cache identity byte-for-byte, so it is omitted from the
     # digest payload like other absent/default provenance fields.
-    # "hydrofragments_v1" is new behaviour (task W2.2's dual-composite
+    # "dual_composite_v1" is new behaviour (task W2.2's dual-composite
     # extent counts, not implemented by this field alone) that must never
     # share a store with a "single_mask"/"legacy" run of otherwise-identical
     # parameters, so that value remains a digest input.
@@ -920,9 +920,9 @@ def write_annual_group(
     """Materialise one calendar year of ``mask`` into a completed annual Zarr group.
 
     ``dual_counts``, when given (only ever passed for
-    ``composite_bundle="hydrofragments_v1"`` -- see
+    ``composite_bundle="dual_composite_v1"`` -- see
     :func:`hydroseason._io_geo._load_wofs_items`'s
-    ``hydrofragments_dual_counts`` attribute), is an already-reduced lazy
+    ``dual_composite_counts`` attribute), is an already-reduced lazy
     ``(time, y, x)`` ``xr.Dataset`` with ``wet_count``/``clear_count``
     ``uint16`` variables for the SECONDARY (any-day-wet ``max_water``)
     composite, one plane per month, aligned to ``mask``'s own time axis.
@@ -1293,7 +1293,7 @@ def write_empty_annual_group(
     month, so nothing can be classified wet or dry).
 
     ``dual_extent_counts=True`` (only ever passed for
-    ``composite_bundle="hydrofragments_v1"``) additionally writes a zeroed
+    ``composite_bundle="dual_composite_v1"``) additionally writes a zeroed
     ``years/<year>/dual_extent_counts.json`` sidecar -- an empty year has no
     observations for EITHER composite, so both are legitimately all-zero,
     keeping the artifact's presence consistent whether or not a given year
@@ -2789,7 +2789,7 @@ def open_completed_dual_extent_counts(
     end_date: str,
 ) -> pd.DataFrame | None:
     """Read back the ``years/<year>/dual_extent_counts.json`` sidecars task
-    W2.2's ``composite_bundle="hydrofragments_v1"`` acquisition writes.
+    W2.2's ``composite_bundle="dual_composite_v1"`` acquisition writes.
 
     Public reader counterpart to :func:`open_completed_extent_counts`, but
     for the SECOND (any-day-wet ``max_water``) composite's per-month pixel

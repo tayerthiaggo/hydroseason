@@ -207,8 +207,8 @@ def test_footprint_covered_years_changes_request_digest():
 
 def test_composite_bundle_changes_request_digest():
     single_mask = _base_request(composite_bundle="single_mask")
-    hydrofragments = _base_request(composite_bundle="hydrofragments_v1")
-    assert single_mask.request_digest() != hydrofragments.request_digest()
+    dual_composite = _base_request(composite_bundle="dual_composite_v1")
+    assert single_mask.request_digest() != dual_composite.request_digest()
 
 
 def test_worker_counts_never_change_request_digest():
@@ -232,7 +232,7 @@ def test_footprint_and_composite_bundle_are_independent_of_each_other():
         footprint_safety_cells=1, footprint_covered_years=(2015,),
         composite_bundle="single_mask",
     )
-    only_bundle_changed = dataclasses.replace(base, composite_bundle="hydrofragments_v1")
+    only_bundle_changed = dataclasses.replace(base, composite_bundle="dual_composite_v1")
     only_factor_changed = dataclasses.replace(base, footprint_factor=8)
     only_safety_changed = dataclasses.replace(base, footprint_safety_cells=2)
     only_years_changed = dataclasses.replace(base, footprint_covered_years=(2015, 2016))
@@ -823,7 +823,7 @@ def test_write_annual_group_persists_dual_extent_counts_when_given(tmp_path):
     test_annual_writer_persists_exact_monthly_extent_counts, but with a
     secondary (max_water) composite whose per-pixel counts genuinely
     diverge from the primary at one cell (mirrors the hand-traced pixel in
-    test_io.py's test_hydrofragments_v1_dual_counts_diverge_from_majority...):
+    test_io.py's test_dual_composite_v1_dual_counts_diverge_from_majority...):
     the primary (majority) mask marks (0, 0) as dry (0) in month 1, but the
     hand-supplied secondary wet_count at that same cell/month is 1 (some
     day observed it wet) -- proving dual_extent_counts really is a SEPARATE

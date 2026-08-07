@@ -70,10 +70,10 @@ def test_combine_observations_exhaustive_parity():
             assert res.values[col_idx] == expected_val, f"Mismatch for combo {col_vals} with majority={maj}"
 
 
-def test_hydrofragments_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pixel(monkeypatch):
+def test_dual_composite_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pixel(monkeypatch):
     """Step 1 (W2.2): a hand-traceable fixture where max-water (any-day-wet)
     and the existing majority-vote composite genuinely disagree at one pixel,
-    proving ``composite_bundle="hydrofragments_v1"`` must carry a SECOND,
+    proving ``composite_bundle="dual_composite_v1"`` must carry a SECOND,
     independently-computed composite's counts through ``_load_wofs_items``
     rather than just relabelling the primary composite.
 
@@ -160,7 +160,7 @@ def test_hydrofragments_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pi
         resolution=None,
         geobox=None,
         majority=True,
-        composite_bundle="hydrofragments_v1",
+        composite_bundle="dual_composite_v1",
     )
 
     # The primary (majority) composite must be completely unaffected by
@@ -169,9 +169,9 @@ def test_hydrofragments_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pi
     expected_primary = np.array([[0, 1], [0, 1]], dtype=np.int8)
     np.testing.assert_array_equal(primary.isel(time=0).values, expected_primary)
 
-    dual = result.attrs.get("hydrofragments_dual_counts")
+    dual = result.attrs.get("dual_composite_counts")
     assert dual is not None, (
-        "composite_bundle='hydrofragments_v1' must attach the secondary "
+        "composite_bundle='dual_composite_v1' must attach the secondary "
         "(max_water) composite's per-month pixel counts to the returned "
         "mask; found none."
     )
@@ -182,7 +182,7 @@ def test_hydrofragments_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pi
     assert int(secondary_wet.sum()) != primary_wet_count
 
 
-def test_hydrofragments_v1_builds_one_source_graph_not_one_per_composite(monkeypatch):
+def test_dual_composite_v1_builds_one_source_graph_not_one_per_composite(monkeypatch):
     """Step 2 (W2.2): requesting the dual bundle must not cost a second STAC
     load or a second classification pass -- both composites come from ONE
     ``odc.stac.stac_load`` call per year and ONE set of classified daily
@@ -258,15 +258,15 @@ def test_hydrofragments_v1_builds_one_source_graph_not_one_per_composite(monkeyp
         "2020-12-31",
         geobox=geobox,
         majority=True,
-        composite_bundle="hydrofragments_v1",
+        composite_bundle="dual_composite_v1",
     )
 
     assert stac_load_calls["n"] == 1, "dual bundle must not re-query STAC a second time"
     assert classify_calls["n"] == 1, "dual bundle must not re-run _classify() a second time"
-    assert result.attrs.get("hydrofragments_dual_counts") is not None
+    assert result.attrs.get("dual_composite_counts") is not None
 
 
-def test_hydrofragments_v1_dual_counts_zero_fill_a_missing_month(monkeypatch):
+def test_dual_composite_v1_dual_counts_zero_fill_a_missing_month(monkeypatch):
     """Edge case: a requested range wider than the available STAC items
     forces complete_monthly_axis to insert a missing (all-invalid) month.
     The dual-composite counts side-channel must be reindexed onto that SAME
@@ -328,11 +328,11 @@ def test_hydrofragments_v1_dual_counts_zero_fill_a_missing_month(monkeypatch):
         resolution=None,
         geobox=None,
         majority=True,
-        composite_bundle="hydrofragments_v1",
+        composite_bundle="dual_composite_v1",
     )
 
     assert result.sizes["time"] == 2
-    dual = result.attrs["hydrofragments_dual_counts"]
+    dual = result.attrs["dual_composite_counts"]
     assert dual.sizes["time"] == 2
     february_wet = dual["wet_count"].isel(time=1).compute().values
     february_clear = dual["clear_count"].isel(time=1).compute().values
@@ -340,14 +340,14 @@ def test_hydrofragments_v1_dual_counts_zero_fill_a_missing_month(monkeypatch):
     assert int(np.asarray(february_clear).sum()) == 0
 
 
-def test_hydrofragments_v1_secondary_composite_respects_historical_water_mask(monkeypatch):
-    """The hydrofragments_v1 secondary (max_water) composite's dual counts
+def test_dual_composite_v1_secondary_composite_respects_historical_water_mask(monkeypatch):
+    """The dual_composite_v1 secondary (max_water) composite's dual counts
     must also exclude cells outside the exact historical water mask, the
     same way the primary composite already does via its own
     ``_clip_to_aoi(..., historical_water_mask=...)`` call.
 
     Reuses the exact fixture from
-    ``test_hydrofragments_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pixel``:
+    ``test_dual_composite_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pixel``:
     at pixel (0, 0), the primary (majority) composite votes dry (0) while
     the secondary (max_water) composite votes wet (1) -- the one cell where
     the two composites genuinely diverge. The historical mask here excludes
@@ -359,7 +359,7 @@ def test_hydrofragments_v1_secondary_composite_respects_historical_water_mask(mo
     Runs the REAL (unmocked) ``_clip_to_aoi``/``_resolve_aoi_inside_mask``/
     ``_apply_aoi_inside_mask`` path (via a real ``GeoBox`` so the grid has a
     genuine CRS/transform to validate the historical mask against), unlike
-    the other hydrofragments_v1 tests in this file which mock that path at
+    the other dual_composite_v1 tests in this file which mock that path at
     the identity level.
     """
     xr = pytest.importorskip("xarray")
@@ -400,7 +400,7 @@ def test_hydrofragments_v1_secondary_composite_respects_historical_water_mask(mo
     # ascending) so the fake-loaded dataset carries genuine georeferencing
     # via rioxarray -- the historical-mask grid validation this test
     # exercises requires a real CRS/transform on the loaded cube, unlike the
-    # other hydrofragments_v1 tests in this file (which mock the AOI-clip
+    # other dual_composite_v1 tests in this file (which mock the AOI-clip
     # functions themselves and never need real georeferencing).
     def fake_stac_load(batch_items, **kwargs):
         batch_dates = pd.to_datetime([item.properties["datetime"] for item in batch_items])
@@ -435,7 +435,7 @@ def test_hydrofragments_v1_secondary_composite_respects_historical_water_mask(mo
         "2020-12-31",
         geobox=geobox,
         majority=True,
-        composite_bundle="hydrofragments_v1",
+        composite_bundle="dual_composite_v1",
         historical_water_mask=historical_mask,
     )
 
@@ -447,7 +447,7 @@ def test_hydrofragments_v1_secondary_composite_respects_historical_water_mask(mo
 
     # Secondary composite dual counts: (0, 0) must NOT be counted as wet or
     # clear, even though the unmasked max_water vote there is wet (1).
-    dual = result.attrs["hydrofragments_dual_counts"]
+    dual = result.attrs["dual_composite_counts"]
     secondary_wet = np.asarray(dual["wet_count"].isel(time=0).compute().values)
     secondary_clear = np.asarray(dual["clear_count"].isel(time=0).compute().values)
     assert secondary_wet[0, 0] == 0, (
