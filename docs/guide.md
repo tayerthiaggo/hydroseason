@@ -156,7 +156,7 @@ relative to noise) and assigns one of two routes:
 ## Data quality before you trust it
 
 Water-mask gaps, cloud/shadow contamination, and missing months can shift
-wet/dry boundaries. **Strongly consider gapfilling** (e.g. WaterMask-TSFill)
+wet/dry boundaries. **Strongly consider gapfilling** (e.g. [WaterMask-TSFill](https://github.com/tayerthiaggo/WaterMask-TSFill))
 on raw/incomplete masks before running hydro-year detection. The robust
 detector still reports an observed extremum when its month exceeds
 `max_invalid_pct=20.0`% invalid coverage, but marks that extremum
