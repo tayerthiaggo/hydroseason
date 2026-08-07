@@ -56,6 +56,14 @@ raster = [
 ]
 stac = [
   "hydroseason[raster]",
+  # DEA serves STAC Projection extension v2.0 (`proj:code`, which replaced
+  # `proj:epsg`). pystac gained support for it in 1.12.0; older pystac reads
+  # those items as having no CRS and odc-stac then fails the whole load with
+  # "The asset must have the following fields (from the projection
+  # extension): shape, transform, and one of an epsg, wkt2, or projjson".
+  # Pinned directly rather than left to pystac-client/odc-stac's looser
+  # transitive floors, which happily resolve 1.10.
+  "pystac>=1.12",
   "pystac-client>=0.8",
   "odc-stac>=0.5",
   "tqdm>=4.65"

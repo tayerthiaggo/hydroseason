@@ -535,3 +535,43 @@ def test_record_start_boundary_cycle_is_never_high_confidence():
     first_row = result.iloc[0]
     assert first_row["status_reason"] == "record_start_boundary"
     assert first_row["confidence"] in {"medium", "low"}
+
+
+def test_secondary_extrema_survives_extrema_filtered_out_of_the_usable_series():
+    """The primary peak/trough need not be present in the usable-months series.
+
+    ``_assemble_dynamic_years`` builds ``usable`` by filtering the cycle down
+    to ``candidate_usable`` months, but selects ``peak`` from the unfiltered
+    cycle (it may legitimately be a ``low_quality`` month -- the caller even
+    records ``peak_low_quality`` for exactly that case) and takes ``trough``
+    as the cycle's end month. Neither is guaranteed to survive the usability
+    filter, so looking them up with an exact ``Index.get_loc`` raises
+    ``KeyError`` and takes down the whole analysis.
+
+    Reachable only for ``pattern == "bimodal_or_complex"`` catchments, which
+    is why no existing fixture covers it; observed on a real DEA WOfS fetch
+    of the Fitzroy/Kimberley AOI (``KeyError: Timestamp('2017-02-01')``).
+
+    The exclusion rule -- "a secondary extremum must sit at least 2 months
+    away from the primary one" -- still has a well-defined meaning when the
+    primary month is absent: measure from where it would fall in the series.
+    """
+    from hydroseason._dynamic_year import _secondary_extrema
+
+    index = pd.date_range("2020-01-01", periods=12, freq="MS")
+    series = pd.Series(
+        [5.0, 40.0, 8.0, 6.0, 30.0, 7.0, 5.0, 4.0, 25.0, 6.0, 5.0, 4.0],
+        index=index,
+    )
+    absent_peak = pd.Timestamp("2020-02-01")
+    absent_trough = pd.Timestamp("2020-12-01")
+    without_extrema = series.drop([absent_peak, absent_trough])
+
+    peak_month, peak_value, trough_month, trough_value = _secondary_extrema(
+        without_extrema, absent_peak, absent_trough
+    )
+
+    assert peak_month is None or peak_month in without_extrema.index
+    assert trough_month is None or trough_month in without_extrema.index
+    assert peak_value != peak_value or isinstance(peak_value, float)
+    assert trough_value != trough_value or isinstance(trough_value, float)

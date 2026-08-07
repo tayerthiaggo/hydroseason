@@ -74,6 +74,16 @@ First public release: the remote-sensing-first rewrite of HydroSeason.
 - `build_historical_water_mask` used the `.rio` accessor without importing
   `rioxarray` itself, so it only worked when another module happened to
   import it first, and crashed in a fresh process.
+- **Bimodal/complex catchments no longer crash with a `KeyError` during
+  hydrological-year assembly.** `_secondary_extrema` looked its primary
+  peak and trough up in the cycle's *usable* months with an exact index
+  lookup, but the peak may legitimately be a `low_quality` month and the
+  trough is the cycle's end month — neither is guaranteed to survive the
+  usability filter. Secondary extrema are now positioned against the series
+  they are searched in, so the "at least 2 months clear of the primary
+  extremum" rule still applies when that month was filtered out. Reachable
+  only for `pattern="bimodal_or_complex"`, which is why no existing fixture
+  covered it; observed on a live DEA WOfS fetch of the Fitzroy/Kimberley AOI.
 - **`open_wo_statistics` no longer re-arms a broken PROJ database on the
   lazy cube it returns.** It restored the caller's `PROJ_LIB`/`PROJ_DATA` on
   the way out, but the cube it returns is lazy — the reprojection that reads
