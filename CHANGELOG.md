@@ -40,13 +40,14 @@ First public release: the remote-sensing-first rewrite of HydroSeason.
   field (which accepts only `"robust_extrema"` and rejects anything else at
   construction), is **not** promoted to default, and is not part of the
   released public API.
-- Opt-in robust-anchored monthly phases with `phase_model="rule_based"`.
-  The labels are descriptive (`recovery`, `wet`, `recession`, `dry`), use the
-  existing robust extrema annual cycles as fixed anchors, and do not change
-  annual hydrological-year outputs. `monthly_phase` is kept separate from
-  `monthly_condition`; its confidence values are quality grades, not
-  calibrated probabilities. Constrained semi-Markov phase labeling remains
-  post-release research and is not a hidden released mode.
+- Robust-anchored monthly phases, `phase_model="rule_based"`, **the default**
+  (pass `phase_model="none"` to disable). The labels are descriptive
+  (`recovery`, `wet`, `recession`, `dry`), use the existing robust extrema
+  annual cycles as fixed anchors, and do not change annual hydrological-year
+  outputs. `monthly_phase` is kept separate from `monthly_condition`; its
+  confidence values are quality grades, not calibrated probabilities.
+  Constrained semi-Markov phase labeling remains post-release research and is
+  not a hidden released mode.
 - Marginal `analyze_catchment` routing now imposes a fixed climatological
   window for **every** climatological peak phase (all twelve calendar months),
   not only tropical year-boundary wet seasons. Emitted rows remain labelled

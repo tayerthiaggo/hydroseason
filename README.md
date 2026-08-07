@@ -50,7 +50,6 @@ result = run_hydroseason(
     "monthly_extent.csv",
     output_dir="output/report",
     aoi_name="My AOI",
-    analysis_options={"phase_model": "rule_based"},
 )
 
 print(f"Regime: {result.analysis.regime.regime}")

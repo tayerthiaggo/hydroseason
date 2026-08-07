@@ -44,7 +44,7 @@ class DynamicHydroYearConfig:
     high_percentile: float = 80.0
     measurement_tolerance_pct: float = 1.0
     detector: Literal["robust_extrema"] = "robust_extrema"
-    phase_model: Literal["none", "rule_based"] = "none"
+    phase_model: Literal["none", "rule_based"] = "rule_based"
 
     def __post_init__(self) -> None:
         if self.expected_trough_month not in range(1, 13):

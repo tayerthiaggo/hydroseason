@@ -250,7 +250,7 @@ def generate_catchment_report(
     clean_stem = safe_stem(display_name)
 
     if analysis is None:
-        analysis = analyze_catchment(extent, phase_model="rule_based")
+        analysis = analyze_catchment(extent)
     else:
         _validate_analysis_for_extent(extent, analysis)
 
