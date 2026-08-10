@@ -5,8 +5,8 @@ associated **methodological paper**.
 
 ## Software
 
-Prefer the versioned GitHub/Zenodo release once a DOI is minted. Until then,
-cite the repository and version from `CITATION.cff` / `pyproject.toml`.
+Prefer the versioned GitHub/Zenodo release and its version-specific DOI:
+`10.5281/zenodo.21866899`.
 
 ```bibtex
 @software{tayer_hydroseason,
@@ -15,13 +15,12 @@ cite the repository and version from `CITATION.cff` / `pyproject.toml`.
   version = {0.1.0},
   year    = {2026},
   url     = {https://github.com/tayerthiaggo/hydroseason},
-  note    = {Replace with Zenodo DOI after first archived release}
+  doi     = {10.5281/zenodo.21866899}
 }
 ```
 
-`CITATION.cff` intentionally has **no software DOI** until the first public
-release is archived on Zenodo. Do not invent a placeholder DOI in papers.
-After minting, add `doi:` back to `CITATION.cff` and enable the README DOI badge.
+The README badge links the Zenodo concept DOI for the project; cite the
+version-specific DOI above when referring to HydroSeason 0.1.0.
 
 ## Method paper
 

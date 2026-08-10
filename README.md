@@ -4,6 +4,7 @@
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://tayerthiaggo.github.io/hydroseason/)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://github.com/tayerthiaggo/hydroseason)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/tayerthiaggo/hydroseason/blob/main/LICENSE)
+[![DOI](https://zenodo.org/badge/1251842440.svg)](https://doi.org/10.5281/zenodo.21866898)
 
 **HydroSeason turns a monthly surface-water record into a hydrological year report** — from a satellite-derived water-mask time series (such as Digital Earth Australia Water Observations), it works out when a catchment floods and dries, where each hydrological year begins and ends, and whether the pattern is even seasonal at all.
 
