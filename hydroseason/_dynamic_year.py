@@ -44,7 +44,7 @@ class DynamicHydroYearConfig:
     high_percentile: float = 80.0
     measurement_tolerance_pct: float = 1.0
     detector: Literal["robust_extrema"] = "robust_extrema"
-    phase_model: Literal["none", "rule_based"] = "none"
+    phase_model: Literal["none", "rule_based"] = "rule_based"
 
     def __post_init__(self) -> None:
         if self.expected_trough_month not in range(1, 13):
@@ -334,10 +334,29 @@ def _nearest_month(index: pd.DatetimeIndex, start: pd.Timestamp, end: pd.Timesta
     return pd.Timestamp(index[int(np.argmin(np.abs(index - target)))])
 
 
+def _position_of(index: pd.DatetimeIndex, month: pd.Timestamp) -> int:
+    """``month``'s position in ``index``, or where it would be inserted.
+
+    ``_secondary_extrema`` is handed the cycle's USABLE months, but its
+    ``peak``/``trough`` arguments come from the unfiltered cycle -- a peak may
+    be a ``low_quality`` month, and the trough is the cycle's end month, so
+    neither is guaranteed to have survived the usability filter. An exact
+    ``Index.get_loc`` raises ``KeyError`` in that case and takes the whole
+    analysis down with it. The distance test this feeds ("keep secondary
+    extrema at least 2 months clear of the primary one") stays meaningful
+    when the primary month is missing: measure from the position it would
+    occupy, which is what ``searchsorted`` returns.
+    """
+    position = int(index.searchsorted(month))
+    return min(position, len(index) - 1) if len(index) else 0
+
+
 def _secondary_extrema(series: pd.Series, peak: pd.Timestamp, trough: pd.Timestamp) -> tuple[pd.Timestamp | None, float, pd.Timestamp | None, float]:
     values = series.to_numpy(float)
-    peaks = [i for i in range(1, len(values) - 1) if values[i] > values[i - 1] and values[i] >= values[i + 1] and abs(i - series.index.get_loc(peak)) >= 2]
-    troughs = [i for i in range(1, len(values) - 1) if values[i] < values[i - 1] and values[i] <= values[i + 1] and abs(i - series.index.get_loc(trough)) >= 2]
+    peak_position = _position_of(series.index, peak)
+    trough_position = _position_of(series.index, trough)
+    peaks = [i for i in range(1, len(values) - 1) if values[i] > values[i - 1] and values[i] >= values[i + 1] and abs(i - peak_position) >= 2]
+    troughs = [i for i in range(1, len(values) - 1) if values[i] < values[i - 1] and values[i] <= values[i + 1] and abs(i - trough_position) >= 2]
     secondary_peak = max(peaks, key=lambda i: values[i]) if peaks else None
     secondary_trough = min(troughs, key=lambda i: values[i]) if troughs else None
     return (

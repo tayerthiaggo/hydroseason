@@ -18,7 +18,7 @@ def test_readme_release_copy_has_no_stale_markers():
 
 
 def test_api_docs_name_all_dea_cache_entry_points():
-    text = Path("docs/api.md").read_text(encoding="utf-8")
+    text = Path("docs/api/io.md").read_text(encoding="utf-8")
     for name in (
         "open_wo_statistics",
         "open_completed_mask_cache",

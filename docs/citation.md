@@ -50,6 +50,6 @@ https://doi.org/10.1016/j.jhydrol.2025.134750
 
 ## Scope note
 
-`main` is remote-sensing / water-extent first. The previous rainfall
-implementation is preserved, unmodified, on branch `legacy/rainfall`
-(tag `v0-rainfall-legacy`).
+HydroSeason analyses satellite-derived surface-water extent. Rainfall is
+ancillary context only and never sets water routing, boundaries, phases,
+events, or low spells.

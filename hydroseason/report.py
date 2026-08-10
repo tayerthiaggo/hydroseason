@@ -250,7 +250,7 @@ def generate_catchment_report(
     clean_stem = safe_stem(display_name)
 
     if analysis is None:
-        analysis = analyze_catchment(extent, phase_model="rule_based")
+        analysis = analyze_catchment(extent)
     else:
         _validate_analysis_for_extent(extent, analysis)
 
@@ -339,7 +339,12 @@ def generate_html_report(
     subtitle: str | None = None,
     quality_note: str | None = None,
 ) -> Path:
-    """Render the legacy supplied-year HTML report without creating CSV files."""
+    """Render a supplied-year HTML report without creating CSV files.
+
+    Compatibility API for callers that already have their own
+    ``hydro_years`` DataFrame; prefer :func:`generate_catchment_report` for
+    new code.
+    """
     output = Path(output_path)
     years = _legacy_years(hydro_years)
     monthly = _legacy_monthly(extent, years)
@@ -354,7 +359,7 @@ def generate_html_report(
         ]
     )
     verdict = (
-        f"Legacy compatibility report rendered from {len(years)} supplied "
+        f"Compatibility report rendered from {len(years)} supplied "
         "hydrological-year rows."
     )
     html_text = render_report_html(

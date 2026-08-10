@@ -47,6 +47,27 @@ def render_main_results_table(summary_csv: Path) -> str:
     return "\n".join(lines)
 
 
+def render_rainfall_results_table(summary_csv: Path) -> str:
+    """Render rainfall-augmented main study Markdown table from summary.csv."""
+    df = pd.read_csv(summary_csv)
+    lines = [
+        "| Catchment | Water Regime | Rainfall Regime | Water SNR | Rainfall SNR | Divergence | Peak Lag (months) |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for _, row in df.iterrows():
+        lag_str = (
+            f"{row['rainfall_peak_lag_months']:.0f}"
+            if pd.notna(row["rainfall_peak_lag_months"])
+            else "N/A"
+        )
+        lines.append(
+            f"| {row['name']} | {row['regime']} | {row['rainfall_regime']} | "
+            f"{row['amplitude_snr']:.2f} | {row['rainfall_amplitude_snr']:.2f} | "
+            f"{row['rainfall_divergence']} | {lag_str} |"
+        )
+    return "\n".join(lines)
+
+
 def render_resolution_results_table(decision_csv: Path) -> str:
     """Render resolution decision Markdown table from decision.csv."""
     df = pd.read_csv(decision_csv)
@@ -110,16 +131,18 @@ def render_case_study_docs(root: Path = REPO_ROOT, *, check: bool = False) -> in
     root = Path(root)
     main_doc = root / "docs" / "case-studies" / "main-workflow.md"
     resolution_doc = root / "docs" / "case-studies" / "resolution-and-acquisition.md"
+    rainfall_doc = root / "docs" / "case-studies" / "rainfall-context.md"
 
     main_summary_csv = root / "case_studies" / "results" / "main" / "summary.csv"
     decision_csv = root / "case_studies" / "results" / "resolution" / "decision.csv"
     acquisition_csv = root / "case_studies" / "results" / "resolution" / "acquisition-summary.csv"
+    rainfall_summary_csv = root / "case_studies" / "results" / "main_rainfall" / "summary.csv"
 
-    if not main_doc.exists() or not resolution_doc.exists():
+    if not main_doc.exists() or not resolution_doc.exists() or not rainfall_doc.exists():
         print("ERROR: Case study documentation files missing.", file=sys.stderr)
         return 1
 
-    if not main_summary_csv.exists() or not decision_csv.exists():
+    if not main_summary_csv.exists() or not decision_csv.exists() or not rainfall_summary_csv.exists():
         print("ERROR: Result CSV files missing.", file=sys.stderr)
         return 1
 
@@ -134,6 +157,10 @@ def render_case_study_docs(root: Path = REPO_ROOT, *, check: bool = False) -> in
     new_res_text = replace_marker_content(res_text, "GENERATED RESOLUTION RESULTS", res_table)
     new_res_text = replace_marker_content(new_res_text, "GENERATED ACQUISITION RESULTS", acq_table)
 
+    rainfall_text = rainfall_doc.read_text(encoding="utf-8")
+    rainfall_table = render_rainfall_results_table(rainfall_summary_csv)
+    new_rainfall_text = replace_marker_content(rainfall_text, "GENERATED RAINFALL RESULTS", rainfall_table)
+
     if check:
         drift = False
         if new_main_text != main_text:
@@ -142,6 +169,9 @@ def render_case_study_docs(root: Path = REPO_ROOT, *, check: bool = False) -> in
         if new_res_text != res_text:
             print(f"DRIFT DETECTED: {resolution_doc} differs from checked CSV results.", file=sys.stderr)
             drift = True
+        if new_rainfall_text != rainfall_text:
+            print(f"DRIFT DETECTED: {rainfall_doc} differs from checked CSV results.", file=sys.stderr)
+            drift = True
         if drift:
             return 1
         print("CHECK PASS: All case study documentation tables match checked results.")
@@ -149,6 +179,7 @@ def render_case_study_docs(root: Path = REPO_ROOT, *, check: bool = False) -> in
 
     main_doc.write_text(new_main_text, encoding="utf-8")
     resolution_doc.write_text(new_res_text, encoding="utf-8")
+    rainfall_doc.write_text(new_rainfall_text, encoding="utf-8")
     print("Rendered case study documentation tables successfully.")
     return 0
 

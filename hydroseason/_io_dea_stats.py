@@ -240,6 +240,9 @@ def open_wo_statistics(
     # _configure_cog_read_env might set, apply it (setdefault, same as every
     # other hydroseason STAC loader), then restore the caller's prior
     # environment afterwards rather than leaving our defaults installed.
+    # Safe for these keys specifically because odc.stac.configure_rio (called
+    # below) installs odc-stac's OWN rasterio environment for the lazy COG
+    # reads, so they do not need to survive in os.environ to take effect.
     import os
 
     env_keys = (
@@ -248,8 +251,19 @@ def open_wo_statistics(
         "VSI_CACHE_SIZE", "CPL_VSIL_CURL_ALLOWED_EXTENSIONS",
         "GDAL_HTTP_MAX_RETRY", "GDAL_HTTP_RETRY_DELAY", "GDAL_HTTP_RETRY_CODES",
         "GDAL_HTTP_TIMEOUT", "GDAL_HTTP_CONNECTTIMEOUT",
-        "GDAL_HTTP_MAX_TOTAL_CONNECTIONS", "PROJ_LIB", "PROJ_DATA",
+        "GDAL_HTTP_MAX_TOTAL_CONNECTIONS",
     )
+    # PROJ_LIB/PROJ_DATA are deliberately NOT restored. This function returns a
+    # LAZY dask graph whose reprojection runs long after it returns, and that
+    # reprojection reads the PROJ database named by these variables. A
+    # system-wide value -- e.g. a PostGIS install, which sets PROJ_LIB
+    # machine-wide on Windows -- points at a proj.db too old for pyproj
+    # ("DATABASE.LAYOUT.VERSION.MINOR = 2 whereas a number >= 6 is expected"),
+    # and every lazy read of the returned cube then dies with
+    # pyproj.exceptions.ProjError. _configure_cog_read_env repoints them at a
+    # known-good bundled database precisely to avoid that, so putting the
+    # hostile value back on the way out would re-arm the failure for the
+    # caller. Leaving the working database installed is the whole point.
     before = {key: os.environ.get(key) for key in env_keys}
     try:
         _configure_cog_read_env()

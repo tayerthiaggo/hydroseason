@@ -132,7 +132,7 @@ def open_completed_dual_extent_counts(*args, **kwargs):
     """Read back the second (any-day-wet ``max_water``) composite's per-month pixel counts.
 
     Public reader counterpart to :func:`acquire_wofs_cache` when it was
-    called with ``composite_bundle="hydrofragments_v1"`` (Task W2.2): given
+    called with ``composite_bundle="dual_composite_v1"`` (Task W2.2): given
     a :class:`WOfSCacheHandle` and a ``[start_date, end_date]`` range,
     returns a ``pandas.DataFrame`` combining every completed year's
     ``years/<year>/dual_extent_counts.json`` sidecar -- the SECONDARY
@@ -140,7 +140,7 @@ def open_completed_dual_extent_counts(*args, **kwargs):
     full-AOI/analysis-mask pixel-count denominators -- or ``None`` if any
     requested year is incomplete, the sidecar is missing/malformed for any
     requested year (including a store acquired with the default
-    ``composite_bundle="legacy"``, which never writes this file), or the
+    ``composite_bundle="single_mask"``, which never writes this file), or the
     resulting range has no rows. See
     :func:`hydroseason._io_wofs_zarr.open_completed_dual_extent_counts` for
     the full contract.

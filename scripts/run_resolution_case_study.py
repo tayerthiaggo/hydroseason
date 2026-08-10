@@ -361,7 +361,7 @@ def validate_composites(output_dir: Path = DEFAULT_OUTPUT_DIR) -> None:
     val_df = pd.DataFrame(
         [
             {
-                "bundle": "legacy",
+                "bundle": "single_mask",
                 "primary_mask": "wofs_frequency_or_wet",
                 "dual_sidecar": False,
                 "single_source_graph": True,
@@ -369,7 +369,7 @@ def validate_composites(output_dir: Path = DEFAULT_OUTPUT_DIR) -> None:
                 "status": "validated",
             },
             {
-                "bundle": "hydrofragments_v1",
+                "bundle": "dual_composite_v1",
                 "primary_mask": "wofs_frequency_or_wet",
                 "dual_sidecar": True,
                 "single_source_graph": True,

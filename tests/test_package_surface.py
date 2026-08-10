@@ -44,7 +44,7 @@ def test_package_import_exposes_only_migration_safe_surface():
     # not just via the private hydroseason._io_wofs_zarr module.
     assert callable(hydroseason.verify_cache_footprints)
     # open_completed_dual_extent_counts is the public reader counterpart for
-    # composite_bundle="hydrofragments_v1" acquisitions (Task W2.2): the
+    # composite_bundle="dual_composite_v1" acquisitions (Task W2.2): the
     # second (max_water) composite's per-month counts must be reachable from
     # the top-level package surface, not just via the private
     # hydroseason._io_wofs_zarr module.

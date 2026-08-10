@@ -54,8 +54,24 @@ def load_example_csv_extent(
     start_date: str = "2006-01-01",
     periods: int = 240,
 ) -> pd.DataFrame:
-    """Write deterministic example CSV data and load it through the CSV loader."""
+    """Write deterministic example CSV data and load it through the CSV loader.
+
+    Warns loudly: the returned frame is SYNTHETIC. It is shaped to look like a
+    plausible monsoonal catchment, so nothing downstream -- plots, detected
+    hydrological years, an HTML report -- betrays that the numbers are
+    invented. A caller who reaches this because a real CSV was missing must be
+    told, or they will read fabricated output as a measurement.
+    """
+    import warnings
+
     output_path = Path(output_path)
+    warnings.warn(
+        f"Generating SYNTHETIC example water-extent data at {output_path}. "
+        "These numbers are invented, not measured, and any analysis or report "
+        "derived from them is illustrative only.",
+        UserWarning,
+        stacklevel=2,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     create_mock_extent_data(start_date=start_date, periods=periods).to_csv(output_path, index=False)
     return load_extent_csv(output_path, date_col="date", value_col="extent_pct")

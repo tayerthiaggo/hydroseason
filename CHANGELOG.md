@@ -5,7 +5,7 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-08-06
+## [0.1.0] - 2026-08-10
 
 First public release: the remote-sensing-first rewrite of HydroSeason.
 
@@ -40,13 +40,14 @@ First public release: the remote-sensing-first rewrite of HydroSeason.
   field (which accepts only `"robust_extrema"` and rejects anything else at
   construction), is **not** promoted to default, and is not part of the
   released public API.
-- Opt-in robust-anchored monthly phases with `phase_model="rule_based"`.
-  The labels are descriptive (`recovery`, `wet`, `recession`, `dry`), use the
-  existing robust extrema annual cycles as fixed anchors, and do not change
-  annual hydrological-year outputs. `monthly_phase` is kept separate from
-  `monthly_condition`; its confidence values are quality grades, not
-  calibrated probabilities. Constrained semi-Markov phase labeling remains
-  post-release research and is not a hidden released mode.
+- Robust-anchored monthly phases, `phase_model="rule_based"`, **the default**
+  (pass `phase_model="none"` to disable). The labels are descriptive
+  (`recovery`, `wet`, `recession`, `dry`), use the existing robust extrema
+  annual cycles as fixed anchors, and do not change annual hydrological-year
+  outputs. `monthly_phase` is kept separate from `monthly_condition`; its
+  confidence values are quality grades, not calibrated probabilities.
+  Constrained semi-Markov phase labeling remains post-release research and is
+  not a hidden released mode.
 - Marginal `analyze_catchment` routing now imposes a fixed climatological
   window for **every** climatological peak phase (all twelve calendar months),
   not only tropical year-boundary wet seasons. Emitted rows remain labelled
@@ -59,6 +60,41 @@ First public release: the remote-sensing-first rewrite of HydroSeason.
   invalid coverage is retained as a low-confidence/provisional diagnostic.
   Public trough sequence selection now preserves the true observed minimum,
   allowing only exact-value ties to receive `coherence_adjusted` provenance.
+
+### Fixed
+- **DEA WOfS fetching for an AOI no longer fails with a grid-misalignment
+  error.** `run_hydroseason(aoi=..., start_date=..., end_date=...)` and
+  `load_wofs_monthly_extent` left `resolution` unset by default, which made
+  the monthly WOfS load fall back to the STAC items' own native pixel
+  alignment while the historical water mask was always built on an
+  explicitly-anchored grid. The two did not line up, raising
+  `GeoreferencingError: historical water mask transform ... does not match
+  raster transform ...`. The monthly load is now pinned to the historical
+  mask's own grid whenever the caller does not request a resolution; an
+  explicit `resolution` is still honoured unchanged.
+- `build_historical_water_mask` used the `.rio` accessor without importing
+  `rioxarray` itself, so it only worked when another module happened to
+  import it first, and crashed in a fresh process.
+- **Bimodal/complex catchments no longer crash with a `KeyError` during
+  hydrological-year assembly.** `_secondary_extrema` looked its primary
+  peak and trough up in the cycle's *usable* months with an exact index
+  lookup, but the peak may legitimately be a `low_quality` month and the
+  trough is the cycle's end month — neither is guaranteed to survive the
+  usability filter. Secondary extrema are now positioned against the series
+  they are searched in, so the "at least 2 months clear of the primary
+  extremum" rule still applies when that month was filtered out. Reachable
+  only for `pattern="bimodal_or_complex"`, which is why no existing fixture
+  covered it; observed on a live DEA WOfS fetch of the Fitzroy/Kimberley AOI.
+- **`open_wo_statistics` no longer re-arms a broken PROJ database on the
+  lazy cube it returns.** It restored the caller's `PROJ_LIB`/`PROJ_DATA` on
+  the way out, but the cube it returns is lazy — the reprojection that reads
+  that PROJ database runs later, on compute. On a machine with a system-wide
+  `PROJ_LIB` (a PostGIS install sets one on Windows) pointing at a `proj.db`
+  too old for `pyproj`, every lazy read then failed with
+  `pyproj.exceptions.ProjError: Error creating Transformer from CRS`. The
+  known-good database the loader installs is now left in place; the GDAL/AWS
+  variables are still restored, since `odc.stac.configure_rio` carries those
+  into the lazy reads independently.
 
 ### Deprecated
 - `DynamicHydroYearConfig.sustained_rise_months`,
@@ -81,52 +117,6 @@ First public release: the remote-sensing-first rewrite of HydroSeason.
   water-mask rasters (incl. Zarr cubes), and WOfS/STAC.
 - Core runtime dependencies are now only `pandas`/`numpy`; raster/STAC
   dependencies moved to the `raster`/`stac`/`all` extras.
-
-### Removed
-- Rainfall-first public APIs removed; ancillary rainfall comparison remains
-  internal and never sets boundaries. The previous rainfall implementation is
-  preserved, unmodified, on the `legacy/rainfall` branch (tag
-  [`v0-rainfall-legacy`]).
-
-## Pre-release rainfall prototype
-
-Legacy rainfall prototype, preserved at [`v0-rainfall-legacy`].
-
-### Added
-- Rainfall-based Wet/Dry season and hydrological-year delineation
-  (`classify_rainfall`), building upon and extending the workflow introduced
-  in Tayer et al. (2026).
-- Adaptive parameter resolution: `smooth_window`, `min_core_length`, and
-  `onset_window_months` resolve from the circular concentration `R` when left at
-  their sentinel defaults; explicit overrides always take precedence.
-- Circular-climatology fixed-season detection (default) with a legacy KMeans
-  method retained for parity.
-- STL seasonality strength and Walsh-Lawler Seasonality Index diagnostics, with a
-  rainfall-SI override for borderline monsoonal regimes.
-- Pandas `df.hydroseason` accessor for inline workflows.
-- YAML-driven CLI (`hydroseason run | demo | fetch | rainfall`) with a
-  `--version` flag.
-- Local rainfall readers for BoM and SILO formats (`read_rainfall`).
-- ERA5 and SILO AOI-averaged monthly rainfall fetch helpers.
-- Interactive Plotly plots and a self-contained HTML report
-  (`generate_html_report`, `export_bundle`).
-- Validation with imputation controls, data-confidence reporting, and a
-  diagnostics sidecar (`<output>.HydroSeason.json`).
-- MkDocs Material documentation site.
-
-### Changed
-- Validation errors are now more actionable (missing-column errors list the
-  available columns; conflicting-duplicate errors show example dates).
-
-### Notes for advanced users (breaking)
-- Algorithm building blocks are no longer re-exported from the top-level
-  package. Import them from their submodules instead:
-  - `circular_climatology`, `circular_stats`, `CircularStats` →
-    `hydroseason.fixed_season`
-  - `segment_main_wet_season_fixed_threshold`,
-    `harmonize_with_zero_preservation`, `refine_season_tails` →
-    `hydroseason.dynamic_season`
-  - `PLOTLY_CONFIG` → `hydroseason.plot`
-- Removed the unused `matplotlib` runtime dependency.
-
-[`v0-rainfall-legacy`]: https://github.com/tayerthiaggo/hydroseason/releases/tag/v0-rainfall-legacy
+- Rainfall is ancillary only: `run_hydroseason` can fetch or accept rainfall
+  as additive context, but rainfall never sets water routing, boundaries,
+  phases, events, or low spells.

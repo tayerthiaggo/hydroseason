@@ -298,6 +298,43 @@ def test_default_historical_mask_keeps_fixed_denominator_for_no_source_year(monk
     assert (result["invalid_pct"] == 100.0).all()
 
 
+def test_uncached_load_pins_resolution_to_historical_mask_grid(monkeypatch):
+    """A caller-omitted ``resolution`` must not let the monthly WOfS load
+    drift onto odc.stac's native/auto-detected item grid while the exact
+    historical water mask is always built at an explicit, EDGE-anchored
+    resolution -- see ``_load_wofs_items``'s ``spatial`` dict, which omits
+    ``"resolution"`` from the ``odc.stac.stac_load`` call entirely whenever
+    ``resolution is None``, silently switching that call onto
+    ``odc.stac``'s ``_auto_load_params`` native-item-alignment path. That
+    grid is not guaranteed to agree with the historical mask's fixed
+    EDGE-anchored grid, and previously produced a real
+    ``GeoreferencingError`` on ``run_hydroseason(aoi=...)`` (no explicit
+    ``resolution``, no ``cache_dir`` -- the documented, uncached DEA-fetch
+    path) once ``_clip_to_aoi`` compared the two grids.
+
+    Regression: ``load_wofs_monthly_extent`` must resolve the historical
+    mask's own grid resolution and use it for every subsequent WOfS load,
+    instead of forwarding a caller-omitted ``None`` straight through.
+    """
+    import hydroseason.io as hio
+
+    aoi = _aoi()
+    mask = _historical_water_mask(aoi=aoi)
+    load = Mock(side_effect=ValueError("No STAC items found for the requested AOI"))
+    monkeypatch.setattr(hio, "load_wofs_from_stac", load)
+
+    hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac",
+        "ga_ls_wo_3",
+        aoi,
+        "2020-01-01",
+        "2020-12-31",
+        historical_water_mask=mask,
+    )
+
+    assert load.call_args.kwargs["resolution"] == pytest.approx(mask.resolution[0])
+
+
 def test_invalid_supplied_historical_mask_fails_before_acquisition(monkeypatch, tmp_path):
     import hydroseason.io as hio
 

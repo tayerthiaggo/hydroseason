@@ -209,7 +209,7 @@ def analyze_catchment(
     min_months_per_year: int = 9,
     max_invalid_pct: float = 20.0,
     quality_policy: QualityPolicy = "exclude",
-    phase_model: Literal["none", "rule_based"] = "none",
+    phase_model: Literal["none", "rule_based"] = "rule_based",
     n_bootstrap: int = 200,
     random_state: int = 0,
 ) -> CatchmentAnalysis:
