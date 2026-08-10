@@ -11,6 +11,7 @@ authors:
     affiliation: "The University of Western Australia"
 repository-code: "https://github.com/tayerthiaggo/hydroseason"
 url: "https://tayerthiaggo.github.io/hydroseason/"
+doi: "10.5281/zenodo.21866899"
 license: "MIT"
 keywords:
   - hydrology
