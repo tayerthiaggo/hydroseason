@@ -3,9 +3,9 @@
 [![Tests](https://github.com/tayerthiaggo/hydroseason/actions/workflows/test.yml/badge.svg)](https://github.com/tayerthiaggo/hydroseason/actions/workflows/test.yml)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://tayerthiaggo.github.io/hydroseason/)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://github.com/tayerthiaggo/hydroseason)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/tayerthiaggo/hydroseason/blob/main/LICENSE)
 
-**HydroSeason turns a monthly surface-water record into a wet/dry-season report** — from a satellite-derived water-mask time series (such as Digital Earth Australia Water Observations), it works out when a catchment floods and dries, where each hydrological year begins and ends, and whether the pattern is even seasonal at all.
+**HydroSeason turns a monthly surface-water record into a hydrological year report** — from a satellite-derived water-mask time series (such as Digital Earth Australia Water Observations), it works out when a catchment floods and dries, where each hydrological year begins and ends, and whether the pattern is even seasonal at all.
 
 > [!NOTE]
 > HydroSeason analyzes surface-water extent percentages. It does **not** estimate river discharge, channel depth, total water volume, or groundwater storage.
@@ -16,9 +16,9 @@
 
 [![HydroSeason report preview](https://raw.githubusercontent.com/tayerthiaggo/hydroseason/main/docs/assets/report-preview.png)](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa.html)
 
-One function call gives you one self-contained HTML report — an interactive
+One function call gives you one self-contained HTML report, an interactive
 water-extent timeline with each hydrological year, its wet and dry phases,
-and the flood events and low spells found in the record — plus four CSVs
+and the flood events and low spells found in the record. Plus four CSVs
 carrying the same numbers for your own analysis: `_monthly`, `_hydro_years`,
 `_wet_event`, and `_low_spells`.
 
@@ -87,8 +87,8 @@ CSV, raster, or DEA fetch  →  run_hydroseason  →  seasonal or aseasonal rout
 | Any of the above, plus rainfall context | add `fetch_rainfall=True` or `rainfall_csv_path=` | `hydroseason[raster]` for SILO fetch |
 
 Runnable examples for each: [Usage Guide — The four ways to run it](https://tayerthiaggo.github.io/hydroseason/guide/#the-four-ways-to-run-it),
-or the [notebooks](notebooks/) — start with
-[01_quickstart.ipynb](notebooks/01_quickstart.ipynb).
+or the [notebooks](https://github.com/tayerthiaggo/hydroseason/tree/main/notebooks/) — start with
+[01_quickstart.ipynb](https://github.com/tayerthiaggo/hydroseason/blob/main/notebooks/01_quickstart.ipynb).
 Acquisition internals (the fixed historical water mask, planning
 footprints, cache integrity, composite bundles) are documented in
 [Advanced: DEA acquisition internals](https://tayerthiaggo.github.io/hydroseason/guide/#advanced-dea-acquisition-internals).
@@ -101,9 +101,9 @@ Three fully reproducible offline case studies using 2005–2025 DEA 30 m
 whole-catchment extent data across five Australian catchments (Daly,
 Fitzroy, Gilbert, Lachlan, Moonie):
 
-1. **[Main Catchment Workflow](docs/case-studies/main-workflow.md)** — Route-aware analysis across five catchments: three seasonal/marginal monsoonal basins, two aseasonal dryland basins.
-2. **[Resolution and Acquisition Evidence](docs/case-studies/resolution-and-acquisition.md)** — Why 30 m resolution is the release standard: 60/90/300 m coarsening fails pre-declared fidelity gates for low-SNR catchments.
-3. **[Rainfall Context](docs/case-studies/rainfall-context.md)** — Proves rainfall is strictly additive: every water-only column stays byte-identical with rainfall attached.
+1. **[Main Catchment Workflow](https://tayerthiaggo.github.io/hydroseason/case-studies/main-workflow/)** — Route-aware analysis across five catchments: three seasonal/marginal monsoonal basins, two aseasonal dryland basins.
+2. **[Resolution and Acquisition Evidence](https://tayerthiaggo.github.io/hydroseason/case-studies/resolution-and-acquisition/)** — Why 30 m resolution is the release standard: 60/90/300 m coarsening fails pre-declared fidelity gates for low-SNR catchments.
+3. **[Rainfall Context](https://tayerthiaggo.github.io/hydroseason/case-studies/rainfall-context/)** — Proves rainfall is strictly additive: every water-only column stays byte-identical with rainfall attached.
 
 ---
 
@@ -133,7 +133,7 @@ Full API reference, grouped by task: [Workflow, Loading Data, Analysis, Reportin
 ## Citation
 
 If you use HydroSeason in your research, please cite both the **software
-release** (see [`CITATION.cff`](CITATION.cff)) and the **methodological paper**:
+release** (see [`CITATION.cff`](https://github.com/tayerthiaggo/hydroseason/blob/main/CITATION.cff)) and the **methodological paper**:
 
 ```bibtex
 @article{tayer2026mapping,
@@ -152,10 +152,10 @@ release** (see [`CITATION.cff`](CITATION.cff)) and the **methodological paper**:
 ```
 
 Full citation guidance, including the software BibTeX entry and the Zenodo DOI
-policy, is in [docs/citation.md](docs/citation.md).
+policy, is in [docs/citation.md](https://tayerthiaggo.github.io/hydroseason/citation/).
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+MIT License — see [LICENSE](https://github.com/tayerthiaggo/hydroseason/blob/main/LICENSE).

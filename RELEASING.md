@@ -47,10 +47,11 @@ automated by this repository's workflows.
   pushed and a GitHub Release is published, never delete, re-tag, or force-push
   over it, and never replace an uploaded asset in place.
 - **A failed or discrepant candidate gets a new version**, not a patched
-  re-upload. If TestPyPI verification (Step 2 below) finds any problem,
-  fix it, bump nothing yet if the tag/release was never created, and start
-  over. If a real tag or PyPI upload already happened and something is
-  wrong, the fix is a new version (e.g. `0.1.1`), never mutating `0.1.0`.
+  re-upload. Before any file is uploaded, fixes may reuse the candidate
+  version. Once TestPyPI or PyPI accepts any file, that project/version
+  filename is permanently consumed; use a new prerelease or final version
+  (for example `0.1.0rc2` or `0.1.1`) for corrections. Never mutate an
+  uploaded version.
 
 ## Release steps
 
@@ -90,8 +91,10 @@ past this point until the release candidate is pushed and CI is green on it.
 
 ### 2. Publish and verify the TestPyPI candidate — human action
 
-Dispatch [`testpypi.yml`](.github/workflows/testpypi.yml) manually
-(`workflow_dispatch`) with `ref` set to the exact release commit SHA.
+First merge the green release candidate into `main` without tagging or
+publishing a release. Wait for the `docs.yml` Pages deployment to finish.
+Then dispatch [`testpypi.yml`](.github/workflows/testpypi.yml) manually
+(`workflow_dispatch`) with `ref` set to the exact merge commit SHA.
 
 The workflow will:
 - re-run every release gate (lint, lock, core tests with coverage, docs,
@@ -111,25 +114,26 @@ After it finishes, manually confirm:
 - declared extras (`raster`, `stac`, `all`) install cleanly;
 - the smoke jobs in the workflow run both passed.
 
-**Do not proceed to Step 3 on any discrepancy.** Fix the underlying issue,
-commit the fix, and re-run Step 1 verification before trying TestPyPI again
-(the release commit has not been tagged yet, so this is still safe to redo).
+**Do not proceed to Step 3 on any discrepancy.** If no file was uploaded,
+fix the underlying issue, commit it, merge the updated candidate to `main`,
+wait for the docs deployment, and dispatch the candidate again. If any file
+was uploaded, consume that version and use a new version; never retry the
+same filenames.
 
 ### 3. Merge, tag, and publish the GitHub Release — human action
 
 Once the required CI checks pass on the release commit and Step 2 is clean:
 
-1. Merge the release commit into `main` if it is not already there.
-2. Create an annotated tag on the exact merge commit:
+1. Create an annotated tag on the exact `main` commit tested on TestPyPI:
    ```bash
    git tag -a v0.1.0 -m "HydroSeason 0.1.0" <merge-commit-sha>
    git push origin v0.1.0
    ```
-3. Draft a GitHub Release from the tag, using the `[0.1.0]` section of
+2. Draft a GitHub Release from the tag, using the `[0.1.0]` section of
    `CHANGELOG.md` as the release body.
-4. Before publishing, verify the draft's target commit matches the tag and
+3. Before publishing, verify the draft's target commit matches the tag and
    that no additional commits have landed on `main` since.
-5. Publish the release. This triggers
+4. Publish the release. This triggers
    [`publish.yml`](.github/workflows/publish.yml) on `release.published`,
    which:
    - re-validates tag/version/date/changelog agreement;
@@ -141,11 +145,11 @@ Once the required CI checks pass on the release commit and Step 2 is clean:
      exact downloaded sdist/wheel to PyPI via OIDC trusted publishing;
    - uploads the identical sdist, wheel, and case-studies zip to the GitHub
      Release as assets.
-6. When the `pypi` environment deployment is queued, a required reviewer
+5. When the `pypi` environment deployment is queued, a required reviewer
    must approve it in the Actions UI before publishing proceeds. Confirm the
    artifact being approved is the one built from the tagged commit (check
    the run's commit SHA) before approving.
-7. Verify the wheel, sdist, and case-studies zip hashes attached to the
+6. Verify the wheel, sdist, and case-studies zip hashes attached to the
    GitHub Release match the artifact produced by the workflow run (compare
    `sha256sum` locally against the downloaded assets if in doubt).
 

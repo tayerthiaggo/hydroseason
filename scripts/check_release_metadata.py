@@ -30,14 +30,24 @@ def validate_release_metadata(
     if expected_tag is not None and expected_tag != f"v{version}":
         errors.append(f"tag {expected_tag} does not match version {version}")
     if require_released:
-        if not re.search(r'^date-released: "\d{4}-\d{2}-\d{2}"$', cff, re.MULTILINE):
+        cff_date_match = re.search(
+            r'^date-released: "(?P<date>\d{4}-\d{2}-\d{2})"$', cff, re.MULTILINE
+        )
+        if cff_date_match is None:
             errors.append("CITATION.cff requires date-released for a release")
-        if not re.search(
-            rf"^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}$",
+        changelog_date_match = re.search(
+            rf"^## \[{re.escape(version)}\] - (?P<date>\d{{4}}-\d{{2}}-\d{{2}})$",
             changelog,
             re.MULTILINE,
-        ):
+        )
+        if changelog_date_match is None:
             errors.append(f"CHANGELOG requires a dated [{version}] heading")
+        if (
+            cff_date_match is not None
+            and changelog_date_match is not None
+            and cff_date_match.group("date") != changelog_date_match.group("date")
+        ):
+            errors.append("CITATION.cff date-released differs from CHANGELOG release date")
     return errors
 
 

@@ -5,7 +5,7 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-08-06
+## [0.1.0] - 2026-08-10
 
 First public release: the remote-sensing-first rewrite of HydroSeason.
 
