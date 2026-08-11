@@ -1,3 +1,6 @@
+import json
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 
@@ -378,14 +381,30 @@ def test_peak_and_trough_withheld_for_aseasonal():
     assert result.climatological_trough_month is None
 
 
-def test_summary_row_is_flat_and_serialisable():
-    """One row per catchment, for the cross-catchment summary table."""
-    row = analyze_catchment(_seasonal()).summary_row(name="test_catchment")
-    assert row["catchment"] == "test_catchment"
-    assert row["regime"] == "seasonal"
-    assert row["route"] == "per_year_detection"
-    assert isinstance(row["n_hydro_years"], int)
-    assert {
+def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
+    """One row has a stable flat schema with precise, JSON-safe timing evidence."""
+    analysis = analyze_catchment(_seasonal())
+    timing_regime = replace(
+        analysis.regime,
+        peak_timing_concentration=0.1236,
+        peak_timing_concentration_ci_low=0.2346,
+        peak_timing_concentration_ci_high=0.3456,
+        peak_timing_uniformity_p=0.4566,
+        peak_phase_iqr_months=1.236,
+        trough_timing_concentration=0.5676,
+        trough_timing_concentration_ci_low=0.6786,
+        trough_timing_concentration_ci_high=0.7896,
+        trough_timing_uniformity_p=0.8916,
+        trough_phase_iqr_months=2.344,
+        n_timing_years=17,
+    )
+    row = replace(analysis, regime=timing_regime).summary_row(name="test_catchment")
+
+    assert list(row) == [
+        "catchment",
+        "regime",
+        "route",
+        "amplitude_snr",
         "peak_timing_concentration",
         "peak_timing_concentration_ci_low",
         "peak_timing_concentration_ci_high",
@@ -397,12 +416,31 @@ def test_summary_row_is_flat_and_serialisable():
         "trough_timing_uniformity_p",
         "trough_phase_iqr_months",
         "n_timing_years",
-    } <= set(row)
-    assert row["peak_timing_concentration"] == round(
-        analyze_catchment(_seasonal()).regime.peak_timing_concentration, 3
-    )
-    assert row["peak_phase_iqr_months"] == round(
-        analyze_catchment(_seasonal()).regime.peak_phase_iqr_months, 2
-    )
+        "n_usable_years",
+        "n_usable_months",
+        "n_hydro_years",
+        "boundary_basis",
+        "climatological_peak_month",
+        "climatological_trough_month",
+        "n_wet_events",
+        "median_event_duration_months",
+        "longest_low_spell_months",
+        "median_recurrence_months",
+        "years_without_wet_event",
+    ]
+    assert {
+        "peak_timing_concentration": 0.124,
+        "peak_timing_concentration_ci_low": 0.235,
+        "peak_timing_concentration_ci_high": 0.346,
+        "peak_timing_uniformity_p": 0.457,
+        "peak_phase_iqr_months": 1.24,
+        "trough_timing_concentration": 0.568,
+        "trough_timing_concentration_ci_low": 0.679,
+        "trough_timing_concentration_ci_high": 0.79,
+        "trough_timing_uniformity_p": 0.892,
+        "trough_phase_iqr_months": 2.34,
+        "n_timing_years": 17,
+    }.items() <= row.items()
+    assert json.dumps(row)
     for value in row.values():
         assert not isinstance(value, (list, dict, tuple, pd.DataFrame))
