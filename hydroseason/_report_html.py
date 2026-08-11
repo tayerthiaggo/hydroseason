@@ -364,6 +364,7 @@ def render_report_html(
     rainfall_context: dict[str, Any] | None = None,
     rainfall_figure: dict[str, Any] | None = None,
     rainfall_warning: str | None = None,
+    aoi_map_html: str | None = None,
 ) -> str:
     """Render a self-contained light report with inline pinned Plotly."""
     quality_threshold = 20.0 if quality_threshold is None else float(quality_threshold)
@@ -410,6 +411,11 @@ def render_report_html(
         '<div class="plot"><div id="low-spells" class="plot-canvas"></div></div>'
         "</div></details>"
         if low_spell_figure is not None
+        else ""
+    )
+    aoi_context_section = (
+        f'<section id="aoi-context">{aoi_map_html}</section>'
+        if aoi_map_html is not None
         else ""
     )
     quality = ""
@@ -618,6 +624,7 @@ def render_report_html(
   </header>
   <section class="verdict">{_escape(verdict)}</section>
   <section class="kpis">{_kpi_cards(kpis)}</section>
+  {aoi_context_section}
   <section class="plot plot-primary">
     <div class="plot-heading">
       <h2>Monthly Surface Water Extent</h2>

@@ -1,4 +1,4 @@
-"""Public orchestrator: resolve water input, analyze, then add rainfall context.
+"""Public orchestrator: preview an AOI, resolve water input, then add rainfall.
 
 ``run_hydroseason`` ties together the modules that were designed to stay
 decoupled from each other: it resolves whatever water source the caller
@@ -9,7 +9,10 @@ loading a supplied CSV, fetching from SILO, and comparing against the
 already-computed regime can each fail independently without taking the water
 analysis or the report down with them. Every rainfall failure is recorded on
 the result and surfaced as a ``UserWarning``; only water input, analysis, and
-report-writing failures are fatal and propagate as exceptions.
+report-writing failures are fatal and propagate as exceptions. A supplied AOI
+is loaded once before acquisition so its optional display context can be
+previewed and reused for rainfall; context and preview failures only warn, but
+an unloadable supplied AOI is fatal.
 
 Rainfall is off by default (``fetch_rainfall=False``). A supplied
 ``rainfall_csv_path`` always takes precedence over ``fetch_rainfall=True``: if
@@ -36,6 +39,8 @@ from typing import Any, Callable, Literal, Mapping
 
 import pandas as pd
 
+from ._aoi_context import AOIContext, build_aoi_context
+from ._aoi_map import display_aoi_map
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._diagnostics import missing_rainfall_dependencies
 from ._progress import ProgressEvent, WorkflowProgress, resolve_progress_reporter
@@ -81,12 +86,31 @@ class HydroSeasonRunResult:
     rainfall_comparison_error: str | None
     source_kind: WaterSourceKind
     warnings: tuple[str, ...]
+    aoi_context: AOIContext | None
     artifacts: CatchmentReportPaths
 
 
 def _warn(messages: list[str], message: str) -> None:
     messages.append(message)
     py_warnings.warn(message, UserWarning, stacklevel=3)
+
+
+def _in_notebook_kernel() -> bool:
+    """Return whether this process is running in a Jupyter kernel."""
+    try:
+        from IPython import get_ipython
+    except ImportError:
+        return False
+    shell = get_ipython()
+    return shell is not None and shell.__class__.__name__ == "ZMQInteractiveShell"
+
+
+def _resolve_show_map(show_map: Literal["auto"] | bool) -> bool:
+    if show_map == "auto":
+        return _in_notebook_kernel()
+    if type(show_map) is bool:
+        return show_map
+    raise ValueError("show_map must be 'auto', True, or False.")
 
 
 def run_hydroseason(
@@ -108,6 +132,7 @@ def run_hydroseason(
     report_title: str | None = None,
     report_subtitle: str | None = None,
     progress: bool | Callable[[ProgressEvent], None] = False,
+    show_map: Literal["auto"] | bool = "auto",
 ) -> HydroSeasonRunResult:
     """Resolve water input, analyze it once, then add rainfall as context.
 
@@ -132,6 +157,24 @@ def run_hydroseason(
     ``rainfall_comparison_error``), and warned via ``UserWarning`` -- it never
     raises.
     """
+    show_aoi_map = _resolve_show_map(show_map)
+    messages: list[str] = []
+    aoi_gdf = None
+    aoi_context = None
+    if aoi is not None:
+        # Loading is deliberately fatal: callers that supplied an AOI expect it
+        # to be valid even when their water source is already precomputed.
+        aoi_gdf = load_aoi(aoi)
+        try:
+            aoi_context = build_aoi_context(aoi_gdf, display_name=aoi_name)
+        except Exception as exc:
+            _warn(messages, f"Could not build AOI context: {exc}")
+        if show_aoi_map and aoi_context is not None:
+            try:
+                display_aoi_map(aoi_context)
+            except Exception as exc:
+                _warn(messages, f"Could not display AOI map: {exc}")
+
     tracker = WorkflowProgress(resolve_progress_reporter(progress))
 
     # Probed BEFORE the water step, not inside the rainfall branch: on a DEA
@@ -160,7 +203,7 @@ def run_hydroseason(
     )
     resolved = resolve_water_input(
         water_source,
-        aoi=aoi,
+        aoi=aoi_gdf if aoi_gdf is not None else aoi,
         start_date=start_date,
         end_date=end_date,
         water_mask_variable=water_mask_variable,
@@ -177,7 +220,7 @@ def run_hydroseason(
     options = dict(analysis_options or {})
     analysis = analyze_catchment(resolved.extent, **options)
     tracker.finish(2, f"{analysis.route} route")
-    messages = list(analysis.warnings) + preflight
+    messages = messages + list(analysis.warnings) + preflight
 
     rainfall: pd.DataFrame | None = None
     comparison: RegimeComparison | None = None
@@ -205,9 +248,8 @@ def run_hydroseason(
         tracker.start(3, "SILO fetch")
         rain_source = "silo"
         try:
-            if aoi is None:
+            if aoi_gdf is None:
                 raise ValueError("SILO rainfall fetching requires aoi.")
-            aoi_gdf = load_aoi(aoi)
             raw = get_monthly_silo_rainfall(
                 aoi_gdf,
                 int(resolved.extent.index.min().year),
@@ -266,6 +308,7 @@ def run_hydroseason(
         rainfall_source=rain_source if rain_source != "none" else None,
         rainfall_warning=rainfall_warning,
         rainfall_comparison_warning=comparison_error,
+        aoi_context=aoi_context,
         title=report_title,
         subtitle=report_subtitle,
     )
@@ -281,6 +324,7 @@ def run_hydroseason(
         rainfall_comparison_error=comparison_error,
         source_kind=resolved.source_kind,
         warnings=tuple(messages),
+        aoi_context=aoi_context,
         artifacts=artifacts,
     )
 
