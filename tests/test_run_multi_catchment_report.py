@@ -84,8 +84,21 @@ def _fake_extent(n_valid_values):
         {
             "n_valid": n_valid_values,
             "extent_pct": [10.0] * len(n_valid_values),
-        }
+            "n_water": [value // 10 for value in n_valid_values],
+            "n_invalid": [0] * len(n_valid_values),
+            "n_aoi": n_valid_values,
+        },
+        index=pd.date_range("2020-01-01", periods=len(n_valid_values), freq="MS"),
     )
+
+
+def test_fake_extent_uses_monthly_datetime_index():
+    extent = _fake_extent([100, 200])
+
+    assert isinstance(extent.index, pd.DatetimeIndex)
+    assert extent.index.freqstr == "MS"
+    assert extent["n_valid"].tolist() == [100, 200]
+    assert extent["extent_pct"].tolist() == [10.0, 10.0]
 
 
 def _patch_common(mod, monkeypatch, *, plan_resolution_return, guard_return=None, n_valid=(100, 200, 300)):
