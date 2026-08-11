@@ -20,13 +20,17 @@ def _item(position: int, peak_gb: float, payload: object | None = None):
 def test_scheduler_module_import_keeps_optional_dependencies_lazy(monkeypatch):
     """Eager psutil or pyproj imports would break a core-only installation."""
     module_name = "hydroseason._batch_scheduler"
-    monkeypatch.delitem(sys.modules, module_name, raising=False)
-    monkeypatch.setitem(sys.modules, "psutil", None)
-    monkeypatch.setitem(sys.modules, "pyproj", None)
+    package = importlib.import_module("hydroseason")
+    with monkeypatch.context() as isolated:
+        isolated.delitem(sys.modules, module_name, raising=False)
+        isolated.setitem(sys.modules, "psutil", None)
+        isolated.setitem(sys.modules, "pyproj", None)
 
-    module = importlib.import_module(module_name)
+        module = importlib.import_module(module_name)
 
+    package._batch_scheduler = sys.modules[module_name]
     assert module.__name__ == module_name
+    assert package._batch_scheduler is sys.modules[module_name]
 
 
 def test_batch_work_item_is_immutable_and_keeps_scheduler_fields():
