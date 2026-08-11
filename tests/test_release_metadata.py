@@ -58,3 +58,26 @@ def test_release_mode_rejects_mismatched_release_dates(tmp_path):
         tmp_path, expected_tag="v0.1.0", require_released=True
     )
     assert "CITATION.cff date-released differs from CHANGELOG release date" in errors
+
+
+def test_requires_python_matches_the_tested_interpreters():
+    """An uncapped requires-python let pip install into Python 3.14, where
+    the netCDF4/NumPy native ABI mismatch is a live crash risk and where CI
+    has never run. The declared window and the CI matrices must agree."""
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python 3.10
+        import tomli as tomllib
+
+    from pathlib import Path
+
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    classifiers = pyproject["project"]["classifiers"]
+
+    assert pyproject["project"]["requires-python"] == ">=3.10,<3.14"
+    for minor in (10, 11, 12, 13):
+        assert f"Programming Language :: Python :: 3.{minor}" in classifiers
+    assert "Programming Language :: Python :: 3.14" not in classifiers
+
+    workflow = Path(".github/workflows/test.yml").read_text(encoding="utf-8")
+    assert workflow.count('python-version: ["3.10", "3.11", "3.12", "3.13"]') == 2

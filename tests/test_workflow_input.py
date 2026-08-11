@@ -40,7 +40,10 @@ def test_none_source_calls_dea_loader(monkeypatch, tmp_path):
     expected = _extent_frame()
     calls = {}
 
-    def fake_loader(stac_url, collection, aoi, start_date, end_date, *, cache_dir):
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url, progress, progress_desc,
+    ):
         calls.update(
             stac_url=stac_url,
             collection=collection,
@@ -48,6 +51,7 @@ def test_none_source_calls_dea_loader(monkeypatch, tmp_path):
             start_date=start_date,
             end_date=end_date,
             cache_dir=cache_dir,
+            statistics_stac_url=statistics_stac_url,
         )
         return expected
 
@@ -65,6 +69,73 @@ def test_none_source_calls_dea_loader(monkeypatch, tmp_path):
     assert resolved.source_kind == "dea_wofs"
     pd.testing.assert_frame_equal(resolved.extent, expected)
     assert calls["collection"] == "ga_ls_wo_3"
+    assert calls["statistics_stac_url"] == calls["stac_url"]
+
+
+def test_one_configured_stac_url_reaches_both_searches(monkeypatch):
+    """The documented one-call workflow must not contact two different
+    services. A caller who configures stac_url= has configured the whole
+    run: the historical-statistics search inherits it unless a second URL
+    is given explicitly."""
+    calls = {}
+
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url, progress, progress_desc,
+    ):
+        calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
+        return _extent_frame()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    resolve_water_input(
+        None,
+        aoi="aoi.geojson",
+        start_date="2020-01-01",
+        end_date="2020-03-01",
+        stac_url="https://example.test/stac",
+    )
+
+    assert calls["stac_url"] == "https://example.test/stac"
+    assert calls["statistics_stac_url"] == "https://example.test/stac"
+
+
+def test_explicit_statistics_stac_url_is_not_overridden(monkeypatch):
+    calls = {}
+
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url, progress, progress_desc,
+    ):
+        calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
+        return _extent_frame()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    resolve_water_input(
+        None,
+        aoi="aoi.geojson",
+        start_date="2020-01-01",
+        end_date="2020-03-01",
+        stac_url="https://monthly.test/stac",
+        statistics_stac_url="https://statistics.test/stac",
+    )
+
+    assert calls["stac_url"] == "https://monthly.test/stac"
+    assert calls["statistics_stac_url"] == "https://statistics.test/stac"
+
+
+def test_default_statistics_endpoint_is_the_production_explorer():
+    """The sandbox Explorer is a separate deployment from the production one
+    users are documented against. Defaulting the statistics search to it gave
+    the package two hidden endpoints."""
+    from hydroseason._io_dea_stats import DEFAULT_WO_STATISTICS_STAC_URL
+    from hydroseason._workflow_input import DEFAULT_STAC_URL
+
+    assert DEFAULT_WO_STATISTICS_STAC_URL == DEFAULT_STAC_URL
+    assert "sandbox" not in DEFAULT_WO_STATISTICS_STAC_URL
 
 
 def _mask_array():
@@ -177,3 +248,64 @@ def test_local_date_bounds_subset_and_complete_months():
         pd.date_range("2020-01-01", "2020-03-01", freq="MS")
     )
     assert resolved.extent.loc["2020-02-01", "invalid_pct"] == 100.0
+
+
+def test_dea_branch_forwards_progress_to_the_per_year_loader(monkeypatch):
+    """load_wofs_monthly_extent already ticks a tqdm bar once per calendar
+    year. resolve_water_input is the only thing standing between that bar and
+    the public API."""
+    calls = {}
+
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url, progress, progress_desc,
+    ):
+        calls.update(progress=progress, progress_desc=progress_desc)
+        return _extent_frame()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    resolve_water_input(
+        None,
+        aoi="aoi.geojson",
+        start_date="2020-01-01",
+        end_date="2020-03-01",
+        progress=True,
+        progress_desc="[1/5] resolve water input",
+    )
+
+    assert calls["progress"] is True
+    assert calls["progress_desc"] == "[1/5] resolve water input"
+
+
+def test_progress_defaults_off_so_existing_callers_are_unchanged(monkeypatch):
+    calls = {}
+
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url, progress, progress_desc,
+    ):
+        calls.update(progress=progress, progress_desc=progress_desc)
+        return _extent_frame()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    resolve_water_input(
+        None, aoi="aoi.geojson", start_date="2020-01-01", end_date="2020-03-01"
+    )
+
+    assert calls["progress"] is False
+    assert calls["progress_desc"] is None
+
+
+def test_supplied_source_accepts_progress_and_ignores_it(tmp_path):
+    """A CSV read has no year loop; passing progress must not raise."""
+    frame = _extent_frame()
+    csv_path = tmp_path / "extent.csv"
+    frame.rename_axis("date").reset_index().to_csv(csv_path, index=False)
+
+    resolved = resolve_water_input(csv_path, progress=True)
+
+    assert resolved.source_kind == "extent_csv"

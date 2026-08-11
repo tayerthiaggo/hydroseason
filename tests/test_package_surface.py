@@ -72,11 +72,21 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert stripped_names.isdisjoint(vars(hydroseason))
 
 
-def test_package_metadata_has_no_removed_cli_entry_point():
-    pyproject_text = Path("pyproject.toml").read_text(encoding="utf-8")
+def test_package_metadata_declares_only_the_orchestrator_cli():
+    """0.1.1 adds exactly one console script: the thin `hydroseason run`
+    wrapper around run_hydroseason (see
+    docs/superpowers/specs/2026-08-11-cli-case-study-maps-design.md). The
+    removed pre-rewrite rainfall CLI must never come back."""
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
 
-    assert "[project.scripts]" not in pyproject_text
-    assert "rainfall" not in pyproject_text.lower()
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert project["project"]["scripts"] == {
+        "hydroseason": "hydroseason.cli:main"
+    }
 
 
 def test_invalid_conda_recipe_is_not_shipped():

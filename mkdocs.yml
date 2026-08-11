@@ -20,6 +20,7 @@ theme:
 nav:
   - Home: index.md
   - Usage Guide: guide.md
+  - CLI Recipes: cli-recipes.md
   - Dynamic Hydrological State: hydrological-state.md
   - Case Studies:
       - Overview: case-studies/index.md

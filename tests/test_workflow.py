@@ -297,3 +297,209 @@ def test_rainfall_never_changes_water_analysis(tmp_path):
             without.analysis.state.monthly_phase,
             with_rain.analysis.state.monthly_phase,
         )
+
+
+def test_run_hydroseason_propagates_one_stac_url_through_the_full_input_seam(
+    monkeypatch, tmp_path
+):
+    """Exercise run_hydroseason -> resolve_water_input -> DEA loader without
+    replacing the middle seam. This is the regression boundary requested by
+    the diagnosis handoff."""
+    calls = {}
+
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url, progress, progress_desc,
+    ):
+        calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
+        return _seasonal_extent()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    run_hydroseason(
+        None,
+        output_dir=tmp_path,
+        aoi="aoi.geojson",
+        start_date="2010-01-01",
+        end_date="2017-12-01",
+        stac_url="https://example.test/stac",
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert calls["stac_url"] == "https://example.test/stac"
+    assert calls["statistics_stac_url"] == "https://example.test/stac"
+
+
+def test_progress_reports_all_five_steps_in_order(tmp_path):
+    seen = []
+
+    run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+        progress=seen.append,
+    )
+
+    starts = [(e.step, e.label) for e in seen if e.phase == "start"]
+    finishes = [(e.step, e.label) for e in seen if e.phase == "finish"]
+    assert starts == [
+        (1, "resolve water input"),
+        (2, "analyze catchment"),
+        (3, "rainfall"),
+        (4, "rainfall comparison"),
+        (5, "write report"),
+    ]
+    assert finishes == starts
+    assert all(e.total_steps == 5 for e in seen)
+
+
+def test_progress_marks_disabled_rainfall_steps_as_skipped(tmp_path):
+    seen = []
+
+    run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+        progress=seen.append,
+    )
+
+    details = {
+        e.step: e.detail for e in seen if e.phase == "finish"
+    }
+    assert details[3] == "skipped"
+    assert details[4] == "skipped"
+
+
+def test_progress_finish_details_carry_the_run_facts(tmp_path):
+    seen = []
+    extent = _seasonal_extent()
+
+    result = run_hydroseason(
+        extent,
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+        progress=seen.append,
+    )
+
+    finishes = {e.step: e.detail for e in seen if e.phase == "finish"}
+    assert f"{len(extent)} months" in finishes[1]
+    assert result.analysis.route in finishes[2]
+    assert str(result.artifacts.html.name) in finishes[5]
+
+
+def test_progress_default_is_silent(tmp_path, capsys):
+    run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    captured = capsys.readouterr()
+    assert "[1/5]" not in captured.err
+    assert "[1/5]" not in captured.out
+
+
+def test_progress_true_writes_step_lines_to_stderr(tmp_path, capsys):
+    run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+        progress=True,
+    )
+
+    err = capsys.readouterr().err
+    assert "[1/5] resolve water input" in err
+    assert "[5/5] write report done" in err
+
+
+def test_progress_enables_the_per_year_bar_only_for_the_builtin_renderer(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    def fake_resolve(water_source, **kwargs):
+        calls.append(kwargs)
+        from hydroseason._workflow_input import ResolvedWaterInput
+
+        return ResolvedWaterInput(_seasonal_extent(), "dea_wofs")
+
+    monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
+
+    run_hydroseason(
+        None, output_dir=tmp_path / "a", aoi="aoi.geojson",
+        start_date="2010-01-01", end_date="2017-12-01",
+        analysis_options=ANALYSIS_OPTIONS, progress=True,
+    )
+    run_hydroseason(
+        None, output_dir=tmp_path / "b", aoi="aoi.geojson",
+        start_date="2010-01-01", end_date="2017-12-01",
+        analysis_options=ANALYSIS_OPTIONS, progress=lambda event: None,
+    )
+
+    assert calls[0]["progress"] is True
+    assert calls[0]["progress_desc"] == "[1/5] resolve water input"
+    assert calls[1]["progress"] is False
+
+
+def test_fetch_rainfall_warns_upfront_when_silo_dependencies_are_missing(
+    monkeypatch, tmp_path
+):
+    """A missing s3fs turned into rainfall_status='fetch_failed' only AFTER
+    the water acquisition -- hours later on a DEA run. Warn before the water
+    step instead, while the run is still cheap to abort."""
+    monkeypatch.setattr(
+        "hydroseason.workflow.missing_rainfall_dependencies",
+        lambda: ("h5netcdf", "s3fs"),
+    )
+    seen = []
+
+    with pytest.warns(UserWarning, match=r"s3fs"):
+        result = run_hydroseason(
+            _seasonal_extent(),
+            output_dir=tmp_path,
+            aoi="aoi.geojson",
+            fetch_rainfall=True,
+            analysis_options=ANALYSIS_OPTIONS,
+            progress=seen.append,
+        )
+
+    assert any("s3fs" in message for message in result.warnings)
+    assert result.rainfall_status == "fetch_failed"
+
+
+def test_no_dependency_warning_when_rainfall_is_not_requested(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "hydroseason.workflow.missing_rainfall_dependencies",
+        lambda: ("h5netcdf", "s3fs"),
+    )
+
+    result = run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert not any("s3fs" in message for message in result.warnings)
+
+
+def test_supplied_rainfall_csv_does_not_probe_silo_dependencies(monkeypatch, tmp_path):
+    extent = _seasonal_extent()
+    rain_path = _rainfall_csv(tmp_path / "rain.csv", extent.index)
+
+    def forbid_probe():
+        raise AssertionError("a supplied CSV never touches SILO")
+
+    monkeypatch.setattr(
+        "hydroseason.workflow.missing_rainfall_dependencies", forbid_probe
+    )
+
+    result = run_hydroseason(
+        extent,
+        output_dir=tmp_path / "report",
+        rainfall_csv_path=rain_path,
+        fetch_rainfall=True,
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert result.rainfall_status == "provided"

@@ -16,7 +16,12 @@ import numpy as np
 import pandas as pd
 
 from hydroseason._historical_water_mask import HistoricalWaterMask
-from hydroseason._io_dea_stats import DEFAULT_WO_STATISTICS_STAC_URL
+from hydroseason._io_dea_stats import (
+    DEFAULT_WO_STATISTICS_PRODUCT,
+    DEFAULT_WO_STATISTICS_STAC_URL,
+    DEAStatsUnavailable,
+    HistoricalWaterMaskUnavailable,
+)
 from hydroseason.hydro_year import monthly_water_extent
 
 
@@ -810,18 +815,36 @@ def load_wofs_monthly_extent(
             if historical_mask_cache_dir is not None
             else (Path(mask_cache_dir) if mask_cache_dir is not None else cache_root)
         )
-        resolved_historical_mask = _resolve_historical_water_mask(
-            aoi=aoi,
-            collection=collection,
-            end_date=end_date,
-            cache_root=historical_cache_root,
-            offline=offline,
-            statistics_stac_url=statistics_stac_url,
-            crs=crs,
-            resolution=resolution,
-            historical_water_mask=historical_water_mask,
-            io_facade=_io,
-        )
+        try:
+            resolved_historical_mask = _resolve_historical_water_mask(
+                aoi=aoi,
+                collection=collection,
+                end_date=end_date,
+                cache_root=historical_cache_root,
+                offline=offline,
+                statistics_stac_url=statistics_stac_url,
+                crs=crs,
+                resolution=resolution,
+                historical_water_mask=historical_water_mask,
+                io_facade=_io,
+            )
+        except DEAStatsUnavailable as exc:
+            # Fatal on purpose -- see HistoricalWaterMaskUnavailable. The
+            # re-raise exists only to make the failure diagnosable: the raw
+            # chain from here is a pystac_client/urllib3 traceback that names
+            # neither the endpoint nor the argument that redirects it.
+            raise HistoricalWaterMaskUnavailable(
+                "HydroSeason could not resolve the fixed multiyear water mask "
+                "that defines this run's spatial denominator, so the run "
+                "stopped rather than silently using a different denominator.\n"
+                f"  statistics STAC endpoint : {statistics_stac_url}\n"
+                f"  statistics product       : {DEFAULT_WO_STATISTICS_PRODUCT}\n"
+                f"  underlying failure       : {type(exc).__name__}: {exc}\n"
+                "Check network/proxy access to that endpoint (it must be "
+                "reachable for HTTPS), or pass statistics_stac_url= "
+                "(hydroseason run --statistics-stac-url) to name a reachable "
+                "DEA Explorer STAC."
+            ) from exc
         planning_footprint = _io.build_planning_footprint_from_historical_mask(
             resolved_historical_mask
         )

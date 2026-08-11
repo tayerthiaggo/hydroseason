@@ -62,6 +62,19 @@ print(f"HTML: {result.artifacts.html}")
 [the four ways to run it](#the-four-ways-to-run-it) below for rasters,
 DEA fetching, and optional rainfall context.
 
+For runs long enough to outlive a notebook session, use the CLI — same
+orchestrator, its own process, resumable via `--cache-dir`:
+
+```bash
+hydroseason run --aoi isaac.geojson --aoi-name "Isaac River" \
+  --start-date 2005-01-01 --end-date 2025-12-01 \
+  --output-dir output/isaac --cache-dir cache/isaac
+```
+
+`hydroseason doctor` reports whether an environment has the optional
+dependencies a given path needs. Full recipes:
+[CLI Recipes](https://tayerthiaggo.github.io/hydroseason/cli-recipes/).
+
 ---
 
 ## How it works

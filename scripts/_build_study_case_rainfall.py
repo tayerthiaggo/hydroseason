@@ -106,6 +106,11 @@ def build_rainfall_study(
                         "longest_low_spell_months", 0
                     ),
                     "amplitude_snr": round(float(analysis.regime.amplitude_snr), 3),
+                    "peak_phase_iqr_months": (
+                        round(float(analysis.regime.peak_phase_iqr_months), 3)
+                        if analysis.regime.peak_phase_iqr_months is not None
+                        else None
+                    ),
                     "water_extent_peak_month": (
                         float(analysis.climatological_peak_month)
                         if analysis.climatological_peak_month is not None

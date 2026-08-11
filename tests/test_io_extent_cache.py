@@ -489,12 +489,14 @@ def test_offline_historical_mask_replay_never_calls_statistics_stac(monkeypatch,
 
 def test_offline_historical_mask_without_cache_root_never_calls_statistics_stac(monkeypatch):
     import hydroseason.io as hio
-    from hydroseason._io_dea_stats import DEAStatsUnavailable
+    from hydroseason._io_dea_stats import HistoricalWaterMaskUnavailable
 
     statistics = Mock(side_effect=AssertionError("statistics STAC"))
     monkeypatch.setattr(hio, "open_wo_statistics", statistics)
 
-    with pytest.raises(DEAStatsUnavailable, match="no cached historical water mask"):
+    with pytest.raises(
+        HistoricalWaterMaskUnavailable, match="fixed multiyear water mask"
+    ):
         hio.load_wofs_monthly_extent(
             "https://example.invalid/monthly",
             "ga_ls_wo_3",
@@ -1415,4 +1417,48 @@ def test_wet_aoi_disk_cache_sidecar_persistence(tmp_path):
     loaded_gdf = gpd.read_file(sidecar_path)
     assert len(loaded_gdf) == 1
     assert loaded_gdf.crs.to_epsg() == 3577
+
+
+def test_historical_mask_failure_reports_endpoint_product_and_remedy(monkeypatch, tmp_path):
+    """The multiyear mask is this run's spatial denominator, so its failure
+    must stay fatal -- but the message must name the endpoint that failed,
+    the product requested, the underlying error, and the argument that
+    redirects it. A bare ProxyError traceback is undiagnosable in a
+    notebook."""
+    from hydroseason._io_dea_stats import (
+        DEAStatsUnavailable,
+        HistoricalWaterMaskUnavailable,
+        WoStatisticsUnavailable,
+    )
+    from hydroseason._io_extent_cache import load_wofs_monthly_extent
+
+    def explode(*args, **kwargs):
+        raise WoStatisticsUnavailable(
+            "DEA Water Observation Statistics STAC search failed for product "
+            "'ga_ls_wo_fq_myear_3' at https://statistics.invalid/stac: "
+            "APIError: ProxyError"
+        )
+
+    monkeypatch.setattr(
+        "hydroseason._io_extent_cache._resolve_historical_water_mask", explode
+    )
+
+    with pytest.raises(HistoricalWaterMaskUnavailable) as excinfo:
+        load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            _aoi(),
+            "2020-01-01",
+            "2020-12-01",
+            cache_dir=tmp_path,
+            statistics_stac_url="https://statistics.invalid/stac",
+        )
+
+    message = str(excinfo.value)
+    assert "https://statistics.invalid/stac" in message
+    assert "ga_ls_wo_fq_myear_3" in message
+    assert "statistics_stac_url" in message
+    assert "ProxyError" in message
+    # Stays fatal, and stays catchable as the module's documented base type.
+    assert isinstance(excinfo.value, DEAStatsUnavailable)
 
