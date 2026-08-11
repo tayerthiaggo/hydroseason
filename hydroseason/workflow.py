@@ -88,6 +88,7 @@ def run_hydroseason(
     rainfall_csv_path: str | Path | None = None,
     stac_url: str = DEFAULT_STAC_URL,
     stac_collection: str = DEFAULT_STAC_COLLECTION,
+    statistics_stac_url: str | None = None,
     cache_dir: str | Path | None = None,
     analysis_options: Mapping[str, Any] | None = None,
     report_title: str | None = None,
@@ -99,6 +100,12 @@ def run_hydroseason(
     ``None`` fetches from DEA (requires ``aoi``, ``start_date``, ``end_date``),
     otherwise it may be a DataFrame, CSV path, NetCDF/Zarr path, or an
     xarray Dataset/DataArray of a canonical water mask.
+
+    ``stac_url`` configures BOTH DEA searches the fetch path performs: the
+    monthly ``ga_ls_wo_3`` search and the ``ga_ls_wo_fq_myear_3`` historical-
+    statistics search that fixes this run's spatial denominator. Pass
+    ``statistics_stac_url`` only to point the statistics search at a
+    different service from the monthly one.
 
     Rainfall is entirely optional and never influences the water analysis:
     ``analyze_catchment`` runs exactly once, before any rainfall handling, on
@@ -118,6 +125,7 @@ def run_hydroseason(
         water_mask_variable=water_mask_variable,
         stac_url=stac_url,
         stac_collection=stac_collection,
+        statistics_stac_url=statistics_stac_url,
         cache_dir=cache_dir,
     )
     options = dict(analysis_options or {})

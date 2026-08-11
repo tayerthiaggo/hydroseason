@@ -297,3 +297,35 @@ def test_rainfall_never_changes_water_analysis(tmp_path):
             without.analysis.state.monthly_phase,
             with_rain.analysis.state.monthly_phase,
         )
+
+
+def test_run_hydroseason_propagates_one_stac_url_through_the_full_input_seam(
+    monkeypatch, tmp_path
+):
+    """Exercise run_hydroseason -> resolve_water_input -> DEA loader without
+    replacing the middle seam. This is the regression boundary requested by
+    the diagnosis handoff."""
+    calls = {}
+
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url,
+    ):
+        calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
+        return _seasonal_extent()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    run_hydroseason(
+        None,
+        output_dir=tmp_path,
+        aoi="aoi.geojson",
+        start_date="2010-01-01",
+        end_date="2017-12-01",
+        stac_url="https://example.test/stac",
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert calls["stac_url"] == "https://example.test/stac"
+    assert calls["statistics_stac_url"] == "https://example.test/stac"

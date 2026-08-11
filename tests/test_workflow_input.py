@@ -40,7 +40,10 @@ def test_none_source_calls_dea_loader(monkeypatch, tmp_path):
     expected = _extent_frame()
     calls = {}
 
-    def fake_loader(stac_url, collection, aoi, start_date, end_date, *, cache_dir):
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url,
+    ):
         calls.update(
             stac_url=stac_url,
             collection=collection,
@@ -48,6 +51,7 @@ def test_none_source_calls_dea_loader(monkeypatch, tmp_path):
             start_date=start_date,
             end_date=end_date,
             cache_dir=cache_dir,
+            statistics_stac_url=statistics_stac_url,
         )
         return expected
 
@@ -65,6 +69,73 @@ def test_none_source_calls_dea_loader(monkeypatch, tmp_path):
     assert resolved.source_kind == "dea_wofs"
     pd.testing.assert_frame_equal(resolved.extent, expected)
     assert calls["collection"] == "ga_ls_wo_3"
+    assert calls["statistics_stac_url"] == calls["stac_url"]
+
+
+def test_one_configured_stac_url_reaches_both_searches(monkeypatch):
+    """The documented one-call workflow must not contact two different
+    services. A caller who configures stac_url= has configured the whole
+    run: the historical-statistics search inherits it unless a second URL
+    is given explicitly."""
+    calls = {}
+
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url,
+    ):
+        calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
+        return _extent_frame()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    resolve_water_input(
+        None,
+        aoi="aoi.geojson",
+        start_date="2020-01-01",
+        end_date="2020-03-01",
+        stac_url="https://example.test/stac",
+    )
+
+    assert calls["stac_url"] == "https://example.test/stac"
+    assert calls["statistics_stac_url"] == "https://example.test/stac"
+
+
+def test_explicit_statistics_stac_url_is_not_overridden(monkeypatch):
+    calls = {}
+
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url,
+    ):
+        calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
+        return _extent_frame()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    resolve_water_input(
+        None,
+        aoi="aoi.geojson",
+        start_date="2020-01-01",
+        end_date="2020-03-01",
+        stac_url="https://monthly.test/stac",
+        statistics_stac_url="https://statistics.test/stac",
+    )
+
+    assert calls["stac_url"] == "https://monthly.test/stac"
+    assert calls["statistics_stac_url"] == "https://statistics.test/stac"
+
+
+def test_default_statistics_endpoint_is_the_production_explorer():
+    """The sandbox Explorer is a separate deployment from the production one
+    users are documented against. Defaulting the statistics search to it gave
+    the package two hidden endpoints."""
+    from hydroseason._io_dea_stats import DEFAULT_WO_STATISTICS_STAC_URL
+    from hydroseason._workflow_input import DEFAULT_STAC_URL
+
+    assert DEFAULT_WO_STATISTICS_STAC_URL == DEFAULT_STAC_URL
+    assert "sandbox" not in DEFAULT_WO_STATISTICS_STAC_URL
 
 
 def _mask_array():

@@ -60,7 +60,13 @@ COUNT_CLEAR_BAND = "count_clear"
 # constant/default because `open_wo_statistics` is a general-purpose native
 # loader (any DEA WO Statistics product), not specifically the wet-AOI path.
 DEFAULT_WO_STATISTICS_PRODUCT = DEA_STATS_ALLTIME_COLLECTION
-DEFAULT_WO_STATISTICS_STAC_URL = "https://explorer.sandbox.dea.ga.gov.au/stac"
+# The production DEA Explorer STAC, the SAME endpoint the monthly ga_ls_wo_3
+# search uses (hydroseason._workflow_input.DEFAULT_STAC_URL). Previously the
+# sandbox deployment (explorer.sandbox.dea.ga.gov.au), which gave the
+# documented one-call workflow two hidden endpoints: configuring stac_url= at
+# the public API left the historical-statistics search pointed somewhere else
+# entirely, and a firewall or proxy that allowed one blocked the other.
+DEFAULT_WO_STATISTICS_STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 
 # The on-disk WOfS storage tiling unit used elsewhere in the package (see
 # plan_storage_aligned_slices's default in _spatial_plan.py / its
