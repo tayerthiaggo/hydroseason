@@ -1,5 +1,5 @@
 site_name: HydroSeason
-site_description: Remote-sensing-first hydro-year detection from monthly surface-water extent
+site_description: Open-source Python package for testing surface-water seasonality, defining hydrological years, and analysing flood events and dry spells from satellite-derived monthly water extent
 site_url: https://tayerthiaggo.github.io/hydroseason/
 repo_url: https://github.com/tayerthiaggo/hydroseason
 repo_name: tayerthiaggo/hydroseason
