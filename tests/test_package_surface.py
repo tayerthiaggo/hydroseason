@@ -26,6 +26,8 @@ def test_package_import_exposes_only_migration_safe_surface():
         "WaterEventResult", "extract_water_events",
         "CatchmentAnalysis", "analyze_catchment",
         "HydroSeasonRunResult", "run_hydroseason",
+        "HydroSeasonAOIOutcome", "HydroSeasonBatchError", "HydroSeasonBatchResult",
+        "run_hydroseason_many",
     ]
     assert callable(hydroseason.detect_hydrological_years)
     assert callable(hydroseason.label_hydrological_months)
@@ -60,6 +62,10 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert callable(hydroseason.generate_catchment_report)
     assert callable(hydroseason.run_hydroseason)
     assert hydroseason.HydroSeasonRunResult.__name__ == "HydroSeasonRunResult"
+    assert hydroseason.HydroSeasonAOIOutcome.__name__ == "HydroSeasonAOIOutcome"
+    assert hydroseason.HydroSeasonBatchError.__name__ == "HydroSeasonBatchError"
+    assert hydroseason.HydroSeasonBatchResult.__name__ == "HydroSeasonBatchResult"
+    assert callable(hydroseason.run_hydroseason_many)
     assert "get_monthly_silo_rainfall" not in vars(hydroseason)
     assert "ValidationSeasonConfig" not in vars(hydroseason)
 

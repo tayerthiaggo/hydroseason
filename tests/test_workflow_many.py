@@ -245,3 +245,57 @@ def test_preflight_rejects_safe_stem_collisions_before_touching_existing_child_d
         _prepare(frame, tmp_path, id_col="aoi_id")
 
     assert sentinel.read_text(encoding="utf-8") == "do not overwrite"
+
+
+def test_run_many_invokes_the_single_workflow_once_for_each_source_row(
+    monkeypatch, tmp_path
+):
+    """Merging rows or sharing child output/cache paths must break this."""
+    from hydroseason.batch import run_hydroseason_many
+
+    source = _frame(
+        ids=["west", "central", "east"],
+        geometries=[
+            _geopandas_and_shapes()[3](115, -32, 116, -31),
+            _geopandas_and_shapes()[3](130, -20, 131, -19),
+            _geopandas_and_shapes()[3](140, -10, 141, -9),
+        ],
+    )
+    calls = []
+
+    def fake_run(water_source, **kwargs):
+        calls.append((water_source, kwargs))
+        return kwargs["aoi_name"]
+
+    monkeypatch.setattr("hydroseason.batch.run_hydroseason", fake_run)
+    monkeypatch.setattr("hydroseason.batch.estimate_aoi_peak_gb", lambda context: 0.25)
+
+    result = run_hydroseason_many(
+        source,
+        output_dir=tmp_path / "reports",
+        cache_dir=tmp_path / "cache",
+        id_col="aoi_id",
+        start_date="2020-01-01",
+        end_date="2020-12-01",
+        workers=1,
+        memory_budget_gb=1.0,
+        show_map=False,
+    )
+
+    assert [outcome.id for outcome in result.outcomes] == ["west", "central", "east"]
+    assert [outcome.result for outcome in result.outcomes] == ["west", "central", "east"]
+    assert [water_source for water_source, _kwargs in calls] == [None, None, None]
+    assert [kwargs["aoi_name"] for _water_source, kwargs in calls] == ["west", "central", "east"]
+    assert [len(kwargs["aoi"]) for _water_source, kwargs in calls] == [1, 1, 1]
+    assert [kwargs["aoi"].geometry.iloc[0] for _water_source, kwargs in calls] == list(source.geometry)
+    assert [kwargs["output_dir"] for _water_source, kwargs in calls] == [
+        tmp_path / "reports" / "west",
+        tmp_path / "reports" / "central",
+        tmp_path / "reports" / "east",
+    ]
+    assert [kwargs["cache_dir"] for _water_source, kwargs in calls] == [
+        tmp_path / "cache" / "west",
+        tmp_path / "cache" / "central",
+        tmp_path / "cache" / "east",
+    ]
+    assert all(kwargs["show_map"] is False for _water_source, kwargs in calls)

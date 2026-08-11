@@ -46,6 +46,12 @@ from .io import (
     verify_cache_footprints,
 )
 from .report import CatchmentReportPaths, generate_catchment_report, generate_html_report
+from .batch import (
+    HydroSeasonAOIOutcome,
+    HydroSeasonBatchError,
+    HydroSeasonBatchResult,
+    run_hydroseason_many,
+)
 from .workflow import HydroSeasonRunResult, run_hydroseason
 
 try:
@@ -72,4 +78,6 @@ __all__ = [
     "WaterEventResult", "extract_water_events",
     "CatchmentAnalysis", "analyze_catchment",
     "HydroSeasonRunResult", "run_hydroseason",
+    "HydroSeasonAOIOutcome", "HydroSeasonBatchError", "HydroSeasonBatchResult",
+    "run_hydroseason_many",
 ]
