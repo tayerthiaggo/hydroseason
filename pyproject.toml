@@ -113,7 +113,7 @@ hydroseason = "hydroseason.cli:main"
 include-package-data = true
 
 [tool.setuptools.package-data]
-hydroseason = ["_assets/*.js", "_assets/*.txt"]
+hydroseason = ["_assets/*.js", "_assets/*.css", "_assets/*.txt"]
 
 [tool.setuptools.packages.find]
 where = ["."]

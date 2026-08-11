@@ -128,3 +128,34 @@ def test_report_assets_resolve_from_source_package():
         "/**"
     )
     assert "MIT License" in root.joinpath("PLOTLY-LICENSE.txt").read_text(encoding="utf-8")
+
+
+def test_vendored_leaflet_assets_and_license_resolve_from_source_package():
+    """Removing a Leaflet artifact or its upstream attribution must break packaging checks."""
+    root = resources.files("hydroseason").joinpath("_assets")
+
+    javascript = root.joinpath("leaflet-1.9.4.min.js").read_text(encoding="utf-8")
+    stylesheet = root.joinpath("leaflet-1.9.4.css").read_text(encoding="utf-8")
+    license_text = root.joinpath("LEAFLET-LICENSE.txt").read_text(encoding="utf-8")
+
+    assert javascript.startswith("/* @preserve")
+    assert "Leaflet 1.9.4" in javascript
+    assert stylesheet.startswith("/* required styles */")
+    assert "BSD 2-Clause License" in license_text
+    assert "Copyright (c) 2010-2023, Volodymyr Agafonkin" in license_text
+
+
+def test_package_data_includes_all_vendored_leaflet_asset_types():
+    """Dropping CSS, JavaScript, or license files from wheels must fail."""
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert project["tool"]["setuptools"]["package-data"]["hydroseason"] == [
+        "_assets/*.js",
+        "_assets/*.css",
+        "_assets/*.txt",
+    ]
