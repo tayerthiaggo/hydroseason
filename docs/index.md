@@ -1,3 +1,6 @@
+---
+title: HydroSeason: hydrological-year detection from satellite surface-water extent
+---
 # HydroSeason
 
 Remote-sensing-first hydrological year detection and regime routing from **monthly surface-water extent**.
