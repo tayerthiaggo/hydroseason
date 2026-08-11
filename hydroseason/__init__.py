@@ -6,6 +6,12 @@ from importlib.metadata import version as _pkg_version
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import WaterEventResult, extract_water_events
 from ._regime import Regime, WaterRegimeAssessment, assess_water_regime
+from .batch import (
+    HydroSeasonAOIOutcome,
+    HydroSeasonBatchError,
+    HydroSeasonBatchResult,
+    run_hydroseason_many,
+)
 from .hydro_year import (
     HydroYearConfig,
     detect_hydrological_years,
@@ -46,12 +52,6 @@ from .io import (
     verify_cache_footprints,
 )
 from .report import CatchmentReportPaths, generate_catchment_report, generate_html_report
-from .batch import (
-    HydroSeasonAOIOutcome,
-    HydroSeasonBatchError,
-    HydroSeasonBatchResult,
-    run_hydroseason_many,
-)
 from .workflow import HydroSeasonRunResult, run_hydroseason
 
 try:

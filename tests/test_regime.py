@@ -7,7 +7,6 @@ import pytest
 from hydroseason import analyze_catchment, load_extent_csv
 from hydroseason._regime import REGIME_THRESHOLDS, assess_water_regime
 
-
 _CASE_STUDY_EXTENT_DIR = Path("case_studies/data/extent")
 _CASE_STUDY_KEYS = (
     "daly_river_nt",

@@ -197,10 +197,10 @@ def _validate_date_range(start_date, end_date) -> None:
 
 def _display_batch_preview(prepared: tuple[_PreparedAOI, ...]) -> None:
     """Best-effort one-map preview for the complete, row-preserving batch."""
+    import pandas as pd
+
     from ._aoi_context import build_aoi_context
     from ._aoi_map import display_aoi_map
-
-    import pandas as pd
 
     try:
         all_rows = pd.concat([item.gdf for item in prepared], ignore_index=True)

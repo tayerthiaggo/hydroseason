@@ -9,7 +9,6 @@ import warnings
 
 from ._aoi_context import AOIContext
 
-
 _SAFE_ELEMENT_ID = re.compile(r"[A-Za-z][A-Za-z0-9_-]*\Z")
 _DEFAULT_ELEMENT_ID = "hydroseason-aoi-map"
 
