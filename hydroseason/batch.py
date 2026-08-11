@@ -26,10 +26,12 @@ class HydroSeasonAOIOutcome:
     error_message: str | None
 
     def __post_init__(self) -> None:
+        has_error_type = isinstance(self.error_type, str) and bool(self.error_type.strip())
+        has_error_message = isinstance(self.error_message, str) and bool(self.error_message.strip())
         if self.result is not None:
             valid = self.error_type is None and self.error_message is None
         else:
-            valid = self.error_type is not None and self.error_message is not None
+            valid = has_error_type and has_error_message
         if not valid:
             raise ValueError("an outcome requires a result or complete error details, but not both")
 

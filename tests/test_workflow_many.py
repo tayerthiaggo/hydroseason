@@ -63,6 +63,10 @@ def test_outcome_requires_exactly_a_result_or_complete_error_details():
         HydroSeasonAOIOutcome("partial-success", 0, object(), "ValueError", None)
     with pytest.raises(ValueError, match="result or complete error details"):
         HydroSeasonAOIOutcome("partial", 0, None, "ValueError", None)
+    with pytest.raises(ValueError, match="result or complete error details"):
+        HydroSeasonAOIOutcome("blank-type", 0, None, "   ", "failed")
+    with pytest.raises(ValueError, match="result or complete error details"):
+        HydroSeasonAOIOutcome("blank-message", 0, None, "ValueError", "\t")
 
 
 def test_raise_for_failures_reports_every_failure_without_losing_successes():
@@ -149,6 +153,17 @@ def test_preflight_rejects_missing_crs_or_invalid_rows(frame, tmp_path):
     """Allowing invalid source data into batch work must break this."""
     with pytest.raises(ValueError):
         _prepare(frame, tmp_path)
+
+
+def test_preflight_rejects_mixed_valid_and_empty_rows_without_reindexing():
+    """Filtering an invalid source row must never change batch row positions."""
+    from hydroseason.batch import _prepare_batch_aois
+
+    _geopandas, _multi, _polygon, box = _geopandas_and_shapes()
+    source = _frame(geometries=[box(115, -32, 116, -31), None])
+
+    with pytest.raises(ValueError, match="empty"):
+        _prepare_batch_aois(source, output_dir="unused-output")
 
 
 def test_one_multipolygon_row_stays_one_prepared_item(tmp_path):

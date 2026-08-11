@@ -116,9 +116,8 @@ def load_aoi(aoi, *, to_crs: str | int | None = None):
         raise TypeError("aoi must be a vector path or geopandas.GeoDataFrame.")
     if result.empty:
         raise ValueError("AOI GeoDataFrame is empty.")
-    result = result[~result.geometry.isna() & ~result.geometry.is_empty].copy()
-    if result.empty:
-        raise ValueError("AOI has no valid non-empty geometries.")
+    if result.geometry.isna().any() or result.geometry.is_empty.any():
+        raise ValueError("AOI contains null or empty geometries; fix them before use.")
     if not result.geometry.is_valid.all():
         raise ValueError(
             "AOI contains geometrically invalid (e.g. self-intersecting) "
