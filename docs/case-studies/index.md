@@ -6,7 +6,7 @@ HydroSeason includes three reproducible case studies based on 21-year Digital Ea
 [Main Catchment Workflow](main-workflow.md)
 
 Demonstrates the single route-aware `analyze_catchment` workflow across five Australian catchments representing distinct hydrological regimes:
-- **Daly River (NT)** – Monsoonal tropical marginal
+- **Daly River (NT)** – Monsoonal tropical seasonal
 - **Fitzroy River (WA)** – Monsoonal tropical seasonal
 - **Gilbert River (QLD)** – Gulf tropical seasonal
 - **Lachlan River (NSW)** – Murray-Darling inland dryland aseasonal

@@ -41,7 +41,7 @@ os.environ.pop("PROJ_DATA", None)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from hydroseason import analyze_hydrological_state  # noqa: E402
+from hydroseason import analyze_hydrological_state, run_hydroseason  # noqa: E402
 
 # plan_resolution/probe_amplitude are NOT re-exported from the top-level
 # hydroseason package (tests/test_package_surface.py freezes __all__), so
@@ -267,6 +267,10 @@ def run_one_catchment(
             "crs": OUTPUT_CRS,
             "stac_url": STAC_URL,
         },
+        "route_aware_report": {
+            "quality_policy": "flag",
+            "show_map": False,
+        },
     }
     checkpoint = OUTPUT_DIR / f"{spec.key}_state.pkl"
     if checkpoint.exists() and not force:
@@ -348,6 +352,21 @@ def run_one_catchment(
         flush=True,
     )
 
+    # Keep the existing state comparison, but have the supported workflow
+    # produce the route-aware report bundle and its circular-timing summary.
+    # This script's own thread-pool controls remain the concurrency authority;
+    # do not replace it with run_hydroseason_many.
+    workflow_result = run_hydroseason(
+        extent,
+        output_dir=OUTPUT_DIR / "reports" / spec.key,
+        aoi_name=spec.display_name,
+        analysis_options={"quality_policy": "flag"},
+        report_title=spec.display_name,
+        report_subtitle="Whole-catchment monthly surface-water extent",
+        show_map=False,
+    )
+    timing_summary = workflow_result.analysis.summary_row(name=spec.display_name)
+
     result = {
         "spec": spec,
         "geo": geo,
@@ -357,6 +376,7 @@ def run_one_catchment(
         "hydro_years": state.hydro_years,
         "monthly_condition": state.monthly_condition,
         "data_quality": state.data_quality,
+        "timing_summary": timing_summary,
         "resolution_m": resolution_m,
         "n_valid": n_valid,
         "projected_noise_floor_pp": plan["noise_floor_pp"],

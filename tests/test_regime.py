@@ -1,7 +1,38 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import pytest
 
+from hydroseason import analyze_catchment, load_extent_csv
 from hydroseason._regime import REGIME_THRESHOLDS, assess_water_regime
+
+
+_CASE_STUDY_EXTENT_DIR = Path("case_studies/data/extent")
+_CASE_STUDY_KEYS = (
+    "daly_river_nt",
+    "fitzroy_river_wa",
+    "gilbert_river_qld",
+    "lachlan_river_nsw",
+    "moonie_river_qld_nsw",
+)
+
+
+def _checked_case_study_regimes():
+    """Assess the committed 30 m extent fixtures without boundary or network inputs."""
+    return {
+        key: assess_water_regime(
+            load_extent_csv(
+                _CASE_STUDY_EXTENT_DIR / f"{key}_30m.csv",
+                date_col="date",
+                value_col="extent_pct",
+            ),
+            quality_policy="flag",
+            n_bootstrap=999,
+            random_state=0,
+        )
+        for key in _CASE_STUDY_KEYS
+    }
 
 
 def _series(monthly_values, years=30, noise=0.0, seed=0):
@@ -73,6 +104,85 @@ def test_regime_thresholds_publish_peak_concentration_contract():
         "uniformity_min_timing_years": 10.0,
         "timing_record_caution_years": 30.0,
     }
+
+
+def test_checked_case_study_fixtures_preserve_scientific_timing_properties():
+    """Changing timing qualification or concentration must not invert these fixtures' evidence."""
+    regimes = _checked_case_study_regimes()
+
+    peak_r = {key: result.peak_timing_concentration for key, result in regimes.items()}
+    assert (
+        peak_r["gilbert_river_qld"]
+        > peak_r["fitzroy_river_wa"]
+        > peak_r["daly_river_nt"]
+        > peak_r["moonie_river_qld_nsw"]
+        > peak_r["lachlan_river_nsw"]
+    )
+    for result in regimes.values():
+        assert 0.0 <= result.peak_timing_concentration_ci_low <= 1.0
+        assert 0.0 <= result.peak_timing_concentration_ci_high <= 1.0
+        assert result.n_timing_years == 21
+        assert "fewer than 30 usable annual timings" in " ".join(result.caveats)
+    assert regimes["daly_river_nt"].peak_timing_concentration_ci_low >= 0.7
+    assert regimes["lachlan_river_nsw"].peak_timing_concentration_ci_low < 0.7
+
+
+def test_checked_case_study_routes_follow_snr_and_trough_timing_evidence():
+    """Changing the route gate must not force a hydro-year onto diffuse fixtures."""
+    analyses = {
+        key: analyze_catchment(
+            load_extent_csv(
+                _CASE_STUDY_EXTENT_DIR / f"{key}_30m.csv",
+                date_col="date",
+                value_col="extent_pct",
+            ),
+            phase_model="rule_based",
+            quality_policy="flag",
+            n_bootstrap=999,
+            random_state=0,
+        )
+        for key in _CASE_STUDY_KEYS
+    }
+
+    for key in ("lachlan_river_nsw", "moonie_river_qld_nsw"):
+        assert analyses[key].regime.regime == "aseasonal"
+        assert analyses[key].regime.amplitude_snr < 0.7
+        assert analyses[key].route == "event_characterisation"
+    for key in ("fitzroy_river_wa", "gilbert_river_qld"):
+        assert analyses[key].regime.regime == "seasonal"
+        assert analyses[key].route == "per_year_detection"
+
+    daly = analyses["daly_river_nt"]
+    assert daly.regime.regime == "seasonal"
+    expected_daly_route = (
+        "per_year_detection"
+        if daly.regime.trough_timing_concentration_ci_low >= 0.7
+        else "fixed_climatological_window"
+    )
+    assert daly.route == expected_daly_route
+
+
+def test_checked_case_study_peak_timing_concentrations_are_reproducible():
+    """Characterization: random_state=0, n_bootstrap=999, n_null=999.
+
+    ``n_null`` is the circular-timing implementation's documented
+    ``max(n_bootstrap, 999)`` value. The stale plan triples came from an
+    unrecorded Monte Carlo realization and are intentionally not used.
+    """
+    expected = {
+        "daly_river_nt": (0.864, 0.808, 0.925),
+        "fitzroy_river_wa": (0.907, 0.858, 0.956),
+        "gilbert_river_qld": (0.934, 0.907, 0.967),
+        "lachlan_river_nsw": (0.324, 0.119, 0.597),
+        "moonie_river_qld_nsw": (0.532, 0.315, 0.765),
+    }
+
+    regimes = _checked_case_study_regimes()
+    for key, (concentration, ci_low, ci_high) in expected.items():
+        result = regimes[key]
+        assert result.peak_timing_concentration == pytest.approx(concentration, abs=0.0005)
+        assert result.peak_timing_concentration_ci_low == pytest.approx(ci_low, abs=0.0005)
+        assert result.peak_timing_concentration_ci_high == pytest.approx(ci_high, abs=0.0005)
 
 def test_strong_annual_cycle_is_seasonal():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)

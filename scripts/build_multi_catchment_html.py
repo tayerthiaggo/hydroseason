@@ -157,6 +157,35 @@ def _resolution_label(r: dict) -> str:
     return f"{spec.display_name} ({resolution_m:.0f}m)"
 
 
+def _timing_summary(r: dict) -> dict:
+    """Return the route-aware circular-timing summary stamped by the runner.
+
+    Older checkpoints predate the timing payload. They remain renderable, with
+    an explicit unavailable marker rather than an invented timing claim.
+    """
+    summary = r.get("timing_summary")
+    return summary if isinstance(summary, dict) else {}
+
+
+def _timing_value(value: object, *, decimals: int = 3) -> str:
+    return f"{float(value):.{decimals}f}" if value is not None else "—"
+
+
+def _timing_text(summary: dict, prefix: str) -> str:
+    concentration = summary.get(f"{prefix}_timing_concentration")
+    ci_low = summary.get(f"{prefix}_timing_concentration_ci_low")
+    ci_high = summary.get(f"{prefix}_timing_concentration_ci_high")
+    uniformity_p = summary.get(f"{prefix}_timing_uniformity_p")
+    iqr = summary.get(f"{prefix}_phase_iqr_months")
+    if concentration is None:
+        return "—"
+    return (
+        f"R {_timing_value(concentration)} "
+        f"(95% CI {_timing_value(ci_low)}–{_timing_value(ci_high)}); "
+        f"p={_timing_value(uniformity_p)}; IQR={_timing_value(iqr, decimals=2)} months"
+    )
+
+
 def _comparison_figure(results: list[dict]) -> str:
     """Cross-catchment comparison: peak/trough extent distribution per catchment.
 
@@ -348,6 +377,7 @@ def _characterization_card(r: dict) -> str:
     noise_floor_pp = r.get("projected_noise_floor_pp")
     guard_caveat = r.get("guard_caveat")
     pattern_claim_excluded = bool(r.get("pattern_claim_excluded", False))
+    timing_summary = _timing_summary(r)
 
     resolution_html = f"{resolution_m:.0f} m" if resolution_m is not None else "—"
     n_valid_html = f"{n_valid:,}" if n_valid is not None else "—"
@@ -368,6 +398,15 @@ def _characterization_card(r: dict) -> str:
         f'<div class="caveat-block"><span class="caveat-label">Guard caveat</span>'
         f"<p>{html.escape(str(guard_caveat))}</p></div>"
         if guard_caveat else ""
+    )
+    timing_html = (
+        '<div class="timing-evidence">'
+        '<span class="kpi-label">Circular timing evidence</span>'
+        f'<p><strong>Peak:</strong> {_timing_text(timing_summary, "peak")}</p>'
+        f'<p><strong>Trough:</strong> {_timing_text(timing_summary, "trough")}</p>'
+        f'<p><strong>Annual timings:</strong> {timing_summary.get("n_timing_years", "—")}</p>'
+        '</div>'
+        if timing_summary else ""
     )
 
     return f"""
@@ -392,6 +431,7 @@ def _characterization_card(r: dict) -> str:
       </div>
       <div class="cond-row">{condition_html or '<span class="cond-chip">no complete cycles</span>'}</div>
       {stress_trust_row_html}
+      {timing_html}
       {caveat_html}
       {_catchment_extent_figure(spec, r['extent'], hy, pattern)}
     </section>
@@ -409,6 +449,7 @@ def build_report(results: list[dict], output_path: Path) -> Path:
             ' <span class="pattern-badge pattern-flagged">flagged</span>'
             if r.get("pattern_claim_excluded") else ""
         )
+        timing_summary = _timing_summary(r)
         return f"""<tr>
           <td><a href="#section-{r['spec'].key}">{html.escape(r['spec'].display_name)}</a></td>
           <td>{html.escape(r['spec'].region)}</td>
@@ -416,6 +457,9 @@ def build_report(results: list[dict], output_path: Path) -> Path:
           <td>{r['geo']['n_stream_reaches'] if r['geo']['n_stream_reaches'] is not None else '—'}</td>
           <td>{resolution_html}{flagged_html}</td>
           <td><span class="pattern-badge pattern-{r['pattern'].pattern}">{PATTERN_LABELS.get(r['pattern'].pattern, r['pattern'].pattern)}</span></td>
+          <td>{_timing_text(timing_summary, "peak")}</td>
+          <td>{_timing_text(timing_summary, "trough")}</td>
+          <td>{timing_summary.get("n_timing_years", "—")}</td>
           <td>{len(r['hydro_years'][r['hydro_years']['status'] == 'complete'])}</td>
         </tr>"""
 
@@ -429,6 +473,16 @@ def build_report(results: list[dict], output_path: Path) -> Path:
     total_area = sum(r["geo"]["area_km2"] for r in results)
     date_min = min(r["extent"].index.min() for r in results)
     date_max = max(r["extent"].index.max() for r in results)
+    combined_timing_json = json.dumps(
+        [
+            {
+                "key": r["spec"].key,
+                "name": r["spec"].display_name,
+                **_timing_summary(r),
+            }
+            for r in results
+        ]
+    )
 
     html_doc = f"""<!DOCTYPE html>
 <html lang="en">
@@ -463,6 +517,8 @@ def build_report(results: list[dict], output_path: Path) -> Path:
   table.summary a {{ color: #0284c7; text-decoration: none; font-weight: 500; }}
   .card {{ background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }}
   .catchment-section {{ background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin: 24px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }}
+  .timing-evidence {{ margin-top: 14px; padding: 12px; background: #f8fafc; border-left: 3px solid #0284c7; }}
+  .timing-evidence p {{ margin: 5px 0; font-size: 13px; }}
   .catchment-header {{ display: flex; align-items: center; gap: 12px; }}
   .catchment-header h2 {{ margin: 0; }}
   .regime-note {{ color: #64748b; font-size: 13.5px; margin: 4px 0 18px; }}
@@ -515,12 +571,14 @@ def build_report(results: list[dict], output_path: Path) -> Path:
 
   <h2>Summary</h2>
   <table class="summary">
-    <thead><tr><th>Catchment</th><th>Region</th><th>Area (km²)</th><th>Stream reaches</th><th>Resolution</th><th>Seasonal pattern</th><th>Complete hydro-years</th></tr></thead>
+    <thead><tr><th>Catchment</th><th>Region</th><th>Area (km²)</th><th>Stream reaches</th><th>Resolution</th><th>Seasonal pattern</th><th>Peak timing</th><th>Trough timing</th><th>Annual timings</th><th>Complete hydro-years</th></tr></thead>
     <tbody>{summary_rows}</tbody>
   </table>
 
   <div class="card">{bubble_chart}</div>
   <div class="card">{comparison_chart}</div>
+
+  <script id="timing-summary-json" type="application/json">{combined_timing_json}</script>
 
   <h2>Per-catchment detail</h2>
   {sections}
