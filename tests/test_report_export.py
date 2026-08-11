@@ -120,6 +120,19 @@ def test_build_hydro_years_export_and_summary(seasonal_extent):
     summary = build_summary_export(analysis, name="Test Catchment", verdict="Seasonal regime detected.")
     assert len(summary) == 1
     assert summary.loc[0, "verdict"] == "Seasonal regime detected."
+    assert {
+        "peak_timing_concentration",
+        "peak_timing_concentration_ci_low",
+        "peak_timing_concentration_ci_high",
+        "peak_timing_uniformity_p",
+        "peak_phase_iqr_months",
+        "trough_timing_concentration",
+        "trough_timing_concentration_ci_low",
+        "trough_timing_concentration_ci_high",
+        "trough_timing_uniformity_p",
+        "trough_phase_iqr_months",
+        "n_timing_years",
+    } <= set(summary.columns)
 
 
 def test_build_events_export(seasonal_extent):

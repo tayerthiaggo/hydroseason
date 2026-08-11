@@ -47,6 +47,20 @@ def _low_power_broad_peak_record():
     )
 
 
+def _stable_peak_unstable_trough_record(*, years=30):
+    """A strongly seasonal record whose trough alternates between two months."""
+    index = pd.date_range("1990-01-01", periods=12 * years, freq="MS")
+    chunks = []
+    for year in range(years):
+        values = np.full(12, 5.0)
+        values[3] = 10.0
+        values[0 if year % 2 == 0 else 6] = 0.0
+        chunks.append(values)
+    return pd.DataFrame(
+        {"extent_pct": np.concatenate(chunks), "invalid_pct": 0.0}, index=index,
+    )
+
+
 # --- regime classification -------------------------------------------------
 
 def test_regime_thresholds_publish_peak_concentration_contract():
@@ -193,6 +207,15 @@ def test_seasonal_regime_permits_per_year_boundaries():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
     result = assess_water_regime(_series(cycle, noise=0.02))
     assert result.supports_per_year_boundaries is True
+    assert result.supports_fixed_window is True
+
+
+def test_seasonal_record_with_unstable_trough_does_not_permit_per_year_boundaries():
+    result = assess_water_regime(_stable_peak_unstable_trough_record(), n_bootstrap=40)
+
+    assert result.regime == "seasonal"
+    assert result.trough_timing_concentration_ci_low < 0.7
+    assert result.supports_per_year_boundaries is False
     assert result.supports_fixed_window is True
 
 

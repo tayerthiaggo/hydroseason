@@ -38,7 +38,8 @@ def aseasonal_analysis():
 _KPI_LABELS = [
     "hydrological regime",
     "amplitude signal-to-noise ratio",
-    "peak timing spread",
+    "peak timing concentration",
+    "trough timing concentration",
     "analytical route",
     "hydrological years",
     "mean annual amplitude",
@@ -96,7 +97,15 @@ def test_snr_card_states_the_thresholds_it_is_judged_against(seasonal_analysis):
     """The number alone cannot tell a reader whether it passed."""
     cards = {item["label"]: item for item in select_kpis(seasonal_analysis)}
     assert "2.0" in cards["amplitude signal-to-noise ratio"]["detail"]
-    assert "1.5 months" in cards["peak timing spread"]["detail"]
+    peak = cards["peak timing concentration"]
+    trough = cards["trough timing concentration"]
+    assert peak["value"].startswith("R ")
+    assert "95% bootstrap CI" in peak["detail"]
+    assert "R >= 0.70" in peak["detail"]
+    assert "R ranges from 0 (diffuse or cancelling timing) to 1 (same month every year)." in peak["detail"]
+    assert "A low R can also arise from symmetric multi-modal timing; the Kuiper p-value tests the discrete 12-month uniform null." in peak["detail"]
+    assert trough["value"].startswith("R ")
+    assert "boundary eligibility" in trough["detail"]
 
 
 def test_route_labels_are_short_enough_for_a_card(seasonal_analysis):

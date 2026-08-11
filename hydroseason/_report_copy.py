@@ -234,9 +234,28 @@ def select_kpis(
         f"seasonal >= {REGIME_THRESHOLDS['seasonal_min_snr']:.1f}, "
         f"aseasonal < {REGIME_THRESHOLDS['aseasonal_max_snr']:.1f}"
     )
-    iqr_detail = (
-        f"spread of per-year peak timing; seasonal <= "
-        f"{REGIME_THRESHOLDS['seasonal_max_phase_iqr_months']:.1f} months"
+    def timing_value(value: float | None) -> str:
+        return f"R {_number(value, decimals=2)}" if value is not None else "Not defined"
+
+    peak_iqr = _number(assessment.peak_phase_iqr_months, decimals=1, suffix=" months")
+    trough_iqr = _number(assessment.trough_phase_iqr_months, decimals=1, suffix=" months")
+    peak_ci = (
+        f"{_number(assessment.peak_timing_concentration_ci_low, decimals=2)} to "
+        f"{_number(assessment.peak_timing_concentration_ci_high, decimals=2)}"
+    )
+    trough_ci = (
+        f"{_number(assessment.trough_timing_concentration_ci_low, decimals=2)} to "
+        f"{_number(assessment.trough_timing_concentration_ci_high, decimals=2)}"
+    )
+    peak_timing_detail = (
+        f"95% bootstrap CI {peak_ci}; R >= 0.70 supports seasonal peak timing. "
+        f"Peak timing IQR is descriptive only ({peak_iqr}). "
+        "R ranges from 0 (diffuse or cancelling timing) to 1 (same month every year). "
+        "A low R can also arise from symmetric multi-modal timing; the Kuiper p-value tests the discrete 12-month uniform null."
+    )
+    trough_timing_detail = (
+        f"95% bootstrap CI {trough_ci}; boundary eligibility requires trough timing "
+        f"CI lower bound R >= 0.70. Trough timing IQR is descriptive only ({trough_iqr})."
     )
 
     return [
@@ -250,14 +269,15 @@ def select_kpis(
             _number(assessment.amplitude_snr, decimals=2),
             snr_detail,
         ),
-        # Both gates are shown because either one alone is misleading: a
-        # catchment can clear the amplitude threshold comfortably and still be
-        # denied per-year boundaries on timing spread, which is exactly the
-        # case a reader shown only the SNR would mistake for a bug.
         card(
-            "peak timing spread",
-            _number(assessment.peak_phase_iqr_months, decimals=1, suffix=" mo"),
-            iqr_detail,
+            "peak timing concentration",
+            timing_value(assessment.peak_timing_concentration),
+            peak_timing_detail,
+        ),
+        card(
+            "trough timing concentration",
+            timing_value(assessment.trough_timing_concentration),
+            trough_timing_detail,
         ),
         card(
             "analytical route",

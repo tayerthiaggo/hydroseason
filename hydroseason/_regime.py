@@ -113,18 +113,44 @@ class WaterRegimeAssessment:
 
     @property
     def supports_per_year_boundaries(self) -> bool:
-        """Whether a peak/trough may be reported for each individual year."""
-        return self.regime == "seasonal"
+        """Whether seasonal trough timing supports a boundary in each year.
+
+        A seasonal regime still needs a strongly concentrated trough timing
+        interval: annual boundaries are only reproducible when its bootstrap
+        lower bound clears the strong timing-concentration threshold.
+        """
+        return (
+            self.regime == "seasonal"
+            and self.trough_timing_concentration_ci_low is not None
+            and self.trough_timing_concentration_ci_low >= _STRONG_TIMING_CONCENTRATION
+        )
 
     @property
     def supports_fixed_window(self) -> bool:
         """Whether one fixed climatological wet/dry window is defensible.
 
-        True for marginal records as an explicit average-behaviour frame: the
-        pooled climatology carries a reproducible phase even where single years
-        do not. It is an analytical choice the caller imposes, not a finding.
+        Seasonal records always support a fixed window. This intentionally
+        breaks the former behaviour that accepted every marginal record:
+        marginal records now require concentrated, non-uniform peak *and*
+        trough timings before a pooled window can be imposed.
         """
-        return self.regime in ("seasonal", "marginal")
+        if self.regime == "seasonal":
+            return True
+        if self.regime != "marginal":
+            return False
+        timing_values = (
+            self.peak_timing_uniformity_p,
+            self.trough_timing_uniformity_p,
+            self.peak_timing_concentration,
+            self.trough_timing_concentration,
+        )
+        return (
+            all(value is not None for value in timing_values)
+            and self.peak_timing_uniformity_p < _CIRCULAR_UNIFORMITY_ALPHA
+            and self.trough_timing_uniformity_p < _CIRCULAR_UNIFORMITY_ALPHA
+            and self.peak_timing_concentration >= _WEAK_TIMING_CONCENTRATION
+            and self.trough_timing_concentration >= _WEAK_TIMING_CONCENTRATION
+        )
 
 
 def _classify(snr: float, peak: CircularTimingSummary) -> Regime:
