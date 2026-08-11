@@ -1,6 +1,7 @@
-"""Contract tests for row-preserving multi-AOI preflight."""
+"""Contract tests for row-preserving multi-AOI preflight and execution."""
 
 import importlib
+import json
 import sys
 from dataclasses import FrozenInstanceError
 
@@ -17,7 +18,11 @@ def _geopandas_and_shapes():
 def _frame(*, ids=None, geometries=None, crs="EPSG:4326"):
     geopandas, _multi, _polygon, box = _geopandas_and_shapes()
     if geometries is None:
-        geometries = [box(115, -32, 116, -31), box(117, -32, 118, -31)]
+        count = 2 if ids is None else len(ids)
+        geometries = [
+            box(115 + 2 * position, -32, 116 + 2 * position, -31)
+            for position in range(count)
+        ]
     data = {} if ids is None else {"aoi_id": ids}
     return geopandas.GeoDataFrame(data, geometry=geometries, crs=crs)
 
@@ -31,6 +36,11 @@ def _prepare(frame, tmp_path, **kwargs):
         cache_dir=tmp_path / "cache",
         **kwargs,
     )
+
+
+def _batch_module():
+    """Return the module object currently registered by Python's importer."""
+    return importlib.import_module("hydroseason.batch")
 
 
 def test_batch_outcomes_are_immutable_and_partitioned_in_source_order():
@@ -251,7 +261,7 @@ def test_run_many_invokes_the_single_workflow_once_for_each_source_row(
     monkeypatch, tmp_path
 ):
     """Merging rows or sharing child output/cache paths must break this."""
-    from hydroseason.batch import run_hydroseason_many
+    batch = _batch_module()
 
     source = _frame(
         ids=["west", "central", "east"],
@@ -267,10 +277,10 @@ def test_run_many_invokes_the_single_workflow_once_for_each_source_row(
         calls.append((water_source, kwargs))
         return kwargs["aoi_name"]
 
-    monkeypatch.setattr("hydroseason.batch.run_hydroseason", fake_run)
-    monkeypatch.setattr("hydroseason.batch.estimate_aoi_peak_gb", lambda context: 0.25)
+    monkeypatch.setattr(batch, "run_hydroseason", fake_run)
+    monkeypatch.setattr(batch, "estimate_aoi_peak_gb", lambda context: 0.25)
 
-    result = run_hydroseason_many(
+    result = batch.run_hydroseason_many(
         source,
         output_dir=tmp_path / "reports",
         cache_dir=tmp_path / "cache",
@@ -299,3 +309,237 @@ def test_run_many_invokes_the_single_workflow_once_for_each_source_row(
         tmp_path / "cache" / "east",
     ]
     assert all(kwargs["show_map"] is False for _water_source, kwargs in calls)
+
+
+def test_run_many_displays_one_combined_preview_before_the_first_worker(monkeypatch, tmp_path):
+    """Moving preview after work or displaying per-row maps must break this."""
+    batch = _batch_module()
+
+    source = _frame(ids=["A/B", "east"])
+    events = []
+    contexts = []
+
+    def fake_display(context):
+        events.append("preview")
+        contexts.append(context)
+
+    def fake_run(_water_source, **kwargs):
+        events.append(f"worker:{kwargs['aoi_name']}")
+        return kwargs["aoi_name"]
+
+    monkeypatch.setattr("hydroseason._aoi_map.display_aoi_map", fake_display)
+    monkeypatch.setattr(batch, "run_hydroseason", fake_run)
+    monkeypatch.setattr(batch, "estimate_aoi_peak_gb", lambda _context: 0.1)
+
+    batch.run_hydroseason_many(
+        source,
+        output_dir=tmp_path / "reports",
+        id_col="aoi_id",
+        start_date="2020-01-01",
+        end_date="2020-12-01",
+        workers=1,
+        memory_budget_gb=1.0,
+        show_map=True,
+    )
+
+    assert events == ["preview", "worker:A/B", "worker:east"]
+    assert len(contexts) == 1
+    preview = json.loads(contexts[0].geojson)
+    assert [feature["properties"]["id"] for feature in preview["features"]] == [
+        "a-b",
+        "east",
+    ]
+
+
+def test_run_many_does_not_preview_when_show_map_is_false(monkeypatch, tmp_path):
+    """Ignoring show_map=False would cause this display double to fail."""
+    batch = _batch_module()
+
+    monkeypatch.setattr(
+        "hydroseason._aoi_map.display_aoi_map",
+        lambda _context: (_ for _ in ()).throw(AssertionError("unexpected preview")),
+    )
+    monkeypatch.setattr(batch, "run_hydroseason", lambda _source, **_kwargs: "ok")
+    monkeypatch.setattr(batch, "estimate_aoi_peak_gb", lambda _context: 0.1)
+
+    result = batch.run_hydroseason_many(
+        _frame(ids=["only"]),
+        output_dir=tmp_path / "reports",
+        id_col="aoi_id",
+        start_date="2020-01-01",
+        end_date="2020-12-01",
+        workers=1,
+        memory_budget_gb=1.0,
+        show_map=False,
+    )
+
+    assert [outcome.result for outcome in result.outcomes] == ["ok"]
+
+
+def test_run_many_warns_for_preview_failure_and_continues_workers(monkeypatch, tmp_path):
+    """Making preview failure fatal would leave these independent rows unrun."""
+    batch = _batch_module()
+
+    seen = []
+    monkeypatch.setattr(
+        "hydroseason._aoi_map.display_aoi_map",
+        lambda _context: (_ for _ in ()).throw(RuntimeError("notebook closed")),
+    )
+    monkeypatch.setattr(
+        batch,
+        "run_hydroseason",
+        lambda _source, **kwargs: seen.append(kwargs["aoi_name"]) or kwargs["aoi_name"],
+    )
+    monkeypatch.setattr(batch, "estimate_aoi_peak_gb", lambda _context: 0.1)
+
+    with pytest.warns(UserWarning, match="Could not display batch AOI map: notebook closed"):
+        result = batch.run_hydroseason_many(
+            _frame(ids=["west", "east"]),
+            output_dir=tmp_path / "reports",
+            id_col="aoi_id",
+            start_date="2020-01-01",
+            end_date="2020-12-01",
+            workers=1,
+            memory_budget_gb=1.0,
+            show_map=True,
+        )
+
+    assert seen == ["west", "east"]
+    assert [outcome.result for outcome in result.outcomes] == ["west", "east"]
+
+
+def test_run_many_delegates_explicit_resources_to_the_memory_scheduler(monkeypatch, tmp_path):
+    """Rewriting workers or bypassing the resource resolver must break this."""
+    batch = _batch_module()
+
+    resources = []
+    scheduler = []
+    monkeypatch.setattr(
+        batch,
+        "resolve_batch_resources",
+        lambda **kwargs: resources.append(kwargs) or (4, 0.75),
+    )
+    monkeypatch.setattr(batch, "estimate_aoi_peak_gb", lambda _context: 0.2)
+
+    def fake_scheduler(items, worker, *, max_workers, memory_budget_gb):
+        scheduler.append((items, max_workers, memory_budget_gb))
+        return {item.source_position: worker(item.payload) for item in items}
+
+    monkeypatch.setattr(batch, "run_memory_bounded", fake_scheduler)
+    monkeypatch.setattr(
+        batch, "run_hydroseason", lambda _source, **kwargs: kwargs["aoi_name"]
+    )
+
+    result = batch.run_hydroseason_many(
+        _frame(ids=["west", "east"]),
+        output_dir=tmp_path / "reports",
+        id_col="aoi_id",
+        start_date="2020-01-01",
+        end_date="2020-12-01",
+        workers=4,
+        memory_budget_gb=2.5,
+        show_map=False,
+    )
+
+    assert resources == [{"workers": 4, "memory_budget_gb": 2.5}]
+    assert [(item.source_position, item.estimated_peak_gb) for item in scheduler[0][0]] == [
+        (0, 0.2),
+        (1, 0.2),
+    ]
+    assert scheduler[0][1:] == (4, 0.75)
+    assert [outcome.result for outcome in result.outcomes] == ["west", "east"]
+
+
+def test_run_many_isolates_one_value_error_without_reordering_outcomes(monkeypatch, tmp_path):
+    """Propagating one AOI ValueError or losing neighbours must break this."""
+    batch = _batch_module()
+
+    calls = []
+
+    def fake_run(_source, **kwargs):
+        item_id = kwargs["aoi_name"]
+        calls.append(item_id)
+        if item_id == "central":
+            raise ValueError("bad geometry")
+        return item_id
+
+    monkeypatch.setattr(batch, "run_hydroseason", fake_run)
+    monkeypatch.setattr(batch, "estimate_aoi_peak_gb", lambda _context: 0.1)
+
+    result = batch.run_hydroseason_many(
+        _frame(ids=["west", "central", "east"]),
+        output_dir=tmp_path / "reports",
+        id_col="aoi_id",
+        start_date="2020-01-01",
+        end_date="2020-12-01",
+        workers=1,
+        memory_budget_gb=1.0,
+        show_map=False,
+    )
+
+    assert calls == ["west", "central", "east"]
+    assert [(outcome.id, outcome.result, outcome.error_type, outcome.error_message) for outcome in result.outcomes] == [
+        ("west", "west", None, None),
+        ("central", None, "ValueError", "bad geometry"),
+        ("east", "east", None, None),
+    ]
+
+
+def test_run_many_propagates_keyboard_interrupt(monkeypatch, tmp_path):
+    """Capturing BaseException as an AOI outcome would break cancellation."""
+    batch = _batch_module()
+
+    monkeypatch.setattr(
+        batch,
+        "run_hydroseason",
+        lambda _source, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+    monkeypatch.setattr(batch, "estimate_aoi_peak_gb", lambda _context: 0.1)
+
+    with pytest.raises(KeyboardInterrupt):
+        batch.run_hydroseason_many(
+            _frame(ids=["stop"]),
+            output_dir=tmp_path / "reports",
+            id_col="aoi_id",
+            start_date="2020-01-01",
+            end_date="2020-12-01",
+            workers=1,
+            memory_budget_gb=1.0,
+            show_map=False,
+        )
+
+
+def test_run_many_forwards_prefixed_five_step_progress_events(monkeypatch, tmp_path):
+    """Dropping the AOI prefix or introducing a sixth step must break this."""
+    from hydroseason._progress import ProgressEvent
+    batch = _batch_module()
+
+    def fake_run(_source, **kwargs):
+        kwargs["progress"](
+            ProgressEvent(1, 5, "resolve water input", "start", detail="DEA")
+        )
+        kwargs["progress"](ProgressEvent(5, 5, "write report", "finish"))
+        return kwargs["aoi_name"]
+
+    seen = []
+    monkeypatch.setattr(batch, "run_hydroseason", fake_run)
+    monkeypatch.setattr(batch, "estimate_aoi_peak_gb", lambda _context: 0.1)
+
+    batch.run_hydroseason_many(
+        _frame(ids=["west", "east"]),
+        output_dir=tmp_path / "reports",
+        id_col="aoi_id",
+        start_date="2020-01-01",
+        end_date="2020-12-01",
+        workers=1,
+        memory_budget_gb=1.0,
+        show_map=False,
+        progress=seen.append,
+    )
+
+    assert [(event.step, event.total_steps, event.label, event.phase) for event in seen] == [
+        (1, 5, "west: resolve water input", "start"),
+        (5, 5, "west: write report", "finish"),
+        (1, 5, "east: resolve water input", "start"),
+        (5, 5, "east: write report", "finish"),
+    ]
