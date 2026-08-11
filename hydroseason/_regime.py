@@ -38,6 +38,7 @@ from typing import Literal
 
 import numpy as np
 
+from ._circular_timing import _circular_iqr_months
 from ._events import extract_water_events
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
@@ -111,20 +112,6 @@ class WaterRegimeAssessment:
         do not. It is an analytical choice the caller imposes, not a finding.
         """
         return self.regime in ("seasonal", "marginal")
-
-
-def _circular_iqr_months(months: list[int]) -> float | None:
-    """Interquartile spread of calendar months on the circle, in months.
-
-    Plain percentiles would treat December and January as eleven months apart;
-    resolving the spread about the circular mean keeps a Dec/Jan pair adjacent.
-    """
-    if len(months) < 4:
-        return None
-    radians = 2.0 * np.pi * (np.asarray(months) - 1) / 12.0
-    centre = np.angle(np.mean(np.exp(1j * radians)))
-    offsets = np.angle(np.exp(1j * (radians - centre))) * 12.0 / (2.0 * np.pi)
-    return float(np.percentile(offsets, 75) - np.percentile(offsets, 25))
 
 
 def _classify(snr: float, phase_iqr: float | None) -> Regime:
