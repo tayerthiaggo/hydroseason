@@ -863,6 +863,9 @@ def load_or_build_historical_water_mask(
 
     import hydroseason._io_dea_stats as _io_dea_stats
 
+    # DEAStatsUnavailable now covers WoStatisticsUnavailable (subclass), so
+    # an unreachable statistics endpoint reaches the cache-after-failure
+    # fallback below instead of propagating past it.
     try:
         stats = _io_dea_stats.open_wo_statistics(
             aoi_on_crs,

@@ -1429,3 +1429,41 @@ def test_artifact_digest_differs_when_source_version_changes_despite_identical_m
 
     artifacts_dir = tmp_path / "historical-water-masks" / "artifacts"
     assert len(list(artifacts_dir.iterdir())) == 2
+
+
+def test_wo_statistics_unavailable_is_a_dea_stats_unavailable():
+    """Every statistics failure must satisfy the module's documented
+    fail-open contract ("Every failure path raises DEAStatsUnavailable"),
+    so the existing `except DEAStatsUnavailable` fallbacks in
+    _io_wofs_acquire and _historical_water_mask actually cover an
+    unreachable statistics endpoint."""
+    import hydroseason._io_dea_stats as mod
+
+    assert issubclass(mod.WoStatisticsUnavailable, mod.DEAStatsUnavailable)
+
+
+def test_open_wo_statistics_unreachable_endpoint_raises_typed_error(monkeypatch):
+    """pystac_client.Client.open is a network call: a dead proxy or an
+    unreachable endpoint must arrive as WoStatisticsUnavailable naming the
+    URL, not as a raw pystac_client.APIError. This is the exact failure
+    reported from the field (ProxyError -> APIError escaping the loader)."""
+    import hydroseason._io_dea_stats as mod
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("ProxyError: connection to 127.0.0.1:9 refused")
+
+    monkeypatch.setattr("pystac_client.Client.open", explode)
+
+    with pytest.raises(mod.WoStatisticsUnavailable, match=r"example\.invalid"):
+        open_wo_statistics(_aoi(), stac_url="https://example.invalid/stac")
+
+
+def test_open_wo_statistics_search_failure_names_the_endpoint(monkeypatch):
+    import hydroseason._io_dea_stats as mod
+
+    client = Mock()
+    client.search.side_effect = RuntimeError("boom")
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
+
+    with pytest.raises(mod.WoStatisticsUnavailable, match=r"example\.invalid"):
+        open_wo_statistics(_aoi(), stac_url="https://example.invalid/stac")
