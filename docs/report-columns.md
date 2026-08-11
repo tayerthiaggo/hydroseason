@@ -100,6 +100,25 @@ record; they are not automatically a drought declaration.
 
 ## Summary information
 
+The HTML report's internal one-row summary (also returned by
+`CatchmentAnalysis.summary_row()`) includes the timing fields below. They are
+not repeated in the compact four-CSV bundle, so downstream code that needs
+them should use the analysis result or a full summary export.
+
+| Field | Units / range | Null / zero semantics |
+|---|---|---|
+| `amplitude_snr` | Unitless, >=0 (possibly `inf`) | `0.0` for insufficient records. |
+| `peak_timing_concentration`, `trough_timing_concentration` | Mean resultant length, 0–1 | `null` for insufficient records. |
+| `peak_timing_concentration_ci_low`, `peak_timing_concentration_ci_high`, `trough_timing_concentration_ci_low`, `trough_timing_concentration_ci_high` | Unitless 0–1, 95% bootstrap bounds | `null` for insufficient records. |
+| `peak_timing_uniformity_p`, `trough_timing_uniformity_p` | Kuiper probability 0–1 | `null` for insufficient records. |
+| `peak_phase_iqr_months`, `trough_phase_iqr_months` | Circular months | `null` with fewer than four timing observations or an insufficient record; IQR is descriptive only. |
+| `n_timing_years` | Non-negative integer **years** | `0` for insufficient records; it is not a count of months. |
+
+`R` and confidence intervals are rounded to three decimal places in the
+summary; IQR is rounded to two decimal places. The report uses peak `R` for
+regime evidence and trough `R` for per-year boundary support. It does not use
+IQR as a hidden decision threshold.
+
 Per-AOI summary CSVs are not part of the current bundle. Routing, counts,
 quality settings, and interpretation belong in the HTML report. The checked
 multi-catchment case study keeps its aggregate

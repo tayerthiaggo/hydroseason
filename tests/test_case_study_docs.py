@@ -76,3 +76,54 @@ def test_regenerated_case_study_reports_have_timing_summaries_without_aoi_maps()
         assert "n_timing_years=21" in text
         assert "Only 21 annual timing observations are available; fewer than 30" in text
         assert '<section id="aoi-context">' not in text
+
+
+def test_release_docs_explain_batch_seasonality_and_map_contracts():
+    """Removing a released 0.1.1 user contract must fail documentation checks."""
+    readme = Path("README.md").read_text(encoding="utf-8")
+    guide = Path("docs/guide.md").read_text(encoding="utf-8")
+    workflow = Path("docs/api/workflow.md").read_text(encoding="utf-8")
+    analysis = Path("docs/api/analysis.md").read_text(encoding="utf-8")
+    report = Path("docs/api/report.md").read_text(encoding="utf-8")
+    columns = Path("docs/report-columns.md").read_text(encoding="utf-8")
+    citations = Path("docs/citation.md").read_text(encoding="utf-8")
+    all_docs = "\n".join((readme, guide, workflow, analysis, report, columns, citations))
+
+    sample = '''run_hydroseason_many(
+    "catchments.gpkg",
+    output_dir="results",
+    cache_dir="cache",
+    start_date="2000-01-01",
+    end_date="2025-12-01",
+    id_col="catchment_id",
+    workers="auto",
+)'''
+    assert sample in guide
+    assert "for outcome in batch.outcomes:" in guide
+    assert "batch.raise_for_failures()" in guide
+
+    for phrase in (
+        "run_hydroseason_many",
+        "one input row produces one analysis and one report",
+        'workers="auto"',
+        "60% of currently available RAM",
+        "default concurrency cap of 2",
+        "30 usable annual timings",
+        "not 30 months",
+        "mean resultant length",
+        "Kuiper",
+        "OpenStreetMap",
+        "internet connection",
+        "theta_y = 2*pi*(m_y - 1)/12",
+        "R = |mean(exp(i*theta_y))|",
+        "10.1029/2019JD031381",
+        "10.5194/hess-22-3883-2018",
+        "10.1029/2003WR002295",
+        "10.1002/hyp.11365",
+        "10.1016/j.advwatres.2015.11.009",
+    ):
+        assert phrase in all_docs
+
+    assert "SNR > 1.5" not in guide
+    assert "SNR ≤ 1.5" not in guide
+    assert "1.5 months" not in guide
