@@ -1,7 +1,9 @@
 # HydroSeason 0.1.1 Seasonality, Multi-AOI, and Map Design
 
-**Status:** Approved approach; pending written-spec review  
-**Date:** 2026-08-11  
+**Status:** Approved approach; pending written-spec review
+
+**Date:** 2026-08-11
+
 **Release:** 0.1.1
 
 ## Context
