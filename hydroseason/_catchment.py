@@ -230,6 +230,8 @@ def analyze_catchment(
         min_months_per_year=min_months_per_year,
         max_invalid_pct=max_invalid_pct,
         quality_policy=quality_policy,
+        n_bootstrap=n_bootstrap,
+        random_state=random_state,
     )
     events = extract_water_events(
         extent,

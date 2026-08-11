@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from hydroseason._catchment import analyze_catchment
+from hydroseason._regime import assess_water_regime
 from hydroseason.hydrological_state import HydrologicalStateResult
 
 
@@ -153,6 +154,16 @@ def test_seasonal_routes_to_per_year_detection():
     assert result.regime.regime == "seasonal"
     assert result.route == "per_year_detection"
     assert not result.hydro_years.empty
+
+
+def test_catchment_threads_existing_bootstrap_controls_to_regime_assessment():
+    extent = _marginal()
+    direct = assess_water_regime(extent, n_bootstrap=40, random_state=11)
+    routed = analyze_catchment(extent, n_bootstrap=40, random_state=11)
+
+    assert routed.regime.peak_timing_concentration_ci_low == direct.peak_timing_concentration_ci_low
+    assert routed.regime.peak_timing_concentration_ci_high == direct.peak_timing_concentration_ci_high
+    assert routed.regime.peak_timing_uniformity_p == direct.peak_timing_uniformity_p
 
 
 def test_marginal_routes_to_fixed_window():

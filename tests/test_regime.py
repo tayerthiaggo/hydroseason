@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from hydroseason._regime import assess_water_regime
+from hydroseason._regime import REGIME_THRESHOLDS, assess_water_regime
 
 
 def _series(monthly_values, years=30, noise=0.0, seed=0):
@@ -25,14 +25,112 @@ def _drop_months(frame, months):
     return out
 
 
+def _january_july_bimodal_peaks(*, years=40, amplitude=8.0):
+    """High-SNR annual records whose peaks split evenly across two phases."""
+    index = pd.date_range("1990-01-01", periods=12 * years, freq="MS")
+    values = np.zeros(12 * years)
+    for year in range(years):
+        values[12 * year + (0 if year % 2 == 0 else 6)] = amplitude
+    return pd.DataFrame(
+        {"extent_pct": values, "invalid_pct": 0.0}, index=index,
+    )
+
+
+def _low_power_broad_peak_record():
+    """Seven high-SNR years with insufficient timing evidence for uniformity."""
+    index = pd.date_range("1990-01-01", periods=12 * 7, freq="MS")
+    values = np.tile(np.array([8.0] * 11 + [0.0]), 7)
+    for year, month in enumerate([1, 3, 5, 7, 9, 11, 1]):
+        values[12 * year + month - 1] = 8.1
+    return pd.DataFrame(
+        {"extent_pct": values, "invalid_pct": 0.0}, index=index,
+    )
+
+
 # --- regime classification -------------------------------------------------
+
+def test_regime_thresholds_publish_peak_concentration_contract():
+    assert REGIME_THRESHOLDS == {
+        "seasonal_min_snr": 2.0,
+        "strong_timing_concentration": 0.7,
+        "weak_timing_concentration": 0.3,
+        "aseasonal_max_snr": 0.7,
+        "circular_uniformity_alpha": 0.1,
+        "uniformity_min_timing_years": 10.0,
+        "timing_record_caution_years": 30.0,
+    }
 
 def test_strong_annual_cycle_is_seasonal():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
-    result = assess_water_regime(_series(cycle, noise=0.02))
+    result = assess_water_regime(_series(cycle, noise=0.02), n_bootstrap=40)
     assert result.regime == "seasonal"
     assert result.amplitude_snr > 2.0
     assert result.climatological_peak_month == 2
+    assert result.peak_timing_concentration > 0.9
+    assert result.peak_timing_concentration_ci_low >= 0.7
+    assert result.peak_timing_uniformity_p < 0.1
+    assert result.trough_timing_concentration is not None
+    assert result.n_timing_years == result.n_usable_years == 30
+
+
+def test_symmetric_january_july_peaks_are_marginal_despite_high_snr():
+    result = assess_water_regime(
+        _january_july_bimodal_peaks(amplitude=8.0), n_bootstrap=999,
+    )
+
+    assert result.amplitude_snr >= 2.0
+    assert result.peak_timing_concentration < 0.3
+    assert result.peak_timing_uniformity_p < 0.1
+    assert result.regime == "marginal"
+
+
+def test_qualifying_year_predicate_counts_distinct_months_for_timings(monkeypatch):
+    cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
+    raw = _series(cycle, years=5)
+    prepared = raw.copy()
+    extra = raw.loc[[pd.Timestamp("1994-01-01")]].copy()
+    extra.index = [pd.Timestamp("1995-01-01")]
+    repeated = pd.concat([extra] * 9)
+    repeated.index = pd.to_datetime(
+        [
+            "1995-01-01", "1995-02-01", "1995-03-01", "1995-04-01",
+            "1995-05-01", "1995-06-01", "1995-07-01", "1995-08-01",
+            "1995-08-01",
+        ]
+    )
+    prepared = pd.concat([prepared, repeated])
+    prepared["candidate_usable"] = True
+    monkeypatch.setattr("hydroseason._regime.prepare_monthly_extent", lambda *args, **kwargs: prepared)
+
+    result = assess_water_regime(raw, n_bootstrap=40)
+
+    assert result.n_usable_years == 5
+    assert result.n_timing_years == result.n_usable_years
+
+
+def test_seven_strong_years_with_nonuniformity_low_power_are_marginal():
+    result = assess_water_regime(_low_power_broad_peak_record(), n_bootstrap=999)
+
+    assert result.amplitude_snr >= 2.0
+    assert result.peak_timing_concentration_ci_low < 0.7
+    assert result.peak_timing_uniformity_p >= 0.1
+    assert result.n_timing_years == 7
+    assert result.regime == "marginal"
+    assert result.climatological_peak_month is not None
+    assert result.climatological_trough_month is not None
+    assert "little power" in " ".join(result.caveats)
+
+
+def test_ten_year_seasonal_record_carries_timing_caution():
+    cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
+    result = assess_water_regime(_series(cycle, years=10, noise=0.02), n_bootstrap=40)
+
+    assert result.regime == "seasonal"
+    assert result.n_timing_years == 10
+    caveats = " ".join(result.caveats)
+    assert "fewer than 30 usable annual timings" in caveats
+    assert "classification is retained" in caveats
+    assert "uncertainty intervals may be wide" in caveats
 
 
 def test_flat_noise_only_series_is_aseasonal():
