@@ -247,15 +247,35 @@ def select_kpis(
         f"{_number(assessment.trough_timing_concentration_ci_low, decimals=2)} to "
         f"{_number(assessment.trough_timing_concentration_ci_high, decimals=2)}"
     )
+    peak_uniformity_p = _number(assessment.peak_timing_uniformity_p, decimals=3)
+    trough_uniformity_p = _number(assessment.trough_timing_uniformity_p, decimals=3)
+    timing_record_detail = (
+        f"{_date_range_label(extent)}; n_timing_years={assessment.n_timing_years}."
+    )
+    timing_record_caution = next(
+        (
+            caveat
+            for caveat in assessment.caveats
+            if "fewer than 30 usable annual timings" in caveat
+        ),
+        None,
+    )
+    if timing_record_caution is not None:
+        timing_record_detail += (
+            f" Only {assessment.n_timing_years} annual timing observations are "
+            f"available; {timing_record_caution}."
+        )
     peak_timing_detail = (
         f"95% bootstrap CI {peak_ci}; R >= 0.70 supports seasonal peak timing. "
+        f"Kuiper uniformity p-value {peak_uniformity_p}. "
         f"Peak timing IQR is descriptive only ({peak_iqr}). "
         "R ranges from 0 (diffuse or cancelling timing) to 1 (same month every year). "
         "A low R can also arise from symmetric multi-modal timing; the Kuiper p-value tests the discrete 12-month uniform null."
     )
     trough_timing_detail = (
         f"95% bootstrap CI {trough_ci}; boundary eligibility requires trough timing "
-        f"CI lower bound R >= 0.70. Trough timing IQR is descriptive only ({trough_iqr})."
+        f"CI lower bound R >= 0.70. Kuiper uniformity p-value {trough_uniformity_p}. "
+        f"Trough timing IQR is descriptive only ({trough_iqr})."
     )
 
     return [
@@ -284,7 +304,7 @@ def select_kpis(
             _route_label(analysis.route),
             "how hydro-year boundaries were derived",
         ),
-        card("hydrological years", str(n_years), _date_range_label(extent)),
+        card("hydrological years", str(n_years), timing_record_detail),
         card(
             "mean annual amplitude",
             **cycle_metric(

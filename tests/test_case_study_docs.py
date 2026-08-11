@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import pandas as pd
 import pytest
@@ -69,4 +70,9 @@ def test_regenerated_case_study_reports_have_timing_summaries_without_aoi_maps()
         assert "trough timing concentration" in text
         assert "95% bootstrap CI" in text
         assert "IQR is descriptive only" in text
+        assert re.search(
+            r"Kuiper uniformity p-value\s+0\.\d{3}", text
+        ), report
+        assert "n_timing_years=21" in text
+        assert "Only 21 annual timing observations are available; fewer than 30" in text
         assert '<section id="aoi-context">' not in text
