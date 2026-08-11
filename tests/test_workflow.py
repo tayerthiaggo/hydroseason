@@ -440,3 +440,66 @@ def test_progress_enables_the_per_year_bar_only_for_the_builtin_renderer(
     assert calls[0]["progress"] is True
     assert calls[0]["progress_desc"] == "[1/5] resolve water input"
     assert calls[1]["progress"] is False
+
+
+def test_fetch_rainfall_warns_upfront_when_silo_dependencies_are_missing(
+    monkeypatch, tmp_path
+):
+    """A missing s3fs turned into rainfall_status='fetch_failed' only AFTER
+    the water acquisition -- hours later on a DEA run. Warn before the water
+    step instead, while the run is still cheap to abort."""
+    monkeypatch.setattr(
+        "hydroseason.workflow.missing_rainfall_dependencies",
+        lambda: ("h5netcdf", "s3fs"),
+    )
+    seen = []
+
+    with pytest.warns(UserWarning, match=r"s3fs"):
+        result = run_hydroseason(
+            _seasonal_extent(),
+            output_dir=tmp_path,
+            aoi="aoi.geojson",
+            fetch_rainfall=True,
+            analysis_options=ANALYSIS_OPTIONS,
+            progress=seen.append,
+        )
+
+    assert any("s3fs" in message for message in result.warnings)
+    assert result.rainfall_status == "fetch_failed"
+
+
+def test_no_dependency_warning_when_rainfall_is_not_requested(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "hydroseason.workflow.missing_rainfall_dependencies",
+        lambda: ("h5netcdf", "s3fs"),
+    )
+
+    result = run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert not any("s3fs" in message for message in result.warnings)
+
+
+def test_supplied_rainfall_csv_does_not_probe_silo_dependencies(monkeypatch, tmp_path):
+    extent = _seasonal_extent()
+    rain_path = _rainfall_csv(tmp_path / "rain.csv", extent.index)
+
+    def forbid_probe():
+        raise AssertionError("a supplied CSV never touches SILO")
+
+    monkeypatch.setattr(
+        "hydroseason.workflow.missing_rainfall_dependencies", forbid_probe
+    )
+
+    result = run_hydroseason(
+        extent,
+        output_dir=tmp_path / "report",
+        rainfall_csv_path=rain_path,
+        fetch_rainfall=True,
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert result.rainfall_status == "provided"

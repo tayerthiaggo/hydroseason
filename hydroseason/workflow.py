@@ -15,6 +15,12 @@ Rainfall is off by default (``fetch_rainfall=False``). A supplied
 ``rainfall_csv_path`` always takes precedence over ``fetch_rainfall=True``: if
 both are given, SILO is never called.
 
+A ``fetch_rainfall=True`` run whose environment cannot import the SILO
+dependencies warns before the water step rather than after it, giving the
+caller a chance to abort before spending hours on water acquisition. The
+warning does not make ancillary rainfall fatal and does not change the water
+analysis.
+
 ``progress`` is off by default. ``progress=True`` writes five numbered step
 lines to standard error and switches on the per-calendar-year bar that
 ``load_wofs_monthly_extent`` already provides; passing a callable instead
@@ -31,6 +37,7 @@ from typing import Any, Callable, Literal, Mapping
 import pandas as pd
 
 from ._catchment import CatchmentAnalysis, analyze_catchment
+from ._diagnostics import missing_rainfall_dependencies
 from ._progress import ProgressEvent, WorkflowProgress, resolve_progress_reporter
 from ._rainfall import (
     align_monthly_rainfall,
@@ -127,6 +134,24 @@ def run_hydroseason(
     """
     tracker = WorkflowProgress(resolve_progress_reporter(progress))
 
+    # Probed BEFORE the water step, not inside the rainfall branch: on a DEA
+    # fetch the rainfall branch is hours away, and "No module named 's3fs'"
+    # arriving then wastes the whole run. A supplied CSV never touches SILO,
+    # so it is not probed.
+    preflight: list[str] = []
+    if fetch_rainfall and rainfall_csv_path is None:
+        absent = missing_rainfall_dependencies()
+        if absent:
+            preflight.append(
+                "Ancillary SILO rainfall will fail: this environment cannot "
+                f"import {', '.join(absent)}. Install the raster extra "
+                '(pip install "hydroseason[raster]") or drop '
+                "fetch_rainfall=True. The water analysis and report are "
+        "unaffected; abort now if rainfall output is required."
+            )
+    for message in preflight:
+        py_warnings.warn(message, UserWarning, stacklevel=2)
+
     tracker.start(
         1,
         "fetching DEA WOfS"
@@ -152,7 +177,7 @@ def run_hydroseason(
     options = dict(analysis_options or {})
     analysis = analyze_catchment(resolved.extent, **options)
     tracker.finish(2, f"{analysis.route} route")
-    messages = list(analysis.warnings)
+    messages = list(analysis.warnings) + preflight
 
     rainfall: pd.DataFrame | None = None
     comparison: RegimeComparison | None = None
