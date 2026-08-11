@@ -106,6 +106,9 @@ Repository = "https://github.com/tayerthiaggo/hydroseason"
 Issues = "https://github.com/tayerthiaggo/hydroseason/issues"
 Changelog = "https://github.com/tayerthiaggo/hydroseason/blob/main/CHANGELOG.md"
 
+[project.scripts]
+hydroseason = "hydroseason.cli:main"
+
 [tool.setuptools]
 include-package-data = true
 
