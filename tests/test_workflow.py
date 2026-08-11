@@ -329,3 +329,114 @@ def test_run_hydroseason_propagates_one_stac_url_through_the_full_input_seam(
 
     assert calls["stac_url"] == "https://example.test/stac"
     assert calls["statistics_stac_url"] == "https://example.test/stac"
+
+
+def test_progress_reports_all_five_steps_in_order(tmp_path):
+    seen = []
+
+    run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+        progress=seen.append,
+    )
+
+    starts = [(e.step, e.label) for e in seen if e.phase == "start"]
+    finishes = [(e.step, e.label) for e in seen if e.phase == "finish"]
+    assert starts == [
+        (1, "resolve water input"),
+        (2, "analyze catchment"),
+        (3, "rainfall"),
+        (4, "rainfall comparison"),
+        (5, "write report"),
+    ]
+    assert finishes == starts
+    assert all(e.total_steps == 5 for e in seen)
+
+
+def test_progress_marks_disabled_rainfall_steps_as_skipped(tmp_path):
+    seen = []
+
+    run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+        progress=seen.append,
+    )
+
+    details = {
+        e.step: e.detail for e in seen if e.phase == "finish"
+    }
+    assert details[3] == "skipped"
+    assert details[4] == "skipped"
+
+
+def test_progress_finish_details_carry_the_run_facts(tmp_path):
+    seen = []
+    extent = _seasonal_extent()
+
+    result = run_hydroseason(
+        extent,
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+        progress=seen.append,
+    )
+
+    finishes = {e.step: e.detail for e in seen if e.phase == "finish"}
+    assert f"{len(extent)} months" in finishes[1]
+    assert result.analysis.route in finishes[2]
+    assert str(result.artifacts.html.name) in finishes[5]
+
+
+def test_progress_default_is_silent(tmp_path, capsys):
+    run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    captured = capsys.readouterr()
+    assert "[1/5]" not in captured.err
+    assert "[1/5]" not in captured.out
+
+
+def test_progress_true_writes_step_lines_to_stderr(tmp_path, capsys):
+    run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        analysis_options=ANALYSIS_OPTIONS,
+        progress=True,
+    )
+
+    err = capsys.readouterr().err
+    assert "[1/5] resolve water input" in err
+    assert "[5/5] write report done" in err
+
+
+def test_progress_enables_the_per_year_bar_only_for_the_builtin_renderer(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    def fake_resolve(water_source, **kwargs):
+        calls.append(kwargs)
+        from hydroseason._workflow_input import ResolvedWaterInput
+
+        return ResolvedWaterInput(_seasonal_extent(), "dea_wofs")
+
+    monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
+
+    run_hydroseason(
+        None, output_dir=tmp_path / "a", aoi="aoi.geojson",
+        start_date="2010-01-01", end_date="2017-12-01",
+        analysis_options=ANALYSIS_OPTIONS, progress=True,
+    )
+    run_hydroseason(
+        None, output_dir=tmp_path / "b", aoi="aoi.geojson",
+        start_date="2010-01-01", end_date="2017-12-01",
+        analysis_options=ANALYSIS_OPTIONS, progress=lambda event: None,
+    )
+
+    assert calls[0]["progress"] is True
+    assert calls[0]["progress_desc"] == "[1/5] resolve water input"
+    assert calls[1]["progress"] is False
