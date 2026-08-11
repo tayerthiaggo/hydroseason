@@ -1,8 +1,8 @@
 # CLI Recipes and Case-Study Maps Design
 
-**Status:** Approved for specification
+**Status:** Revised; awaiting user review
 **Date:** 2026-08-11
-**Release policy:** Documentation and case-study asset follow-up; keep project version at `0.1.0` and do not create a new release.
+**Release policy:** CLI, documentation, and case-study asset follow-up; keep project version at `0.1.0` and do not create a new release.
 
 ## Context
 
@@ -17,32 +17,68 @@ The repository already contains reproducibility scripts and checked case-study
 results. It does not contain a public `hydroseason` console entry point, nor a
 complete committed set of map-ready boundary and water-footprint layers for all
 five published catchments. Aggregate extent CSVs cannot reconstruct those
-spatial layers.
+spatial layers. The new CLI must expose the high-level `run_hydroseason`
+orchestrator so long DEA/raster runs can execute in a separate Python process
+instead of inside a notebook kernel.
 
 ## Goals
 
-1. Add a dedicated `CLI Recipes` documentation page.
-2. Make common extraction, reproducibility, documentation, and validation
-   commands easy to find and copy.
-3. Add stable, offline-renderable case-study maps showing all five testing
+1. Add a high-level `hydroseason run` CLI that wraps `run_hydroseason`.
+2. Add a dedicated `CLI Recipes` documentation page with paired kernel and CLI
+   examples for every documented orchestrator input path.
+3. Make long-running CLI behavior, logging, caching, and exit status clear.
+4. Keep maintainer/reproducibility commands available as a secondary section,
+   not as the primary user-facing CLI.
+5. Add stable, offline-renderable case-study maps showing all five testing
    sites and the whole-catchment boundaries considered by the checked studies.
-4. Show both approved spatial contexts where data are available:
+6. Show both approved spatial contexts where data are available:
    - the fixed multiyear water mask used for the scientific denominator;
    - the max-water extent as a translucent contextual overlay.
-5. Preserve provenance, reproducibility checks, accessibility, and the current
+7. Preserve provenance, reproducibility checks, accessibility, and the current
    `0.1.0` release metadata.
 
 ## Non-goals
 
-- Do not add a new public `hydroseason` shell command in this change.
-- Do not change HydroSeason analysis, API behavior, case-study CSV values, or
+- Do not duplicate `run_hydroseason` analysis logic in the CLI.
+- Do not expose maintainer scripts as a replacement for the high-level
+  orchestrator command.
+- Do not add a background scheduler or notebook-control feature; the CLI
+  process boundary is the isolation mechanism.
+- Do not change `run_hydroseason` analysis behavior, case-study CSV values, or
   spatial denominators.
 - Do not make interactive web maps a runtime or documentation requirement.
 - Do not silently fetch map data during MkDocs builds or CI documentation
   checks.
 - Do not move or replace the published `v0.1.0` tag or its assets.
 
-## Alternatives
+## CLI approaches
+
+### Recommended: thin installed console command plus module entry point
+
+Implement one argument parser and one execution path. Expose it as both
+`hydroseason run ...` for installed environments and `python -m hydroseason run
+...` for source-tree or controlled environments. Both forms call
+`run_hydroseason` exactly once and print a concise result summary.
+
+This gives notebook-equivalent inputs while moving execution into a fresh
+process. It also keeps the command usable in shell scripts, schedulers, and
+remote sessions without adding a second analysis implementation.
+
+### Repository wrapper script only
+
+Add a `scripts/run_hydroseason.py` wrapper without a package entry point. This
+would work from a checkout, but would be less ergonomic for installed users and
+would not provide the expected high-level `hydroseason` command.
+
+### CLI-specific pipeline
+
+Reimplement input resolution, analysis, rainfall, and reporting in a CLI
+pipeline. This could expose every internal option, but would create behavior
+drift from `run_hydroseason` and duplicate failure handling.
+
+The thin console/module approach is selected.
+
+## Map approaches
 
 ### Recommended: generated static maps
 
@@ -62,7 +98,7 @@ more CI surface, and less predictable rendering in the documentation site.
 Add hand-produced images without a renderer or input manifest. This is fastest,
 but weakens provenance and makes boundary or layer updates hard to verify.
 
-The static generated approach is selected.
+The generated static map approach is selected.
 
 ## Documentation structure
 
@@ -74,30 +110,41 @@ navigation, adjacent to `guide.md`.
 Page sections:
 
 1. **Install** — core, raster/STAC, case-study, and documentation extras.
-2. **Extract one AOI** — network-backed DEA WOfS extraction using
-   `scripts/extract_water_extent_csv.py`, including `--resolution`, date range,
-   output path, and `--profile`.
-3. **Run from an existing CSV** — point readers to the Python quickstart and
-   explain that this repository currently exposes Python API calls rather than
-   a package console command.
-4. **Verify or rebuild checked case studies** —
-   `prepare_case_study_data.py`, the offline main and rainfall builders, the
-   resolution study, and `render_case_study_docs.py`.
-5. **Render and serve documentation** — `python -m mkdocs serve` and
-   `python -m mkdocs build --strict`.
-6. **Useful flags and failure modes** — explain `--only`, `--offline`,
-   `--full-aoi`, `--force`, cache requirements, and which commands require
-   network access.
+2. **Run an existing CSV** — show the kernel `run_hydroseason` example beside
+   the equivalent `hydroseason run` and `python -m hydroseason run` commands.
+3. **Run rasters, NetCDF, or Zarr** — preserve the documented
+   `water_mask_variable` example in CLI form.
+4. **Fetch DEA WOfS** — omit `--water-source`, provide `--aoi`, dates, and
+   output settings, matching the kernel example.
+5. **Add rainfall context** — show both `--rainfall-csv` and
+   `--fetch-rainfall` forms, with the same ancillary-failure semantics.
+6. **Long-running process guidance** — explain kernel isolation, cache reuse,
+   log redirection, interruption/retry, and exit status.
+7. **Repository checks** — place case-study, map, and MkDocs maintenance
+   commands after the orchestrator recipes.
 
-Commands use portable `python` invocation and explicit repository-relative
-paths. Recipes distinguish read-only `--check` commands from commands that
-write outputs. `--full-aoi` receives a warning because it is a compatibility or
-diagnostic denominator, not the release-standard scientific path.
+The high-level CLI supports path-oriented `run_hydroseason` inputs:
+`--water-source`, `--output-dir`, `--aoi`, `--aoi-name`, `--start-date`,
+`--end-date`, `--water-mask-variable`, `--rainfall-csv`,
+`--fetch-rainfall`, `--stac-url`, `--stac-collection`, `--cache-dir`,
+`--report-title`, and `--report-subtitle`. In-memory DataFrames and xarray
+objects remain kernel-only. Advanced `analysis_options` remain Python-only
+until a separate serialization contract is designed.
 
-The page will include these core command families:
+Recipes use explicit, portable paths. Long runs can be detached from notebook
+lifetimes through normal shell redirection:
+
+```powershell
+hydroseason run ... *> hydroseason.log
+```
+
+```bash
+hydroseason run ... > hydroseason.log 2>&1
+```
+
+The page also documents secondary repository commands:
 
 ```text
-python scripts/extract_water_extent_csv.py ...
 python scripts/prepare_case_study_data.py --check
 python scripts/_build_study_case_offline.py --check
 python scripts/_build_study_case_rainfall.py --check
@@ -107,6 +154,30 @@ python scripts/render_case_study_maps.py --check
 python -m mkdocs serve
 python -m mkdocs build --strict
 ```
+
+## CLI architecture and runtime behavior
+
+Add `hydroseason/cli.py` containing the parser and process entry point, plus
+`hydroseason/__main__.py` delegating to the same `main()` function. Add the
+`project.scripts` entry point:
+
+```toml
+[project.scripts]
+hydroseason = "hydroseason.cli:main"
+```
+
+The `run` subcommand translates path and scalar arguments into one
+`run_hydroseason(...)` call. It prints source kind, regime, route, rainfall
+status, output directory, and HTML report path on success. It writes warnings
+to standard error while preserving the orchestrator's existing best-effort
+rainfall behavior.
+
+Fatal water-input, analysis, or report-writing errors return a nonzero exit
+status. Ancillary rainfall failure follows `run_hydroseason`: report creation
+can still succeed, with warning/status recorded in the result and surfaced by
+the CLI. `--cache-dir` is passed through unchanged so rerunning an interrupted
+DEA command can reuse compatible cached work; the CLI does not promise a new
+checkpoint protocol.
 
 ## Map content and placement
 
@@ -185,6 +256,10 @@ modify case-study result CSVs or analysis code.
 
 Add focused tests for:
 
+- CLI parser mapping of path/scalar arguments to one `run_hydroseason` call;
+- `hydroseason --help` and `python -m hydroseason --help` smoke behavior;
+- nonzero CLI exit status for fatal orchestrator failures;
+- successful CLI completion when rainfall is ancillary and unavailable;
 - all five site keys and boundary assets being present;
 - map manifest hashes and CRS metadata being valid;
 - both required overlays appearing in the main-workflow asset metadata;
@@ -202,19 +277,24 @@ python -m pytest -q
 
 ## Release and compatibility
 
-Do not edit `pyproject.toml` version, `CITATION.cff` release metadata, release
-tags, or published assets. Keep `hydroseason.__version__` at `0.1.0`.
+Do not edit the `pyproject.toml` version, `CITATION.cff` release metadata,
+release tags, or published assets. Add the console entry point without changing
+the version; keep `hydroseason.__version__` at `0.1.0`.
 
-This is a post-release documentation and case-study-asset follow-up on the
-development branch. It can update the documentation site without creating a
-new release. The immutable `v0.1.0` package and case-study archive remain
-unchanged; no new archive is promised by this work.
+This is an unreleased CLI, documentation, and case-study-asset follow-up on the
+development branch. It can be implemented and tested without creating a new
+release. The immutable `v0.1.0` package and case-study archive remain
+unchanged; they do not claim to contain this new CLI.
 
 ## Acceptance criteria
 
 - `CLI Recipes` appears in site navigation and renders under strict MkDocs.
-- Recipes match current script names and flags; no nonexistent package CLI is
-  documented.
+- `hydroseason run` and `python -m hydroseason run` execute the high-level
+  orchestrator with the documented CSV, raster, DEA, and rainfall examples.
+- Kernel and CLI examples show equivalent inputs and outputs.
+- Long-running CLI execution occurs in a separate process, supports cache reuse,
+  and reports fatal failures through exit status.
+- Maintainer commands remain documented as secondary repository recipes.
 - Overview map shows all five testing sites and whole-catchment boundaries.
 - Main workflow map shows multiyear-mask and max-water layers with clear legend
   and caveat.
