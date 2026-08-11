@@ -24,11 +24,16 @@ def render_main_results_table(summary_csv: Path) -> str:
         else "climatological_peak_month"
     )
     lines = [
-        "| Catchment | Regime | Route | SNR | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Catchment | Regime | Route | SNR | Peak-month IQR (months) | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for _, row in df.iterrows():
         snr_str = f"{row['amplitude_snr']:.2f}"
+        peak_iqr_str = (
+            f"{row['peak_phase_iqr_months']:.1f}"
+            if pd.notna(row["peak_phase_iqr_months"])
+            else "N/A"
+        )
         peak_str = (
             pd.to_datetime(f"2020-{int(row[peak_column]):02d}-01").strftime("%b")
             if pd.notna(row[peak_column])
@@ -40,7 +45,7 @@ def render_main_results_table(summary_csv: Path) -> str:
             else "N/A"
         )
         lines.append(
-            f"| {row['name']} | {row['regime']} | {row['route']} | {snr_str} | "
+            f"| {row['name']} | {row['regime']} | {row['route']} | {snr_str} | {peak_iqr_str} | "
             f"{row['n_hydro_years']} | {row['n_events']} | {row['longest_low_spell_months']} | "
             f"{peak_str} | {trough_str} |"
         )

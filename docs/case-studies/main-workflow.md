@@ -48,16 +48,41 @@ generated graph images are deferred until the separate HTML pass is finalised.
 ## Main Study Results
 
 <!-- BEGIN GENERATED MAIN RESULTS -->
-| Catchment | Regime | Route | SNR | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |
-|---|---|---|---|---|---|---|---|---|
-| Daly River (NT) | marginal | fixed_climatological_window | 2.46 | 21 | 21 | 6 | Mar | Nov |
-| Fitzroy River (WA) | seasonal | per_year_detection | 2.65 | 21 | 18 | 8 | Feb | Nov |
-| Gilbert River (QLD) | seasonal | per_year_detection | 3.62 | 21 | 24 | 10 | Feb | Nov |
-| Lachlan River (NSW) | aseasonal | event_characterisation | 0.67 | 0 | 5 | 55 | N/A | N/A |
-| Moonie River (QLD/NSW) | aseasonal | event_characterisation | 0.62 | 0 | 14 | 22 | N/A | N/A |
+| Catchment | Regime | Route | SNR | Peak-month IQR (months) | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |
+|---|---|---|---|---|---|---|---|---|---|
+| Daly River (NT) | marginal | fixed_climatological_window | 2.46 | 2.0 | 21 | 21 | 6 | Mar | Nov |
+| Fitzroy River (WA) | seasonal | per_year_detection | 2.65 | 1.0 | 21 | 18 | 8 | Feb | Nov |
+| Gilbert River (QLD) | seasonal | per_year_detection | 3.62 | 1.0 | 21 | 24 | 10 | Feb | Nov |
+| Lachlan River (NSW) | aseasonal | event_characterisation | 0.67 | 4.0 | 0 | 5 | 55 | N/A | N/A |
+| Moonie River (QLD/NSW) | aseasonal | event_characterisation | 0.62 | 3.0 | 0 | 14 | 22 | N/A | N/A |
 <!-- END GENERATED MAIN RESULTS -->
+
+### Why Daly River is marginal, not seasonal
+
+HydroSeason requires **both** a strong annual swing and reproducible timing
+before it permits independently detected boundaries for each year. Daly
+passes the strength gate: its water-extent SNR is 2.46, above the seasonal minimum of 2.0.
+It misses the timing gate: the circular IQR of its per-year
+peak months is 2.0 months, above the seasonal maximum of 1.5 months. It is
+therefore `marginal`, not `seasonal`, and uses one explicitly imposed
+climatological window instead of claiming that each year's boundaries are
+independently reproducible.
+
+The low-confidence March 2011 maximum (87.2% invalid pixels) is a separate
+boundary-quality warning. It does not explain the record-level regime label;
+the marginal label comes from year-to-year peak timing across the full
+record. Likewise, Daly's rainfall SNR of 5.81 cannot promote its water route:
+rainfall is ancillary, while routing is decided from observed water extent.
 
 ## Findings
 
-1. **Monsoonal/Northern Catchments (Daly, Fitzroy, Gilbert):** The records retain all finite observations for review. Fitzroy and Gilbert remain seasonal with per-year detected boundaries; Daly is routed to an imposed climatological window under the flagged-quality view. Its 2011 cycle is retained, with the March observed maximum marked low confidence because 87.2% of pixels were invalid.
-2. **Inland/Low-Relief Catchments (Lachlan, Moonie):** Low signal-to-noise ratio (SNR < 1.0) and high year-to-year peak month dispersion indicate aseasonal regimes. Routing correctly disables annual hydrological year partitioning and characterizes ephemeral wet events (12–14 events) and prolonged dry spells (up to 30 months).
+1. **Monsoonal/Northern Catchments (Daly, Fitzroy, Gilbert):** Fitzroy and
+   Gilbert support independently detected per-year boundaries. Daly retains
+   a clear average monsoonal cycle but misses the peak-timing reproducibility
+   gate, so it uses the imposed fixed window explained above. Its March 2011
+   observed maximum remains visible but low confidence because 87.2% of
+   pixels were invalid.
+2. **Inland/Low-Relief Catchments (Lachlan, Moonie):** SNR below 0.7 and broad
+   year-to-year peak timing route both records to event characterisation.
+   Lachlan has 5 wet events and a 55-month longest low spell; Moonie has 14
+   events and a 22-month longest low spell. No annual boundaries are forced.

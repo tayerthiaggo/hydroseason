@@ -15,7 +15,7 @@ This directory contains the committed, reproducible inputs and checked results f
 
 3. **Rainfall-Augmented Main Workflow (Case Study 1b)**
    - Re-runs Case Study 1's five catchments with monthly SILO gridded rainfall attached as ancillary context (`workflow.run_hydroseason`'s rainfall path), via the same `compare_rainfall_to_extent_regime` comparison used by the public API.
-   - Rainfall is strictly additive: it is resolved *after* the water-only `analyze_catchment` call and can never influence regime, route, or hydrological-year boundaries. `summary.csv`'s water-only columns (`regime`, `route`, `amplitude_snr`, `n_hydro_years`, ...) are byte-identical to Case Study 1's; only the rainfall-comparison columns (`rainfall_regime`, `rainfall_amplitude_snr`, `rainfall_divergence`, `rainfall_peak_lag_months`) are new.
+   - Rainfall is strictly additive: it is resolved *after* the water-only `analyze_catchment` call and can never influence regime, route, or hydrological-year boundaries. `summary.csv`'s water-only columns (`regime`, `route`, `amplitude_snr`, `peak_phase_iqr_months`, `n_hydro_years`, ...) are byte-identical to Case Study 1's; only the rainfall-comparison columns (`rainfall_regime`, `rainfall_amplitude_snr`, `rainfall_divergence`, `rainfall_peak_lag_months`) are new.
    - Same analysis window and extent inputs as Case Study 1; rainfall inputs are monthly SILO rainfall (`silo-open-data`, Official archive), pre-fetched and trimmed to `2005-01-01`-`2025-12-01`.
 
 ## Directory Structure

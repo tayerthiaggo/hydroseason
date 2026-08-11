@@ -115,6 +115,42 @@ comparison failure emits a warning and is recorded on the result, but the
 water-only report bundle is still written. Water loading, analysis, and
 report-writing failures remain fatal.
 
+### 5. Watch a long run
+
+`run_hydroseason` is silent by default. `progress=True` writes five numbered
+step lines to standard error and switches on a bar that ticks once per
+calendar year during a DEA fetch:
+
+```python
+result = run_hydroseason(
+    output_dir="output/isaac",
+    aoi="isaac.geojson",
+    aoi_name="Isaac River",
+    start_date="2005-01-01",
+    end_date="2025-12-01",
+    cache_dir="cache/isaac",
+    progress=True,
+)
+```
+
+Pass a callable instead to receive structured events — one
+`hydroseason._progress.ProgressEvent` per step boundary, carrying `step`,
+`total_steps`, `label`, `phase`, `detail`, and `elapsed_s` — and no bar:
+
+```python
+events = []
+result = run_hydroseason(..., progress=events.append)
+```
+
+For runs long enough to outlive a notebook session, use the command line
+instead; see [CLI Recipes](cli-recipes.md).
+
+!!! note "Both DEA searches share one endpoint"
+    The fetch path performs two STAC searches: the monthly `ga_ls_wo_3`
+    search and the `ga_ls_wo_fq_myear_3` historical-statistics search that
+    fixes the spatial denominator. `stac_url` configures both. Pass
+    `statistics_stac_url` only to point them at different services.
+
 ---
 
 ## What you get back

@@ -15,8 +15,8 @@ and trimmed to the same range.
 Rainfall is resolved *after* the water-only `analyze_catchment` call and can
 never influence regime, route, or hydrological-year boundaries. Every
 water-only column in `case_studies/results/main_rainfall/summary.csv`
-(`regime`, `route`, `amplitude_snr`, `n_hydro_years`, `n_events`,
-`longest_low_spell_months`, `water_extent_peak_month`,
+(`regime`, `route`, `amplitude_snr`, `peak_phase_iqr_months`, `n_hydro_years`,
+`n_events`, `longest_low_spell_months`, `water_extent_peak_month`,
 `climatological_trough_month`, ...) is identical to
 [Case Study 1's](main-workflow.md) `summary.csv`. Only four rainfall-
 comparison columns are new: `rainfall_regime`, `rainfall_amplitude_snr`,
@@ -49,6 +49,9 @@ footprint smooths and lags rainfall's raw seasonal swing).
 2. **Peak lag is short and consistent for seasonal catchments.** Fitzroy and
    Gilbert both show extent peaking 1 month after rainfall; Daly (routed to
    `fixed_climatological_window` under flagged quality) shows a 2-month lag.
+   Daly's rainfall classification does not override its water regime: the
+   water record misses the <=1.5-month peak-timing gate, and rainfall is
+   ancillary by design.
 3. **Aseasonal catchments stay aseasonal in both series.** Lachlan's
    rainfall SNR (0.86) remains well below the seasonal threshold, agreeing
    with its `event_characterisation` water route. Moonie's rainfall is

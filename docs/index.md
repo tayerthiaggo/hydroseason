@@ -71,6 +71,7 @@ directly — see [Advanced: calling the building blocks directly](guide.md#advan
 | Page | Contents |
 |---|---|
 | [User Guide](guide.md) | Start with `run_hydroseason`, the four ways to run it, routing, data quality, and advanced DEA internals |
+| [CLI Recipes](cli-recipes.md) | Run the same orchestrator from the command line, with progress, log redirection, cache reuse, and exit status |
 | [Hydrological State](hydrological-state.md) | Dynamic years, trough diagnostics, and phase models |
 | [Case Studies Overview](case-studies/index.md) | Three reproducible studies across five catchments |
 | [Main Workflow Study](case-studies/main-workflow.md) | Case Study 1 — Route-aware analysis across 5 catchments |
