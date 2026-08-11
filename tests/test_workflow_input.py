@@ -42,7 +42,7 @@ def test_none_source_calls_dea_loader(monkeypatch, tmp_path):
 
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
-        cache_dir, statistics_stac_url,
+        cache_dir, statistics_stac_url, progress, progress_desc,
     ):
         calls.update(
             stac_url=stac_url,
@@ -81,7 +81,7 @@ def test_one_configured_stac_url_reaches_both_searches(monkeypatch):
 
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
-        cache_dir, statistics_stac_url,
+        cache_dir, statistics_stac_url, progress, progress_desc,
     ):
         calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
         return _extent_frame()
@@ -106,7 +106,7 @@ def test_explicit_statistics_stac_url_is_not_overridden(monkeypatch):
 
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
-        cache_dir, statistics_stac_url,
+        cache_dir, statistics_stac_url, progress, progress_desc,
     ):
         calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
         return _extent_frame()
@@ -248,3 +248,64 @@ def test_local_date_bounds_subset_and_complete_months():
         pd.date_range("2020-01-01", "2020-03-01", freq="MS")
     )
     assert resolved.extent.loc["2020-02-01", "invalid_pct"] == 100.0
+
+
+def test_dea_branch_forwards_progress_to_the_per_year_loader(monkeypatch):
+    """load_wofs_monthly_extent already ticks a tqdm bar once per calendar
+    year. resolve_water_input is the only thing standing between that bar and
+    the public API."""
+    calls = {}
+
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url, progress, progress_desc,
+    ):
+        calls.update(progress=progress, progress_desc=progress_desc)
+        return _extent_frame()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    resolve_water_input(
+        None,
+        aoi="aoi.geojson",
+        start_date="2020-01-01",
+        end_date="2020-03-01",
+        progress=True,
+        progress_desc="[1/5] resolve water input",
+    )
+
+    assert calls["progress"] is True
+    assert calls["progress_desc"] == "[1/5] resolve water input"
+
+
+def test_progress_defaults_off_so_existing_callers_are_unchanged(monkeypatch):
+    calls = {}
+
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url, progress, progress_desc,
+    ):
+        calls.update(progress=progress, progress_desc=progress_desc)
+        return _extent_frame()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    resolve_water_input(
+        None, aoi="aoi.geojson", start_date="2020-01-01", end_date="2020-03-01"
+    )
+
+    assert calls["progress"] is False
+    assert calls["progress_desc"] is None
+
+
+def test_supplied_source_accepts_progress_and_ignores_it(tmp_path):
+    """A CSV read has no year loop; passing progress must not raise."""
+    frame = _extent_frame()
+    csv_path = tmp_path / "extent.csv"
+    frame.rename_axis("date").reset_index().to_csv(csv_path, index=False)
+
+    resolved = resolve_water_input(csv_path, progress=True)
+
+    assert resolved.source_kind == "extent_csv"

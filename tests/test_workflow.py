@@ -309,7 +309,7 @@ def test_run_hydroseason_propagates_one_stac_url_through_the_full_input_seam(
 
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
-        cache_dir, statistics_stac_url,
+        cache_dir, statistics_stac_url, progress, progress_desc,
     ):
         calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
         return _seasonal_extent()
