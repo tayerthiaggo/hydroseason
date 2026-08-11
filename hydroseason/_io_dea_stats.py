@@ -116,6 +116,18 @@ class WoStatisticsUnavailable(DEAStatsUnavailable):
     """
 
 
+class HistoricalWaterMaskUnavailable(DEAStatsUnavailable):
+    """The fixed multiyear water mask could not be resolved for this run.
+
+    Deliberately FATAL, unlike the wet-AOI planning mask: the multiyear mask
+    fixes the spatial denominator every ``extent_pct`` value is computed
+    against. Falling open to a full-coverage read would silently produce a
+    different, incomparable denominator, so the run stops instead. Its whole
+    job is to say which endpoint and product failed and what argument
+    redirects them.
+    """
+
+
 # Wall-clock budget for one source's STAC search + COG read + dask compute,
 # combined. Per-request GDAL/pystac_client timeouts bound a single socket,
 # but a large catchment fans out to many tile requests -- with retries, that
@@ -950,6 +962,7 @@ __all__ = [
     "DEFAULT_WO_STATISTICS_PRODUCT",
     "DEFAULT_WO_STATISTICS_STAC_URL",
     "DEAStatsUnavailable",
+    "HistoricalWaterMaskUnavailable",
     "WetPlanningFootprint",
     "WoStatisticsUnavailable",
     "build_planning_footprint_from_historical_mask",
