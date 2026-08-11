@@ -60,6 +60,8 @@ def test_invalid_months_raise_specific_errors(months, error, message):
 def test_invalid_resampling_configuration_raises_specific_errors():
     with pytest.raises(ValueError, match="n_resamples must be at least 20"):
         summarise_circular_months([1, 2, 3, 4], n_resamples=19)
+    with pytest.raises(ValueError, match="confidence must be a number between 0 and 1"):
+        summarise_circular_months([1, 2, 3, 4], confidence="0.95")
     with pytest.raises(ValueError, match="confidence must be between 0 and 1"):
         summarise_circular_months([1, 2, 3, 4], confidence=1.0)
     with pytest.raises(TypeError, match="random_state must be an integer"):

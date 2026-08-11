@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from numbers import Integral
+from numbers import Integral, Real
 from typing import Iterable
 
 import numpy as np
@@ -74,7 +74,10 @@ def summarise_circular_months(
         raise ValueError("n_resamples must be at least 20")
     if isinstance(random_state, bool) or not isinstance(random_state, Integral):
         raise TypeError("random_state must be an integer")
-    if isinstance(confidence, bool) or not 0.0 < float(confidence) < 1.0:
+    if isinstance(confidence, bool) or not isinstance(confidence, Real):
+        raise ValueError("confidence must be a number between 0 and 1")
+    confidence_value = float(confidence)
+    if not 0.0 < confidence_value < 1.0:
         raise ValueError("confidence must be between 0 and 1")
 
     angles = _month_angles(values)
@@ -87,7 +90,7 @@ def summarise_circular_months(
     bootstrap_indices = bootstrap_rng.integers(0, len(values), size=(n_resamples, len(values)))
     bootstrap_angles = angles[bootstrap_indices]
     bootstrap_lengths = np.abs(np.mean(np.exp(1j * bootstrap_angles), axis=1))
-    alpha = (1.0 - float(confidence)) / 2.0
+    alpha = (1.0 - confidence_value) / 2.0
     ci_low, ci_high = np.percentile(bootstrap_lengths, [100.0 * alpha, 100.0 * (1.0 - alpha)])
 
     observed_stat = _kuiper_statistic(angles / (2.0 * np.pi))
