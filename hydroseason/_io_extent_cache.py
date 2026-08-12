@@ -532,6 +532,7 @@ def _resolve_historical_water_mask(
     *,
     aoi,
     collection: str,
+    start_date: str,
     end_date: str,
     cache_root: Path | None,
     offline: bool,
@@ -551,40 +552,37 @@ def _resolve_historical_water_mask(
             resolution=resolution,
             end_date=end_date,
         )
-        return historical_water_mask
-
-    statistics_crs = f"EPSG:{crs}" if isinstance(crs, int) else (crs or "EPSG:3577")
-    statistics_resolution = 30.0 if resolution is None else float(resolution)
-    if cache_root is not None:
-        mask = io_facade.load_or_build_historical_water_mask(
-            aoi,
-            analysis_end=end_date,
-            cache_root=cache_root,
-            offline=offline,
-            stac_url=statistics_stac_url,
-            crs=statistics_crs,
-            resolution=statistics_resolution,
-        )
+        mask = historical_water_mask
     else:
-        if offline:
-            from hydroseason._io_dea_stats import DEAStatsUnavailable
-
-            raise DEAStatsUnavailable(
-                "no cached historical water mask is available while offline=True "
-                "and no historical-mask cache root was supplied"
+        statistics_crs = f"EPSG:{crs}" if isinstance(crs, int) else (crs or "EPSG:3577")
+        statistics_resolution = 30.0 if resolution is None else float(resolution)
+        if cache_root is not None:
+            mask = io_facade.load_or_build_historical_water_mask(
+                aoi,
+                cache_root=cache_root,
+                offline=offline,
+                stac_url=statistics_stac_url,
+                crs=statistics_crs,
+                resolution=statistics_resolution,
             )
-        # No filesystem root was requested: retain the same exact-Multi-Year
-        # semantics, but leave the artifact entirely in memory.
-        statistics = io_facade.open_wo_statistics(
-            aoi,
-            stac_url=statistics_stac_url,
-            crs=statistics_crs,
-            resolution=statistics_resolution,
-        )
-        mask = io_facade.build_historical_water_mask(
-            statistics, aoi, analysis_end=end_date
-        )
-    _validate_historical_mask_coverage(mask, end_date)
+        else:
+            if offline:
+                from hydroseason._io_dea_stats import DEAStatsUnavailable
+
+                raise DEAStatsUnavailable(
+                    "no cached historical water mask is available while offline=True "
+                    "and no historical-mask cache root was supplied"
+                )
+            # No filesystem root was requested: retain the same exact-Multi-Year
+            # semantics, but leave the artifact entirely in memory.
+            statistics = io_facade.open_wo_statistics(
+                aoi,
+                stac_url=statistics_stac_url,
+                crs=statistics_crs,
+                resolution=statistics_resolution,
+            )
+            mask = io_facade.build_historical_water_mask(statistics, aoi)
+        _validate_historical_mask_coverage(mask, end_date)
     return mask
 
 
@@ -823,6 +821,7 @@ def load_wofs_monthly_extent(
             resolved_historical_mask = _resolve_historical_water_mask(
                 aoi=aoi,
                 collection=collection,
+                start_date=start_date,
                 end_date=end_date,
                 cache_root=historical_cache_root,
                 offline=offline,
