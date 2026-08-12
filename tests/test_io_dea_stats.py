@@ -872,7 +872,7 @@ def test_historical_water_mask_excludes_zero_wet_and_outside_aoi_cells():
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
 
     result = build_historical_water_mask(
-        stats, _historical_aoi(), analysis_end="2020-01-01"
+        stats, _historical_aoi()
     )
 
     mask = np.asarray(result.mask, dtype=bool)
@@ -892,7 +892,7 @@ def test_historical_water_mask_value_object_records_full_provenance():
     )
     aoi = _historical_aoi(n=10)
 
-    result = build_historical_water_mask(stats, aoi, analysis_end="2020-06-01")
+    result = build_historical_water_mask(stats, aoi)
 
     assert isinstance(result, HistoricalWaterMask)
     assert result.crs
@@ -918,7 +918,7 @@ def test_historical_water_mask_empty_mask_raises_dea_stats_unavailable():
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
 
     with pytest.raises(DEAStatsUnavailable, match="no historically observed water"):
-        build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-01-01")
+        build_historical_water_mask(stats, _historical_aoi(n=10))
 
 
 def test_historical_water_mask_all_wet_outside_aoi_raises_dea_stats_unavailable():
@@ -930,7 +930,7 @@ def test_historical_water_mask_all_wet_outside_aoi_raises_dea_stats_unavailable(
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
 
     with pytest.raises(DEAStatsUnavailable, match="no historically observed water"):
-        build_historical_water_mask(stats, _historical_aoi(), analysis_end="2020-01-01")
+        build_historical_water_mask(stats, _historical_aoi())
 
 
 def test_historical_water_mask_insufficient_coverage_raises_dea_stats_unavailable():
@@ -939,7 +939,7 @@ def test_historical_water_mask_insufficient_coverage_raises_dea_stats_unavailabl
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2018-12-31T00:00:00Z")
 
     with pytest.raises(DEAStatsUnavailable, match="does not cover analysis end"):
-        build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-06-01")
+        build_historical_water_mask(stats, _historical_aoi(n=10))
 
 
 def test_historical_water_mask_incompatible_lineage_raises_dea_stats_unavailable():
@@ -956,7 +956,7 @@ def test_historical_water_mask_incompatible_lineage_raises_dea_stats_unavailable
     )
 
     with pytest.raises(DEAStatsUnavailable, match="incompatible WOfS lineage"):
-        build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-01-01")
+        build_historical_water_mask(stats, _historical_aoi(n=10))
 
 
 def test_historical_water_mask_geographic_grid_builds_correctly():
@@ -987,7 +987,7 @@ def test_historical_water_mask_geographic_grid_builds_correctly():
         {"geometry": [box(129.999, 29.0, 131.0, 30.001)]}, crs="EPSG:4326"
     )
 
-    result = build_historical_water_mask(ds, aoi, analysis_end="2020-01-01")
+    result = build_historical_water_mask(ds, aoi)
 
     mask = np.asarray(result.mask, dtype=bool)
     assert mask[1, 1]
@@ -1003,8 +1003,8 @@ def test_historical_water_mask_digest_is_repeatable_and_sensitive():
     stats_b = _stats_dataset(grid, time_span=time_span)
     aoi = _historical_aoi(n=10)
 
-    result_a = build_historical_water_mask(stats_a, aoi, analysis_end="2020-01-01")
-    result_b = build_historical_water_mask(stats_b, aoi, analysis_end="2020-01-01")
+    result_a = build_historical_water_mask(stats_a, aoi)
+    result_b = build_historical_water_mask(stats_b, aoi)
 
     assert result_a.mask_sha256 == result_b.mask_sha256
     assert result_a.aoi_sha256 == result_b.aoi_sha256
@@ -1012,7 +1012,7 @@ def test_historical_water_mask_digest_is_repeatable_and_sensitive():
     other_grid = np.zeros((10, 10), dtype=np.int32)
     other_grid[5, 5] = 1
     stats_other = _stats_dataset(other_grid, time_span=time_span)
-    result_other = build_historical_water_mask(stats_other, aoi, analysis_end="2020-01-01")
+    result_other = build_historical_water_mask(stats_other, aoi)
 
     assert result_other.mask_sha256 != result_a.mask_sha256
 
@@ -1029,7 +1029,7 @@ def test_planning_footprint_from_historical_mask_native_mask_is_exact():
     grid[3, 2] = 1
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
     historical_mask = build_historical_water_mask(
-        stats, _historical_aoi(), analysis_end="2020-01-01"
+        stats, _historical_aoi()
     )
 
     footprint = build_planning_footprint_from_historical_mask(
@@ -1053,7 +1053,7 @@ def test_planning_footprint_safety_dilation_cannot_mutate_exact_mask():
     grid[6, 6] = 1
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
     historical_mask = build_historical_water_mask(
-        stats, _historical_aoi(), analysis_end="2020-01-01"
+        stats, _historical_aoi()
     )
 
     before_mask = np.array(historical_mask.mask, copy=True, dtype=bool)
@@ -1097,7 +1097,7 @@ def _historical_mask_request(**overrides):
     return HistoricalWaterMaskRequest(**fields)
 
 
-def _built_historical_mask(*, seed_cell=(3, 2), n=16, time_span=None, build_analysis_end="2020-01-01"):
+def _built_historical_mask(*, seed_cell=(3, 2), n=16, time_span=None):
     grid = np.zeros((n, n), dtype=np.int32)
     grid[seed_cell] = 1
     stats = _stats_dataset(
@@ -1105,7 +1105,7 @@ def _built_historical_mask(*, seed_cell=(3, 2), n=16, time_span=None, build_anal
         time_span=time_span or "1987-01-01T00:00:00Z/2025-12-31T00:00:00Z",
     )
     aoi = _historical_aoi(n=n)
-    return build_historical_water_mask(stats, aoi, analysis_end=build_analysis_end)
+    return build_historical_water_mask(stats, aoi)
 
 
 def test_historical_water_mask_request_digest_excludes_paths_and_dates():
@@ -1141,7 +1141,7 @@ def test_write_then_read_historical_water_mask_round_trips(tmp_path):
     request = _historical_mask_request()
 
     write_historical_water_mask(tmp_path, request, mask)
-    result = read_historical_water_mask(tmp_path, request, analysis_end="2020-01-01")
+    result = read_historical_water_mask(tmp_path, request)
 
     assert result is not None
     assert np.array_equal(np.asarray(result.mask, dtype=bool), np.asarray(mask.mask, dtype=bool))
@@ -1224,7 +1224,7 @@ def test_requested_monthly_dates_do_not_create_duplicate_artifacts(tmp_path):
 
 def test_read_historical_water_mask_returns_none_when_no_cache(tmp_path):
     request = _historical_mask_request()
-    assert read_historical_water_mask(tmp_path, request, analysis_end="2020-01-01") is None
+    assert read_historical_water_mask(tmp_path, request) is None
 
 
 def test_read_historical_water_mask_rejects_tampered_mask_bytes(tmp_path):
@@ -1245,7 +1245,7 @@ def test_read_historical_water_mask_rejects_tampered_mask_bytes(tmp_path):
     assert np.array_equal(np.asarray(array[:], dtype=bool), tampered)
 
     with pytest.raises(ValueError, match="historical water mask cache verification failed"):
-        read_historical_water_mask(tmp_path, request, analysis_end="2020-01-01")
+        read_historical_water_mask(tmp_path, request)
 
 
 def test_read_historical_water_mask_rejects_tampered_manifest_field(tmp_path):
@@ -1261,7 +1261,7 @@ def test_read_historical_water_mask_rejects_tampered_manifest_field(tmp_path):
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(ValueError, match="historical water mask cache verification failed"):
-        read_historical_water_mask(tmp_path, request, analysis_end="2020-01-01")
+        read_historical_water_mask(tmp_path, request)
 
 
 def test_stale_source_cannot_satisfy_later_analysis_end(tmp_path):
@@ -1270,15 +1270,14 @@ def test_stale_source_cannot_satisfy_later_analysis_end(tmp_path):
     None (a miss) rather than silently serving stale coverage."""
     mask = _built_historical_mask(
         time_span="1987-01-01T00:00:00Z/2018-12-31T00:00:00Z",
-        build_analysis_end="2018-01-01",
     )
     request = _historical_mask_request()
     write_historical_water_mask(tmp_path, request, mask)
 
-    result = read_historical_water_mask(tmp_path, request, analysis_end="2020-06-01")
+    result = read_historical_water_mask(tmp_path, request)
     assert result is None
 
-    still_ok = read_historical_water_mask(tmp_path, request, analysis_end="2018-01-01")
+    still_ok = read_historical_water_mask(tmp_path, request)
     assert still_ok is not None
 
 
@@ -1298,7 +1297,6 @@ def test_load_or_build_warm_cache_makes_zero_statistics_calls(tmp_path, monkeypa
 
     result = load_or_build_historical_water_mask(
         aoi,
-        analysis_end="2020-01-01",
         cache_root=tmp_path,
         offline=True,
         stac_url=request.stac_url,
@@ -1314,7 +1312,6 @@ def test_load_or_build_offline_no_cache_fails_closed(tmp_path):
     with pytest.raises(DEAStatsUnavailable):
         load_or_build_historical_water_mask(
             _historical_aoi(n=16),
-            analysis_end="2020-01-01",
             cache_root=tmp_path,
             offline=True,
         )
@@ -1337,7 +1334,7 @@ def test_load_or_build_cold_cache_builds_and_persists(tmp_path, monkeypatch):
 
     aoi = _historical_aoi(n=16)
     result = load_or_build_historical_water_mask(
-        aoi, analysis_end="2020-01-01", cache_root=tmp_path, offline=False,
+        aoi, cache_root=tmp_path, offline=False,
     )
 
     assert call_count["n"] == 1
@@ -1349,7 +1346,7 @@ def test_load_or_build_cold_cache_builds_and_persists(tmp_path, monkeypatch):
     # A second call must be served from the now-warm cache: zero further
     # Statistics calls.
     result_again = load_or_build_historical_water_mask(
-        aoi, analysis_end="2020-01-01", cache_root=tmp_path, offline=False,
+        aoi, cache_root=tmp_path, offline=False,
     )
     assert call_count["n"] == 1
     assert result_again.mask_sha256 == result.mask_sha256
@@ -1369,7 +1366,7 @@ def test_load_or_build_statistics_failure_offline_mode_returns_cache_or_raises(t
 
     with pytest.raises(DEAStatsUnavailable):
         load_or_build_historical_water_mask(
-            _historical_aoi(n=16), analysis_end="2020-01-01",
+            _historical_aoi(n=16),
             cache_root=tmp_path, offline=False,
         )
 
@@ -1391,11 +1388,11 @@ def test_load_or_build_product_change_produces_distinct_verified_artifact(tmp_pa
 
     aoi = _historical_aoi(n=16)
     result_default = load_or_build_historical_water_mask(
-        aoi, analysis_end="2020-01-01", cache_root=tmp_path, offline=False,
+        aoi, cache_root=tmp_path, offline=False,
         stac_url="https://a.test/stac",
     )
     result_other_stac = load_or_build_historical_water_mask(
-        aoi, analysis_end="2020-01-01", cache_root=tmp_path, offline=False,
+        aoi, cache_root=tmp_path, offline=False,
         stac_url="https://b.test/stac",
     )
 

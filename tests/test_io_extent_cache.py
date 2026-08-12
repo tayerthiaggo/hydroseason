@@ -409,7 +409,6 @@ def test_default_historical_mask_is_resolved_once_and_reused_across_start_dates(
     hio.load_wofs_monthly_extent(start_date="2021-01-01", **common)
 
     assert resolve.call_count == 2
-    assert {call.kwargs["analysis_end"] for call in resolve.call_args_list} == {"2021-12-31"}
     assert {call.kwargs["cache_root"] for call in resolve.call_args_list} == {
         tmp_path / "historical-cache"
     }
