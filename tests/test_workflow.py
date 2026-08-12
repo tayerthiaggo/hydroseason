@@ -781,6 +781,7 @@ def test_run_hydroseason_surfaces_resolved_water_warnings(monkeypatch, tmp_path)
         )
 
     monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
 
     result = run_hydroseason(
         None,
