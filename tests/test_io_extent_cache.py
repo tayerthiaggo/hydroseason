@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -34,6 +35,31 @@ def _fake_monthly_cube(start: str, end: str):
         values,
         dims=("time", "y", "x"),
         coords={"time": dates, "y": [0, 1], "x": [0, 1]},
+    )
+
+
+def _fake_georeferenced_monthly_cube(start: str, end: str):
+    """Like ``_fake_monthly_cube``, but with ``.rio`` metadata matching the
+    grid ``_historical_water_mask()`` builds (``EPSG:3577``, the same 2x2
+    ``transform``) -- required by ``_clip_to_aoi`` when a historical mask is
+    applied on the untiled ``load_wofs_from_stac`` path.
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    import rioxarray  # noqa: F401  (registers the .rio accessor)
+    from affine import Affine
+
+    dates = pd.date_range(start, end, freq="MS")
+    values = np.ones((len(dates), 2, 2), dtype=np.int8)
+    cube = xr.DataArray(
+        values,
+        dims=("time", "y", "x"),
+        coords={"time": dates, "y": [45.0, 15.0], "x": [15.0, 45.0]},
+    )
+    return (
+        cube.rio.set_spatial_dims(x_dim="x", y_dim="y")
+        .rio.write_crs("EPSG:3577")
+        .rio.write_transform(Affine(30.0, 0.0, 0.0, 0.0, -30.0, 60.0))
     )
 
 
@@ -416,8 +442,9 @@ def test_default_historical_mask_is_resolved_once_and_reused_across_start_dates(
     assert all(call.kwargs["planning_footprint"] is not None for call in acquire.call_args_list)
 
 
-def test_historical_mask_coverage_must_reach_requested_end_date(monkeypatch, tmp_path):
+def test_supplied_mask_past_coverage_warns_but_succeeds(monkeypatch, tmp_path):
     import hydroseason.io as hio
+    from hydroseason._historical_water_mask import HistoricalMaskCoverageWarning
 
     aoi = _aoi()
     mask = _historical_water_mask(aoi=aoi, coverage_end="2021-12-31")
@@ -441,7 +468,7 @@ def test_historical_mask_coverage_must_reach_requested_end_date(monkeypatch, tmp
             historical_water_mask=mask,
         )
 
-    with pytest.raises(ValueError, match="does not cover requested end_date"):
+    with pytest.warns(HistoricalMaskCoverageWarning) as record:
         hio.load_wofs_monthly_extent(
             "https://example.invalid/stac",
             "ga_ls_wo_3",
@@ -453,8 +480,191 @@ def test_historical_mask_coverage_must_reach_requested_end_date(monkeypatch, tmp
             historical_water_mask=mask,
         )
 
-    assert acquire.call_count == 2
+    message = str(record[0].message)
+    assert "2020-01-01" in message
+    assert "2022-01-01" in message
+    assert "1987-01-01" in message
+    assert "2021-12-31" in message
+    assert "1 month" in message
+
+    assert acquire.call_count == 3
     assert all(call.kwargs["historical_water_mask"] is mask for call in acquire.call_args_list)
+
+
+def test_built_mask_past_coverage_warns(monkeypatch, tmp_path):
+    pytest.importorskip("dask")
+    import hydroseason.io as hio
+    from hydroseason._historical_water_mask import HistoricalMaskCoverageWarning
+
+    aoi = _aoi()
+    mask = _historical_water_mask(aoi=aoi, coverage_end="2021-12-31")
+    monkeypatch.setattr(hio, "open_wo_statistics", Mock(return_value=SimpleNamespace()))
+    monkeypatch.setattr(hio, "build_historical_water_mask", Mock(return_value=mask))
+    load = Mock(
+        side_effect=lambda _u, _c, _a, start, end, **kw: _fake_georeferenced_monthly_cube(
+            start, end
+        )
+    )
+    monkeypatch.setattr(hio, "load_wofs_from_stac", load)
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        # No cache_dir/mask_cache_dir/historical_mask_cache_dir at all -- this
+        # is the no-cache-root, in-memory `build_historical_water_mask`
+        # branch of `_resolve_historical_water_mask`, not the cache_root
+        # branch already exercised above.
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            aoi,
+            "2020-01-01",
+            "2022-01-01",
+            resolution=30,
+        )
+
+    coverage_warnings = [
+        w for w in record if issubclass(w.category, HistoricalMaskCoverageWarning)
+    ]
+    assert len(coverage_warnings) == 1
+    message = str(coverage_warnings[0].message)
+    assert "2020-01-01" in message
+    assert "2022-01-01" in message
+    assert "1987-01-01" in message
+    assert "2021-12-31" in message
+
+
+def test_cached_mask_past_coverage_warns(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+    from hydroseason._historical_water_mask import HistoricalMaskCoverageWarning
+
+    aoi = _aoi()
+    mask = _historical_water_mask(aoi=aoi, coverage_end="2021-12-31")
+    monkeypatch.setattr(hio, "load_or_build_historical_water_mask", Mock(return_value=mask))
+    acquire = Mock(return_value=SimpleNamespace(path=tmp_path / "store.zarr"))
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+    monkeypatch.setattr(
+        hio,
+        "open_completed_extent_counts",
+        lambda _handle, start, end, **_kwargs: _completed_extent(start, end),
+    )
+
+    with pytest.warns(HistoricalMaskCoverageWarning) as record:
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            aoi,
+            "2020-01-01",
+            "2022-01-01",
+            resolution=30,
+            mask_cache_dir=tmp_path / "wofs-cache",
+            historical_mask_cache_dir=tmp_path / "historical-cache",
+        )
+
+    message = str(record[0].message)
+    assert "2020-01-01" in message
+    assert "2022-01-01" in message
+    assert "1987-01-01" in message
+    assert "2021-12-31" in message
+
+
+def test_window_inside_coverage_does_not_warn(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+    from hydroseason._historical_water_mask import HistoricalMaskCoverageWarning
+
+    aoi = _aoi()
+    mask = _historical_water_mask(aoi=aoi, coverage_end="2021-12-31")
+    acquire = Mock(return_value=SimpleNamespace(path=tmp_path / "store.zarr"))
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+    monkeypatch.setattr(
+        hio,
+        "open_completed_extent_counts",
+        lambda _handle, start, end, **_kwargs: _completed_extent(start, end),
+    )
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            aoi,
+            "2020-01-01",
+            "2020-12-31",
+            resolution=30,
+            mask_cache_dir=tmp_path,
+            historical_water_mask=mask,
+        )
+
+    coverage_warnings = [
+        w for w in record if issubclass(w.category, HistoricalMaskCoverageWarning)
+    ]
+    assert coverage_warnings == []
+
+
+def test_window_before_coverage_start_warns_without_truncation_language(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+    from hydroseason._historical_water_mask import HistoricalMaskCoverageWarning
+
+    aoi = _aoi()
+    mask = _historical_water_mask(aoi=aoi, coverage_end="2021-12-31")
+    acquire = Mock(return_value=SimpleNamespace(path=tmp_path / "store.zarr"))
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+    monkeypatch.setattr(
+        hio,
+        "open_completed_extent_counts",
+        lambda _handle, start, end, **_kwargs: _completed_extent(start, end),
+    )
+
+    with pytest.warns(HistoricalMaskCoverageWarning) as record:
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            aoi,
+            "1985-01-01",
+            "2020-12-31",
+            resolution=30,
+            mask_cache_dir=tmp_path,
+            historical_water_mask=mask,
+        )
+
+    message = str(record[0].message)
+    assert "1985-01-01" in message
+    assert "1987-01-01" in message
+    assert "begins" in message
+    assert "not counted in extent_pct" not in message
+    assert "first inundated" not in message
+
+
+def test_on_warning_callback_receives_the_message(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+    from hydroseason._historical_water_mask import HistoricalMaskCoverageWarning
+
+    aoi = _aoi()
+    mask = _historical_water_mask(aoi=aoi, coverage_end="2021-12-31")
+    acquire = Mock(return_value=SimpleNamespace(path=tmp_path / "store.zarr"))
+    monkeypatch.setattr(hio, "acquire_wofs_cache", acquire)
+    monkeypatch.setattr(
+        hio,
+        "open_completed_extent_counts",
+        lambda _handle, start, end, **_kwargs: _completed_extent(start, end),
+    )
+
+    received: list[str] = []
+
+    with pytest.warns(HistoricalMaskCoverageWarning) as record:
+        hio.load_wofs_monthly_extent(
+            "https://example.invalid/stac",
+            "ga_ls_wo_3",
+            aoi,
+            "2020-01-01",
+            "2022-01-01",
+            resolution=30,
+            mask_cache_dir=tmp_path,
+            historical_water_mask=mask,
+            on_warning=received.append,
+        )
+
+    assert len(received) == 1
+    assert received[0] == str(record[0].message)
 
 
 def test_offline_historical_mask_replay_never_calls_statistics_stac(monkeypatch, tmp_path):

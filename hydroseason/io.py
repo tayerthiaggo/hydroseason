@@ -11,6 +11,7 @@ used directly by scripts and tests.
 from __future__ import annotations
 
 from hydroseason._historical_water_mask import (  # noqa: F401
+    HistoricalMaskCoverageWarning,
     HistoricalWaterMask,
     build_historical_water_mask,
     load_or_build_historical_water_mask,

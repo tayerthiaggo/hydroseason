@@ -82,6 +82,79 @@ class HistoricalWaterMask:
     mask_sha256: str
 
 
+class HistoricalMaskCoverageWarning(UserWarning):
+    """The requested analysis window is not fully inside the mask's coverage."""
+
+
+def describe_coverage_gap(
+    *, coverage_start: str, coverage_end: str, start_date: str, end_date: str,
+) -> "str | None":
+    """A human-readable notice when ``[start_date, end_date]`` isn't fully
+    covered by ``[coverage_start, coverage_end]``, else ``None``.
+
+    The two out-of-coverage directions are NOT scientifically equivalent, so
+    they are worded differently:
+
+    * before ``coverage_start``: the mask is a strict SUPERSET of anything
+      observable that far back (there is no way for a pixel to have been
+      wet before the record starts and not be captured by an all-time
+      count), so this direction carries no truncation risk and gets no
+      caveat.
+    * after ``coverage_end``: the mask can be a strict SUBSET of the true
+      wet footprint for the trailing months -- a pixel first inundated
+      after ``coverage_end`` is invisible to it -- so ``extent_pct`` can
+      under-report there. Only this direction gets the truncation-caveat
+      sentence.
+
+    When both ends fall outside coverage, both spans are reported in one
+    message, but the truncation clause is attached only to the trailing
+    (after-``coverage_end``) part.
+    """
+    import pandas as pd
+
+    coverage_start_ts = pd.Timestamp(coverage_start).tz_localize(None)
+    coverage_end_ts = pd.Timestamp(coverage_end).tz_localize(None)
+    start_ts = pd.Timestamp(start_date).tz_localize(None)
+    end_ts = pd.Timestamp(end_date).tz_localize(None)
+
+    before = start_ts < coverage_start_ts
+    after = end_ts > coverage_end_ts
+    if not before and not after:
+        return None
+
+    def _month_gap(earlier: "pd.Timestamp", later: "pd.Timestamp") -> int:
+        months = (later.year - earlier.year) * 12 + (later.month - earlier.month)
+        if later.day > earlier.day:
+            months += 1
+        return max(months, 1)
+
+    clauses = []
+    if before:
+        gap_months = _month_gap(start_ts, coverage_start_ts)
+        clauses.append(f"begins {gap_months} month(s) before the recorded start")
+    if after:
+        gap_months = _month_gap(coverage_end_ts, end_ts)
+        clauses.append(f"extends {gap_months} month(s) past the recorded end")
+    gap_text = "; it ".join(["", *clauses]) if len(clauses) == 1 else (
+        "; it " + " and ".join(clauses)
+    )
+
+    message = (
+        f"The requested analysis window {start_date}/{end_date} is not "
+        "fully inside the historical water mask's coverage "
+        f"({coverage_start}/{coverage_end}){gap_text}. The mask is an "
+        "all-time footprint and remains a valid fixed denominator, so the "
+        "run proceeds."
+    )
+    if after:
+        message += (
+            f" Note that any pixel first inundated after {coverage_end} is "
+            "outside this denominator and is therefore not counted in "
+            "extent_pct for the affected months."
+        )
+    return message
+
+
 def _resolve_provenance(stats: "xr.Dataset") -> Mapping[str, Any]:
     """The ``stats.attrs["provenance"]`` block written by ``open_wo_statistics``.
 
@@ -865,9 +938,11 @@ __all__ = [
     "HISTORICAL_MASK_SOURCE_PRODUCT",
     "HISTORICAL_MASK_CACHE_SCHEMA_VERSION",
     "MONTHLY_WOFS_COLLECTION",
+    "HistoricalMaskCoverageWarning",
     "HistoricalWaterMask",
     "HistoricalWaterMaskRequest",
     "build_historical_water_mask",
+    "describe_coverage_gap",
     "load_or_build_historical_water_mask",
     "read_historical_water_mask",
     "write_historical_water_mask",

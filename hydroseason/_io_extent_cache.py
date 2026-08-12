@@ -428,14 +428,6 @@ def _historical_mask_identity(mask: HistoricalWaterMask | None) -> str:
     )
 
 
-def _validate_historical_mask_coverage(mask: HistoricalWaterMask, end_date: str) -> None:
-    if pd.Timestamp(mask.coverage_end).tz_localize(None) < pd.Timestamp(end_date).tz_localize(None):
-        raise ValueError(
-            "historical water mask does not cover requested end_date "
-            f"{end_date!r} (coverage ends {mask.coverage_end!r})"
-        )
-
-
 def _validate_supplied_historical_water_mask(
     mask: HistoricalWaterMask,
     *,
@@ -503,7 +495,6 @@ def _validate_supplied_historical_water_mask(
         raise ValueError("historical_water_mask has invalid coverage provenance")
     if coverage_end < coverage_start:
         raise ValueError("historical_water_mask coverage provenance is inverted")
-    _validate_historical_mask_coverage(mask, end_date)
 
     expected_digest = _mask_digest(
         values,
@@ -541,6 +532,7 @@ def _resolve_historical_water_mask(
     resolution: float | None,
     historical_water_mask: HistoricalWaterMask | None,
     io_facade,
+    on_warning: "Callable[[str], None] | None" = None,
 ) -> HistoricalWaterMask:
     """Resolve one exact Multi-Year mask, cache-first when a root is available."""
     if historical_water_mask is not None:
@@ -582,7 +574,24 @@ def _resolve_historical_water_mask(
                 resolution=statistics_resolution,
             )
             mask = io_facade.build_historical_water_mask(statistics, aoi)
-        _validate_historical_mask_coverage(mask, end_date)
+
+    from hydroseason._historical_water_mask import (
+        HistoricalMaskCoverageWarning,
+        describe_coverage_gap,
+    )
+
+    message = describe_coverage_gap(
+        coverage_start=mask.coverage_start,
+        coverage_end=mask.coverage_end,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if message is not None:
+        import warnings as py_warnings
+
+        py_warnings.warn(message, HistoricalMaskCoverageWarning, stacklevel=2)
+        if on_warning is not None:
+            on_warning(message)
     return mask
 
 
@@ -830,6 +839,7 @@ def load_wofs_monthly_extent(
                 resolution=resolution,
                 historical_water_mask=historical_water_mask,
                 io_facade=_io,
+                on_warning=on_warning,
             )
         except DEAStatsUnavailable as exc:
             # Fatal on purpose -- see HistoricalWaterMaskUnavailable. The
