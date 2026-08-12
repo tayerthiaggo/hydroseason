@@ -57,7 +57,7 @@ def test_resolve_batch_resources_uses_two_workers_and_exact_decimal_gb(monkeypat
     monkeypatch.setitem(sys.modules, "psutil", _Psutil())
     monkeypatch.setattr(_batch_scheduler.os, "cpu_count", lambda: 12)
 
-    assert _batch_scheduler.resolve_batch_resources(workers="auto", memory_budget_gb=None) == (2, 4.8)
+    assert _batch_scheduler.resolve_batch_resources(workers="auto", memory_budget_gb=None) == (2, 6.4)
 
 
 def test_resolve_batch_resources_honours_explicit_values_without_psutil(monkeypatch):

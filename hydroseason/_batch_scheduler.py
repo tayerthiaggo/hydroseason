@@ -49,7 +49,7 @@ def resolve_batch_resources(
             raise ImportError(
                 "Automatic memory budgeting requires psutil; install hydroseason[stac]."
             ) from exc
-        budget_gb = 0.6 * (psutil.virtual_memory().available / 1_000_000_000)
+        budget_gb = 0.8 * (psutil.virtual_memory().available / 1_000_000_000)
     else:
         budget_gb = _validate_memory_budget(memory_budget_gb)
 
@@ -171,7 +171,7 @@ def _warn_for_oversized_items(items: Sequence[BatchWorkItem], budget_gb: float) 
         positions = ", ".join(str(position) for position in oversized_positions)
         warnings.warn(
             (
-                f"Estimated peak memory exceeds the {budget_gb} GB batch budget for "
+                f"Estimated peak memory exceeds the {budget_gb:.1f} GB batch budget for "
                 f"source positions {positions}; each will run alone."
             ),
             UserWarning,

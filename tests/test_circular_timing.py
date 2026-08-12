@@ -42,6 +42,38 @@ def test_kuiper_statistic_discriminates_concentrated_from_uniform_months():
     assert uniform.uniformity_p > 0.05
 
 
+def test_kuiper_null_calibration_matches_discrete_month_support():
+    """The null distribution must be drawn from the same 12-point support as the data.
+
+    Comparing a discrete-support observed statistic against a continuous U(0,1)
+    null systematically inflates the observed statistic's apparent extremity,
+    which biases p-values toward false rejection of uniformity (i.e. toward
+    "seasonal" verdicts) even when months really are drawn uniformly at random.
+    A well-calibrated test at alpha=0.1 should reject a truly uniform null in
+    roughly 10% of trials, not far more.
+    """
+    rng = np.random.default_rng(12345)
+    n_trials = 300
+    n_per_trial = 36
+    alpha = 0.1
+
+    false_positives = 0
+    for trial in range(n_trials):
+        months = rng.integers(1, 13, size=n_per_trial)
+        summary = summarise_circular_months(
+            months, n_resamples=200, random_state=int(rng.integers(0, 1_000_000))
+        )
+        if summary.uniformity_p < alpha:
+            false_positives += 1
+
+    false_positive_rate = false_positives / n_trials
+    assert false_positive_rate < 0.17, (
+        f"empirical false-positive rate {false_positive_rate:.3f} at alpha={alpha} "
+        "is far above nominal, indicating the null distribution's support does not "
+        "match the discrete 12-month data support"
+    )
+
+
 @pytest.mark.parametrize(
     ("months", "error", "message"),
     [

@@ -91,7 +91,7 @@ batch.raise_for_failures()
 ```
 
 `workers="auto"` uses a default concurrency cap of 2 and admits work only
-within 60% of currently available RAM. See the [Usage Guide](https://tayerthiaggo.github.io/hydroseason/guide/#many-aois-one-row-one-analysis) for memory and scheduling details.
+within 80% of currently available RAM. See the [Usage Guide](https://tayerthiaggo.github.io/hydroseason/guide/#many-aois-one-row-one-analysis) for memory and scheduling details.
 
 For runs long enough to outlive a notebook session, use the CLI — same
 orchestrator, its own process, resumable via `--cache-dir`:

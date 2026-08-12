@@ -95,7 +95,13 @@ def summarise_circular_months(
 
     observed_stat = _kuiper_statistic(angles / (2.0 * np.pi))
     n_null = max(int(n_resamples), 999)
-    null_phases = null_rng.random((n_null, len(values)))
+    # The observed statistic is computed from month angles, which only take
+    # 12 discrete values ((m - 1) / 12 for month m in 1..12). The null must be
+    # drawn from that same discrete 12-point support -- not continuous U(0,1)
+    # -- otherwise the discrete-support observed statistic looks artificially
+    # extreme against a continuous null, biasing p-values toward false
+    # rejection of uniformity.
+    null_phases = null_rng.integers(0, 12, size=(n_null, len(values))) / 12.0
     null_stats = np.array([_kuiper_statistic(sample) for sample in null_phases])
     uniformity_p = (1.0 + np.count_nonzero(null_stats >= observed_stat)) / (n_null + 1.0)
 
