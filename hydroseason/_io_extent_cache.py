@@ -625,6 +625,7 @@ def load_wofs_monthly_extent(
     progress: bool = False,
     progress_desc: str | None = None,
     progress_position: int | None = None,
+    on_warning: Callable[[str], None] | None = None,
     auto_tiling: bool = True,
     read_workers: int | None = None,
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
@@ -647,6 +648,9 @@ def load_wofs_monthly_extent(
     ``progress=True`` shows a tqdm bar ticking once per calendar year
     processed (cache hits included), so long tiled STAC pulls give visible
     feedback instead of blocking silently.
+
+    ``on_warning``, if given, is called once per non-fatal provenance notice;
+    the notice is also emitted as a ``UserWarning`` regardless.
 
     ``read_workers``, if given (and > 0), overrides dask's threaded-scheduler
     worker count while the lazy STAC/COG graph is materialised -- both the

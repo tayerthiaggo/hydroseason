@@ -42,7 +42,7 @@ def test_none_source_calls_dea_loader(monkeypatch, tmp_path):
 
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
-        cache_dir, statistics_stac_url, progress, progress_desc,
+        cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
     ):
         calls.update(
             stac_url=stac_url,
@@ -81,7 +81,7 @@ def test_one_configured_stac_url_reaches_both_searches(monkeypatch):
 
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
-        cache_dir, statistics_stac_url, progress, progress_desc,
+        cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
     ):
         calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
         return _extent_frame()
@@ -106,7 +106,7 @@ def test_explicit_statistics_stac_url_is_not_overridden(monkeypatch):
 
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
-        cache_dir, statistics_stac_url, progress, progress_desc,
+        cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
     ):
         calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
         return _extent_frame()
@@ -258,7 +258,7 @@ def test_dea_branch_forwards_progress_to_the_per_year_loader(monkeypatch):
 
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
-        cache_dir, statistics_stac_url, progress, progress_desc,
+        cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
     ):
         calls.update(progress=progress, progress_desc=progress_desc)
         return _extent_frame()
@@ -284,7 +284,7 @@ def test_progress_defaults_off_so_existing_callers_are_unchanged(monkeypatch):
 
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
-        cache_dir, statistics_stac_url, progress, progress_desc,
+        cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
     ):
         calls.update(progress=progress, progress_desc=progress_desc)
         return _extent_frame()
@@ -309,3 +309,33 @@ def test_supplied_source_accepts_progress_and_ignores_it(tmp_path):
     resolved = resolve_water_input(csv_path, progress=True)
 
     assert resolved.source_kind == "extent_csv"
+
+
+def test_resolved_water_input_carries_loader_warnings(monkeypatch):
+    """load_wofs_monthly_extent has nowhere to send a non-fatal coverage-gap
+    notice today. resolve_water_input must collect whatever it reports via
+    on_warning onto ResolvedWaterInput.warnings for run_hydroseason to see."""
+    def fake_loader(
+        stac_url, collection, aoi, start_date, end_date, *,
+        cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
+    ):
+        on_warning("probe warning")
+        return _extent_frame()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+    resolved = resolve_water_input(
+        None,
+        aoi="aoi.geojson",
+        start_date="2020-01-01",
+        end_date="2020-03-01",
+    )
+
+    assert resolved.warnings == ("probe warning",)
+
+
+def test_non_dea_paths_have_empty_warnings():
+    resolved = resolve_water_input(_extent_frame())
+
+    assert resolved.warnings == ()

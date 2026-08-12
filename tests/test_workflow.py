@@ -309,7 +309,7 @@ def test_run_hydroseason_propagates_one_stac_url_through_the_full_input_seam(
 
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
-        cache_dir, statistics_stac_url, progress, progress_desc,
+        cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
     ):
         calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
         return _seasonal_extent()
@@ -481,6 +481,31 @@ def test_no_dependency_warning_when_rainfall_is_not_requested(monkeypatch, tmp_p
     )
 
     assert not any("s3fs" in message for message in result.warnings)
+
+
+def test_run_hydroseason_surfaces_resolved_water_warnings(monkeypatch, tmp_path):
+    """resolve_water_input can now carry non-fatal provenance notices on
+    ResolvedWaterInput.warnings; run_hydroseason must fold them into the
+    result's aggregated warnings alongside analysis and rainfall messages."""
+    def fake_resolve(water_source, **kwargs):
+        from hydroseason._workflow_input import ResolvedWaterInput
+
+        return ResolvedWaterInput(
+            _seasonal_extent(), "dea_wofs", ("probe warning",)
+        )
+
+    monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
+
+    result = run_hydroseason(
+        None,
+        output_dir=tmp_path,
+        aoi="aoi.geojson",
+        start_date="2010-01-01",
+        end_date="2017-12-01",
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert "probe warning" in result.warnings
 
 
 def test_supplied_rainfall_csv_does_not_probe_silo_dependencies(monkeypatch, tmp_path):
