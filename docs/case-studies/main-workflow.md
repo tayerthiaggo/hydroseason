@@ -7,7 +7,8 @@ New extraction uses this exact default sequence:
 The mask source is one pinned `ga_ls_wo_fq_myear_3` artifact, not a Calendar
 Year union. Its verified manifest records product/version, item IDs, lineage,
 and exact coverage; the source observed at design time covered 1987--2025. A
-requested analysis end after the manifest's `coverage_end` fails closed. The
+requested analysis end after the manifest's `coverage_end` now proceeds with a
+`HistoricalMaskCoverageWarning` instead of failing closed. The
 scientific raster has no frequency threshold, closing, or buffer, while the
 separate coarse/dilated planning superset only limits reads.
 
