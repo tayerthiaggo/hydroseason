@@ -331,6 +331,136 @@ def test_run_hydroseason_propagates_one_stac_url_through_the_full_input_seam(
     assert calls["statistics_stac_url"] == "https://example.test/stac"
 
 
+def _fake_wo_statistics_dataset(*, time_span: str, size: int = 4, resolution: float = 30.0):
+    """A minimal, real ``xr.Dataset`` shaped like ``open_wo_statistics``'s
+    return value: a ``count_wet``/``count_clear`` pair plus the
+    ``provenance`` attrs block ``build_historical_water_mask`` reads for
+    product/lineage/coverage. One cell is wet so the built mask is
+    non-empty. Mirrors ``_refresh_stats_dataset`` in
+    tests/test_io_extent_cache.py (kept local here rather than imported,
+    per that module's own convention of small per-test fixture builders).
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    da = pytest.importorskip("dask.array")
+    import rioxarray  # noqa: F401  (registers the .rio accessor)
+
+    from hydroseason._historical_water_mask import HISTORICAL_MASK_SOURCE_PRODUCT
+
+    grid = np.zeros((size, size), dtype=np.int32)
+    grid[0, 0] = 1
+    count_wet = xr.DataArray(
+        da.from_array(grid, chunks=(size, size)), dims=("y", "x"),
+        coords={
+            "y": np.arange(size) * -resolution,
+            "x": np.arange(size) * resolution,
+        },
+    )
+    count_clear = xr.full_like(count_wet, 10)
+    dataset = xr.Dataset({"count_wet": count_wet, "count_clear": count_clear})
+    dataset = dataset.rio.write_crs("EPSG:3577").rio.write_transform()
+    dataset.attrs["provenance"] = {
+        "product": HISTORICAL_MASK_SOURCE_PRODUCT,
+        "stac_url": "https://example.test/stac",
+        "item_ids": ["stats-item"],
+        "crs": "EPSG:3577",
+        "resolution": resolution,
+        "time_span": time_span,
+        "frequency": {
+            "derivation": "100 * count_wet / count_clear",
+            "count_wet": "count_wet",
+            "count_clear": "count_clear",
+        },
+    }
+    return dataset
+
+
+def _fake_monthly_wofs_cube(start: str, end: str, *, size: int = 4, resolution: float = 30.0):
+    """A real, georeferenced monthly cube on the SAME grid
+    ``_fake_wo_statistics_dataset`` builds its mask on -- required by
+    ``_clip_to_aoi``'s exact-grid check (``_assert_historical_mask_grid_matches``).
+    """
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("rioxarray")
+    from affine import Affine
+
+    dates = pd.date_range(start, end, freq="MS")
+    values = np.ones((len(dates), size, size), dtype=np.int8)
+    cube = xr.DataArray(
+        values, dims=("time", "y", "x"),
+        coords={
+            "time": dates,
+            "y": np.arange(size) * -resolution,
+            "x": np.arange(size) * resolution,
+        },
+    )
+    return (
+        cube.rio.set_spatial_dims(x_dim="x", y_dim="y")
+        .rio.write_crs("EPSG:3577")
+        .rio.write_transform(Affine(resolution, 0.0, -resolution / 2, 0.0, -resolution, resolution / 2))
+    )
+
+
+def test_run_hydroseason_succeeds_past_mask_coverage(monkeypatch, tmp_path):
+    """A requested end_date past the historical mask's recorded coverage_end
+    must not abort the run (the fatal coverage gate this plan removes), and
+    the resulting HistoricalMaskCoverageWarning notice must reach both
+    warnings.warn and HydroSeasonRunResult.warnings -- the full stack proof
+    that Tasks 2-7's plumbing actually connects end to end through the real
+    public entry point, not just at the unit level of each task's own tests.
+
+    Only the two genuine external-service boundaries are mocked
+    (``open_wo_statistics``, the Multi-Year Statistics STAC search, and
+    ``load_wofs_from_stac``, the monthly WOfS STAC search); everything
+    between them -- ``build_historical_water_mask``,
+    ``_resolve_historical_water_mask``'s coverage-gate/warning logic, and
+    the AOI-clipped reduction -- runs for real.
+    """
+    gpd = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+
+    import hydroseason.io as hio
+
+    coverage_start = "1987-01-01"
+    coverage_end = "2021-12-31"
+    requested_start = "2010-01-01"
+    requested_end = "2023-12-01"
+
+    aoi = gpd.GeoDataFrame({"geometry": [box(-15, -60, 105, 15)]}, crs="EPSG:3577")
+    stats_dataset = _fake_wo_statistics_dataset(
+        time_span=f"{coverage_start}/{coverage_end}"
+    )
+
+    def fake_open_statistics(aoi_arg, *, stac_url, crs, resolution, **kwargs):
+        return stats_dataset
+
+    def fake_load_from_stac(stac_url, collection, aoi_arg, start, end, **kwargs):
+        return _fake_monthly_wofs_cube(start, end)
+
+    monkeypatch.setattr(hio, "open_wo_statistics", fake_open_statistics)
+    monkeypatch.setattr(hio, "load_wofs_from_stac", fake_load_from_stac)
+
+    with pytest.warns(UserWarning, match="not fully inside"):
+        result = run_hydroseason(
+            None,
+            output_dir=tmp_path,
+            aoi=aoi,
+            start_date=requested_start,
+            end_date=requested_end,
+            stac_url="https://example.test/stac",
+            analysis_options=ANALYSIS_OPTIONS,
+        )
+
+    assert result.artifacts.html.exists()
+    assert result.source_kind == "dea_wofs"
+    matches = [
+        message
+        for message in result.warnings
+        if requested_end in message and coverage_end in message
+    ]
+    assert matches, result.warnings
+
+
 def test_progress_reports_all_five_steps_in_order(tmp_path):
     seen = []
 
