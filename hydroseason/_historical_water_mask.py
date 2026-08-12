@@ -153,16 +153,21 @@ def describe_coverage_gap(
         "; it " + " and ".join(clauses)
     )
 
+    start_date_str = start_ts.strftime("%Y-%m-%d")
+    end_date_str = end_ts.strftime("%Y-%m-%d")
+    coverage_start_str = coverage_start_ts.strftime("%Y-%m-%d")
+    coverage_end_str = coverage_end_ts.strftime("%Y-%m-%d")
+
     message = (
-        f"The requested analysis window {start_date}/{end_date} is not "
+        f"The requested analysis window {start_date_str}/{end_date_str} is not "
         "fully inside the historical water mask's coverage "
-        f"({coverage_start}/{coverage_end}){gap_text}. The mask is an "
+        f"({coverage_start_str}/{coverage_end_str}){gap_text}. The mask is an "
         "all-time footprint and remains a valid fixed denominator, so the "
         "run proceeds."
     )
     if after:
         message += (
-            f" Note that any pixel first inundated after {coverage_end} is "
+            f" Note that any pixel first inundated after {coverage_end_str} is "
             "outside this denominator and is therefore not counted in "
             "extent_pct for the affected months."
         )

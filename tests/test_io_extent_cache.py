@@ -651,6 +651,27 @@ def test_describe_coverage_gap_both_directions_attaches_caveat_once():
     assert message.index("not counted in extent_pct") > message.index("extends")
 
 
+def test_describe_coverage_gap_formats_iso_timestamps_as_plain_dates():
+    # Real DEA provenance stores coverage_start/coverage_end as full
+    # ISO-8601 timestamps with time-of-day, not plain dates. The message
+    # must always render date-only text, regardless of the input format.
+    from hydroseason._historical_water_mask import describe_coverage_gap
+
+    message = describe_coverage_gap(
+        coverage_start="1987-01-01T00:00:00Z",
+        coverage_end="2025-12-31T23:59:59.999999Z",
+        start_date="2005-01-01",
+        end_date="2026-03-01",
+    )
+
+    assert message is not None
+    assert "2025-12-31" in message
+    assert "T00:00:00" not in message
+    assert "T23:59:59" not in message
+    assert "Z" not in message
+    assert ".999999" not in message
+
+
 def test_on_warning_callback_receives_the_message(monkeypatch, tmp_path):
     import hydroseason.io as hio
     from hydroseason._historical_water_mask import HistoricalMaskCoverageWarning
