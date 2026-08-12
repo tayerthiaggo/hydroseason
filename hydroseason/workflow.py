@@ -177,7 +177,7 @@ def run_hydroseason(
     options = dict(analysis_options or {})
     analysis = analyze_catchment(resolved.extent, **options)
     tracker.finish(2, f"{analysis.route} route")
-    messages = list(analysis.warnings) + preflight
+    messages = list(analysis.warnings) + preflight + list(resolved.warnings)
 
     rainfall: pd.DataFrame | None = None
     comparison: RegimeComparison | None = None

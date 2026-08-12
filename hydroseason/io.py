@@ -11,6 +11,8 @@ used directly by scripts and tests.
 from __future__ import annotations
 
 from hydroseason._historical_water_mask import (  # noqa: F401
+    HistoricalMaskCoverageWarning,
+    HistoricalMaskRefreshedWarning,
     HistoricalWaterMask,
     build_historical_water_mask,
     load_or_build_historical_water_mask,
@@ -20,6 +22,7 @@ from hydroseason._io_dea_stats import (  # noqa: F401
     build_planning_footprint_from_historical_mask,
     build_wet_planning_footprint,
     open_wo_statistics,
+    probe_wo_statistics_coverage,
 )
 from hydroseason._io_extent import complete_monthly_axis, load_extent_csv  # noqa: F401
 from hydroseason._io_extent_cache import load_wofs_monthly_extent  # noqa: F401
