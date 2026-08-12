@@ -933,13 +933,49 @@ def test_historical_water_mask_all_wet_outside_aoi_raises_dea_stats_unavailable(
         build_historical_water_mask(stats, _historical_aoi())
 
 
-def test_historical_water_mask_insufficient_coverage_raises_dea_stats_unavailable():
+def test_analysis_end_past_coverage_end_still_builds():
+    """The mask is an all-time (count_wet > 0) AND AOI footprint, not a
+    time-windowed artifact -- a requested analysis_end past the source's
+    recorded coverage_end must not block the build. Identical pixel_count
+    and mask_sha256 versus an in-coverage build prove only the gate was
+    removed, not the raster itself."""
     grid = np.zeros((10, 10), dtype=np.int32)
     grid[2, 2] = 1
-    stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2018-12-31T00:00:00Z")
+    aoi = _historical_aoi(n=10)
+    short_coverage_stats = _stats_dataset(
+        grid, time_span="1987-01-01T00:00:00Z/2018-12-31T00:00:00Z"
+    )
+    in_coverage_stats = _stats_dataset(
+        grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z"
+    )
 
-    with pytest.raises(DEAStatsUnavailable, match="does not cover analysis end"):
-        build_historical_water_mask(stats, _historical_aoi(n=10))
+    result = build_historical_water_mask(short_coverage_stats, aoi)
+    baseline = build_historical_water_mask(in_coverage_stats, aoi)
+
+    assert result.pixel_count == baseline.pixel_count
+    assert result.mask_sha256 == baseline.mask_sha256
+
+
+def test_analysis_start_before_coverage_start_still_builds():
+    """Same principle at the other edge: a source whose recorded coverage
+    starts after the requested window's start (here, well after the usual
+    1987 baseline) must still build, with the same pixel_count/mask_sha256
+    as an in-coverage build."""
+    grid = np.zeros((10, 10), dtype=np.int32)
+    grid[2, 2] = 1
+    aoi = _historical_aoi(n=10)
+    late_start_stats = _stats_dataset(
+        grid, time_span="2015-01-01T00:00:00Z/2018-12-31T00:00:00Z"
+    )
+    in_coverage_stats = _stats_dataset(
+        grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z"
+    )
+
+    result = build_historical_water_mask(late_start_stats, aoi)
+    baseline = build_historical_water_mask(in_coverage_stats, aoi)
+
+    assert result.pixel_count == baseline.pixel_count
+    assert result.mask_sha256 == baseline.mask_sha256
 
 
 def test_historical_water_mask_incompatible_lineage_raises_dea_stats_unavailable():
@@ -1264,10 +1300,11 @@ def test_read_historical_water_mask_rejects_tampered_manifest_field(tmp_path):
         read_historical_water_mask(tmp_path, request)
 
 
-def test_stale_source_cannot_satisfy_later_analysis_end(tmp_path):
+def test_cached_artifact_serves_any_analysis_window(tmp_path):
     """A cached artifact whose recorded coverage_end predates a later
-    requested analysis_end must not be returned as a hit -- read must return
-    None (a miss) rather than silently serving stale coverage."""
+    requested analysis_end is still a hit -- the mask is an all-time
+    footprint, so it serves any requested analysis window rather than being
+    reported as a miss."""
     mask = _built_historical_mask(
         time_span="1987-01-01T00:00:00Z/2018-12-31T00:00:00Z",
     )
@@ -1275,10 +1312,8 @@ def test_stale_source_cannot_satisfy_later_analysis_end(tmp_path):
     write_historical_water_mask(tmp_path, request, mask)
 
     result = read_historical_water_mask(tmp_path, request)
-    assert result is None
-
-    still_ok = read_historical_water_mask(tmp_path, request)
-    assert still_ok is not None
+    assert result is not None
+    assert result.mask_sha256 == mask.mask_sha256
 
 
 def test_load_or_build_warm_cache_makes_zero_statistics_calls(tmp_path, monkeypatch):

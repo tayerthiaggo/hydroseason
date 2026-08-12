@@ -121,26 +121,20 @@ def _parse_time_span(time_span: str | None) -> "tuple[str, str]":
 
     if not time_span or "/" not in time_span:
         raise DEAStatsUnavailable(
-            "DEA Water Observation Statistics does not cover analysis end: "
-            f"source coverage {time_span!r} is unknown or malformed"
+            f"DEA Water Observation Statistics source coverage {time_span!r} "
+            "is unknown or malformed"
         )
     start, _, end = time_span.partition("/")
     if not start or not end:
         raise DEAStatsUnavailable(
-            "DEA Water Observation Statistics does not cover analysis end: "
-            f"source coverage {time_span!r} is unknown or malformed"
+            f"DEA Water Observation Statistics source coverage {time_span!r} "
+            "is unknown or malformed"
         )
     return start, end
 
 
-def _coverage_covers_analysis_end(coverage_end: str, analysis_end: str) -> bool:
-    import pandas as pd
-
-    return pd.Timestamp(coverage_end).tz_localize(None) >= pd.Timestamp(analysis_end).tz_localize(None)
-
-
 def build_historical_water_mask(
-    stats: "xr.Dataset", aoi: Any, *, analysis_end: str,
+    stats: "xr.Dataset", aoi: Any,
 ) -> HistoricalWaterMask:
     """Build the exact `(count_wet > 0) AND AOI` historical water mask.
 
@@ -163,8 +157,6 @@ def build_historical_water_mask(
       ``ga_ls_wo_fq_myear_3``, or a version token that does not match the
       monthly WOfS collection ``ga_ls_wo_3``) -- message contains
       ``"incompatible WOfS lineage"``;
-    * source coverage that does not reach ``analysis_end`` -- message
-      contains ``"does not cover analysis end"``;
     * an exact mask with no True cells after the AND-with-AOI step --
       message contains ``"no historically observed water"``.
     """
@@ -200,12 +192,6 @@ def build_historical_water_mask(
     lineage = tuple(sorted({product, *item_ids})) if item_ids else (product,)
 
     coverage_start, coverage_end = _parse_time_span(provenance.get("time_span"))
-    if not _coverage_covers_analysis_end(coverage_end, analysis_end):
-        raise DEAStatsUnavailable(
-            f"DEA Water Observation Statistics source coverage "
-            f"{coverage_start!r}/{coverage_end!r} does not cover analysis "
-            f"end {analysis_end!r}"
-        )
 
     count_wet = stats["count_wet"]
     wet = (count_wet > 0).astype(bool)
@@ -708,7 +694,7 @@ def _verify_artifact_dir(artifact_dir: Path, *, expected_manifest: dict, mask_va
 
 
 def read_historical_water_mask(
-    cache_root, request: HistoricalWaterMaskRequest, *, analysis_end: str,
+    cache_root, request: HistoricalWaterMaskRequest,
 ) -> "HistoricalWaterMask | None":
     """Look up and verify a cached :class:`HistoricalWaterMask` for ``request``.
 
@@ -724,12 +710,6 @@ def read_historical_water_mask(
     tampering and raises ``ValueError("historical water mask cache
     verification failed")`` (see :func:`_verify_artifact_dir`) rather than
     silently returning corrupted data.
-
-    A verified artifact whose recorded ``coverage_end`` does not reach
-    ``analysis_end`` cannot satisfy this request -- it is reported as a
-    miss (``None``), the same as no cache at all, since the resolved source
-    coverage recorded in the manifest (not the request digest) is what
-    determines whether an artifact can serve a given analysis window.
     """
     cache_root = Path(cache_root)
     index_entry = _read_json(_index_path(cache_root, request.request_digest()))
@@ -762,9 +742,6 @@ def read_historical_water_mask(
     # any mismatch is tampering, not a miss, and must raise.
     _verify_artifact_dir(artifact_dir, expected_manifest=manifest, mask_values=None)
 
-    if not _coverage_covers_analysis_end(manifest["coverage_end"], analysis_end):
-        return None
-
     import numpy as np
     import zarr
 
@@ -792,7 +769,6 @@ def read_historical_water_mask(
 def load_or_build_historical_water_mask(
     aoi: Any,
     *,
-    analysis_end: str,
     cache_root,
     offline: bool = False,
     stac_url: str | None = None,
@@ -851,7 +827,7 @@ def load_or_build_historical_water_mask(
         resolution=float(resolution),
     )
 
-    cached = read_historical_water_mask(cache_root, request, analysis_end=analysis_end)
+    cached = read_historical_water_mask(cache_root, request)
     if cached is not None:
         return cached
 
@@ -874,11 +850,9 @@ def load_or_build_historical_water_mask(
             resolution=float(resolution),
             crs=crs_normalized,
         )
-        mask = build_historical_water_mask(stats, aoi_on_crs, analysis_end=analysis_end)
+        mask = build_historical_water_mask(stats, aoi_on_crs)
     except DEAStatsUnavailable:
-        cached_after_failure = read_historical_water_mask(
-            cache_root, request, analysis_end=analysis_end
-        )
+        cached_after_failure = read_historical_water_mask(cache_root, request)
         if cached_after_failure is not None:
             return cached_after_failure
         raise
