@@ -1499,3 +1499,48 @@ def test_open_wo_statistics_search_failure_names_the_endpoint(monkeypatch):
 
     with pytest.raises(mod.WoStatisticsUnavailable, match=r"example\.invalid"):
         open_wo_statistics(_aoi(), stac_url="https://example.invalid/stac")
+
+
+# --------------------------------------------------------------------------
+# probe_wo_statistics_coverage (Task 7): a metadata-only STAC search used to
+# cheaply check whether DEA has republished a Statistics product with wider
+# coverage than an already-cached HistoricalWaterMask. Must never read a COG
+# or build a dask graph, and must never raise -- it is advisory only, and a
+# failed probe must never turn into a fatal run.
+# --------------------------------------------------------------------------
+
+
+def test_probe_coverage_does_not_load_rasters(monkeypatch):
+    """The probe must be a pure metadata search: even if odc.stac.stac_load
+    (or .load) would explode, the probe must still resolve time_span, proving
+    it never calls into raster loading at all."""
+    from hydroseason._io_dea_stats import probe_wo_statistics_coverage
+
+    items = [_FakeItem("item-1", "2026-01-01T00:00:00Z")]
+    calls = _install_stac_fakes(monkeypatch, items, _dask_dataset, module=None)
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("probe_wo_statistics_coverage must not load rasters")
+
+    monkeypatch.setattr("odc.stac.stac_load", _boom)
+    monkeypatch.setattr("odc.stac.load", _boom)
+
+    result = probe_wo_statistics_coverage(_aoi())
+
+    assert result == "2026-01-01T00:00:00Z/2026-01-01T00:00:00Z"
+    assert calls["search_count"] == 1
+
+
+def test_probe_coverage_returns_none_when_unavailable(monkeypatch):
+    """An unreachable endpoint (or any other search failure) must yield None,
+    never an exception -- the probe is advisory only."""
+    from hydroseason._io_dea_stats import probe_wo_statistics_coverage
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("ProxyError: connection refused")
+
+    monkeypatch.setattr("pystac_client.Client.open", explode)
+
+    result = probe_wo_statistics_coverage(_aoi(), stac_url="https://example.invalid/stac")
+
+    assert result is None

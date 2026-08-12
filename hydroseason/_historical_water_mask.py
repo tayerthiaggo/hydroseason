@@ -86,6 +86,20 @@ class HistoricalMaskCoverageWarning(UserWarning):
     """The requested analysis window is not fully inside the mask's coverage."""
 
 
+class HistoricalMaskRefreshedWarning(UserWarning):
+    """A cache hit's coverage was extended by rebuilding against a newer,
+    wider DEA Water Observation Statistics vintage.
+
+    Deliberately a SEPARATE class from :class:`HistoricalMaskCoverageWarning`:
+    "your window overhangs the cached coverage" (an observation about the
+    request) and "your numbers just moved" (an observation about the
+    denominator itself changing under a caller that may be tracking
+    ``extent_pct`` over time) are different events, and a caller filtering
+    warnings may reasonably want to treat them differently -- e.g. always
+    surface a refresh, but silence routine overhang notices.
+    """
+
+
 def describe_coverage_gap(
     *, coverage_start: str, coverage_end: str, start_date: str, end_date: str,
 ) -> "str | None":
@@ -839,6 +853,140 @@ def read_historical_water_mask(
     )
 
 
+def _coverage_end_ts(coverage_end: str):
+    import pandas as pd
+
+    return pd.Timestamp(coverage_end).tz_localize(None)
+
+
+def _describe_refresh(*, cached: HistoricalWaterMask, refreshed: HistoricalWaterMask) -> str:
+    """A human-readable notice that a cache hit was rebuilt against wider
+    DEA Statistics coverage, naming both the coverage and ``pixel_count``
+    (the ``n_aoi`` denominator) delta -- the "denominator moved, and here is
+    by how much" message a caller tracking ``extent_pct`` over time needs.
+    """
+    old_count = cached.pixel_count
+    new_count = refreshed.pixel_count
+    if old_count:
+        pct_change = 100.0 * (new_count - old_count) / old_count
+        pct_text = f"{pct_change:+.2f}%"
+    else:
+        pct_text = "n/a (previous pixel_count was 0)"
+    return (
+        "The historical water mask was refreshed: DEA Water Observation "
+        f"Statistics now covers {refreshed.coverage_start}/{refreshed.coverage_end}, "
+        f"wider than the previously cached {cached.coverage_start}/{cached.coverage_end}. "
+        f"The n_aoi denominator (pixel_count) changed from {old_count} to "
+        f"{new_count} ({pct_text}). A new artifact was written; the previous "
+        "one remains on disk."
+    )
+
+
+def _maybe_refresh_cached_mask(
+    cached: HistoricalWaterMask,
+    *,
+    aoi_on_crs,
+    end_date: str,
+    cache_root,
+    offline: bool,
+    resolved_stac_url: str,
+    resolved_product: str,
+    crs_normalized: str,
+    resolution: float,
+    request: "HistoricalWaterMaskRequest",
+) -> HistoricalWaterMask:
+    """The four-branch refresh check applied after a cache hit.
+
+    1. ``offline=True``, or the requested window is already fully inside
+       ``cached``'s recorded coverage -> never probes; ``cached`` is
+       returned unchanged.
+    2. Otherwise, probe DEA's *current* Statistics coverage (metadata-only,
+       no raster reads -- see
+       :func:`hydroseason._io_dea_stats.probe_wo_statistics_coverage`).
+    3. Probe unavailable (returns ``None``), or still no wider than
+       ``cached.coverage_end`` -> keep ``cached`` unchanged; the caller's
+       existing Task 5 ``HistoricalMaskCoverageWarning`` truncation notice
+       fires as usual for the still-uncovered window.
+    4. Probe reports coverage wider than ``cached.coverage_end`` -> rebuild
+       via :func:`build_historical_water_mask` +
+       :func:`write_historical_water_mask` (content-addressed, so this
+       writes a NEW artifact and repoints the index last -- the old artifact
+       directory is never touched or deleted) and warn with
+       :class:`HistoricalMaskRefreshedWarning`.
+
+    A probe or rebuild failure of any kind is swallowed here and the
+    original ``cached`` mask is returned -- a refresh check going wrong must
+    never make an otherwise-working run fail.
+    """
+    if offline:
+        return cached
+
+    try:
+        requested_end_ts = _coverage_end_ts(end_date)
+        cached_end_ts = _coverage_end_ts(cached.coverage_end)
+    except (TypeError, ValueError):
+        return cached
+    if requested_end_ts <= cached_end_ts:
+        return cached
+
+    import hydroseason._io_dea_stats as _io_dea_stats
+
+    # probe_wo_statistics_coverage is documented to swallow every exception
+    # itself and return None rather than raise -- but this call is still
+    # wrapped defensively. The brief's contract is "never fatal", not
+    # "never fatal unless the probe's own advisory-only guarantee has a
+    # bug (or a caller mocks/monkeypatches it to raise directly, as tests
+    # legitimately do to exercise this exact defense)".
+    try:
+        probed_time_span = _io_dea_stats.probe_wo_statistics_coverage(
+            aoi_on_crs, product=resolved_product, stac_url=resolved_stac_url,
+        )
+    except Exception:
+        return cached
+    if probed_time_span is None:
+        return cached
+
+    try:
+        _probed_start, probed_end = _parse_time_span(probed_time_span)
+        probed_end_ts = _coverage_end_ts(probed_end)
+    except Exception:
+        return cached
+    if probed_end_ts <= cached_end_ts:
+        return cached
+
+    # The probe shows DEA now has wider coverage than the cached artifact:
+    # rebuild against fresh statistics. Any failure here (network, provenance,
+    # empty mask, ...) falls back to the cached artifact rather than becoming
+    # fatal -- the refresh is strictly a bonus, never a requirement.
+    try:
+        stats = _io_dea_stats.open_wo_statistics(
+            aoi_on_crs,
+            product=resolved_product,
+            stac_url=resolved_stac_url,
+            resolution=float(resolution),
+            crs=crs_normalized,
+        )
+        refreshed = build_historical_water_mask(stats, aoi_on_crs)
+    except Exception:
+        return cached
+
+    if _coverage_end_ts(refreshed.coverage_end) <= cached_end_ts:
+        # Belt-and-braces: the metadata probe suggested wider coverage but
+        # the actual rebuilt mask's provenance disagrees (e.g. the probe and
+        # the load raced a mid-publish DEA update). Do not repoint the index
+        # over a rebuild that turned out not to be wider after all.
+        return cached
+
+    write_historical_water_mask(cache_root, request, refreshed)
+
+    message = _describe_refresh(cached=cached, refreshed=refreshed)
+    import warnings as py_warnings
+
+    py_warnings.warn(message, HistoricalMaskRefreshedWarning, stacklevel=3)
+
+    return refreshed
+
+
 def load_or_build_historical_water_mask(
     aoi: Any,
     *,
@@ -848,6 +996,8 @@ def load_or_build_historical_water_mask(
     product: str | None = None,
     crs: str = "EPSG:3577",
     resolution: float = 30,
+    end_date: str | None = None,
+    refresh_historical_mask: bool = True,
 ) -> HistoricalWaterMask:
     """Resolve a verified :class:`HistoricalWaterMask` for ``aoi``, cache-first.
 
@@ -876,6 +1026,29 @@ def load_or_build_historical_water_mask(
     none of which default ``cache_root`` either. A shared default cache root
     across the high-level API is expected to be wired through by a later
     task, not invented here.
+
+    ``end_date`` is the caller's requested analysis-window end, used ONLY to
+    decide whether a cache hit is worth a refresh check -- see
+    :func:`_maybe_refresh_cached_mask`. It is never baked into the cache
+    request/artifact digests (an artifact still serves any requested
+    window; see :class:`HistoricalWaterMaskRequest`). Defaults to ``None``
+    for callers with no analysis window of their own (e.g. scripts that only
+    need a mask, not a monthly run) -- ``None`` skips the refresh check
+    entirely and behaves exactly like the pre-refresh strict-pinning
+    behavior, since there is no requested window to compare against
+    ``coverage_end``.
+
+    On a cache hit whose requested window extends past the cached
+    artifact's recorded ``coverage_end``, and ``refresh_historical_mask`` is
+    ``True`` (the default) and ``offline`` is ``False``, a cheap
+    metadata-only probe checks whether DEA now has wider Statistics
+    coverage; if so, the mask is rebuilt and a NEW artifact is written and
+    repointed to (the old artifact is never deleted). Set
+    ``refresh_historical_mask=False`` to restore strict pinning -- a cache
+    hit is always returned as-is, useful for deterministic regeneration.
+    The probe is never entered for ``offline=True`` or for a window already
+    inside the cached coverage, and a probe/rebuild failure of any kind
+    falls back to the cached artifact rather than becoming fatal.
     """
     from hydroseason._io_dea_stats import (
         DEFAULT_WO_STATISTICS_PRODUCT,
@@ -902,7 +1075,20 @@ def load_or_build_historical_water_mask(
 
     cached = read_historical_water_mask(cache_root, request)
     if cached is not None:
-        return cached
+        if not refresh_historical_mask or end_date is None:
+            return cached
+        return _maybe_refresh_cached_mask(
+            cached,
+            aoi_on_crs=aoi_on_crs,
+            end_date=end_date,
+            cache_root=cache_root,
+            offline=offline,
+            resolved_stac_url=resolved_stac_url,
+            resolved_product=resolved_product,
+            crs_normalized=crs_normalized,
+            resolution=resolution,
+            request=request,
+        )
 
     if offline:
         raise DEAStatsUnavailable(
@@ -939,6 +1125,7 @@ __all__ = [
     "HISTORICAL_MASK_CACHE_SCHEMA_VERSION",
     "MONTHLY_WOFS_COLLECTION",
     "HistoricalMaskCoverageWarning",
+    "HistoricalMaskRefreshedWarning",
     "HistoricalWaterMask",
     "HistoricalWaterMaskRequest",
     "build_historical_water_mask",

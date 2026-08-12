@@ -207,6 +207,93 @@ def _load_count_wet(stac_url: str, collection: str, year: int | None, geobox):
     return dataset[COUNT_WET_BAND].max("time") if "time" in dataset.dims else dataset[COUNT_WET_BAND]
 
 
+def _search_wo_statistics_items(
+    bbox: "Sequence[float]", *, product: str, stac_url: str,
+) -> "tuple[list, str | None]":
+    """Run the metadata-only STAC search shared by ``open_wo_statistics`` and
+    :func:`probe_wo_statistics_coverage`: resolve ``(items, time_span)`` for
+    ``product`` at ``stac_url`` over ``bbox`` (an ``EPSG:4326`` bounding box).
+
+    This is exactly the search phase -- ``pystac_client.Client.open``, the
+    deadline-bounded ``search().items()`` call, and the ``item_ids``/
+    ``time_span`` derivation -- factored out of ``open_wo_statistics`` so both
+    callers share one implementation. It never calls ``odc.stac.load``/
+    ``stac_load`` and never touches raster data: no COG is opened, no dask
+    graph is built. Raises :class:`WoStatisticsUnavailable` on every search
+    failure (unreachable endpoint, deadline exceeded, or zero items) --
+    identical exceptions/messages to what this block raised inline before
+    the extraction, so ``open_wo_statistics``'s behavior does not change.
+    """
+    import concurrent.futures
+
+    import pystac_client
+
+    try:
+        client = pystac_client.Client.open(
+            stac_url,
+            timeout=(STAC_CONNECT_TIMEOUT_S, STAC_READ_TIMEOUT_S),
+        )
+        search = client.search(
+            collections=[product],
+            bbox=list(bbox),
+            limit=1000,
+        )
+        items = _run_with_timeout(
+            lambda: list(search.items()),
+            STAC_SEARCH_DEADLINE_S,
+        )
+    except (TimeoutError, concurrent.futures.TimeoutError) as exc:
+        raise WoStatisticsUnavailable(
+            f"DEA Water Observation Statistics search at {stac_url} "
+            f"exceeded the {STAC_SEARCH_DEADLINE_S:g}s deadline"
+        ) from exc
+    except WoStatisticsUnavailable:
+        raise
+    except Exception as exc:
+        raise WoStatisticsUnavailable(
+            f"DEA Water Observation Statistics STAC search failed for "
+            f"product '{product}' at {stac_url}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    if not items:
+        raise WoStatisticsUnavailable(
+            f"no {product} items found for this AOI at {stac_url}"
+        )
+
+    time_span = _item_time_span(items)
+    return items, time_span
+
+
+def probe_wo_statistics_coverage(
+    aoi: Any, *, product: str = DEFAULT_WO_STATISTICS_PRODUCT,
+    stac_url: str = DEFAULT_WO_STATISTICS_STAC_URL,
+) -> "str | None":
+    """The product's *current* ``time_span`` for ``aoi``, or ``None``.
+
+    A metadata-only STAC search -- no COG reads, no dask, no
+    ``odc.stac.stac_load``/``odc.stac.load`` call of any kind -- used to
+    cheaply check whether DEA has republished ``product`` with wider
+    coverage than a cached :class:`hydroseason._historical_water_mask.
+    HistoricalWaterMask` already has, without paying for a full statistics
+    load. Purely advisory: this function swallows every exception (a bad
+    AOI, an unreachable endpoint, a malformed response, anything) and
+    returns ``None`` rather than raising, so a failed probe can never make a
+    run fail that would otherwise have succeeded from cache.
+    """
+    try:
+        from hydroseason._io_geo import load_aoi
+
+        aoi_gdf = load_aoi(aoi)
+        bbox = list(aoi_gdf.to_crs("EPSG:4326").total_bounds)
+        _items, time_span = _search_wo_statistics_items(
+            bbox, product=product, stac_url=stac_url,
+        )
+        return time_span
+    except Exception:
+        return None
+
+
 def open_wo_statistics(
     aoi: Any,
     *,
@@ -251,10 +338,7 @@ def open_wo_statistics(
     (``guard_area_metric_crs``); this loader is source-agnostic and hands
     whatever grid was asked for, unsigned COG reads and all, straight back.
     """
-    import concurrent.futures
-
     import odc.stac
-    import pystac_client
 
     from hydroseason._io_geo import _configure_cog_read_env, _crs_value, load_aoi
 
@@ -301,41 +385,10 @@ def open_wo_statistics(
         # hostile proxy escaped as a raw pystac_client.APIError and broke
         # this module's documented fail-open contract at the one boundary
         # users hit first.
-        try:
-            client = pystac_client.Client.open(
-                stac_url,
-                timeout=(STAC_CONNECT_TIMEOUT_S, STAC_READ_TIMEOUT_S),
-            )
-            search = client.search(
-                collections=[product],
-                bbox=bbox,
-                limit=1000,
-            )
-            items = _run_with_timeout(
-                lambda: list(search.items()),
-                STAC_SEARCH_DEADLINE_S,
-            )
-        except (TimeoutError, concurrent.futures.TimeoutError) as exc:
-            raise WoStatisticsUnavailable(
-                f"DEA Water Observation Statistics search at {stac_url} "
-                f"exceeded the {STAC_SEARCH_DEADLINE_S:g}s deadline"
-            ) from exc
-        except WoStatisticsUnavailable:
-            raise
-        except Exception as exc:
-            raise WoStatisticsUnavailable(
-                f"DEA Water Observation Statistics STAC search failed for "
-                f"product '{product}' at {stac_url}: "
-                f"{type(exc).__name__}: {exc}"
-            ) from exc
-
-        if not items:
-            raise WoStatisticsUnavailable(
-                f"no {product} items found for this AOI at {stac_url}"
-            )
-
+        items, time_span = _search_wo_statistics_items(
+            bbox, product=product, stac_url=stac_url,
+        )
         item_ids = [getattr(item, "id", None) for item in items]
-        time_span = _item_time_span(items)
 
         load_kwargs: dict[str, Any] = dict(
             bands=[COUNT_WET_BAND, COUNT_CLEAR_BAND],
@@ -969,5 +1022,6 @@ __all__ = [
     "build_wet_planning_footprint",
     "fetch_dea_stats_wet_aoi",
     "open_wo_statistics",
+    "probe_wo_statistics_coverage",
     "wet_mask_digest",
 ]

@@ -556,6 +556,7 @@ def _resolve_historical_water_mask(
                 stac_url=statistics_stac_url,
                 crs=statistics_crs,
                 resolution=statistics_resolution,
+                end_date=end_date,
             )
         else:
             if offline:
