@@ -1,6 +1,6 @@
 import pandas as pd
 
-from hydroseason._report_html import _year_cards
+from hydroseason._report_html import _year_cards, render_report_html
 
 
 def _monthly(start="2005-01-01", periods=24):
@@ -13,6 +13,52 @@ def _monthly(start="2005-01-01", periods=24):
             "phase": "wet",
         }
     )
+
+
+def test_report_places_optional_aoi_map_after_the_summary_region():
+    """Removing the AOI context section would hide a supplied report map."""
+    html = render_report_html(
+        name="Test AOI",
+        title="Test AOI",
+        subtitle=None,
+        quality_note=None,
+        verdict="Seasonal",
+        kpis=[{"value": "1", "label": "KPI", "detail": "detail"}],
+        monthly=pd.DataFrame(),
+        hydro_years=pd.DataFrame(),
+        events=pd.DataFrame(),
+        low_spells=pd.DataFrame(),
+        summary=pd.DataFrame(),
+        timeline_figure={"data": [], "layout": {}, "config": {}},
+        secondary_figure={"data": [], "layout": {}, "config": {}},
+        aoi_map_html='<div id="aoi-map-report">AOI map</div>',
+    )
+
+    assert '<section id="aoi-context">' in html
+    assert html.index('class="kpis"') < html.index('id="aoi-context"')
+    assert html.index('id="aoi-context"') < html.index('id="timeline"')
+    assert 'id="aoi-map-report"' in html
+
+
+def test_report_omits_aoi_context_section_without_a_map():
+    """An absent AOI context must not leave an empty report section behind."""
+    html = render_report_html(
+        name="Test AOI",
+        title="Test AOI",
+        subtitle=None,
+        quality_note=None,
+        verdict="Seasonal",
+        kpis=[],
+        monthly=pd.DataFrame(),
+        hydro_years=pd.DataFrame(),
+        events=pd.DataFrame(),
+        low_spells=pd.DataFrame(),
+        summary=pd.DataFrame(),
+        timeline_figure={"data": [], "layout": {}, "config": {}},
+        secondary_figure={"data": [], "layout": {}, "config": {}},
+    )
+
+    assert 'id="aoi-context"' not in html
 
 
 def test_year_cards_render_one_card_per_hydrological_year():

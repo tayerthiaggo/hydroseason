@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason.workflow import run_hydroseason
+from hydroseason._aoi_context import AOIContext
+from hydroseason.workflow import _in_notebook_kernel, run_hydroseason
 
 
 def _seasonal_extent(years: int = 8) -> pd.DataFrame:
@@ -49,6 +50,7 @@ def test_water_only_workflow_writes_bundle(tmp_path):
     assert result.rainfall_source == "none"
     assert result.rainfall is None
     assert result.rainfall_comparison is None
+    assert result.aoi_context is None
     assert result.artifacts.html.exists()
     monthly = pd.read_csv(result.artifacts.monthly_csv)
     assert "rainfall_mm" not in monthly
@@ -90,7 +92,13 @@ def test_fetch_rainfall_uses_extent_years_and_loaded_aoi(monkeypatch, tmp_path):
     extent = _seasonal_extent()
     sentinel_aoi = object()
     calls = {}
-    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: sentinel_aoi)
+    loaded = []
+
+    def fake_load(value):
+        loaded.append(value)
+        return sentinel_aoi
+
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", fake_load)
 
     def fake_silo(gdf, start_year, end_year):
         calls.update(gdf=gdf, start_year=start_year, end_year=end_year)
@@ -110,7 +118,152 @@ def test_fetch_rainfall_uses_extent_years_and_loaded_aoi(monkeypatch, tmp_path):
     assert result.rainfall_status == "fetched"
     assert result.rainfall_source == "silo"
     assert calls == {"gdf": sentinel_aoi, "start_year": 2010, "end_year": 2017}
+    assert loaded == ["aoi.geojson"]
     assert "Rainfall context (SILO)" in result.artifacts.html.read_text(encoding="utf-8")
+
+
+def test_aoi_load_preview_precedes_acquisition_and_context_is_reused(
+    monkeypatch, tmp_path
+):
+    """Loading twice or acquiring before the preview would break the single-AOI flow."""
+    from hydroseason._workflow_input import ResolvedWaterInput
+
+    events = []
+    loaded_aoi = object()
+    context = AOIContext("{}", (115.0, -32.0, 116.0, -31.0), "AOI", 0)
+    captured = {}
+    monkeypatch.setattr(
+        "hydroseason.workflow.load_aoi",
+        lambda value: events.append("load") or loaded_aoi,
+    )
+    monkeypatch.setattr(
+        "hydroseason.workflow.build_aoi_context",
+        lambda value, **kwargs: events.append("context") or context,
+    )
+    monkeypatch.setattr(
+        "hydroseason.workflow.display_aoi_map",
+        lambda value: events.append("display"),
+    )
+
+    def fake_resolve(water_source, **kwargs):
+        assert kwargs["aoi"] is loaded_aoi
+        events.append("acquire")
+        return ResolvedWaterInput(_seasonal_extent(), "extent_dataframe")
+
+    monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
+
+    def fake_report(*args, **kwargs):
+        captured["context"] = kwargs["aoi_context"]
+        events.append("report")
+        return _report_paths(tmp_path)
+
+    monkeypatch.setattr("hydroseason.workflow.generate_catchment_report", fake_report)
+    result = run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        aoi="aoi.geojson",
+        show_map=True,
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert events == ["load", "context", "display", "acquire", "report"]
+    assert result.aoi_context is context
+    assert captured["context"] is context
+
+
+@pytest.mark.parametrize(
+    ("show_map", "in_notebook", "expected_displays"),
+    [(False, True, 0), (True, False, 1), ("auto", False, 0), ("auto", True, 1)],
+)
+def test_show_map_modes_control_preview(
+    monkeypatch, tmp_path, show_map, in_notebook, expected_displays
+):
+    displays = []
+    context = AOIContext("{}", (115.0, -32.0, 116.0, -31.0), "AOI", 0)
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
+    monkeypatch.setattr("hydroseason.workflow.build_aoi_context", lambda value, **kwargs: context)
+    monkeypatch.setattr("hydroseason.workflow._in_notebook_kernel", lambda: in_notebook)
+    monkeypatch.setattr("hydroseason.workflow.display_aoi_map", lambda value: displays.append(value))
+
+    run_hydroseason(
+        _seasonal_extent(),
+        output_dir=tmp_path,
+        aoi="aoi.geojson",
+        show_map=show_map,
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert displays == [context] * expected_displays
+
+
+def test_show_map_rejects_invalid_values(tmp_path):
+    with pytest.raises(ValueError, match="show_map must be 'auto', True, or False\\."):
+        run_hydroseason(
+            _seasonal_extent(), output_dir=tmp_path, show_map="yes"
+        )
+
+
+def test_context_and_display_failures_warn_without_blocking_a_run(monkeypatch, tmp_path):
+    """AOI display helpers are optional even though loading the supplied AOI is not."""
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
+    monkeypatch.setattr(
+        "hydroseason.workflow.build_aoi_context",
+        lambda value, **kwargs: (_ for _ in ()).throw(RuntimeError("bad context")),
+    )
+    with pytest.warns(UserWarning, match="bad context"):
+        result = run_hydroseason(
+            _seasonal_extent(), output_dir=tmp_path, aoi="aoi.geojson"
+        )
+    assert result.aoi_context is None
+
+    context = AOIContext("{}", (115.0, -32.0, 116.0, -31.0), "AOI", 0)
+    monkeypatch.setattr("hydroseason.workflow.build_aoi_context", lambda value, **kwargs: context)
+    monkeypatch.setattr(
+        "hydroseason.workflow.display_aoi_map",
+        lambda value: (_ for _ in ()).throw(RuntimeError("display unavailable")),
+    )
+    with pytest.warns(UserWarning, match="display unavailable"):
+        result = run_hydroseason(
+            _seasonal_extent(), output_dir=tmp_path / "display", aoi="aoi.geojson", show_map=True
+        )
+    assert result.aoi_context is context
+
+
+def test_supplied_unloadable_aoi_is_fatal_for_precomputed_water(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "hydroseason.workflow.load_aoi",
+        lambda value: (_ for _ in ()).throw(ValueError("invalid AOI")),
+    )
+    with pytest.raises(ValueError, match="invalid AOI"):
+        run_hydroseason(
+            _seasonal_extent(), output_dir=tmp_path, aoi="broken.geojson"
+        )
+
+
+def test_in_notebook_kernel_requires_the_zmq_shell(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    zmq = type("ZMQInteractiveShell", (), {})()
+    terminal = type("TerminalInteractiveShell", (), {})()
+    monkeypatch.setitem(sys.modules, "IPython", SimpleNamespace(get_ipython=lambda: zmq))
+    assert _in_notebook_kernel() is True
+    monkeypatch.setitem(sys.modules, "IPython", SimpleNamespace(get_ipython=lambda: terminal))
+    assert _in_notebook_kernel() is False
+    monkeypatch.setitem(sys.modules, "IPython", SimpleNamespace(get_ipython=lambda: None))
+    assert _in_notebook_kernel() is False
+
+
+def _report_paths(tmp_path):
+    from hydroseason.report import CatchmentReportPaths
+
+    return CatchmentReportPaths(
+        html=tmp_path / "report.html",
+        monthly_csv=tmp_path / "monthly.csv",
+        hydro_years_csv=tmp_path / "years.csv",
+        wet_event_csv=tmp_path / "events.csv",
+        low_spells_csv=tmp_path / "spells.csv",
+    )
 
 
 def test_silo_failure_is_nonfatal_and_writes_water_bundle(monkeypatch, tmp_path):
@@ -317,6 +470,7 @@ def test_run_hydroseason_propagates_one_stac_url_through_the_full_input_seam(
     monkeypatch.setattr(
         "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
     )
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
     run_hydroseason(
         None,
         output_dir=tmp_path,
@@ -555,6 +709,7 @@ def test_progress_enables_the_per_year_bar_only_for_the_builtin_renderer(
         return ResolvedWaterInput(_seasonal_extent(), "dea_wofs")
 
     monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
 
     run_hydroseason(
         None, output_dir=tmp_path / "a", aoi="aoi.geojson",
@@ -582,6 +737,7 @@ def test_fetch_rainfall_warns_upfront_when_silo_dependencies_are_missing(
         "hydroseason.workflow.missing_rainfall_dependencies",
         lambda: ("h5netcdf", "s3fs"),
     )
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
     seen = []
 
     with pytest.warns(UserWarning, match=r"s3fs"):
@@ -625,6 +781,7 @@ def test_run_hydroseason_surfaces_resolved_water_warnings(monkeypatch, tmp_path)
         )
 
     monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
 
     result = run_hydroseason(
         None,

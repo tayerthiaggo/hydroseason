@@ -20,6 +20,10 @@ return types are on each linked page.
 |---|---|---|
 | `run_hydroseason` | One-call orchestrator: resolve water input, analyze, optional rainfall, write report | [Workflow](workflow.md) |
 | `HydroSeasonRunResult` | Everything a `run_hydroseason` call produced | [Workflow](workflow.md) |
+| `run_hydroseason_many` | DEA/STAC-only, row-preserving batch orchestration | [Workflow](workflow.md) |
+| `HydroSeasonBatchResult` | Ordered per-row outcomes, failures, and `raise_for_failures()` | [Workflow](workflow.md) |
+| `HydroSeasonAOIOutcome` | One source row's result or captured exception | [Workflow](workflow.md) |
+| `HydroSeasonBatchError` | Aggregated error raised for failed batch outcomes | [Workflow](workflow.md) |
 | `load_extent_csv` | Read a monthly extent CSV into date-indexed form | [Loading Data](io.md) |
 | `load_aoi` | Load and validate an AOI (vector path or GeoDataFrame) | [Loading Data](io.md) |
 | `load_monthly_masks` | Load AOI-clipped raster masks from a directory | [Loading Data](io.md) |

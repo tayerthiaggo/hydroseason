@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from hydroseason import CatchmentReportPaths, analyze_catchment, generate_catchment_report
+from hydroseason._aoi_context import AOIContext
 from hydroseason._regime_compare import compare_rainfall_to_extent_regime
 from hydroseason._report_html import render_report_html
 from hydroseason.report import generate_html_report
@@ -48,8 +49,10 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert 'id="timeline"' in html
     assert '<div id="timeline" class="plot-canvas"></div>' in html
     assert '<div id="secondary" class="plot-canvas"></div>' in html
-    assert html.count('class="kpi"') == 17
+    assert html.count('class="kpi"') == 18
     assert html.index("hydrological years") < html.index("mean annual amplitude")
+    assert html.index("peak timing concentration") < html.index("trough timing concentration")
+    assert html.index("trough timing concentration") < html.index("analytical route")
     assert html.index("average invalid/cloud cover") > html.index("high confidence years")
     assert ".plot > .plot-canvas {" in html
     assert ".plot-primary > .plot-canvas {" in html
@@ -193,6 +196,52 @@ def test_generate_catchment_report_escapes_user_controlled_html(tmp_path, season
     assert "<b>bad</b>" not in html
     assert "&lt;b&gt;bad&lt;/b&gt;" in html
     assert re.search(r"<h1>.*&lt;script", html)
+
+
+def test_generate_catchment_report_embeds_a_safe_aoi_map(tmp_path, seasonal_extent):
+    """Removing map rendering or escaping would lose the map or permit script injection."""
+    payload = '</script><script id="owned">window.owned=true</script>'
+    context = AOIContext(
+        geojson=(
+            '{"type":"FeatureCollection","features":[],"properties":'
+            f'{{"payload":"{payload}"}}}}'
+        ),
+        bounds_wgs84=(115.0, -32.0, 116.0, -31.0),
+        display_name=f"AOI {payload}",
+        feature_count=0,
+    )
+
+    paths = generate_catchment_report(
+        seasonal_extent, tmp_path, aoi_context=context
+    )
+    html = paths.html.read_text(encoding="utf-8")
+
+    assert '<section id="aoi-context">' in html
+    assert 'id="aoi-map-report"' in html
+    assert "tile.openstreetmap.org" in html
+    assert "data:image/png;base64" not in html
+    assert "&lt;/script&gt;" in html
+    assert "<\\/script>" in html
+    assert payload not in html
+
+
+def test_generate_catchment_report_warns_and_continues_when_map_rendering_fails(
+    monkeypatch, tmp_path, seasonal_extent
+):
+    """A report-map rendering failure is presentation-only, never fatal."""
+    context = AOIContext("{}", (115.0, -32.0, 116.0, -31.0), "AOI", 0)
+
+    def fail_map(*args, **kwargs):
+        raise RuntimeError("map assets unavailable")
+
+    monkeypatch.setattr("hydroseason.report.render_aoi_map_html", fail_map)
+    with pytest.warns(UserWarning, match="map assets unavailable"):
+        paths = generate_catchment_report(
+            seasonal_extent, tmp_path, aoi_context=context
+        )
+
+    assert paths.html.exists()
+    assert 'id="aoi-context"' not in paths.html.read_text(encoding="utf-8")
 
 
 def test_generate_catchment_report_serializes_strict_json(tmp_path, seasonal_extent):

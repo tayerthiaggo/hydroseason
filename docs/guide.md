@@ -175,18 +175,112 @@ Full CSV column dictionary: [Report Export Columns](report-columns.md).
 ## Which route did my catchment take?
 
 `analyze_catchment` is the routing authority behind `run_hydroseason`. It
-checks whether a catchment has a reproducible annual cycle (signal-to-noise
-ratio, or SNR — how strong and repeatable the yearly wet/dry swing is
-relative to noise) and assigns one of two routes:
+assesses annual amplitude (signal-to-noise ratio, SNR) and the reproducibility
+of one annual peak month per usable year. Timing is circular: for peak month
+`m_y` in year `y`, it calculates
 
-- **`per_year_detection`** (seasonal): SNR > 1.5. Hydrological year
-  boundaries are anchored to climatological troughs, with complete annual
-  recharge/trough metrics.
-- **`event_characterisation`** (aseasonal): SNR ≤ 1.5. No hydrological years
-  are forced — the workflow instead reports discrete wet inundation events
-  and low-water spell durations.
+```text
+theta_y = 2*pi*(m_y - 1)/12
+R = |mean(exp(i*theta_y))|
+```
+
+`R` is the mean resultant length, from 0 (diffuse or cancelling timing) to 1
+(the same month every year). Its 95% bootstrap interval resamples usable
+annual timings. Circular IQR is retained as a descriptive spread in months;
+it is not a regime cutoff. A low `R` can also arise from symmetric bimodality:
+January/July preferences cancel even though timing is not uniform. The Kuiper
+test complements `R` by testing the discrete 12-month uniform null.
+
+| Regime | Decision rule | Interpretation |
+|---|---|---|
+| Seasonal | SNR >= 2 and peak `R` 95% CI lower bound >= 0.70 | A repeatable annual peak is supported. |
+| Aseasonal | SNR < 0.70, or peak uniformity p >= 0.10 with at least 10 timing years | Do not force a hydrological year; report events and low spells. |
+| Marginal | Otherwise | Evidence sits between the gates; a fixed climatological window is used only when both peak and trough evidence support it. |
+| Insufficient record | <5 usable annual timings | Do not infer lack of seasonality from inadequate data. |
+
+The seasonal label and the route are related but separate. Per-year boundaries
+need trough timing support too: `per_year_detection` requires the lower 95%
+bootstrap CI for trough `R` to be >= 0.70. A seasonal record with unstable
+troughs instead uses `fixed_climatological_window`; complex or diffuse timing
+uses `event_characterisation`. `n_timing_years` counts qualifying **years**,
+not months. Fewer than 30 usable annual timings (not 30 months) keeps the
+classification but warns that uncertainty intervals may be wide. The approved
+10-year guard keeps a strong 5–9-year record marginal when a Kuiper uniformity
+result has little power.
 
 ---
+
+## Many AOIs: one row, one analysis
+
+Use `run_hydroseason_many` for a DEA/STAC run that keeps each source vector row
+independent. `run_hydroseason` accepts a multi-row AOI as one combined analysis
+over the union footprint; `run_hydroseason_many` preserves rows, so one input
+row produces one analysis and one report. A one-row `MultiPolygon` stays one
+AOI. Results remain in input order even though the scheduler may start larger
+AOIs first.
+
+In other words: one input row produces one analysis and one report.
+
+```python
+from hydroseason import run_hydroseason_many
+
+batch = run_hydroseason_many(
+    "catchments.gpkg",
+    output_dir="results",
+    cache_dir="cache",
+    start_date="2000-01-01",
+    end_date="2025-12-01",
+    id_col="catchment_id",
+    workers="auto",
+)
+
+for outcome in batch.outcomes:
+    if outcome.succeeded:
+        print(outcome.id, outcome.result.artifacts.html)
+    else:
+        print(outcome.id, outcome.error_type, outcome.error_message)
+batch.raise_for_failures()
+```
+
+Each run writes `output_dir/<safe-id>/`; a shared cache writes to
+`cache_dir/<safe-id>/`. `id_col` values must be nonblank and unique (including
+after filename sanitisation). Without it, identifiers are stable
+`aoi-0001`, `aoi-0002`, and so on. A failed AOI is captured in its
+`HydroSeasonAOIOutcome` and does not cancel unrelated rows; call
+`batch.raise_for_failures()` after handling any successes to raise one summary
+error for all failures.
+
+### Batch memory and threads
+
+With `workers="auto"`, HydroSeason chooses at most the available logical CPU
+count but applies a default concurrency cap of 2. It reserves 40% and uses
+60% of currently available RAM as the global admission budget. Before each
+run, a conservative native-30 m peak-memory estimate is calculated from the
+AOI bounding box; the box is intentionally conservative because it includes
+space outside irregular geometry. An AOI estimated above the budget emits a
+warning and runs alone, never alongside another batch item.
+
+Set `workers=1` for strictly sequential execution, or an explicit positive
+integer to override the default worker cap. The global memory admission gate
+still applies. A native 30 m whole-catchment run is commonly about 10 GB on a
+typical 8–16 GB machine, so sequential execution may be necessary. The outer
+thread pool improves I/O overlap; it does not force Dask's internal pool and
+does not mean 2x computational throughput.
+
+## AOI boundary maps
+
+When an AOI is available, HydroSeason carries compact boundary geometry into
+the report and embeds Leaflet with that boundary. The report remains readable
+without map tiles. At view time its basemap requests tiles from OpenStreetMap;
+those requests go to OpenStreetMap and require an internet connection. The
+boundary is embedded locally, so it remains visible if tiles fail.
+
+`show_map="auto"` previews the boundary before acquisition only in a Jupyter
+or IPython kernel. `show_map=True` requests an inline preview (and warns if it
+cannot display); `show_map=False` suppresses previews. The display boundary
+may be topology-preservingly simplified and rounded for compact output. It is
+display-only: the analysed footprint remains the unsimplified acquisition
+geometry and fixed historical water mask.
 
 ## Data quality before you trust it
 

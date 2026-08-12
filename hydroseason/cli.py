@@ -155,6 +155,7 @@ def _run(args: argparse.Namespace) -> int:
         "report_title": args.report_title,
         "report_subtitle": args.report_subtitle,
         "progress": args.progress,
+        "show_map": False,
     }
     # Left out entirely when unset so run_hydroseason's own documented
     # defaults apply, rather than this parser owning a second copy of them.

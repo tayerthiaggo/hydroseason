@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import math
 import tempfile
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
 
+from ._aoi_context import AOIContext
+from ._aoi_map import render_aoi_map_html
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import _empty_events, _empty_low_spells
 from ._regime_compare import RegimeComparison
@@ -228,6 +231,7 @@ def generate_catchment_report(
     rainfall_source: Literal["csv", "silo"] | None = None,
     rainfall_warning: str | None = None,
     rainfall_comparison_warning: str | None = None,
+    aoi_context: AOIContext | None = None,
     title: str | None = None,
     subtitle: str | None = None,
     quality_note: str | None = None,
@@ -272,6 +276,18 @@ def generate_catchment_report(
         else None
     )
     rain_figure = rainfall_context_figure(monthly) if has_rainfall else None
+    aoi_map_html = None
+    if aoi_context is not None:
+        try:
+            aoi_map_html = render_aoi_map_html(
+                aoi_context, element_id="aoi-map-report"
+            )
+        except Exception as exc:
+            warnings.warn(
+                f"Could not render AOI map for report: {exc}",
+                UserWarning,
+                stacklevel=2,
+            )
 
     # Keep the rich frames for HTML.  The CSV bundle is intentionally a
     # smaller, stable interface with explicit date names and only the fields a
@@ -318,6 +334,7 @@ def generate_catchment_report(
         rainfall_context=rain_context,
         rainfall_figure=rain_figure,
         rainfall_warning=rainfall_warning,
+        aoi_map_html=aoi_map_html,
     )
     _write_text_atomic(html_path, html_text)
 

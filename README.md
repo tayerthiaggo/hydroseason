@@ -62,6 +62,37 @@ print(f"HTML: {result.artifacts.html}")
 [the four ways to run it](#the-four-ways-to-run-it) below for rasters,
 DEA fetching, and optional rainfall context.
 
+### Many AOIs: one vector row, one report
+
+For independent DEA/STAC analyses from a multi-row vector layer, use
+`run_hydroseason_many`. One input row produces one analysis and one report;
+each result is isolated under its resolved identifier. This differs from
+`run_hydroseason`, which treats a multi-row AOI as one combined analysis over
+its union footprint. A one-row `MultiPolygon` is still one AOI.
+
+```python
+from hydroseason import run_hydroseason_many
+
+batch = run_hydroseason_many(
+    "catchments.gpkg",
+    output_dir="results",
+    cache_dir="cache",
+    start_date="2000-01-01",
+    end_date="2025-12-01",
+    id_col="catchment_id",
+    workers="auto",
+)
+for outcome in batch.outcomes:
+    if outcome.succeeded:
+        print(outcome.id, outcome.result.artifacts.html)
+    else:
+        print(outcome.id, outcome.error_type, outcome.error_message)
+batch.raise_for_failures()
+```
+
+`workers="auto"` uses a default concurrency cap of 2 and admits work only
+within 80% of currently available RAM. See the [Usage Guide](https://tayerthiaggo.github.io/hydroseason/guide/#many-aois-one-row-one-analysis) for memory and scheduling details.
+
 For runs long enough to outlive a notebook session, use the CLI — same
 orchestrator, its own process, resumable via `--cache-dir`:
 
@@ -123,6 +154,9 @@ Fitzroy, Gilbert, Lachlan, Moonie):
 
 ## Scientific Limitations
 
+- **Timing evidence**: Fewer than 30 usable annual timings (not 30 months) can make bootstrap intervals wide; fewer than five usable annual timings is insufficient for regime assessment.
+- **Circular timing**: A low mean resultant length can mean diffuse timing or two cancelling preferred seasons; inspect the accompanying Kuiper uniformity result and trough evidence.
+
 - **Extent is not Volume or Discharge**: Surface area percentage (`extent_pct`) dilutes narrow river channels and misses sub-canopy water.
 - **Cloud Gaps**: High cloud/shadow invalid coverage (`invalid_pct`) distorts extent statistics if unflagged.
 - **Resolution**: Coarsening spatial resolution distorts peak/trough timing and event boundaries. 30 m resolution remains authoritative.
@@ -135,6 +169,8 @@ Fitzroy, Gilbert, Lachlan, Moonie):
 |---|---|
 | `run_hydroseason` | One-call orchestrator: resolve water input, analyze, optional rainfall, write report |
 | `HydroSeasonRunResult` | Everything a `run_hydroseason` call produced (`.analysis`, `.artifacts`, `.rainfall_status`, ...) |
+| `run_hydroseason_many` | DEA/STAC batch orchestrator: preserve each input vector row as one independent run |
+| `HydroSeasonBatchResult` | Source-ordered successful and failed per-row outcomes; call `.raise_for_failures()` after inspection |
 | `load_extent_csv` | Read a monthly extent CSV directly, for the lower-level building blocks |
 | `analyze_catchment` | Assess regime, then run the analysis that regime supports (the routing authority) |
 | `generate_catchment_report` | Write the self-contained HTML report plus the 4-CSV bundle |

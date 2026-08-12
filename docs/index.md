@@ -66,6 +66,13 @@ directly — see [Advanced: calling the building blocks directly](guide.md#advan
 
 ---
 
+## Multi-AOI runs
+
+`run_hydroseason_many` is the DEA/STAC entry point for a vector layer with
+many independent AOIs. It preserves source rows: one input row produces one
+analysis and one report, while one-row `MultiPolygon` geometries remain one
+AOI. See [Many AOIs: one row, one analysis](guide.md#many-aois-one-row-one-analysis).
+
 ## Navigation & Documentation
 
 | Page | Contents |

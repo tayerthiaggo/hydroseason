@@ -72,6 +72,7 @@ def test_run_maps_every_documented_argument_to_one_orchestrator_call(
     assert kwargs["cache_dir"] == str(tmp_path / "cache")
     assert kwargs["report_title"] == "Title"
     assert kwargs["report_subtitle"] == "Subtitle"
+    assert kwargs["show_map"] is False
 
 
 def test_omitted_water_source_leaves_the_dea_fetch_path_selected(
