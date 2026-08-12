@@ -634,6 +634,23 @@ def test_window_before_coverage_start_warns_without_truncation_language(monkeypa
     assert "first inundated" not in message
 
 
+def test_describe_coverage_gap_both_directions_attaches_caveat_once():
+    from hydroseason._historical_water_mask import describe_coverage_gap
+
+    message = describe_coverage_gap(
+        coverage_start="1987-01-01",
+        coverage_end="2021-12-31",
+        start_date="1985-01-01",
+        end_date="2022-06-01",
+    )
+
+    assert message is not None
+    assert "begins" in message and "month(s) before" in message
+    assert "extends" in message and "month(s) past" in message
+    assert message.count("not counted in extent_pct") == 1
+    assert message.index("not counted in extent_pct") > message.index("extends")
+
+
 def test_on_warning_callback_receives_the_message(monkeypatch, tmp_path):
     import hydroseason.io as hio
     from hydroseason._historical_water_mask import HistoricalMaskCoverageWarning
