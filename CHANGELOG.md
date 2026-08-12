@@ -5,6 +5,48 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
+### Changed
+- Historical water-mask coverage no longer gates whether a run can proceed.
+  A run whose requested window falls outside the statistics product's
+  recorded `[coverage_start, coverage_end]` now succeeds with a
+  `HistoricalMaskCoverageWarning` instead of raising
+  `HistoricalWaterMaskUnavailable`. Two user-visible consequences: (a)
+  previously-failing requests now succeed; (b) a request past
+  `coverage_end` cannot count water first inundated after that date.
+  Supplying a precomputed `historical_water_mask=` whose coverage falls
+  short is likewise no longer a `ValueError`.
+- Adopting a refreshed statistics vintage (see `### Added` below) changes
+  `n_aoi` and therefore `extent_pct` across the entire record, not only the
+  newly-covered months. This is the change most likely to surprise someone
+  comparing two runs.
+
+### Added
+- `HistoricalMaskCoverageWarning`; `HistoricalMaskRefreshedWarning`;
+  automatic adoption of a refreshed statistics vintage when a run's window
+  overhangs its cached mask's coverage, with the denominator delta reported
+  (`refresh_historical_mask=False` to pin); `probe_wo_statistics_coverage`;
+  `HydroSeasonRunResult.warnings` now carries water-input provenance
+  notices; `load_wofs_monthly_extent(on_warning=...)` and
+  `resolve_water_input(on_warning=...)`. `load_or_build_historical_water_mask`
+  gains a new keyword-only `end_date: str | None = None` parameter, which is
+  what triggers the refresh check when supplied; direct callers of
+  `load_or_build_historical_water_mask` (as opposed to `run_hydroseason`,
+  which supplies it automatically) must pass it to opt into the refresh
+  behavior, and the default `None` preserves the prior strict-pinning
+  behavior unchanged.
+
+### Removed
+- **Breaking for direct callers.** The `analysis_end` keyword is gone from
+  `build_historical_water_mask`, `read_historical_water_mask`, and
+  `load_or_build_historical_water_mask`. The mask is an all-time footprint;
+  nothing in its construction or retrieval ever depended on the requested
+  window, and the parameter only fed the coverage gate this release
+  removes. Callers should delete the argument — there is no replacement and
+  no behavior to preserve. This is a signature break shipped in a patch
+  release, permitted under SemVer clause 4 (pre-1.0); both
+  `build_historical_water_mask` and `load_or_build_historical_water_mask`
+  are re-exported from the package root.
+
 ## [0.1.0] - 2026-08-10
 
 First public release: the remote-sensing-first rewrite of HydroSeason.

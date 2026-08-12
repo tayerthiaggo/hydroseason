@@ -32,6 +32,7 @@ from .hydrological_state import (
     suggest_dynamic_hydro_year_config,
 )
 from .io import (
+    HistoricalMaskCoverageWarning,
     HistoricalWaterMask,
     WetPlanningFootprint,
     WOfSCacheHandle,
@@ -67,6 +68,7 @@ __all__ = [
     "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
     "verify_cache_footprints", "open_completed_dual_extent_counts",
     "build_wet_planning_footprint", "WetPlanningFootprint", "HistoricalWaterMask",
+    "HistoricalMaskCoverageWarning",
     "build_historical_water_mask", "load_or_build_historical_water_mask",
     "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
     "DynamicHydroYearConfig", "HydrologicalStateResult",
