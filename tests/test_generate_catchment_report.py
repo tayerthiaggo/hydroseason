@@ -202,9 +202,12 @@ def test_generate_catchment_report_embeds_a_safe_aoi_map(tmp_path, seasonal_exte
     """Removing map rendering or escaping would lose the map or permit script injection."""
     payload = '</script><script id="owned">window.owned=true</script>'
     context = AOIContext(
-        geojson=(
-            '{"type":"FeatureCollection","features":[],"properties":'
-            f'{{"payload":"{payload}"}}}}'
+        geojson=json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [],
+                "properties": {"payload": payload},
+            }
         ),
         bounds_wgs84=(115.0, -32.0, 116.0, -31.0),
         display_name=f"AOI {payload}",

@@ -97,6 +97,7 @@ def test_release_docs_explain_batch_seasonality_and_map_contracts():
     end_date="2025-12-01",
     id_col="catchment_id",
     workers="auto",
+    refresh_historical_mask=True,
 )'''
     assert sample in guide
     assert "for outcome in batch.outcomes:" in guide
