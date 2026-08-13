@@ -110,6 +110,19 @@ def test_release_docs_explain_batch_seasonality_and_map_contracts():
         "default concurrency cap of 2",
         "at least 10 timing years",
         "5–9-year record marginal",
+        "30 usable annual timings",
+        "not 30 months",
+        "mean resultant length",
+        "Kuiper",
+        "OpenStreetMap",
+        "internet connection",
+        "theta_y = 2*pi*(m_y - 1)/12",
+        "R = |mean(exp(i*theta_y))|",
+        "10.1029/2019JD031381",
+        "10.5194/hess-22-3883-2018",
+        "10.1029/2003WR002295",
+        "10.1002/hyp.11365",
+        "10.1016/j.advwatres.2015.11.009",
     ):
         assert phrase in all_docs
 
