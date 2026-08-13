@@ -19,7 +19,7 @@ from ._batch_scheduler import (
 )
 from ._progress import ProgressEvent, resolve_progress_reporter
 from ._workflow_input import DEFAULT_STAC_COLLECTION, DEFAULT_STAC_URL
-from .workflow import _resolve_show_map, run_hydroseason
+from .workflow import _in_notebook_kernel, _resolve_show_map, run_hydroseason
 
 if TYPE_CHECKING:
     from ._aoi_context import AOIContext
@@ -128,6 +128,14 @@ def run_hydroseason_many(
     )
     _validate_date_range(start_date, end_date)
     show_preview = _resolve_show_map(show_map)
+    if show_map is True and not _in_notebook_kernel():
+        warnings.warn(
+            "show_map=True requires a display-capable Jupyter/IPython kernel; "
+            "continuing without inline display.",
+            UserWarning,
+            stacklevel=2,
+        )
+        show_preview = False
     reporter = resolve_progress_reporter(progress)
 
     prepared = _prepare_batch_aois(

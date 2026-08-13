@@ -160,6 +160,13 @@ def run_hydroseason(
     """
     show_aoi_map = _resolve_show_map(show_map)
     messages: list[str] = []
+    if show_map is True and not _in_notebook_kernel():
+        message = (
+            "show_map=True requires a display-capable Jupyter/IPython kernel; "
+            "continuing without inline display."
+        )
+        _warn(messages, message)
+        show_aoi_map = False
     aoi_gdf = None
     aoi_context = None
     if aoi is not None:

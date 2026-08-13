@@ -333,6 +333,7 @@ def test_run_many_displays_one_combined_preview_before_the_first_worker(monkeypa
         return kwargs["aoi_name"]
 
     monkeypatch.setattr("hydroseason._aoi_map.display_aoi_map", fake_display)
+    monkeypatch.setattr(batch, "_in_notebook_kernel", lambda: True, raising=False)
     monkeypatch.setattr(batch, "run_hydroseason", fake_run)
     monkeypatch.setattr(batch, "estimate_aoi_peak_gb", lambda _context: 0.1)
 
@@ -381,6 +382,32 @@ def test_run_many_does_not_preview_when_show_map_is_false(monkeypatch, tmp_path)
     assert [outcome.result for outcome in result.outcomes] == ["ok"]
 
 
+def test_batch_explicit_map_outside_notebook_warns_without_preview(monkeypatch, tmp_path):
+    batch = _batch_module()
+    source = _frame(ids=["west", "east"])
+    previews = []
+
+    monkeypatch.setattr(batch, "_in_notebook_kernel", lambda: False, raising=False)
+    monkeypatch.setattr(batch, "_display_batch_preview", previews.append)
+    monkeypatch.setattr(batch, "run_hydroseason", lambda water_source, **kwargs: kwargs["aoi_name"])
+    monkeypatch.setattr(batch, "estimate_aoi_peak_gb", lambda context: 0.1)
+
+    with pytest.warns(UserWarning, match="display-capable Jupyter"):
+        result = batch.run_hydroseason_many(
+            source,
+            output_dir=tmp_path / "reports",
+            id_col="aoi_id",
+            start_date="2020-01-01",
+            end_date="2020-12-01",
+            workers=1,
+            memory_budget_gb=1.0,
+            show_map=True,
+        )
+
+    assert previews == []
+    assert [item.id for item in result.succeeded] == ["west", "east"]
+
+
 def test_run_many_warns_for_preview_failure_and_continues_workers(monkeypatch, tmp_path):
     """Making preview failure fatal would leave these independent rows unrun."""
     batch = _batch_module()
@@ -390,6 +417,7 @@ def test_run_many_warns_for_preview_failure_and_continues_workers(monkeypatch, t
         "hydroseason._aoi_map.display_aoi_map",
         lambda _context: (_ for _ in ()).throw(RuntimeError("notebook closed")),
     )
+    monkeypatch.setattr(batch, "_in_notebook_kernel", lambda: True, raising=False)
     monkeypatch.setattr(
         batch,
         "run_hydroseason",

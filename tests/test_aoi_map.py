@@ -51,6 +51,28 @@ def test_renders_self_contained_accessible_boundary_map_with_required_tile_behav
     assert "L.tileLayer('data:" not in html
 
 
+def test_feature_ids_are_visible_to_assistive_technology_and_bound_as_popups():
+    from hydroseason._aoi_map import render_aoi_map_html
+
+    context = AOIContext(
+        geojson=(
+            '{"type":"FeatureCollection","features":['
+            '{"type":"Feature","geometry":{"type":"Polygon","coordinates":[]},'
+            '"properties":{"id":"alpha"}},'
+            '{"type":"Feature","geometry":{"type":"Polygon","coordinates":[]},'
+            '"properties":{"id":"beta"}}]}'
+        ),
+        bounds_wgs84=(115.0, -32.0, 116.0, -31.0),
+        display_name="Two AOIs",
+        feature_count=2,
+    )
+    rendered = render_aoi_map_html(context, element_id="batch-map")
+    assert "AOI boundaries: alpha, beta" in rendered
+    assert "onEachFeature" in rendered
+    assert "bindPopup" in rendered
+    assert "textContent" in rendered
+
+
 def test_escapes_display_name_and_script_terminators_in_geojson():
     """An injected name or closing script sequence must not escape the fragment."""
     from hydroseason._aoi_map import render_aoi_map_html

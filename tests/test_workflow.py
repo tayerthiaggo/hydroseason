@@ -144,6 +144,7 @@ def test_aoi_load_preview_precedes_acquisition_and_context_is_reused(
         "hydroseason.workflow.display_aoi_map",
         lambda value: events.append("display"),
     )
+    monkeypatch.setattr("hydroseason.workflow._in_notebook_kernel", lambda: True)
 
     def fake_resolve(water_source, **kwargs):
         assert kwargs["aoi"] is loaded_aoi
@@ -173,7 +174,7 @@ def test_aoi_load_preview_precedes_acquisition_and_context_is_reused(
 
 @pytest.mark.parametrize(
     ("show_map", "in_notebook", "expected_displays"),
-    [(False, True, 0), (True, False, 1), ("auto", False, 0), ("auto", True, 1)],
+    [(False, True, 0), (True, False, 0), ("auto", False, 0), ("auto", True, 1)],
 )
 def test_show_map_modes_control_preview(
     monkeypatch, tmp_path, show_map, in_notebook, expected_displays
@@ -194,6 +195,31 @@ def test_show_map_modes_control_preview(
     )
 
     assert displays == [context] * expected_displays
+
+
+def test_explicit_map_outside_notebook_warns_without_display(monkeypatch, tmp_path):
+    displayed = []
+    context = AOIContext("{}", (115.0, -32.0, 116.0, -31.0), "AOI", 0)
+    monkeypatch.setattr("hydroseason.workflow._in_notebook_kernel", lambda: False)
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
+    monkeypatch.setattr(
+        "hydroseason.workflow.build_aoi_context",
+        lambda value, **kwargs: context,
+    )
+    monkeypatch.setattr(
+        "hydroseason.workflow.display_aoi_map",
+        lambda value: displayed.append(value),
+    )
+    with pytest.warns(UserWarning, match="display-capable Jupyter"):
+        result = run_hydroseason(
+            _seasonal_extent(),
+            output_dir=tmp_path,
+            aoi="aoi.geojson",
+            show_map=True,
+            analysis_options=ANALYSIS_OPTIONS,
+        )
+    assert displayed == []
+    assert any("display-capable Jupyter" in item for item in result.warnings)
 
 
 def test_show_map_rejects_invalid_values(tmp_path):
@@ -222,6 +248,7 @@ def test_context_and_display_failures_warn_without_blocking_a_run(monkeypatch, t
         "hydroseason.workflow.display_aoi_map",
         lambda value: (_ for _ in ()).throw(RuntimeError("display unavailable")),
     )
+    monkeypatch.setattr("hydroseason.workflow._in_notebook_kernel", lambda: True)
     with pytest.warns(UserWarning, match="display unavailable"):
         result = run_hydroseason(
             _seasonal_extent(), output_dir=tmp_path / "display", aoi="aoi.geojson", show_map=True

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import importlib.resources
+import json
 import re
 import warnings
 
@@ -44,12 +45,22 @@ def render_aoi_map_html(
     leaflet_css = _asset_text("leaflet-1.9.4.css")
     leaflet_js = _asset_text("leaflet-1.9.4.min.js")
     display_name = html.escape(context.display_name, quote=True)
+    feature_ids = [
+        str(feature.get("properties", {}).get("id", "")).strip()
+        for feature in json.loads(context.geojson).get("features", [])
+    ]
+    feature_ids = [value for value in feature_ids if value]
+    feature_summary = ", ".join(feature_ids) or context.display_name
+    accessible_summary = html.escape(
+        f"AOI boundaries: {feature_summary}", quote=True
+    )
     geojson = context.geojson.replace("</", "<\\/")
 
     # Leaflet's CSS image URLs are unused: this fragment creates neither
     # markers nor layer controls, so no marker or layer-control images are needed.
     return f'''<style>{leaflet_css}</style>
 <div id="{element_id}" class="hydroseason-aoi-map" role="region" aria-label="Map of {display_name} boundary" tabindex="0" style="height: {height_px}px"></div>
+<p class="hydroseason-aoi-map-summary">{accessible_summary}</p>
 <p id="{element_id}-offline-notice" class="hydroseason-aoi-map-notice" aria-live="polite" hidden>The boundary remains available if tiles fail. Loading online tiles sends requests to OpenStreetMap and requires an internet connection.</p>
 <script>{leaflet_js}</script>
 <script>
@@ -57,7 +68,15 @@ def render_aoi_map_html(
   const map = L.map('{element_id}');
   const geojson = {geojson};
   const layer = L.geoJSON(geojson, {{
-    style: {{color: '#d1495b', weight: 3, opacity: 1, fillOpacity: 0.08}}
+    style: {{color: '#d1495b', weight: 3, opacity: 1, fillOpacity: 0.08}},
+    onEachFeature: (feature, featureLayer) => {{
+      const identifier = feature.properties && feature.properties.id;
+      if (identifier) {{
+        const label = document.createElement('span');
+        label.textContent = String(identifier);
+        featureLayer.bindPopup(label);
+      }}
+    }}
   }}).addTo(map);
   map.fitBounds(layer.getBounds(), {{padding: [20, 20], maxZoom: 12}});
   const tiles = L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
