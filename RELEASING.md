@@ -71,7 +71,7 @@ uv lock --check
 python -m pytest -q -m "not experimental and not network and not performance" \
   --cov=hydroseason --cov-report=term-missing --cov-fail-under=80
 
-# 3. Reproducibility gates (require the [all,docs] extras)
+# 3. Reproducibility gates (require the [all,docs,dev] extras)
 python scripts/prepare_case_study_data.py --check
 python scripts/_build_study_case_offline.py --check
 python scripts/_build_study_case_rainfall.py --check

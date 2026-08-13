@@ -5,22 +5,26 @@ associated **methodological paper**.
 
 ## Software
 
-Prefer the versioned GitHub/Zenodo release and its version-specific DOI:
-`10.5281/zenodo.21866899`.
+For HydroSeason 0.1.1, cite the
+[GitHub release](https://github.com/tayerthiaggo/hydroseason/releases/tag/v0.1.1)
+and the Zenodo concept DOI:
+[10.5281/zenodo.21866898](https://doi.org/10.5281/zenodo.21866898).
+The version-specific DOI is added after archiving the GitHub release.
 
 ```bibtex
 @software{tayer_hydroseason,
   author  = {Tayer, Thiaggo C.},
   title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
-  version = {0.1.0},
+  version = {0.1.1},
   year    = {2026},
-  url     = {https://github.com/tayerthiaggo/hydroseason},
-  doi     = {10.5281/zenodo.21866899}
+  url     = {https://github.com/tayerthiaggo/hydroseason/releases/tag/v0.1.1},
+  doi     = {10.5281/zenodo.21866898}
 }
 ```
 
-The README badge links the Zenodo concept DOI for the project; cite the
-version-specific DOI above when referring to HydroSeason 0.1.0.
+The README badge links the Zenodo concept DOI for the project, not a
+version-specific DOI. After Zenodo archives 0.1.1, use the DOI minted for that
+specific archive when citing the release.
 
 ## Method paper
 

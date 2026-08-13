@@ -28,6 +28,13 @@ def test_repository_metadata_is_consistent_before_release():
     ) == []
 
 
+def test_citation_page_tracks_release_version_and_concept_doi():
+    citation = Path("docs/citation.md").read_text(encoding="utf-8")
+    assert f"version = {{{RELEASE_VERSION}}}" in citation
+    assert "https://doi.org/10.5281/zenodo.21866898" in citation
+    assert "version-specific DOI is added after archiving" in citation
+
+
 def test_release_mode_requires_version_heading_and_release_date(tmp_path):
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname="hydroseason"\nversion="0.1.0"\n', encoding="utf-8"

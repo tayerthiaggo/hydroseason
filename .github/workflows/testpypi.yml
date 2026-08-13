@@ -116,7 +116,7 @@ jobs:
           python -m pip install \
             --index-url https://test.pypi.org/simple/ \
             --extra-index-url https://pypi.org/simple/ \
-            "hydroseason==${{ needs.build.outputs.version }}"
+            "hydroseason[all]==${{ needs.build.outputs.version }}"
 
       - name: Checkout notebook fixtures from exact candidate ref
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
