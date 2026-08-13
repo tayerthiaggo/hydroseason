@@ -56,18 +56,19 @@ def test_missing_rainfall_dependencies_lists_the_silo_imports(monkeypatch):
     real_import = mod.importlib.import_module
 
     def blocked(name):
-        if name in {"s3fs", "h5netcdf"}:
+        if name in {"s3fs", "h5netcdf", "h5py"}:
             raise ImportError(f"No module named {name!r}")
         return real_import(name)
 
     monkeypatch.setattr(mod.importlib, "import_module", blocked)
 
-    assert mod.missing_rainfall_dependencies() == ("h5netcdf", "s3fs")
+    assert mod.missing_rainfall_dependencies() == ("h5netcdf", "h5py", "s3fs")
 
 
 def test_no_missing_rainfall_dependencies_when_everything_imports():
     pytest.importorskip("s3fs")
     pytest.importorskip("h5netcdf")
+    pytest.importorskip("h5py")
 
     assert missing_rainfall_dependencies() == ()
 
