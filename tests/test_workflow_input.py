@@ -43,6 +43,7 @@ def test_none_source_calls_dea_loader(monkeypatch, tmp_path):
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
         cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
+        refresh_historical_mask,
     ):
         calls.update(
             stac_url=stac_url,
@@ -82,6 +83,7 @@ def test_one_configured_stac_url_reaches_both_searches(monkeypatch):
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
         cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
+        refresh_historical_mask,
     ):
         calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
         return _extent_frame()
@@ -107,6 +109,7 @@ def test_explicit_statistics_stac_url_is_not_overridden(monkeypatch):
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
         cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
+        refresh_historical_mask,
     ):
         calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
         return _extent_frame()
@@ -259,6 +262,7 @@ def test_dea_branch_forwards_progress_to_the_per_year_loader(monkeypatch):
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
         cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
+        refresh_historical_mask,
     ):
         calls.update(progress=progress, progress_desc=progress_desc)
         return _extent_frame()
@@ -285,6 +289,7 @@ def test_progress_defaults_off_so_existing_callers_are_unchanged(monkeypatch):
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
         cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
+        refresh_historical_mask,
     ):
         calls.update(progress=progress, progress_desc=progress_desc)
         return _extent_frame()
@@ -318,6 +323,7 @@ def test_resolved_water_input_carries_loader_warnings(monkeypatch):
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
         cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
+        refresh_historical_mask,
     ):
         on_warning("probe warning")
         return _extent_frame()
@@ -333,6 +339,24 @@ def test_resolved_water_input_carries_loader_warnings(monkeypatch):
     )
 
     assert resolved.warnings == ("probe warning",)
+
+
+def test_resolve_water_input_forwards_refresh_pin(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_load(*args, **kwargs):
+        captured.update(kwargs)
+        return _extent_frame()
+
+    monkeypatch.setattr("hydroseason._workflow_input.load_wofs_monthly_extent", fake_load)
+    resolve_water_input(
+        None,
+        aoi="aoi.geojson",
+        start_date="2020-01-01",
+        end_date="2020-12-01",
+        refresh_historical_mask=False,
+    )
+    assert captured["refresh_historical_mask"] is False
 
 
 def test_non_dea_paths_have_empty_warnings():

@@ -463,6 +463,7 @@ def test_run_hydroseason_propagates_one_stac_url_through_the_full_input_seam(
     def fake_loader(
         stac_url, collection, aoi, start_date, end_date, *,
         cache_dir, statistics_stac_url, progress, progress_desc, on_warning,
+        refresh_historical_mask,
     ):
         calls.update(stac_url=stac_url, statistics_stac_url=statistics_stac_url)
         return _seasonal_extent()
@@ -777,7 +778,9 @@ def test_run_hydroseason_surfaces_resolved_water_warnings(monkeypatch, tmp_path)
         from hydroseason._workflow_input import ResolvedWaterInput
 
         return ResolvedWaterInput(
-            _seasonal_extent(), "dea_wofs", ("probe warning",)
+            _seasonal_extent(),
+            "dea_wofs",
+            ("probe warning", "historical mask refreshed"),
         )
 
     monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
@@ -793,6 +796,7 @@ def test_run_hydroseason_surfaces_resolved_water_warnings(monkeypatch, tmp_path)
     )
 
     assert "probe warning" in result.warnings
+    assert result.warnings.count("historical mask refreshed") == 1
 
 
 def test_supplied_rainfall_csv_does_not_probe_silo_dependencies(monkeypatch, tmp_path):

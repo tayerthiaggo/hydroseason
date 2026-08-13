@@ -13,9 +13,10 @@ def test_package_import_exposes_only_migration_safe_surface():
         "load_aoi", "load_wofs_from_stac", "load_wofs_monthly_extent", "load_monthly_masks",
         "load_monthly_masks_zarr", "load_extent_csv", "complete_monthly_axis",
         "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
+        "probe_wo_statistics_coverage",
         "verify_cache_footprints", "open_completed_dual_extent_counts",
         "build_wet_planning_footprint", "WetPlanningFootprint", "HistoricalWaterMask",
-        "HistoricalMaskCoverageWarning",
+        "HistoricalMaskCoverageWarning", "HistoricalMaskRefreshedWarning",
         "build_historical_water_mask", "load_or_build_historical_water_mask",
         "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
         "DynamicHydroYearConfig", "HydrologicalStateResult",
@@ -56,6 +57,8 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert hydroseason.WetPlanningFootprint.__name__ == "WetPlanningFootprint"
     assert hydroseason.HistoricalWaterMask.__name__ == "HistoricalWaterMask"
     assert issubclass(hydroseason.HistoricalMaskCoverageWarning, UserWarning)
+    assert issubclass(hydroseason.HistoricalMaskRefreshedWarning, UserWarning)
+    assert callable(hydroseason.probe_wo_statistics_coverage)
     assert callable(hydroseason.build_historical_water_mask)
     assert callable(hydroseason.load_or_build_historical_water_mask)
     assert callable(hydroseason.assess_water_regime)

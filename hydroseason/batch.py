@@ -119,6 +119,7 @@ def run_hydroseason_many(
     report_title: str | None = None,
     report_subtitle: str | None = None,
     progress: bool | Callable[[ProgressEvent], None] = False,
+    refresh_historical_mask: bool = True,
 ) -> HydroSeasonBatchResult:
     """Run the public single-AOI workflow once for every source AOI row."""
     output_root = _validate_path(output_dir, name="output_dir")
@@ -163,6 +164,7 @@ def run_hydroseason_many(
             report_title=report_title,
             report_subtitle=report_subtitle,
             reporter=reporter,
+            refresh_historical_mask=refresh_historical_mask,
         ),
         max_workers=max_workers,
         memory_budget_gb=memory_budget,
@@ -227,6 +229,7 @@ def _run_prepared_aoi(
     report_title: str | None,
     report_subtitle: str | None,
     reporter,
+    refresh_historical_mask: bool,
 ):
     return run_hydroseason(
         None,
@@ -244,6 +247,7 @@ def _run_prepared_aoi(
         report_subtitle=report_subtitle,
         progress=_prefixed_reporter(item.id, reporter),
         show_map=False,
+        refresh_historical_mask=refresh_historical_mask,
     )
 
 

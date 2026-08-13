@@ -155,5 +155,5 @@ def open_completed_dual_extent_counts(*args, **kwargs):
     return _open_completed_dual_extent_counts(*args, **kwargs)
 
 
-__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_mask_cache", "open_completed_extent_counts", "open_completed_dual_extent_counts", "WOfSCacheHandle", "open_wo_statistics", "verify_cache_footprints", "build_wet_planning_footprint", "WetPlanningFootprint", "HistoricalWaterMask", "build_historical_water_mask", "load_or_build_historical_water_mask"]
+__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_mask_cache", "open_completed_extent_counts", "open_completed_dual_extent_counts", "WOfSCacheHandle", "open_wo_statistics", "probe_wo_statistics_coverage", "verify_cache_footprints", "build_wet_planning_footprint", "WetPlanningFootprint", "HistoricalWaterMask", "HistoricalMaskRefreshedWarning", "build_historical_water_mask", "load_or_build_historical_water_mask"]
 

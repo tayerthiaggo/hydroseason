@@ -100,6 +100,13 @@ def _build_parser() -> argparse.ArgumentParser:
             "last completed calendar year on the next invocation."
         ),
     )
+    run.add_argument(
+        "--no-refresh-historical-mask",
+        dest="refresh_historical_mask",
+        action="store_false",
+        default=True,
+        help="Keep a compatible cached historical mask pinned to its existing vintage.",
+    )
     run.add_argument("--report-title", help="HTML report title.")
     run.add_argument("--report-subtitle", help="HTML report subtitle.")
     run.add_argument(
@@ -155,6 +162,7 @@ def _run(args: argparse.Namespace) -> int:
         "fetch_rainfall": args.fetch_rainfall,
         "statistics_stac_url": args.statistics_stac_url,
         "cache_dir": args.cache_dir,
+        "refresh_historical_mask": args.refresh_historical_mask,
         "report_title": args.report_title,
         "report_subtitle": args.report_subtitle,
         "progress": args.progress,

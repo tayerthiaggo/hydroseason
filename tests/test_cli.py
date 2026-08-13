@@ -49,6 +49,7 @@ def test_run_maps_every_documented_argument_to_one_orchestrator_call(
             "--statistics-stac-url", "https://stats.test/stac",
             "--stac-collection", "ga_ls_wo_3",
             "--cache-dir", str(tmp_path / "cache"),
+            "--no-refresh-historical-mask",
             "--report-title", "Title",
             "--report-subtitle", "Subtitle",
         ]
@@ -70,6 +71,7 @@ def test_run_maps_every_documented_argument_to_one_orchestrator_call(
     assert kwargs["statistics_stac_url"] == "https://stats.test/stac"
     assert kwargs["stac_collection"] == "ga_ls_wo_3"
     assert kwargs["cache_dir"] == str(tmp_path / "cache")
+    assert kwargs["refresh_historical_mask"] is False
     assert kwargs["report_title"] == "Title"
     assert kwargs["report_subtitle"] == "Subtitle"
     assert kwargs["show_map"] is False

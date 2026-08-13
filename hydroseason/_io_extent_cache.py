@@ -532,6 +532,7 @@ def _resolve_historical_water_mask(
     resolution: float | None,
     historical_water_mask: HistoricalWaterMask | None,
     io_facade,
+    refresh_historical_mask: bool = True,
     on_warning: "Callable[[str], None] | None" = None,
 ) -> HistoricalWaterMask:
     """Resolve one exact Multi-Year mask, cache-first when a root is available."""
@@ -557,6 +558,8 @@ def _resolve_historical_water_mask(
                 crs=statistics_crs,
                 resolution=statistics_resolution,
                 end_date=end_date,
+                refresh_historical_mask=refresh_historical_mask,
+                on_warning=on_warning,
             )
         else:
             if offline:
@@ -644,6 +647,7 @@ def load_wofs_monthly_extent(
     historical_water_mask: HistoricalWaterMask | None = None,
     historical_mask_cache_dir: str | os.PathLike[str] | None = None,
     statistics_stac_url: str = DEFAULT_WO_STATISTICS_STAC_URL,
+    refresh_historical_mask: bool = True,
 ) -> pd.DataFrame:
     """Compute monthly WOfS extent in resumable calendar-year pieces.
 
@@ -840,6 +844,7 @@ def load_wofs_monthly_extent(
                 resolution=resolution,
                 historical_water_mask=historical_water_mask,
                 io_facade=_io,
+                refresh_historical_mask=refresh_historical_mask,
                 on_warning=on_warning,
             )
         except DEAStatsUnavailable as exc:

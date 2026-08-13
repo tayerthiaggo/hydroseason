@@ -128,6 +128,7 @@ def resolve_water_input(
     progress: bool = False,
     progress_desc: str | None = None,
     on_warning: Callable[[str], None] | None = None,
+    refresh_historical_mask: bool = True,
 ) -> ResolvedWaterInput:
     if water_source is None:
         if aoi is None or start_date is None or end_date is None:
@@ -158,6 +159,7 @@ def resolve_water_input(
             progress=progress,
             progress_desc=progress_desc,
             on_warning=_collect_warning,
+            refresh_historical_mask=refresh_historical_mask,
         )
         return ResolvedWaterInput(
             _normalise_extent_frame(extent, start_date=start_date, end_date=end_date),

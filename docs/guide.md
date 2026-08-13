@@ -74,6 +74,7 @@ result = run_hydroseason(
     aoi_name="Fitzroy River",
     start_date="2005-01-01",
     end_date="2025-12-01",
+    refresh_historical_mask=True,
 )
 ```
 
@@ -166,7 +167,7 @@ instead; see [CLI Recipes](cli-recipes.md).
 | `.artifacts.wet_event_csv` | Wet inundation events CSV |
 | `.artifacts.low_spells_csv` | Low-extent spells CSV |
 | `.rainfall`, `.rainfall_status`, `.rainfall_comparison` | Present only when rainfall was requested |
-| `.warnings` | Non-fatal issues encountered (e.g. rainfall fetch failure) |
+| `.warnings` | Non-fatal issues encountered, including a copied historical-mask refresh notice or rainfall fetch failure |
 
 Full CSV column dictionary: [Report Export Columns](report-columns.md).
 
@@ -232,6 +233,7 @@ batch = run_hydroseason_many(
     end_date="2025-12-01",
     id_col="catchment_id",
     workers="auto",
+    refresh_historical_mask=True,
 )
 
 for outcome in batch.outcomes:
@@ -347,6 +349,7 @@ extent = load_wofs_monthly_extent(
     end_date="2025-12-01",
     cache_dir="output/extent_cache",
     mask_cache_dir="output/wofs_cache",
+    refresh_historical_mask=True,
 )
 ```
 
@@ -406,7 +409,7 @@ HydroSeason queries or reuses exactly one pinned `ga_ls_wo_fq_myear_3` artifact.
 
 The verified manifest pins source product/version, item IDs, lineage, and coverage start/end. The source observed at design time was unfiltered and covered 1987--2025; use the manifest's exact values as authority. If no verified cache exists in offline mode, loading still fails closed and never substitutes the full AOI. If the requested analysis window falls outside `[coverage_start, coverage_end]`, the run instead proceeds with a `HistoricalMaskCoverageWarning`; a window that extends past `coverage_end` carries a one-sentence truncation caveat, since a pixel first inundated after `coverage_end` is invisible to the mask and is not counted in `extent_pct` for the affected months.
 
-**Refresh lifecycle.** A cached historical water mask is pinned to its build vintage: an ordinary run whose window falls entirely inside the cached coverage never touches the network, and the cached artifact is returned as-is. A run whose window overhangs the cached coverage instead probes DEA for a refresh -- a cheap metadata-only check for wider Statistics coverage -- and adopts it if one exists. Adopting a refreshed vintage changes `n_aoi` (the mask's pixel count) and therefore shifts `extent_pct` across the whole record, not only the newly-covered months; that whole-record shift is why adoption warns (`HistoricalMaskRefreshedWarning`) rather than proceeding quietly. The superseded artifact is retained under `artifacts/<digest>/` rather than deleted, so an earlier run built against it stays reproducible. Pass `refresh_historical_mask=False` to pin deliberately and always return the cached artifact unchanged. To force a rebuild of a pinned cache by hand, delete `<cache_root>/historical-water-masks/index/<request_digest>.json` and leave `artifacts/` alone -- the next run resolves a cache miss and rebuilds.
+**Refresh lifecycle.** A cached historical water mask is pinned to its build vintage: an ordinary run whose window falls entirely inside the cached coverage never touches the network, and the cached artifact is returned as-is. A run whose window overhangs the cached coverage instead probes DEA for a refresh -- a cheap metadata-only check exposed publicly as `probe_wo_statistics_coverage` -- and adopts it if one exists. Adopting a refreshed vintage changes `n_aoi` (the mask's pixel count) and therefore shifts `extent_pct` across the whole record, not only the newly-covered months; that whole-record shift is why adoption warns (`HistoricalMaskRefreshedWarning`) rather than proceeding quietly. That refresh notice is copied once into `HydroSeasonRunResult.warnings`. If no wider vintage covers the requested end, the existing `HistoricalMaskCoverageWarning` describes the remaining gap. The superseded artifact is retained under `artifacts/<digest>/` rather than deleted, so an earlier run built against it stays reproducible. `refresh_historical_mask=True` is the default on single, batch, and acquisition calls; pass `False` to pin a compatible cached vintage deliberately and always return it unchanged. To force a rebuild of a pinned cache by hand, delete `<cache_root>/historical-water-masks/index/<request_digest>.json` and leave `artifacts/` alone -- the next run resolves a cache miss and rebuilds.
 
 `open_wo_statistics` remains available for direct inspection:
 ```python

@@ -1912,6 +1912,79 @@ def test_refresh_warns_with_denominator_delta(tmp_path, monkeypatch):
     assert "%" in message
 
 
+def test_refresh_warning_callback_receives_denominator_change(tmp_path, monkeypatch):
+    from hydroseason._historical_water_mask import (
+        HistoricalMaskRefreshedWarning,
+        load_or_build_historical_water_mask,
+    )
+
+    cached, _request = _seed_refresh_cache(
+        tmp_path,
+        seed_cells=((3, 2),),
+        time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z",
+    )
+    seen: list[str] = []
+
+    monkeypatch.setattr(
+        "hydroseason._io_dea_stats.probe_wo_statistics_coverage",
+        Mock(return_value="1987-01-01T00:00:00Z/2026-12-31T00:00:00Z"),
+    )
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 2] = 1
+    grid[5, 5] = 1
+    monkeypatch.setattr(
+        "hydroseason._io_dea_stats.open_wo_statistics",
+        Mock(
+            return_value=_refresh_stats_dataset(
+                grid,
+                time_span="1987-01-01T00:00:00Z/2026-12-31T00:00:00Z",
+            )
+        ),
+    )
+
+    with pytest.warns(HistoricalMaskRefreshedWarning):
+        refreshed = load_or_build_historical_water_mask(
+            _refresh_aoi(),
+            cache_root=tmp_path,
+            offline=False,
+            stac_url="https://example.test/stac",
+            end_date="2026-06-30",
+            on_warning=seen.append,
+        )
+
+    assert refreshed.pixel_count != cached.pixel_count
+    assert len(seen) == 1
+    assert "pixel_count" in seen[0]
+
+
+def test_refresh_false_is_forwarded_to_mask_loader(monkeypatch, tmp_path):
+    import hydroseason.io as hio
+    from hydroseason._io_extent_cache import _resolve_historical_water_mask
+
+    captured: dict[str, object] = {}
+
+    def fake_load_or_build(*args, **kwargs):
+        captured.update(kwargs)
+        return _historical_water_mask(coverage_end="2024-12-31")
+
+    monkeypatch.setattr(hio, "load_or_build_historical_water_mask", fake_load_or_build)
+    _resolve_historical_water_mask(
+        aoi=_aoi(),
+        collection="ga_ls_wo_3",
+        start_date="2024-01-01",
+        end_date="2024-12-01",
+        cache_root=tmp_path,
+        offline=False,
+        statistics_stac_url="https://example.invalid/stac",
+        crs=3577,
+        resolution=30,
+        historical_water_mask=None,
+        io_facade=hio,
+        refresh_historical_mask=False,
+    )
+    assert captured["refresh_historical_mask"] is False
+
+
 def test_unrefreshed_statistics_keeps_cached_artifact(tmp_path, monkeypatch):
     from hydroseason._historical_water_mask import (
         HistoricalMaskCoverageWarning,

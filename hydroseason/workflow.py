@@ -133,6 +133,7 @@ def run_hydroseason(
     report_subtitle: str | None = None,
     progress: bool | Callable[[ProgressEvent], None] = False,
     show_map: Literal["auto"] | bool = "auto",
+    refresh_historical_mask: bool = True,
 ) -> HydroSeasonRunResult:
     """Resolve water input, analyze it once, then add rainfall as context.
 
@@ -213,6 +214,7 @@ def run_hydroseason(
         cache_dir=cache_dir,
         progress=tracker.renders_subprogress,
         progress_desc=tracker.subprogress_desc(1),
+        refresh_historical_mask=refresh_historical_mask,
     )
     tracker.finish(1, f"{len(resolved.extent)} months, {resolved.source_kind}")
 

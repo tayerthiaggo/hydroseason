@@ -22,6 +22,11 @@ preview), or `False` (no preview). `HydroSeasonRunResult` returns
 AOI was supplied, otherwise `None`. It is display metadata, not a replacement
 for the analysed footprint.
 
+For DEA acquisition, `run_hydroseason(..., refresh_historical_mask=True)`
+adopts a wider historical-mask vintage when available. Pass `False` to pin a
+compatible cached vintage. Any `HistoricalMaskRefreshedWarning` notice is
+copied once into `HydroSeasonRunResult.warnings`.
+
 ## Row-preserving DEA/STAC batches
 
 `run_hydroseason_many(aois, *, output_dir, start_date, end_date, ...)` has no
@@ -37,6 +42,7 @@ items first.
 | `workers` | `"auto"` or a positive integer. Auto uses `min(2, logical CPU count)`; `1` is sequential; a larger integer is honoured subject to memory admission. |
 | `memory_budget_gb` | Optional positive finite decimal-GB budget. `None` uses 80% of currently available RAM. |
 | `show_map` | `"auto"`, `True`, or `False`; batch preview is best-effort and never changes child analyses. |
+| `refresh_historical_mask` | Defaults to `True` for every child workflow; `False` pins each compatible cached historical-mask vintage. |
 | `HydroSeasonAOIOutcome` | Immutable `id`, zero-based `source_position`, successful `result` or complete `error_type`/`error_message`; exactly one form is populated. |
 | `HydroSeasonBatchResult` | Immutable `outcomes` tuple plus source-ordered `.succeeded`, `.failed`, and `.raise_for_failures()`. |
 | `HydroSeasonBatchError` | Raised by `.raise_for_failures()` with every failed outcome in `.failures`. |

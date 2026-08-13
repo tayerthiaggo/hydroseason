@@ -290,6 +290,7 @@ def test_run_many_invokes_the_single_workflow_once_for_each_source_row(
         workers=1,
         memory_budget_gb=1.0,
         show_map=False,
+        refresh_historical_mask=False,
     )
 
     assert [outcome.id for outcome in result.outcomes] == ["west", "central", "east"]
@@ -309,6 +310,10 @@ def test_run_many_invokes_the_single_workflow_once_for_each_source_row(
         tmp_path / "cache" / "east",
     ]
     assert all(kwargs["show_map"] is False for _water_source, kwargs in calls)
+    assert all(
+        kwargs["refresh_historical_mask"] is False
+        for _water_source, kwargs in calls
+    )
 
 
 def test_run_many_displays_one_combined_preview_before_the_first_worker(monkeypatch, tmp_path):

@@ -23,7 +23,7 @@ import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -899,6 +899,7 @@ def _maybe_refresh_cached_mask(
     crs_normalized: str,
     resolution: float,
     request: "HistoricalWaterMaskRequest",
+    on_warning: Callable[[str], None] | None = None,
 ) -> HistoricalWaterMask:
     """The four-branch refresh check applied after a cache hit.
 
@@ -988,6 +989,8 @@ def _maybe_refresh_cached_mask(
     import warnings as py_warnings
 
     py_warnings.warn(message, HistoricalMaskRefreshedWarning, stacklevel=3)
+    if on_warning is not None:
+        on_warning(message)
 
     return refreshed
 
@@ -1003,6 +1006,7 @@ def load_or_build_historical_water_mask(
     resolution: float = 30,
     end_date: str | None = None,
     refresh_historical_mask: bool = True,
+    on_warning: Callable[[str], None] | None = None,
 ) -> HistoricalWaterMask:
     """Resolve a verified :class:`HistoricalWaterMask` for ``aoi``, cache-first.
 
@@ -1093,6 +1097,7 @@ def load_or_build_historical_water_mask(
             crs_normalized=crs_normalized,
             resolution=resolution,
             request=request,
+            on_warning=on_warning,
         )
 
     if offline:
