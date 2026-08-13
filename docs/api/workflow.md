@@ -46,8 +46,10 @@ Each row receives `output_dir/<safe-id>/` and, when provided,
 input, identifiers, dates, worker counts, or budgets fail before any child
 run. The scheduler estimates a 30 m native-resolution peak from the AOI's
 bounding box, admitting concurrent jobs only while the summed estimate fits.
-An oversized AOI warns and runs alone. Threads provide I/O overlap only; this
-outer scheduler does not set Dask worker counts or promise linear throughput.
+Before work starts, one global oversized-AOI warning lists every affected
+source position; each oversized item then runs alone. Threads provide I/O
+overlap only; this outer scheduler does not set Dask worker counts or promise
+linear throughput.
 
 ::: hydroseason.batch
     options:

@@ -1,8 +1,15 @@
 # CLI Recipes and Case-Study Maps Design
 
-**Status:** Revised; awaiting user review
+**Status:** Deferred follow-up
 **Date:** 2026-08-11
 **Release policy:** CLI, documentation, and case-study asset follow-up; keep project version at `0.1.0` and do not create a new release.
+
+> **0.1.1 scope note (2026-08-13):** The committed static map-input bundle under
+> `case_studies/data/maps/` and the `render_case_study_maps.py` rendering
+> pipeline described below are **not** 0.1.1 acceptance criteria. Interactive AOI
+> boundary maps in notebook previews and HTML reports remain in 0.1.1 per
+> [`2026-08-13-hydroseason-0.1.1-release-readiness-design.md`](2026-08-13-hydroseason-0.1.1-release-readiness-design.md).
+> This document preserves the design history for a later follow-up.
 
 ## Context
 

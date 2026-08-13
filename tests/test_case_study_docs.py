@@ -106,24 +106,25 @@ def test_release_docs_explain_batch_seasonality_and_map_contracts():
         "run_hydroseason_many",
         "one input row produces one analysis and one report",
         'workers="auto"',
-        "60% of currently available RAM",
+        "80% of currently available RAM",
         "default concurrency cap of 2",
-        "30 usable annual timings",
-        "not 30 months",
-        "mean resultant length",
-        "Kuiper",
-        "OpenStreetMap",
-        "internet connection",
-        "theta_y = 2*pi*(m_y - 1)/12",
-        "R = |mean(exp(i*theta_y))|",
-        "10.1029/2019JD031381",
-        "10.5194/hess-22-3883-2018",
-        "10.1029/2003WR002295",
-        "10.1002/hyp.11365",
-        "10.1016/j.advwatres.2015.11.009",
+        "at least 10 timing years",
+        "5–9-year record marginal",
     ):
         assert phrase in all_docs
+
+    assert "60% of currently available RAM" not in all_docs
+    assert "HydroSeasonHydroSeason" not in readme
 
     assert "SNR > 1.5" not in guide
     assert "SNR ≤ 1.5" not in guide
     assert "1.5 months" not in guide
+
+
+def test_release_scope_does_not_claim_deferred_static_case_study_maps():
+    release_docs = "\n".join(
+        Path(path).read_text(encoding="utf-8")
+        for path in ("README.md", "CHANGELOG.md", "docs/index.md", "docs/guide.md")
+    )
+    assert "case_studies/data/maps" not in release_docs
+    assert "render_case_study_maps.py" not in release_docs

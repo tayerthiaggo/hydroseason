@@ -6,6 +6,13 @@
 
 **Release:** 0.1.1
 
+> **Supersession (2026-08-13):** The 80% batch memory budget and ten-year
+> circular-uniformity power guard in
+> [`2026-08-13-hydroseason-0.1.1-release-readiness-design.md`](2026-08-13-hydroseason-0.1.1-release-readiness-design.md)
+> supersede the 60% scheduling proposal in this document. Accepted 0.1.1 CLI
+> additions (`doctor`, `--json`, and progress reporting) remain in scope per that
+> release-readiness design.
+
 ## Context
 
 HydroSeason currently calls a record seasonal only when its climatological

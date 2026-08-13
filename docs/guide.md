@@ -253,8 +253,8 @@ error for all failures.
 ### Batch memory and threads
 
 With `workers="auto"`, HydroSeason chooses at most the available logical CPU
-count but applies a default concurrency cap of 2. It reserves 40% and uses
-60% of currently available RAM as the global admission budget. Before each
+count but applies a default concurrency cap of 2. It reserves 20% and uses
+80% of currently available RAM as the global admission budget. Before each
 run, a conservative native-30 m peak-memory estimate is calculated from the
 AOI bounding box; the box is intentionally conservative because it includes
 space outside irregular geometry. An AOI estimated above the budget emits a
