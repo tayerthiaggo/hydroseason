@@ -127,10 +127,10 @@ Once the required CI checks pass on the release commit and Step 2 is clean:
 
 1. Create an annotated tag on the exact `main` commit tested on TestPyPI:
    ```bash
-   git tag -a v0.1.0 -m "HydroSeason 0.1.0" <merge-commit-sha>
-   git push origin v0.1.0
+   git tag -a v0.1.1 -m "HydroSeason 0.1.1" <merge-commit-sha>
+   git push origin v0.1.1
    ```
-2. Draft a GitHub Release from the tag, using the `[0.1.0]` section of
+2. Draft a GitHub Release from the tag, using the `[0.1.1]` section of
    `CHANGELOG.md` as the release body.
 3. Before publishing, verify the draft's target commit matches the tag and
    that no additional commits have landed on `main` since.
@@ -140,7 +140,7 @@ Once the required CI checks pass on the release commit and Step 2 is clean:
    - re-validates tag/version/date/changelog agreement;
    - re-runs every release gate against the tagged commit;
    - builds the sdist/wheel once, builds
-     `hydroseason-0.1.0-case-studies.zip` from the checked case-study
+     `hydroseason-0.1.1-case-studies.zip` from the checked case-study
      results and docs, and uploads them as a build artifact;
    - waits for human approval on the `pypi` environment, then publishes the
      exact downloaded sdist/wheel to PyPI via OIDC trusted publishing;
@@ -161,7 +161,7 @@ automatically; no manual Zenodo action is required at this step.
 
 Once PyPI publishing completes:
 
-- Fresh-install `hydroseason==0.1.0` from PyPI in a clean environment and run
+- Fresh-install `hydroseason==0.1.1` from PyPI in a clean environment and run
   the documented CSV/report smoke from `README.md`.
 - Check PyPI project metadata and rendered README at
   https://pypi.org/project/hydroseason/.
@@ -180,7 +180,7 @@ Only after Zenodo has minted a DOI for the archived release:
 1. Add the real DOI to `CITATION.cff`, `docs/citation.md`, the README badge,
    and any other project URLs that reference it.
 2. Commit this as a normal follow-up commit on `main`.
-3. **Do not amend or move the `v0.1.0` tag** to attach the DOI commit — the
+3. **Do not amend or move the `v0.1.1` tag** to attach the DOI commit — the
    DOI commit lands after the tag, as ordinary repository history.
 
 ## Never automated by this repository

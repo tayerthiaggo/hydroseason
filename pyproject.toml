@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydroseason"
-version = "0.1.0"
+version = "0.1.1"
 description = "Remote-sensing-first hydro-year detection from monthly surface-water extent"
 readme = "README.md"
 # Upper bound is deliberate, not conservatism-by-default: the raster/stac

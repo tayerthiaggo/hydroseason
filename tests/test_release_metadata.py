@@ -8,11 +8,19 @@ except ImportError:
 from scripts.check_release_metadata import validate_release_metadata
 
 
-def test_first_remote_sensing_release_version_is_0_1_0():
+RELEASE_VERSION = "0.1.1"
+RELEASE_DATE = "2026-08-13"
+
+
+def test_release_candidate_version_is_0_1_1():
     root = Path.cwd()
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    assert project["project"]["version"] == "0.1.0"
-    assert 'version: "0.1.0"' in (root / "CITATION.cff").read_text(encoding="utf-8")
+    cff = (root / "CITATION.cff").read_text(encoding="utf-8")
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert project["project"]["version"] == RELEASE_VERSION
+    assert f'version: "{RELEASE_VERSION}"' in cff
+    assert f'date-released: "{RELEASE_DATE}"' in cff
+    assert f"## [{RELEASE_VERSION}] - {RELEASE_DATE}" in changelog
 
 
 def test_repository_metadata_is_consistent_before_release():

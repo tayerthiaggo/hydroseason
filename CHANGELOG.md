@@ -5,35 +5,56 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-13
+
+### Added
+- Circular peak/trough timing evidence now reports mean resultant
+  concentration, deterministic bootstrap confidence intervals, and Kuiper
+  uniformity p-values against the discrete 12-month null. Regime assessment
+  and catchment routing use this evidence to distinguish reproducible
+  seasonal boundaries from marginal or aseasonal records.
+- Public `run_hydroseason_many` batch orchestration preserves one input AOI
+  row per outcome and report. Its memory-aware scheduler caps automatic
+  concurrency at two workers and admits work within 80% of currently
+  available RAM while isolating row-level failures.
+- AOI boundary previews and report maps are available for single and batch
+  workflows, with accessible fallbacks and vendored Leaflet JavaScript,
+  styles, and marker assets for self-contained offline reports.
+- The `hydroseason run` and `hydroseason doctor` CLI commands provide
+  five-step progress, machine-readable JSON summaries, cache reuse, and
+  upfront checks for supported Python and optional dependencies.
+- `HistoricalMaskCoverageWarning` and `HistoricalMaskRefreshedWarning`
+  expose non-fatal historical-mask coverage gaps and refresh provenance.
+  Cached masks can adopt a newer statistics vintage when requested coverage
+  extends beyond the cache; pass `refresh_historical_mask=False` to pin the
+  existing vintage.
+
 ### Changed
-- Historical water-mask coverage no longer gates whether a run can proceed.
-  A run whose requested window falls outside the statistics product's
-  recorded `[coverage_start, coverage_end]` now succeeds with a
-  `HistoricalMaskCoverageWarning` instead of raising
-  `HistoricalWaterMaskUnavailable`. Two user-visible consequences: (a)
-  previously-failing requests now succeed; (b) a request past
+- Records with five to nine usable annual timings remain marginal even when
+  a low-power Kuiper test does not reject uniformity; fewer than 30 usable
+  annual timings now carry an explicit bootstrap-power caution, while fewer
+  than five remain insufficient for regime assessment.
+- Historical water-mask coverage no longer gates a run. Requested windows
+  outside recorded `[coverage_start, coverage_end]` now succeed with a
+  warning, including when a precomputed mask is supplied. Months after
   `coverage_end` cannot count water first inundated after that date.
-  Supplying a precomputed `historical_water_mask=` whose coverage falls
-  short is likewise no longer a `ValueError`.
-- Adopting a refreshed statistics vintage (see `### Added` below) changes
+- Adopting a refreshed statistics vintage (see `### Added` above) changes
   `n_aoi` and therefore `extent_pct` across the entire record, not only the
   newly-covered months. This is the change most likely to surprise someone
   comparing two runs.
 
-### Added
-- `HistoricalMaskCoverageWarning`; `HistoricalMaskRefreshedWarning`;
-  automatic adoption of a refreshed statistics vintage when a run's window
-  overhangs its cached mask's coverage, with the denominator delta reported
-  (`refresh_historical_mask=False` to pin); `probe_wo_statistics_coverage`;
-  `HydroSeasonRunResult.warnings` now carries water-input provenance
-  notices; `load_wofs_monthly_extent(on_warning=...)` and
-  `resolve_water_input(on_warning=...)`. `load_or_build_historical_water_mask`
-  gains a new keyword-only `end_date: str | None = None` parameter, which is
-  what triggers the refresh check when supplied; direct callers of
-  `load_or_build_historical_water_mask` (as opposed to `run_hydroseason`,
-  which supplies it automatically) must pass it to opt into the refresh
-  behavior, and the default `None` preserves the prior strict-pinning
-  behavior unchanged.
+### Fixed
+- Corrected the discrete Kuiper null distribution used for monthly timing
+  significance.
+- Statistics coverage refresh remains non-fatal when a refreshed cache
+  cannot be written, and refresh provenance reaches workflow results.
+- Configured STAC endpoints now propagate to both DEA searches, and all
+  statistics-endpoint failures are consistently converted to
+  `WoStatisticsUnavailable`.
+- Coverage warnings format dates as `YYYY-MM-DD` instead of raw timestamps.
+- The CLI suppresses irrelevant raster
+  `NotGeoreferencedWarning` noise for its valid raster paths.
+- Restored the public `load_aoi` monkeypatch seam used by callers and tests.
 
 ### Removed
 - **Breaking for direct callers.** The `analysis_end` keyword is gone from

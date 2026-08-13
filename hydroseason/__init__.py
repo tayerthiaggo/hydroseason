@@ -60,7 +60,7 @@ from .workflow import HydroSeasonRunResult, run_hydroseason
 try:
     __version__ = _pkg_version("hydroseason")
 except PackageNotFoundError:  # running from a source tree without install
-    __version__ = "0.1.0"
+    __version__ = "0.1.1"
 
 __all__ = [
     "__version__", "HydroYearConfig", "detect_hydrological_years",
