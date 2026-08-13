@@ -118,6 +118,18 @@ jobs:
             --extra-index-url https://pypi.org/simple/ \
             "hydroseason==${{ needs.build.outputs.version }}"
 
+      - name: Checkout notebook fixtures from exact candidate ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Execute notebook against installed TestPyPI candidate
+        env:
+          HYDROSEASON_RUN_LIVE_DEA: "0"
+        run: |
+          python -m pip install nbformat nbclient ipykernel
+          python scripts/check_notebook_05.py
+
       - name: CSV analysis and report smoke
         run: |
           python -c "

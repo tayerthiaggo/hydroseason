@@ -171,6 +171,11 @@ jobs:
       - name: Check rendered docs match checked results
         run: python scripts/render_case_study_docs.py --check
 
+      - name: Execute hybrid user notebook offline
+        env:
+          HYDROSEASON_RUN_LIVE_DEA: "0"
+        run: python scripts/check_notebook_05.py
+
       - name: Build docs strictly
         run: python -m mkdocs build --strict
 

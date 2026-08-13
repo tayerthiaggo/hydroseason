@@ -97,6 +97,9 @@ dev = [
   "check-wheel-contents>=0.6",
   "tomli>=2.0; python_version < '3.11'",
   "playwright>=1.40",
+  "nbformat>=5.10",
+  "nbclient>=0.10",
+  "ipykernel>=6.29",
 ]
 
 [project.urls]

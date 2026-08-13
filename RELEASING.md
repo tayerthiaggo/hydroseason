@@ -77,6 +77,7 @@ python scripts/_build_study_case_offline.py --check
 python scripts/_build_study_case_rainfall.py --check
 python scripts/run_resolution_case_study.py --check --output-dir case_studies/results/resolution
 python scripts/render_case_study_docs.py --check
+python scripts/check_notebook_05.py
 python -m mkdocs build --strict
 
 # 4. Build and verify artifacts

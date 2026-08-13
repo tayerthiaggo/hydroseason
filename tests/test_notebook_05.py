@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 NOTEBOOK = Path("notebooks/05_0_1_improvements.ipynb")
 
 
@@ -38,3 +37,9 @@ def test_notebook_index_lists_hybrid_release_routine():
     assert "05_0_1_improvements.ipynb" in text
     assert "offline by default" in text
     assert "optional live DEA" in text
+
+
+def test_notebook_runner_targets_notebook_05():
+    from scripts import check_notebook_05
+
+    assert check_notebook_05.NOTEBOOK == NOTEBOOK.resolve()
