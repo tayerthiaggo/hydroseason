@@ -7,7 +7,6 @@ except ImportError:
 
 from scripts.check_release_metadata import validate_release_metadata
 
-
 RELEASE_VERSION = "0.1.1"
 RELEASE_DATE = "2026-08-13"
 
