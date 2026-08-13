@@ -2052,6 +2052,52 @@ def test_probe_failure_is_not_fatal(tmp_path, monkeypatch):
     assert result.mask_sha256 == cached_mask.mask_sha256
 
 
+def test_refresh_write_failure_is_not_fatal(tmp_path, monkeypatch):
+    from hydroseason._historical_water_mask import (
+        HistoricalMaskRefreshedWarning,
+        load_or_build_historical_water_mask,
+    )
+
+    cached_mask, _request = _seed_refresh_cache(
+        tmp_path, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z",
+    )
+
+    monkeypatch.setattr(
+        "hydroseason._io_dea_stats.probe_wo_statistics_coverage",
+        Mock(return_value="1987-01-01T00:00:00Z/2026-12-31T00:00:00Z"),
+    )
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 2] = 1
+    grid[5, 5] = 1
+    monkeypatch.setattr(
+        "hydroseason._io_dea_stats.open_wo_statistics",
+        Mock(return_value=_refresh_stats_dataset(
+            grid, time_span="1987-01-01T00:00:00Z/2026-12-31T00:00:00Z",
+        )),
+    )
+    monkeypatch.setattr(
+        "hydroseason._historical_water_mask.write_historical_water_mask",
+        Mock(side_effect=OSError("disk full")),
+    )
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        result = load_or_build_historical_water_mask(
+            _refresh_aoi(),
+            cache_root=tmp_path,
+            offline=False,
+            stac_url="https://example.test/stac",
+            end_date="2026-06-30",
+        )
+
+    assert result.mask_sha256 == cached_mask.mask_sha256
+    assert result.pixel_count == cached_mask.pixel_count == 1
+    refresh_warnings = [
+        w for w in record if issubclass(w.category, HistoricalMaskRefreshedWarning)
+    ]
+    assert refresh_warnings == []
+
+
 def test_offline_never_probes(tmp_path, monkeypatch):
     from hydroseason._historical_water_mask import load_or_build_historical_water_mask
 

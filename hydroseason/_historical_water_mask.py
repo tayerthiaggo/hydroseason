@@ -983,7 +983,10 @@ def _maybe_refresh_cached_mask(
         # over a rebuild that turned out not to be wider after all.
         return cached
 
-    write_historical_water_mask(cache_root, request, refreshed)
+    try:
+        write_historical_water_mask(cache_root, request, refreshed)
+    except Exception:
+        return cached
 
     message = _describe_refresh(cached=cached, refreshed=refreshed)
     import warnings as py_warnings
