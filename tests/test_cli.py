@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -167,6 +168,7 @@ def test_summary_reports_source_regime_route_rainfall_and_paths(
         "spells.csv",
     ):
         assert expected in out
+    assert f"output directory : {tmp_path}" in out
 
 
 def test_json_summary_is_machine_readable(monkeypatch, tmp_path, capsys):
@@ -182,6 +184,24 @@ def test_json_summary_is_machine_readable(monkeypatch, tmp_path, capsys):
     assert payload["source_kind"] == "extent_csv"
     assert payload["rainfall_status"] == "disabled"
     assert payload["html"].endswith("report.html")
+    assert payload["output_dir"] == str(tmp_path)
+
+
+def test_cli_suppresses_only_expected_raster_warning(monkeypatch, tmp_path):
+    rasterio = pytest.importorskip("rasterio")
+
+    def fake_run(water_source=None, **kwargs):
+        warnings.warn("expected raster metadata", rasterio.errors.NotGeoreferencedWarning)
+        warnings.warn("keep this user warning", UserWarning)
+        return _FakeResult(tmp_path)
+
+    monkeypatch.setattr("hydroseason.cli.run_hydroseason", fake_run)
+    with pytest.warns(UserWarning, match="keep this user warning") as caught:
+        assert cli.main(["run", "--water-source", "e.csv", "--output-dir", str(tmp_path)]) == 0
+    assert all(
+        not isinstance(item.message, rasterio.errors.NotGeoreferencedWarning)
+        for item in caught
+    )
 
 
 def test_end_to_end_csv_run_writes_the_bundle(tmp_path):
@@ -297,3 +317,13 @@ class _FakeResult:
             wet_event_csv=tmp_path / "events.csv",
             low_spells_csv=tmp_path / "spells.csv",
         )
+
+
+def test_cli_module_does_not_require_optional_rasterio(monkeypatch):
+    import importlib
+
+    monkeypatch.delitem(sys.modules, "hydroseason.cli", raising=False)
+    monkeypatch.setitem(sys.modules, "rasterio", None)
+    monkeypatch.setitem(sys.modules, "rasterio.errors", None)
+    module = importlib.import_module("hydroseason.cli")
+    assert callable(module.main)

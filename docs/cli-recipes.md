@@ -194,10 +194,25 @@ AOI, date range, resolution, or STAC URL never silently reuses stale work.
 fatal water-input, analysis, or report-writing failure. `2` a usage error.
 
 **Machine-readable output.** `--json` prints the summary as JSON on standard
-output for scripting:
+output for scripting. The payload includes `output_dir` (resolved absolute
+path) and paths to every artifact (`html`, `monthly_csv`, `hydro_years_csv`,
+`wet_event_csv`, `low_spells_csv`):
 
 ```bash
 hydroseason run --water-source monthly_extent.csv --output-dir out --json
+```
+
+**Historical mask refresh.** By default a DEA run refreshes a compatible
+cached historical mask to the current vintage. Pin the existing cache with
+`--no-refresh-historical-mask` when you want a reproducible re-run against the
+same denominator:
+
+```bash
+hydroseason run \
+  --aoi isaac.geojson --aoi-name "Isaac River" \
+  --start-date 2005-01-01 --end-date 2025-12-01 \
+  --output-dir output/isaac --cache-dir cache/isaac \
+  --no-refresh-historical-mask
 ```
 
 ## 7. Repository checks

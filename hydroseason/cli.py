@@ -24,14 +24,27 @@ import argparse
 import json
 import sys
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Sequence
-
-import rasterio.errors
 
 from ._diagnostics import check_environment
 from .workflow import run_hydroseason
 
 _STATUS_MARK = {"ok": "ok  ", "warning": "warn", "error": "FAIL"}
+
+
+@contextmanager
+def _suppress_expected_raster_warning() -> Iterator[None]:
+    try:
+        from rasterio.errors import NotGeoreferencedWarning
+    except ImportError:
+        yield
+        return
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
+        yield
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -133,7 +146,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _summary(result) -> dict:
+def _summary(result, *, output_dir: str | Path) -> dict:
     return {
         "source_kind": result.source_kind,
         "regime": result.analysis.regime.regime,
@@ -141,6 +154,7 @@ def _summary(result) -> dict:
         "rainfall_status": result.rainfall_status,
         "rainfall_source": result.rainfall_source,
         "rainfall_error": result.rainfall_error,
+        "output_dir": str(Path(output_dir).resolve()),
         "html": str(result.artifacts.html),
         "monthly_csv": str(result.artifacts.monthly_csv),
         "hydro_years_csv": str(result.artifacts.hydro_years_csv),
@@ -179,17 +193,13 @@ def _run(args: argparse.Namespace) -> int:
         # DEA WOfS COGs carry georeferencing via STAC item metadata rather
         # than an embedded geotransform; rasterio warns on each internal
         # reproject regardless, which is expected and not actionable here.
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                category=rasterio.errors.NotGeoreferencedWarning,
-            )
+        with _suppress_expected_raster_warning():
             result = run_hydroseason(args.water_source, **kwargs)
     except Exception as exc:
         print(f"hydroseason run failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
-    summary = _summary(result)
+    summary = _summary(result, output_dir=args.output_dir)
     if args.json:
         print(json.dumps(summary, indent=2))
         return 0
@@ -200,6 +210,7 @@ def _run(args: argparse.Namespace) -> int:
     print(f"rainfall         : {summary['rainfall_status']} ({summary['rainfall_source']})")
     if summary["rainfall_error"]:
         print(f"rainfall error   : {summary['rainfall_error']}", file=sys.stderr)
+    print(f"output directory : {summary['output_dir']}")
     print(f"html report      : {summary['html']}")
     print(f"monthly csv      : {summary['monthly_csv']}")
     print(f"hydro years csv  : {summary['hydro_years_csv']}")
