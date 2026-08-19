@@ -480,7 +480,9 @@ def test_supplied_mask_past_coverage_warns_but_succeeds(monkeypatch, tmp_path):
             historical_water_mask=mask,
         )
 
-    message = str(record[0].message)
+    matching = [w for w in record if issubclass(w.category, HistoricalMaskCoverageWarning)]
+    assert len(matching) >= 1
+    message = str(matching[0].message)
     assert "2020-01-01" in message
     assert "2022-01-01" in message
     assert "1987-01-01" in message
@@ -560,7 +562,9 @@ def test_cached_mask_past_coverage_warns(monkeypatch, tmp_path):
             historical_mask_cache_dir=tmp_path / "historical-cache",
         )
 
-    message = str(record[0].message)
+    matching = [w for w in record if issubclass(w.category, HistoricalMaskCoverageWarning)]
+    assert len(matching) >= 1
+    message = str(matching[0].message)
     assert "2020-01-01" in message
     assert "2022-01-01" in message
     assert "1987-01-01" in message
@@ -626,7 +630,9 @@ def test_window_before_coverage_start_warns_without_truncation_language(monkeypa
             historical_water_mask=mask,
         )
 
-    message = str(record[0].message)
+    matching = [w for w in record if issubclass(w.category, HistoricalMaskCoverageWarning)]
+    assert len(matching) >= 1
+    message = str(matching[0].message)
     assert "1985-01-01" in message
     assert "1987-01-01" in message
     assert "begins" in message
@@ -701,8 +707,10 @@ def test_on_warning_callback_receives_the_message(monkeypatch, tmp_path):
             on_warning=received.append,
         )
 
+    matching = [w for w in record if issubclass(w.category, HistoricalMaskCoverageWarning)]
+    assert len(matching) >= 1
     assert len(received) == 1
-    assert received[0] == str(record[0].message)
+    assert received[0] == str(matching[0].message)
 
 
 def test_offline_historical_mask_replay_never_calls_statistics_stac(monkeypatch, tmp_path):
@@ -1904,7 +1912,9 @@ def test_refresh_warns_with_denominator_delta(tmp_path, monkeypatch):
         )
 
     assert result.pixel_count == 3
-    message = str(record[0].message)
+    matching = [w for w in record if issubclass(w.category, HistoricalMaskRefreshedWarning)]
+    assert len(matching) >= 1
+    message = str(matching[0].message)
     assert "2025-12-31T00:00:00Z" in message
     assert "2026-12-31T00:00:00Z" in message
     assert str(cached_mask.pixel_count) in message

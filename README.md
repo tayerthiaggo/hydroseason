@@ -6,7 +6,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/tayerthiaggo/hydroseason/blob/main/LICENSE)
 [![DOI](https://zenodo.org/badge/1251842440.svg)](https://doi.org/10.5281/zenodo.21866898)
 
-**HydroSeason turns a monthly surface-water record into a hydrological year report** — from a satellite-derived water-mask time series (such as Digital Earth Australia Water Observations), it works out when a catchment floods and dries, where each hydrological year begins and ends, and whether the pattern is even seasonal at all.
+**HydroSeason is an open-source Python package for hydrological-year detection and seasonal/aseasonal analysis from monthly satellite-derived surface-water extent.**
+
+HydroSeason turns a monthly surface-water record into a hydrological year report — from a satellite-derived water-mask time series (such as Digital Earth Australia Water Observations), it works out when a catchment floods and dries, where each hydrological year begins and ends, and whether the pattern is even seasonal at all.
 
 > [!NOTE]
 > HydroSeason analyzes surface-water extent percentages. It does **not** estimate river discharge, channel depth, total water volume, or groundwater storage.
