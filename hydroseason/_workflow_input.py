@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 import numpy as np
 import pandas as pd
@@ -28,6 +28,7 @@ WaterSourceKind = Literal[
 class ResolvedWaterInput:
     extent: pd.DataFrame
     source_kind: WaterSourceKind
+    warnings: tuple[str, ...] = ()
 
 
 def _normalise_extent_frame(
@@ -122,11 +123,22 @@ def resolve_water_input(
     water_mask_variable: str | None = None,
     stac_url: str = DEFAULT_STAC_URL,
     stac_collection: str = DEFAULT_STAC_COLLECTION,
+    statistics_stac_url: str | None = None,
     cache_dir: str | Path | None = None,
+    progress: bool = False,
+    progress_desc: str | None = None,
+    on_warning: Callable[[str], None] | None = None,
 ) -> ResolvedWaterInput:
     if water_source is None:
         if aoi is None or start_date is None or end_date is None:
             raise ValueError("DEA fetching requires aoi, start_date, and end_date.")
+        collected: list[str] = []
+
+        def _collect_warning(message: str) -> None:
+            collected.append(message)
+            if on_warning is not None:
+                on_warning(message)
+
         extent = load_wofs_monthly_extent(
             stac_url,
             stac_collection,
@@ -134,10 +146,23 @@ def resolve_water_input(
             start_date,
             end_date,
             cache_dir=cache_dir,
+            # One configured endpoint configures the whole DEA path. The
+            # historical-statistics search (ga_ls_wo_fq_myear_3, which defines
+            # this run's spatial denominator) inherits stac_url unless the
+            # caller names a second service deliberately.
+            statistics_stac_url=statistics_stac_url or stac_url,
+            # The per-calendar-year bar already lives in
+            # load_wofs_monthly_extent. Only the DEA branch has a year loop
+            # worth ticking; a CSV/NetCDF/DataFrame read is one pass and
+            # ignores these.
+            progress=progress,
+            progress_desc=progress_desc,
+            on_warning=_collect_warning,
         )
         return ResolvedWaterInput(
             _normalise_extent_frame(extent, start_date=start_date, end_date=end_date),
             "dea_wofs",
+            tuple(collected),
         )
 
     if isinstance(water_source, pd.DataFrame):

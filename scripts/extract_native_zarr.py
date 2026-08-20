@@ -28,7 +28,7 @@ def extract_native_zarr(
     start_date: str,
     end_date: str,
     cache_dir: str | Path,
-    stac_url: str = "https://explorer.sandbox.dea.ga.gov.au/stac",
+    stac_url: str = "https://explorer.dea.ga.gov.au/stac",
     collection: str = "ga_ls_wo_3",
 ) -> Path:
     aoi_path = Path(aoi_path)
@@ -104,7 +104,7 @@ def main():
     parser.add_argument("--start", required=True, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", required=True, help="End date (YYYY-MM-DD)")
     parser.add_argument("--cache-dir", required=True, help="Cache directory root")
-    parser.add_argument("--stac-url", default="https://explorer.sandbox.dea.ga.gov.au/stac", help="STAC API URL")
+    parser.add_argument("--stac-url", default="https://explorer.dea.ga.gov.au/stac", help="STAC API URL")
     parser.add_argument("--collection", default="ga_ls_wo_3", help="STAC Collection ID")
     
     args = parser.parse_args()

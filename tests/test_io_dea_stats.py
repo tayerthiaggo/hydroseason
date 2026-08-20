@@ -872,7 +872,7 @@ def test_historical_water_mask_excludes_zero_wet_and_outside_aoi_cells():
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
 
     result = build_historical_water_mask(
-        stats, _historical_aoi(), analysis_end="2020-01-01"
+        stats, _historical_aoi()
     )
 
     mask = np.asarray(result.mask, dtype=bool)
@@ -892,7 +892,7 @@ def test_historical_water_mask_value_object_records_full_provenance():
     )
     aoi = _historical_aoi(n=10)
 
-    result = build_historical_water_mask(stats, aoi, analysis_end="2020-06-01")
+    result = build_historical_water_mask(stats, aoi)
 
     assert isinstance(result, HistoricalWaterMask)
     assert result.crs
@@ -918,7 +918,7 @@ def test_historical_water_mask_empty_mask_raises_dea_stats_unavailable():
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
 
     with pytest.raises(DEAStatsUnavailable, match="no historically observed water"):
-        build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-01-01")
+        build_historical_water_mask(stats, _historical_aoi(n=10))
 
 
 def test_historical_water_mask_all_wet_outside_aoi_raises_dea_stats_unavailable():
@@ -930,16 +930,52 @@ def test_historical_water_mask_all_wet_outside_aoi_raises_dea_stats_unavailable(
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
 
     with pytest.raises(DEAStatsUnavailable, match="no historically observed water"):
-        build_historical_water_mask(stats, _historical_aoi(), analysis_end="2020-01-01")
+        build_historical_water_mask(stats, _historical_aoi())
 
 
-def test_historical_water_mask_insufficient_coverage_raises_dea_stats_unavailable():
+def test_analysis_end_past_coverage_end_still_builds():
+    """The mask is an all-time (count_wet > 0) AND AOI footprint, not a
+    time-windowed artifact -- a requested analysis_end past the source's
+    recorded coverage_end must not block the build. Identical pixel_count
+    and mask_sha256 versus an in-coverage build prove only the gate was
+    removed, not the raster itself."""
     grid = np.zeros((10, 10), dtype=np.int32)
     grid[2, 2] = 1
-    stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2018-12-31T00:00:00Z")
+    aoi = _historical_aoi(n=10)
+    short_coverage_stats = _stats_dataset(
+        grid, time_span="1987-01-01T00:00:00Z/2018-12-31T00:00:00Z"
+    )
+    in_coverage_stats = _stats_dataset(
+        grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z"
+    )
 
-    with pytest.raises(DEAStatsUnavailable, match="does not cover analysis end"):
-        build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-06-01")
+    result = build_historical_water_mask(short_coverage_stats, aoi)
+    baseline = build_historical_water_mask(in_coverage_stats, aoi)
+
+    assert result.pixel_count == baseline.pixel_count
+    assert result.mask_sha256 == baseline.mask_sha256
+
+
+def test_analysis_start_before_coverage_start_still_builds():
+    """Same principle at the other edge: a source whose recorded coverage
+    starts after the requested window's start (here, well after the usual
+    1987 baseline) must still build, with the same pixel_count/mask_sha256
+    as an in-coverage build."""
+    grid = np.zeros((10, 10), dtype=np.int32)
+    grid[2, 2] = 1
+    aoi = _historical_aoi(n=10)
+    late_start_stats = _stats_dataset(
+        grid, time_span="2015-01-01T00:00:00Z/2018-12-31T00:00:00Z"
+    )
+    in_coverage_stats = _stats_dataset(
+        grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z"
+    )
+
+    result = build_historical_water_mask(late_start_stats, aoi)
+    baseline = build_historical_water_mask(in_coverage_stats, aoi)
+
+    assert result.pixel_count == baseline.pixel_count
+    assert result.mask_sha256 == baseline.mask_sha256
 
 
 def test_historical_water_mask_incompatible_lineage_raises_dea_stats_unavailable():
@@ -956,7 +992,7 @@ def test_historical_water_mask_incompatible_lineage_raises_dea_stats_unavailable
     )
 
     with pytest.raises(DEAStatsUnavailable, match="incompatible WOfS lineage"):
-        build_historical_water_mask(stats, _historical_aoi(n=10), analysis_end="2020-01-01")
+        build_historical_water_mask(stats, _historical_aoi(n=10))
 
 
 def test_historical_water_mask_geographic_grid_builds_correctly():
@@ -987,7 +1023,7 @@ def test_historical_water_mask_geographic_grid_builds_correctly():
         {"geometry": [box(129.999, 29.0, 131.0, 30.001)]}, crs="EPSG:4326"
     )
 
-    result = build_historical_water_mask(ds, aoi, analysis_end="2020-01-01")
+    result = build_historical_water_mask(ds, aoi)
 
     mask = np.asarray(result.mask, dtype=bool)
     assert mask[1, 1]
@@ -1003,8 +1039,8 @@ def test_historical_water_mask_digest_is_repeatable_and_sensitive():
     stats_b = _stats_dataset(grid, time_span=time_span)
     aoi = _historical_aoi(n=10)
 
-    result_a = build_historical_water_mask(stats_a, aoi, analysis_end="2020-01-01")
-    result_b = build_historical_water_mask(stats_b, aoi, analysis_end="2020-01-01")
+    result_a = build_historical_water_mask(stats_a, aoi)
+    result_b = build_historical_water_mask(stats_b, aoi)
 
     assert result_a.mask_sha256 == result_b.mask_sha256
     assert result_a.aoi_sha256 == result_b.aoi_sha256
@@ -1012,7 +1048,7 @@ def test_historical_water_mask_digest_is_repeatable_and_sensitive():
     other_grid = np.zeros((10, 10), dtype=np.int32)
     other_grid[5, 5] = 1
     stats_other = _stats_dataset(other_grid, time_span=time_span)
-    result_other = build_historical_water_mask(stats_other, aoi, analysis_end="2020-01-01")
+    result_other = build_historical_water_mask(stats_other, aoi)
 
     assert result_other.mask_sha256 != result_a.mask_sha256
 
@@ -1029,7 +1065,7 @@ def test_planning_footprint_from_historical_mask_native_mask_is_exact():
     grid[3, 2] = 1
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
     historical_mask = build_historical_water_mask(
-        stats, _historical_aoi(), analysis_end="2020-01-01"
+        stats, _historical_aoi()
     )
 
     footprint = build_planning_footprint_from_historical_mask(
@@ -1053,7 +1089,7 @@ def test_planning_footprint_safety_dilation_cannot_mutate_exact_mask():
     grid[6, 6] = 1
     stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
     historical_mask = build_historical_water_mask(
-        stats, _historical_aoi(), analysis_end="2020-01-01"
+        stats, _historical_aoi()
     )
 
     before_mask = np.array(historical_mask.mask, copy=True, dtype=bool)
@@ -1097,7 +1133,7 @@ def _historical_mask_request(**overrides):
     return HistoricalWaterMaskRequest(**fields)
 
 
-def _built_historical_mask(*, seed_cell=(3, 2), n=16, time_span=None, build_analysis_end="2020-01-01"):
+def _built_historical_mask(*, seed_cell=(3, 2), n=16, time_span=None):
     grid = np.zeros((n, n), dtype=np.int32)
     grid[seed_cell] = 1
     stats = _stats_dataset(
@@ -1105,7 +1141,7 @@ def _built_historical_mask(*, seed_cell=(3, 2), n=16, time_span=None, build_anal
         time_span=time_span or "1987-01-01T00:00:00Z/2025-12-31T00:00:00Z",
     )
     aoi = _historical_aoi(n=n)
-    return build_historical_water_mask(stats, aoi, analysis_end=build_analysis_end)
+    return build_historical_water_mask(stats, aoi)
 
 
 def test_historical_water_mask_request_digest_excludes_paths_and_dates():
@@ -1141,7 +1177,7 @@ def test_write_then_read_historical_water_mask_round_trips(tmp_path):
     request = _historical_mask_request()
 
     write_historical_water_mask(tmp_path, request, mask)
-    result = read_historical_water_mask(tmp_path, request, analysis_end="2020-01-01")
+    result = read_historical_water_mask(tmp_path, request)
 
     assert result is not None
     assert np.array_equal(np.asarray(result.mask, dtype=bool), np.asarray(mask.mask, dtype=bool))
@@ -1224,7 +1260,7 @@ def test_requested_monthly_dates_do_not_create_duplicate_artifacts(tmp_path):
 
 def test_read_historical_water_mask_returns_none_when_no_cache(tmp_path):
     request = _historical_mask_request()
-    assert read_historical_water_mask(tmp_path, request, analysis_end="2020-01-01") is None
+    assert read_historical_water_mask(tmp_path, request) is None
 
 
 def test_read_historical_water_mask_rejects_tampered_mask_bytes(tmp_path):
@@ -1245,7 +1281,7 @@ def test_read_historical_water_mask_rejects_tampered_mask_bytes(tmp_path):
     assert np.array_equal(np.asarray(array[:], dtype=bool), tampered)
 
     with pytest.raises(ValueError, match="historical water mask cache verification failed"):
-        read_historical_water_mask(tmp_path, request, analysis_end="2020-01-01")
+        read_historical_water_mask(tmp_path, request)
 
 
 def test_read_historical_water_mask_rejects_tampered_manifest_field(tmp_path):
@@ -1261,25 +1297,23 @@ def test_read_historical_water_mask_rejects_tampered_manifest_field(tmp_path):
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(ValueError, match="historical water mask cache verification failed"):
-        read_historical_water_mask(tmp_path, request, analysis_end="2020-01-01")
+        read_historical_water_mask(tmp_path, request)
 
 
-def test_stale_source_cannot_satisfy_later_analysis_end(tmp_path):
+def test_cached_artifact_serves_any_analysis_window(tmp_path):
     """A cached artifact whose recorded coverage_end predates a later
-    requested analysis_end must not be returned as a hit -- read must return
-    None (a miss) rather than silently serving stale coverage."""
+    requested analysis_end is still a hit -- the mask is an all-time
+    footprint, so it serves any requested analysis window rather than being
+    reported as a miss."""
     mask = _built_historical_mask(
         time_span="1987-01-01T00:00:00Z/2018-12-31T00:00:00Z",
-        build_analysis_end="2018-01-01",
     )
     request = _historical_mask_request()
     write_historical_water_mask(tmp_path, request, mask)
 
-    result = read_historical_water_mask(tmp_path, request, analysis_end="2020-06-01")
-    assert result is None
-
-    still_ok = read_historical_water_mask(tmp_path, request, analysis_end="2018-01-01")
-    assert still_ok is not None
+    result = read_historical_water_mask(tmp_path, request)
+    assert result is not None
+    assert result.mask_sha256 == mask.mask_sha256
 
 
 def test_load_or_build_warm_cache_makes_zero_statistics_calls(tmp_path, monkeypatch):
@@ -1298,7 +1332,6 @@ def test_load_or_build_warm_cache_makes_zero_statistics_calls(tmp_path, monkeypa
 
     result = load_or_build_historical_water_mask(
         aoi,
-        analysis_end="2020-01-01",
         cache_root=tmp_path,
         offline=True,
         stac_url=request.stac_url,
@@ -1314,7 +1347,6 @@ def test_load_or_build_offline_no_cache_fails_closed(tmp_path):
     with pytest.raises(DEAStatsUnavailable):
         load_or_build_historical_water_mask(
             _historical_aoi(n=16),
-            analysis_end="2020-01-01",
             cache_root=tmp_path,
             offline=True,
         )
@@ -1337,7 +1369,7 @@ def test_load_or_build_cold_cache_builds_and_persists(tmp_path, monkeypatch):
 
     aoi = _historical_aoi(n=16)
     result = load_or_build_historical_water_mask(
-        aoi, analysis_end="2020-01-01", cache_root=tmp_path, offline=False,
+        aoi, cache_root=tmp_path, offline=False,
     )
 
     assert call_count["n"] == 1
@@ -1349,7 +1381,7 @@ def test_load_or_build_cold_cache_builds_and_persists(tmp_path, monkeypatch):
     # A second call must be served from the now-warm cache: zero further
     # Statistics calls.
     result_again = load_or_build_historical_water_mask(
-        aoi, analysis_end="2020-01-01", cache_root=tmp_path, offline=False,
+        aoi, cache_root=tmp_path, offline=False,
     )
     assert call_count["n"] == 1
     assert result_again.mask_sha256 == result.mask_sha256
@@ -1369,7 +1401,7 @@ def test_load_or_build_statistics_failure_offline_mode_returns_cache_or_raises(t
 
     with pytest.raises(DEAStatsUnavailable):
         load_or_build_historical_water_mask(
-            _historical_aoi(n=16), analysis_end="2020-01-01",
+            _historical_aoi(n=16),
             cache_root=tmp_path, offline=False,
         )
 
@@ -1391,11 +1423,11 @@ def test_load_or_build_product_change_produces_distinct_verified_artifact(tmp_pa
 
     aoi = _historical_aoi(n=16)
     result_default = load_or_build_historical_water_mask(
-        aoi, analysis_end="2020-01-01", cache_root=tmp_path, offline=False,
+        aoi, cache_root=tmp_path, offline=False,
         stac_url="https://a.test/stac",
     )
     result_other_stac = load_or_build_historical_water_mask(
-        aoi, analysis_end="2020-01-01", cache_root=tmp_path, offline=False,
+        aoi, cache_root=tmp_path, offline=False,
         stac_url="https://b.test/stac",
     )
 
@@ -1429,3 +1461,86 @@ def test_artifact_digest_differs_when_source_version_changes_despite_identical_m
 
     artifacts_dir = tmp_path / "historical-water-masks" / "artifacts"
     assert len(list(artifacts_dir.iterdir())) == 2
+
+
+def test_wo_statistics_unavailable_is_a_dea_stats_unavailable():
+    """Every statistics failure must satisfy the module's documented
+    fail-open contract ("Every failure path raises DEAStatsUnavailable"),
+    so the existing `except DEAStatsUnavailable` fallbacks in
+    _io_wofs_acquire and _historical_water_mask actually cover an
+    unreachable statistics endpoint."""
+    import hydroseason._io_dea_stats as mod
+
+    assert issubclass(mod.WoStatisticsUnavailable, mod.DEAStatsUnavailable)
+
+
+def test_open_wo_statistics_unreachable_endpoint_raises_typed_error(monkeypatch):
+    """pystac_client.Client.open is a network call: a dead proxy or an
+    unreachable endpoint must arrive as WoStatisticsUnavailable naming the
+    URL, not as a raw pystac_client.APIError. This is the exact failure
+    reported from the field (ProxyError -> APIError escaping the loader)."""
+    import hydroseason._io_dea_stats as mod
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("ProxyError: connection to 127.0.0.1:9 refused")
+
+    monkeypatch.setattr("pystac_client.Client.open", explode)
+
+    with pytest.raises(mod.WoStatisticsUnavailable, match=r"example\.invalid"):
+        open_wo_statistics(_aoi(), stac_url="https://example.invalid/stac")
+
+
+def test_open_wo_statistics_search_failure_names_the_endpoint(monkeypatch):
+    import hydroseason._io_dea_stats as mod
+
+    client = Mock()
+    client.search.side_effect = RuntimeError("boom")
+    monkeypatch.setattr("pystac_client.Client.open", Mock(return_value=client))
+
+    with pytest.raises(mod.WoStatisticsUnavailable, match=r"example\.invalid"):
+        open_wo_statistics(_aoi(), stac_url="https://example.invalid/stac")
+
+
+# --------------------------------------------------------------------------
+# probe_wo_statistics_coverage (Task 7): a metadata-only STAC search used to
+# cheaply check whether DEA has republished a Statistics product with wider
+# coverage than an already-cached HistoricalWaterMask. Must never read a COG
+# or build a dask graph, and must never raise -- it is advisory only, and a
+# failed probe must never turn into a fatal run.
+# --------------------------------------------------------------------------
+
+
+def test_probe_coverage_does_not_load_rasters(monkeypatch):
+    """The probe must be a pure metadata search: even if odc.stac.stac_load
+    (or .load) would explode, the probe must still resolve time_span, proving
+    it never calls into raster loading at all."""
+    from hydroseason._io_dea_stats import probe_wo_statistics_coverage
+
+    items = [_FakeItem("item-1", "2026-01-01T00:00:00Z")]
+    calls = _install_stac_fakes(monkeypatch, items, _dask_dataset, module=None)
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("probe_wo_statistics_coverage must not load rasters")
+
+    monkeypatch.setattr("odc.stac.stac_load", _boom)
+    monkeypatch.setattr("odc.stac.load", _boom)
+
+    result = probe_wo_statistics_coverage(_aoi())
+
+    assert result == "2026-01-01T00:00:00Z/2026-01-01T00:00:00Z"
+    assert calls["search_count"] == 1
+
+
+def test_probe_coverage_returns_none_when_unavailable(monkeypatch):
+    """An unreachable endpoint (or any other search failure) must yield None,
+    never an exception -- the probe is advisory only."""
+    from hydroseason._io_dea_stats import probe_wo_statistics_coverage
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("ProxyError: connection refused")
+
+    monkeypatch.setattr("pystac_client.Client.open", explode)
+
+    result = probe_wo_statistics_coverage(_aoi(), stac_url="https://example.invalid/stac")
+
+    assert result is None

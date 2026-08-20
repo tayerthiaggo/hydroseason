@@ -1,6 +1,6 @@
 # Case Studies Overview
 
-HydroSeason includes three reproducible case studies based on 20-year Digital Earth Australia (DEA) Water Observations (`ga_ls_wo_3`) surface water extent records (2005–2025).
+HydroSeason includes three reproducible case studies based on 21-year Digital Earth Australia (DEA) Water Observations (`ga_ls_wo_3`) surface water extent records (2005–2025).
 
 ## 1. Main Catchment Workflow
 [Main Catchment Workflow](main-workflow.md)

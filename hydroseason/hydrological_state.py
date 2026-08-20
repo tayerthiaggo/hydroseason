@@ -41,7 +41,7 @@ def analyze_hydrological_state(
     rolling_min_cycles: int = 5,
     n_bootstrap: int = 200,
     random_state: int = 0,
-    quality_policy: QualityPolicy = "exclude",
+    quality_policy: QualityPolicy = "flag",
 ) -> HydrologicalStateResult:
     effective_quality_policy = config.quality_policy if config is not None else quality_policy
     pattern = classify_seasonal_pattern(

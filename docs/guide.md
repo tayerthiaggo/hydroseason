@@ -115,6 +115,42 @@ comparison failure emits a warning and is recorded on the result, but the
 water-only report bundle is still written. Water loading, analysis, and
 report-writing failures remain fatal.
 
+### 5. Watch a long run
+
+`run_hydroseason` is silent by default. `progress=True` writes five numbered
+step lines to standard error and switches on a bar that ticks once per
+calendar year during a DEA fetch:
+
+```python
+result = run_hydroseason(
+    output_dir="output/fitzroy",
+    aoi="data/fitzroy_kimberley_aoi.geojson",
+    aoi_name="Fitzroy River (WA)",
+    start_date="2005-01-01",
+    end_date="2025-12-01",
+    cache_dir="cache/fitzroy",
+    progress=True,
+)
+```
+
+Pass a callable instead to receive structured events — one
+`hydroseason._progress.ProgressEvent` per step boundary, carrying `step`,
+`total_steps`, `label`, `phase`, `detail`, and `elapsed_s` — and no bar:
+
+```python
+events = []
+result = run_hydroseason(..., progress=events.append)
+```
+
+For runs long enough to outlive a notebook session, use the command line
+instead; see [CLI Recipes](cli-recipes.md).
+
+!!! note "Both DEA searches share one endpoint"
+    The fetch path performs two STAC searches: the monthly `ga_ls_wo_3`
+    search and the `ga_ls_wo_fq_myear_3` historical-statistics search that
+    fixes the spatial denominator. `stac_url` configures both. Pass
+    `statistics_stac_url` only to point them at different services.
+
 ---
 
 ## What you get back
@@ -139,18 +175,112 @@ Full CSV column dictionary: [Report Export Columns](report-columns.md).
 ## Which route did my catchment take?
 
 `analyze_catchment` is the routing authority behind `run_hydroseason`. It
-checks whether a catchment has a reproducible annual cycle (signal-to-noise
-ratio, or SNR — how strong and repeatable the yearly wet/dry swing is
-relative to noise) and assigns one of two routes:
+assesses annual amplitude (signal-to-noise ratio, SNR) and the reproducibility
+of one annual peak month per usable year. Timing is circular: for peak month
+`m_y` in year `y`, it calculates
 
-- **`per_year_detection`** (seasonal): SNR > 1.5. Hydrological year
-  boundaries are anchored to climatological troughs, with complete annual
-  recharge/trough metrics.
-- **`event_characterisation`** (aseasonal): SNR ≤ 1.5. No hydrological years
-  are forced — the workflow instead reports discrete wet inundation events
-  and low-water spell durations.
+```text
+theta_y = 2*pi*(m_y - 1)/12
+R = |mean(exp(i*theta_y))|
+```
+
+`R` is the mean resultant length, from 0 (diffuse or cancelling timing) to 1
+(the same month every year). Its 95% bootstrap interval resamples usable
+annual timings. Circular IQR is retained as a descriptive spread in months;
+it is not a regime cutoff. A low `R` can also arise from symmetric bimodality:
+January/July preferences cancel even though timing is not uniform. The Kuiper
+test complements `R` by testing the discrete 12-month uniform null.
+
+| Regime | Decision rule | Interpretation |
+|---|---|---|
+| Seasonal | SNR >= 2 and peak `R` 95% CI lower bound >= 0.70 | A repeatable annual peak is supported. |
+| Aseasonal | SNR < 0.70, or peak uniformity p >= 0.10 with at least 10 timing years | Do not force a hydrological year; report events and low spells. |
+| Marginal | Otherwise | Evidence sits between the gates; a fixed climatological window is used only when both peak and trough evidence support it. |
+| Insufficient record | <5 usable annual timings | Do not infer lack of seasonality from inadequate data. |
+
+The seasonal label and the route are related but separate. Per-year boundaries
+need trough timing support too: `per_year_detection` requires the lower 95%
+bootstrap CI for trough `R` to be >= 0.70. A seasonal record with unstable
+troughs instead uses `fixed_climatological_window`; complex or diffuse timing
+uses `event_characterisation`. `n_timing_years` counts qualifying **years**,
+not months. Fewer than 30 usable annual timings (not 30 months) keeps the
+classification but warns that uncertainty intervals may be wide. The approved
+10-year guard keeps a strong 5–9-year record marginal when a Kuiper uniformity
+result has little power.
 
 ---
+
+## Many AOIs: one row, one analysis
+
+Use `run_hydroseason_many` for a DEA/STAC run that keeps each source vector row
+independent. `run_hydroseason` accepts a multi-row AOI as one combined analysis
+over the union footprint; `run_hydroseason_many` preserves rows, so one input
+row produces one analysis and one report. A one-row `MultiPolygon` stays one
+AOI. Results remain in input order even though the scheduler may start larger
+AOIs first.
+
+In other words: one input row produces one analysis and one report.
+
+```python
+from hydroseason import run_hydroseason_many
+
+batch = run_hydroseason_many(
+    "catchments.gpkg",
+    output_dir="results",
+    cache_dir="cache",
+    start_date="2000-01-01",
+    end_date="2025-12-01",
+    id_col="catchment_id",
+    workers="auto",
+)
+
+for outcome in batch.outcomes:
+    if outcome.succeeded:
+        print(outcome.id, outcome.result.artifacts.html)
+    else:
+        print(outcome.id, outcome.error_type, outcome.error_message)
+batch.raise_for_failures()
+```
+
+Each run writes `output_dir/<safe-id>/`; a shared cache writes to
+`cache_dir/<safe-id>/`. `id_col` values must be nonblank and unique (including
+after filename sanitisation). Without it, identifiers are stable
+`aoi-0001`, `aoi-0002`, and so on. A failed AOI is captured in its
+`HydroSeasonAOIOutcome` and does not cancel unrelated rows; call
+`batch.raise_for_failures()` after handling any successes to raise one summary
+error for all failures.
+
+### Batch memory and threads
+
+With `workers="auto"`, HydroSeason chooses at most the available logical CPU
+count but applies a default concurrency cap of 2. It reserves 40% and uses
+60% of currently available RAM as the global admission budget. Before each
+run, a conservative native-30 m peak-memory estimate is calculated from the
+AOI bounding box; the box is intentionally conservative because it includes
+space outside irregular geometry. An AOI estimated above the budget emits a
+warning and runs alone, never alongside another batch item.
+
+Set `workers=1` for strictly sequential execution, or an explicit positive
+integer to override the default worker cap. The global memory admission gate
+still applies. A native 30 m whole-catchment run is commonly about 10 GB on a
+typical 8–16 GB machine, so sequential execution may be necessary. The outer
+thread pool improves I/O overlap; it does not force Dask's internal pool and
+does not mean 2x computational throughput.
+
+## AOI boundary maps
+
+When an AOI is available, HydroSeason carries compact boundary geometry into
+the report and embeds Leaflet with that boundary. The report remains readable
+without map tiles. At view time its basemap requests tiles from OpenStreetMap;
+those requests go to OpenStreetMap and require an internet connection. The
+boundary is embedded locally, so it remains visible if tiles fail.
+
+`show_map="auto"` previews the boundary before acquisition only in a Jupyter
+or IPython kernel. `show_map=True` requests an inline preview (and warns if it
+cannot display); `show_map=False` suppresses previews. The display boundary
+may be topology-preservingly simplified and rounded for compact output. It is
+display-only: the analysed footprint remains the unsimplified acquisition
+geometry and fixed historical water mask.
 
 ## Data quality before you trust it
 
@@ -274,7 +404,9 @@ The default high-level route is:
 
 HydroSeason queries or reuses exactly one pinned `ga_ls_wo_fq_myear_3` artifact. The scientific mask is exactly `(count_wet > 0) AND rasterized user AOI` on the analysis grid. It has no frequency threshold, closing, buffer, Calendar Year union, or polygon round trip. The same raster is used for every requested month.
 
-The verified manifest pins source product/version, item IDs, lineage, and coverage start/end. The source observed at design time was unfiltered and covered 1987--2025; use the manifest's exact values as authority. If `coverage_end` predates the requested analysis end, or no verified cache exists in offline mode, loading fails closed and never substitutes the full AOI.
+The verified manifest pins source product/version, item IDs, lineage, and coverage start/end. The source observed at design time was unfiltered and covered 1987--2025; use the manifest's exact values as authority. If no verified cache exists in offline mode, loading still fails closed and never substitutes the full AOI. If the requested analysis window falls outside `[coverage_start, coverage_end]`, the run instead proceeds with a `HistoricalMaskCoverageWarning`; a window that extends past `coverage_end` carries a one-sentence truncation caveat, since a pixel first inundated after `coverage_end` is invisible to the mask and is not counted in `extent_pct` for the affected months.
+
+**Refresh lifecycle.** A cached historical water mask is pinned to its build vintage: an ordinary run whose window falls entirely inside the cached coverage never touches the network, and the cached artifact is returned as-is. A run whose window overhangs the cached coverage instead probes DEA for a refresh -- a cheap metadata-only check for wider Statistics coverage -- and adopts it if one exists. Adopting a refreshed vintage changes `n_aoi` (the mask's pixel count) and therefore shifts `extent_pct` across the whole record, not only the newly-covered months; that whole-record shift is why adoption warns (`HistoricalMaskRefreshedWarning`) rather than proceeding quietly. The superseded artifact is retained under `artifacts/<digest>/` rather than deleted, so an earlier run built against it stays reproducible. Pass `refresh_historical_mask=False` to pin deliberately and always return the cached artifact unchanged. To force a rebuild of a pinned cache by hand, delete `<cache_root>/historical-water-masks/index/<request_digest>.json` and leave `artifacts/` alone -- the next run resolves a cache miss and rebuilds.
 
 `open_wo_statistics` remains available for direct inspection:
 ```python

@@ -60,7 +60,13 @@ COUNT_CLEAR_BAND = "count_clear"
 # constant/default because `open_wo_statistics` is a general-purpose native
 # loader (any DEA WO Statistics product), not specifically the wet-AOI path.
 DEFAULT_WO_STATISTICS_PRODUCT = DEA_STATS_ALLTIME_COLLECTION
-DEFAULT_WO_STATISTICS_STAC_URL = "https://explorer.sandbox.dea.ga.gov.au/stac"
+# The production DEA Explorer STAC, the SAME endpoint the monthly ga_ls_wo_3
+# search uses (hydroseason._workflow_input.DEFAULT_STAC_URL). Previously the
+# sandbox deployment (explorer.sandbox.dea.ga.gov.au), which gave the
+# documented one-call workflow two hidden endpoints: configuring stac_url= at
+# the public API left the historical-statistics search pointed somewhere else
+# entirely, and a firewall or proxy that allowed one blocked the other.
+DEFAULT_WO_STATISTICS_STAC_URL = "https://explorer.dea.ga.gov.au/stac"
 
 # The on-disk WOfS storage tiling unit used elsewhere in the package (see
 # plan_storage_aligned_slices's default in _spatial_plan.py / its
@@ -81,23 +87,44 @@ STAC_CONNECT_TIMEOUT_S = 15.0
 STAC_READ_TIMEOUT_S = 30.0
 
 
-class WoStatisticsUnavailable(RuntimeError):
-    """`open_wo_statistics` could not resolve a dataset for this AOI/product.
+class DEAStatsUnavailable(RuntimeError):
+    """Required DEA Statistics data could not be established safely.
 
-    Raised for an unreachable STAC endpoint, a search that exceeds the load
-    deadline, or a search that returns no items. Callers that use this as a
-    zoning source must treat it as "the DEA-statistics zoning source is
-    unavailable" and fall back to their own local-cube zoning path -- this
-    loader never returns a partial or empty-but-successful result.
+    Raised for every failure mode -- unreachable STAC, no matching items, a
+    load error, or a mask with no wet pixels at all. Policy belongs to the
+    caller: an optional planning/pruning mask may fall back to a full-coverage
+    read, while a fixed historical mask that defines the scientific
+    denominator must stop rather than silently change that denominator.
     """
 
 
-class DEAStatsUnavailable(RuntimeError):
-    """The wet mask could not be established, so pruning must not be attempted.
+class WoStatisticsUnavailable(DEAStatsUnavailable):
+    """`open_wo_statistics` could not resolve a dataset for this AOI/product.
 
-    Raised for every failure mode -- unreachable STAC, no matching items, a
-    load error, or a mask with no wet pixels at all. The caller's only correct
-    response is to fall back to a full-coverage read.
+    Raised for an unreachable STAC endpoint, a search that exceeds the load
+    deadline, or a search that returns no items. This loader never returns a
+    partial or empty-but-successful result. Callers decide whether their use
+    is optional (planning may fall back) or scientific identity (the fixed
+    historical denominator must remain fatal).
+
+    Deliberately a SUBCLASS of :class:`DEAStatsUnavailable`, not a sibling:
+    this module's contract is that every failure path raises
+    ``DEAStatsUnavailable``, and the package's fail-open handlers are written
+    as ``except DEAStatsUnavailable``. As siblings, an unreachable statistics
+    endpoint -- the most common failure of all -- slipped past every one of
+    them.
+    """
+
+
+class HistoricalWaterMaskUnavailable(DEAStatsUnavailable):
+    """The fixed multiyear water mask could not be resolved for this run.
+
+    Deliberately FATAL, unlike the wet-AOI planning mask: the multiyear mask
+    fixes the spatial denominator every ``extent_pct`` value is computed
+    against. Falling open to a full-coverage read would silently produce a
+    different, incomparable denominator, so the run stops instead. Its whole
+    job is to say which endpoint and product failed and what argument
+    redirects them.
     """
 
 
@@ -180,6 +207,93 @@ def _load_count_wet(stac_url: str, collection: str, year: int | None, geobox):
     return dataset[COUNT_WET_BAND].max("time") if "time" in dataset.dims else dataset[COUNT_WET_BAND]
 
 
+def _search_wo_statistics_items(
+    bbox: "Sequence[float]", *, product: str, stac_url: str,
+) -> "tuple[list, str | None]":
+    """Run the metadata-only STAC search shared by ``open_wo_statistics`` and
+    :func:`probe_wo_statistics_coverage`: resolve ``(items, time_span)`` for
+    ``product`` at ``stac_url`` over ``bbox`` (an ``EPSG:4326`` bounding box).
+
+    This is exactly the search phase -- ``pystac_client.Client.open``, the
+    deadline-bounded ``search().items()`` call, and the ``item_ids``/
+    ``time_span`` derivation -- factored out of ``open_wo_statistics`` so both
+    callers share one implementation. It never calls ``odc.stac.load``/
+    ``stac_load`` and never touches raster data: no COG is opened, no dask
+    graph is built. Raises :class:`WoStatisticsUnavailable` on every search
+    failure (unreachable endpoint, deadline exceeded, or zero items) --
+    identical exceptions/messages to what this block raised inline before
+    the extraction, so ``open_wo_statistics``'s behavior does not change.
+    """
+    import concurrent.futures
+
+    import pystac_client
+
+    try:
+        client = pystac_client.Client.open(
+            stac_url,
+            timeout=(STAC_CONNECT_TIMEOUT_S, STAC_READ_TIMEOUT_S),
+        )
+        search = client.search(
+            collections=[product],
+            bbox=list(bbox),
+            limit=1000,
+        )
+        items = _run_with_timeout(
+            lambda: list(search.items()),
+            STAC_SEARCH_DEADLINE_S,
+        )
+    except (TimeoutError, concurrent.futures.TimeoutError) as exc:
+        raise WoStatisticsUnavailable(
+            f"DEA Water Observation Statistics search at {stac_url} "
+            f"exceeded the {STAC_SEARCH_DEADLINE_S:g}s deadline"
+        ) from exc
+    except WoStatisticsUnavailable:
+        raise
+    except Exception as exc:
+        raise WoStatisticsUnavailable(
+            f"DEA Water Observation Statistics STAC search failed for "
+            f"product '{product}' at {stac_url}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    if not items:
+        raise WoStatisticsUnavailable(
+            f"no {product} items found for this AOI at {stac_url}"
+        )
+
+    time_span = _item_time_span(items)
+    return items, time_span
+
+
+def probe_wo_statistics_coverage(
+    aoi: Any, *, product: str = DEFAULT_WO_STATISTICS_PRODUCT,
+    stac_url: str = DEFAULT_WO_STATISTICS_STAC_URL,
+) -> "str | None":
+    """The product's *current* ``time_span`` for ``aoi``, or ``None``.
+
+    A metadata-only STAC search -- no COG reads, no dask, no
+    ``odc.stac.stac_load``/``odc.stac.load`` call of any kind -- used to
+    cheaply check whether DEA has republished ``product`` with wider
+    coverage than a cached :class:`hydroseason._historical_water_mask.
+    HistoricalWaterMask` already has, without paying for a full statistics
+    load. Purely advisory: this function swallows every exception (a bad
+    AOI, an unreachable endpoint, a malformed response, anything) and
+    returns ``None`` rather than raising, so a failed probe can never make a
+    run fail that would otherwise have succeeded from cache.
+    """
+    try:
+        from hydroseason._io_geo import load_aoi
+
+        aoi_gdf = load_aoi(aoi)
+        bbox = list(aoi_gdf.to_crs("EPSG:4326").total_bounds)
+        _items, time_span = _search_wo_statistics_items(
+            bbox, product=product, stac_url=stac_url,
+        )
+        return time_span
+    except Exception:
+        return None
+
+
 def open_wo_statistics(
     aoi: Any,
     *,
@@ -218,16 +332,13 @@ def open_wo_statistics(
     recording ``product``, ``stac_url``, the resolved STAC item IDs, and how
     ``frequency`` was derived. Never calls ``.load()``/``.compute()``.
 
-    Raises :class:`WoStatisticsUnavailable` if the STAC search fails, times
-    out, or returns no items. Does not raise on a geographic CRS -- CRS
-    validity for area-metric use is HydroFragments' concern
+    Raises :class:`WoStatisticsUnavailable` (a :class:`DEAStatsUnavailable`)
+    if the endpoint is unreachable, or the STAC search fails, times out, or
+    returns no items. Does not raise on a geographic CRS -- CRS
     (``guard_area_metric_crs``); this loader is source-agnostic and hands
     whatever grid was asked for, unsigned COG reads and all, straight back.
     """
-    import concurrent.futures
-
     import odc.stac
-    import pystac_client
 
     from hydroseason._io_geo import _configure_cog_read_env, _crs_value, load_aoi
 
@@ -267,39 +378,17 @@ def open_wo_statistics(
     before = {key: os.environ.get(key) for key in env_keys}
     try:
         _configure_cog_read_env()
-        client = pystac_client.Client.open(
-            stac_url,
-            timeout=(STAC_CONNECT_TIMEOUT_S, STAC_READ_TIMEOUT_S),
+
+        # Client.open performs the first network round-trip (the STAC
+        # landing page / conformance fetch), so it belongs INSIDE the
+        # conversion block. Left outside it, an unreachable endpoint or a
+        # hostile proxy escaped as a raw pystac_client.APIError and broke
+        # this module's documented fail-open contract at the one boundary
+        # users hit first.
+        items, time_span = _search_wo_statistics_items(
+            bbox, product=product, stac_url=stac_url,
         )
-
-        try:
-            search = client.search(
-                collections=[product],
-                bbox=bbox,
-                limit=1000,
-            )
-            items = _run_with_timeout(
-                lambda: list(search.items()),
-                STAC_SEARCH_DEADLINE_S,
-            )
-        except (TimeoutError, concurrent.futures.TimeoutError) as exc:
-            raise WoStatisticsUnavailable(
-                f"DEA Water Observation Statistics search exceeded the "
-                f"{STAC_SEARCH_DEADLINE_S:g}s deadline"
-            ) from exc
-        except Exception as exc:
-            raise WoStatisticsUnavailable(
-                f"DEA Water Observation Statistics STAC search failed for "
-                f"product '{product}': {type(exc).__name__}: {exc}"
-            ) from exc
-
-        if not items:
-            raise WoStatisticsUnavailable(
-                f"no {product} items found for this AOI"
-            )
-
         item_ids = [getattr(item, "id", None) for item in items]
-        time_span = _item_time_span(items)
 
         load_kwargs: dict[str, Any] = dict(
             bands=[COUNT_WET_BAND, COUNT_CLEAR_BAND],
@@ -926,11 +1015,13 @@ __all__ = [
     "DEFAULT_WO_STATISTICS_PRODUCT",
     "DEFAULT_WO_STATISTICS_STAC_URL",
     "DEAStatsUnavailable",
+    "HistoricalWaterMaskUnavailable",
     "WetPlanningFootprint",
     "WoStatisticsUnavailable",
     "build_planning_footprint_from_historical_mask",
     "build_wet_planning_footprint",
     "fetch_dea_stats_wet_aoi",
     "open_wo_statistics",
+    "probe_wo_statistics_coverage",
     "wet_mask_digest",
 ]

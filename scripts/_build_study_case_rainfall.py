@@ -106,6 +106,26 @@ def build_rainfall_study(
                         "longest_low_spell_months", 0
                     ),
                     "amplitude_snr": round(float(analysis.regime.amplitude_snr), 3),
+                    "peak_timing_concentration": (
+                        round(float(analysis.regime.peak_timing_concentration), 3)
+                        if analysis.regime.peak_timing_concentration is not None
+                        else None
+                    ),
+                    "trough_timing_concentration": (
+                        round(float(analysis.regime.trough_timing_concentration), 3)
+                        if analysis.regime.trough_timing_concentration is not None
+                        else None
+                    ),
+                    "trough_timing_concentration_ci_low": (
+                        round(float(analysis.regime.trough_timing_concentration_ci_low), 3)
+                        if analysis.regime.trough_timing_concentration_ci_low is not None
+                        else None
+                    ),
+                    "peak_phase_iqr_months": (
+                        round(float(analysis.regime.peak_phase_iqr_months), 3)
+                        if analysis.regime.peak_phase_iqr_months is not None
+                        else None
+                    ),
                     "water_extent_peak_month": (
                         float(analysis.climatological_peak_month)
                         if analysis.climatological_peak_month is not None
@@ -122,6 +142,18 @@ def build_rainfall_study(
                     "rainfall_amplitude_snr": (
                         round(float(comparison.rainfall.amplitude_snr), 3)
                         if comparison.rainfall is not None
+                        else None
+                    ),
+                    "rainfall_peak_timing_concentration": (
+                        round(float(comparison.rainfall.peak_timing_concentration), 3)
+                        if comparison.rainfall is not None
+                        and comparison.rainfall.peak_timing_concentration is not None
+                        else None
+                    ),
+                    "rainfall_trough_timing_concentration": (
+                        round(float(comparison.rainfall.trough_timing_concentration), 3)
+                        if comparison.rainfall is not None
+                        and comparison.rainfall.trough_timing_concentration is not None
                         else None
                     ),
                     "rainfall_divergence": comparison.divergence,

@@ -7,12 +7,13 @@ New extraction uses this exact default sequence:
 The mask source is one pinned `ga_ls_wo_fq_myear_3` artifact, not a Calendar
 Year union. Its verified manifest records product/version, item IDs, lineage,
 and exact coverage; the source observed at design time covered 1987--2025. A
-requested analysis end after the manifest's `coverage_end` fails closed. The
+requested analysis end after the manifest's `coverage_end` now proceeds with a
+`HistoricalMaskCoverageWarning` instead of failing closed. The
 scientific raster has no frequency threshold, closing, or buffer, while the
 separate coarse/dilated planning superset only limits reads.
 
-No network re-extraction or case-study regeneration was performed for this
-documentation update, so the committed inputs and results remain unchanged.
+The checked reports are regenerated offline from the committed monthly extent
+fixtures; no catchment boundaries or network maps are used in this update.
 
 This case study demonstrates the single route-aware HydroSeason workflow across five representative Australian catchments using committed 30 m whole-catchment monthly surface-water extent series (2005–2025).
 
@@ -31,8 +32,10 @@ and interpretation remain in the HTML report. The complete column dictionary
 and event definitions are documented
 in [Report CSV columns](../report-columns.md).
 
-The checked case-study results currently retain CSVs only. HTML and manually
-generated graph images are deferred until the separate HTML pass is finalised.
+Each checked report includes circular peak/trough timing concentration (R),
+bootstrap confidence intervals, Kuiper uniformity p-values, timing IQR, and
+the count of annual timings. IQR remains descriptive; route eligibility uses
+the trough timing concentration confidence interval.
 
 - **Seasonal catchments** (`per_year_detection`): Hydrological year boundaries are anchored to climatological troughs, and annual recharge/trough metrics are computed for complete hydrological years.
 - **Marginal catchments** (`fixed_climatological_window`): A fixed climatological window is retained as an explicitly imposed frame; boundary rows can still be provisional when observed markers have high invalid coverage.
@@ -48,16 +51,40 @@ generated graph images are deferred until the separate HTML pass is finalised.
 ## Main Study Results
 
 <!-- BEGIN GENERATED MAIN RESULTS -->
-| Catchment | Regime | Route | SNR | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |
-|---|---|---|---|---|---|---|---|---|
-| Daly River (NT) | marginal | fixed_climatological_window | 2.46 | 21 | 21 | 6 | Mar | Nov |
-| Fitzroy River (WA) | seasonal | per_year_detection | 2.65 | 21 | 18 | 8 | Feb | Nov |
-| Gilbert River (QLD) | seasonal | per_year_detection | 3.62 | 21 | 24 | 10 | Feb | Nov |
-| Lachlan River (NSW) | aseasonal | event_characterisation | 0.67 | 0 | 5 | 55 | N/A | N/A |
-| Moonie River (QLD/NSW) | aseasonal | event_characterisation | 0.62 | 0 | 14 | 22 | N/A | N/A |
+| Catchment | Regime | Route | SNR | Peak R | Trough R | Trough R CI low | Peak-month IQR (months) | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Daly River (NT) | seasonal | per_year_detection | 2.46 | 0.864 | 0.800 | 0.703 | 2.0 | 21 | 21 | 6 | Mar | Nov |
+| Fitzroy River (WA) | seasonal | per_year_detection | 2.65 | 0.907 | 0.919 | 0.881 | 1.0 | 21 | 18 | 8 | Feb | Nov |
+| Gilbert River (QLD) | seasonal | per_year_detection | 3.62 | 0.934 | 0.975 | 0.967 | 1.0 | 21 | 24 | 10 | Feb | Nov |
+| Lachlan River (NSW) | aseasonal | event_characterisation | 0.67 | 0.324 | 0.604 | 0.455 | 4.0 | 0 | 5 | 55 | N/A | N/A |
+| Moonie River (QLD/NSW) | aseasonal | event_characterisation | 0.62 | 0.532 | 0.687 | 0.549 | 3.0 | 0 | 14 | 22 | N/A | N/A |
 <!-- END GENERATED MAIN RESULTS -->
+
+### Why Daly River is seasonal and supports per-year boundaries
+
+HydroSeason requires **both** a strong annual swing and reproducible timing
+before it permits independently detected boundaries for each year. Daly
+passes the strength gate: its water-extent SNR is 2.46, above the seasonal
+minimum of 2.0. Its peak timing concentration is stable (R 0.864), and its
+trough timing confidence interval lower bound is 0.703, above the 0.70
+boundary-eligibility threshold. Daly is therefore `seasonal` and uses
+`per_year_detection`. Its 2.0-month peak IQR is retained as a descriptive
+spread, not a route threshold.
+
+The low-confidence March 2011 maximum (87.2% invalid pixels) is a separate
+boundary-quality warning. It does not alter the record-level regime label or
+the trough-timing route decision. Likewise, Daly's rainfall SNR of 5.81 does
+not promote its water route: rainfall is ancillary, while routing is decided
+from observed water extent.
 
 ## Findings
 
-1. **Monsoonal/Northern Catchments (Daly, Fitzroy, Gilbert):** The records retain all finite observations for review. Fitzroy and Gilbert remain seasonal with per-year detected boundaries; Daly is routed to an imposed climatological window under the flagged-quality view. Its 2011 cycle is retained, with the March observed maximum marked low confidence because 87.2% of pixels were invalid.
-2. **Inland/Low-Relief Catchments (Lachlan, Moonie):** Low signal-to-noise ratio (SNR < 1.0) and high year-to-year peak month dispersion indicate aseasonal regimes. Routing correctly disables annual hydrological year partitioning and characterizes ephemeral wet events (12–14 events) and prolonged dry spells (up to 30 months).
+1. **Monsoonal/Northern Catchments (Daly, Fitzroy, Gilbert):** Fitzroy and
+   Gilbert support independently detected per-year boundaries. Daly also
+   supports per-year boundaries because its trough timing lower confidence
+   bound meets the R >= 0.70 route rule. Its March 2011 observed maximum
+   remains visible but low confidence because 87.2% of pixels were invalid.
+2. **Inland/Low-Relief Catchments (Lachlan, Moonie):** SNR below 0.7 and broad
+   year-to-year peak timing route both records to event characterisation.
+   Lachlan has 5 wet events and a 55-month longest low spell; Moonie has 14
+   events and a 22-month longest low spell. No annual boundaries are forced.

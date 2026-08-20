@@ -96,7 +96,7 @@ def test_invalid_coverage_is_rejected_conservatively_by_default():
     extent.loc[pd.Timestamp("2019-06-01"), "invalid_pct"] = 100.0
 
     with pytest.raises(ValueError, match="invalid"):
-        detect_hydrological_years(extent)
+        detect_hydrological_years(extent, quality_policy="exclude")
 
 
 def test_invalid_coverage_can_be_explicitly_permitted():
@@ -130,7 +130,7 @@ def test_default_max_invalid_pct_still_rejects_above_twenty_percent():
     extent.loc[pd.Timestamp("2019-06-01"), "invalid_pct"] = 20.1
 
     with pytest.raises(ValueError, match="invalid"):
-        detect_hydrological_years(extent)
+        detect_hydrological_years(extent, quality_policy="exclude")
 
 
 def test_flag_quality_policy_continues_with_high_invalid_observations():
@@ -353,7 +353,7 @@ def test_completed_missing_month_is_rejected_not_dry():
     # invalid-coverage validation before it could be silently selected as a
     # dry-window candidate; either failure mode proves it can't leak in as dry.
     with pytest.raises(ValueError, match="invalid"):
-        detect_hydrological_years(summary)
+        detect_hydrological_years(summary, quality_policy="exclude")
 
 
 def test_leading_fully_invalid_month_is_rejected_not_silently_dropped():
@@ -365,7 +365,7 @@ def test_leading_fully_invalid_month_is_rejected_not_silently_dropped():
     extent.iloc[0, extent.columns.get_loc("invalid_pct")] = 100.0
 
     with pytest.raises(ValueError, match="invalid"):
-        detect_hydrological_years(extent)
+        detect_hydrological_years(extent, quality_policy="exclude")
 
 
 def test_trailing_fully_invalid_month_is_rejected_not_silently_dropped():
@@ -377,7 +377,7 @@ def test_trailing_fully_invalid_month_is_rejected_not_silently_dropped():
     extent.iloc[-1, extent.columns.get_loc("invalid_pct")] = 100.0
 
     with pytest.raises(ValueError, match="invalid"):
-        detect_hydrological_years(extent)
+        detect_hydrological_years(extent, quality_policy="exclude")
 
 
 def test_wofs_cloud_flags_do_not_create_false_end_dry_boundary():

@@ -81,7 +81,7 @@ def classify_seasonal_pattern(
     n_bootstrap: int = 200,
     random_state: int = 0,
     measurement_tolerance_pct: float = 1.0,
-    quality_policy: Literal["exclude", "flag"] = "exclude",
+    quality_policy: Literal["exclude", "flag"] = "flag",
 ) -> SeasonalPatternResult:
     frame = prepare_monthly_extent(extent, quality_policy=quality_policy)
     usable = frame.loc[frame["candidate_usable"]]

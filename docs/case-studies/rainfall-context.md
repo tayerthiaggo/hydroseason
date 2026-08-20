@@ -15,8 +15,8 @@ and trimmed to the same range.
 Rainfall is resolved *after* the water-only `analyze_catchment` call and can
 never influence regime, route, or hydrological-year boundaries. Every
 water-only column in `case_studies/results/main_rainfall/summary.csv`
-(`regime`, `route`, `amplitude_snr`, `n_hydro_years`, `n_events`,
-`longest_low_spell_months`, `water_extent_peak_month`,
+(`regime`, `route`, `amplitude_snr`, `peak_phase_iqr_months`, `n_hydro_years`,
+`n_events`, `longest_low_spell_months`, `water_extent_peak_month`,
 `climatological_trough_month`, ...) is identical to
 [Case Study 1's](main-workflow.md) `summary.csv`. Only four rainfall-
 comparison columns are new: `rainfall_regime`, `rainfall_amplitude_snr`,
@@ -25,13 +25,13 @@ comparison columns are new: `rainfall_regime`, `rainfall_amplitude_snr`,
 ## Results
 
 <!-- BEGIN GENERATED RAINFALL RESULTS -->
-| Catchment | Water Regime | Rainfall Regime | Water SNR | Rainfall SNR | Divergence | Peak Lag (months) |
-|---|---|---|---|---|---|---|
-| Daly River (NT) | marginal | seasonal | 2.46 | 5.81 | extent_damped | 2 |
-| Fitzroy River (WA) | seasonal | seasonal | 2.65 | 5.71 | agree | 1 |
-| Gilbert River (QLD) | seasonal | seasonal | 3.62 | 4.79 | agree | 1 |
-| Lachlan River (NSW) | aseasonal | aseasonal | 0.67 | 0.86 | agree | N/A |
-| Moonie River (QLD/NSW) | aseasonal | marginal | 0.62 | 1.34 | extent_damped | N/A |
+| Catchment | Water Regime | Rainfall Regime | Water SNR | Rainfall SNR | Water Peak R | Rainfall Peak R | Divergence | Peak Lag (months) |
+|---|---|---|---|---|---|---|---|---|
+| Daly River (NT) | seasonal | seasonal | 2.46 | 5.81 | 0.864 | 0.867 | agree | 2 |
+| Fitzroy River (WA) | seasonal | seasonal | 2.65 | 5.71 | 0.907 | 0.902 | agree | 1 |
+| Gilbert River (QLD) | seasonal | seasonal | 3.62 | 4.79 | 0.934 | 0.922 | agree | 1 |
+| Lachlan River (NSW) | aseasonal | marginal | 0.67 | 0.86 | 0.324 | 0.365 | extent_damped | N/A |
+| Moonie River (QLD/NSW) | aseasonal | marginal | 0.62 | 1.34 | 0.532 | 0.579 | extent_damped | N/A |
 <!-- END GENERATED RAINFALL RESULTS -->
 
 `rainfall_divergence` describes how the rainfall-only regime compares to the
@@ -48,7 +48,10 @@ footprint smooths and lags rainfall's raw seasonal swing).
    integrates, lags, and drains more slowly.
 2. **Peak lag is short and consistent for seasonal catchments.** Fitzroy and
    Gilbert both show extent peaking 1 month after rainfall; Daly (routed to
-   `fixed_climatological_window` under flagged quality) shows a 2-month lag.
+   `per_year_detection` from its water-only trough timing evidence) shows a
+   2-month lag. Daly's rainfall classification does not override its water
+   regime: the water route is decided from its own circular timing evidence,
+   and rainfall is ancillary by design.
 3. **Aseasonal catchments stay aseasonal in both series.** Lachlan's
    rainfall SNR (0.86) remains well below the seasonal threshold, agreeing
    with its `event_characterisation` water route. Moonie's rainfall is

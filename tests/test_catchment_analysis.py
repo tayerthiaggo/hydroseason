@@ -1,7 +1,11 @@
+import json
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 
 from hydroseason._catchment import analyze_catchment
+from hydroseason._regime import assess_water_regime
 from hydroseason.hydrological_state import HydrologicalStateResult
 
 
@@ -146,6 +150,39 @@ def _marginal(years=30, seed=7, peak_month=11, *, phase_wander=False):
     )
 
 
+def _timing_route_record(kind: str, *, years: int = 30):
+    """Construct high-SNR records with controlled peak and trough timing."""
+    index = pd.date_range("1990-01-01", periods=12 * years, freq="MS")
+    chunks = []
+    for year in range(years):
+        values = np.full(12, 5.0)
+        if kind == "unstable_trough":
+            peak_month, trough_month = 3, (0 if year % 2 == 0 else 6)
+        elif kind == "concentrated_nonuniform":
+            peak_month, trough_month = (3, 0) if year % 3 else (9, 6)
+        elif kind == "diffuse_uniform":
+            peak_month, trough_month = year % 12, (year + 6) % 12
+        else:
+            raise ValueError(f"unknown timing route fixture: {kind}")
+        values[peak_month] = 10.0
+        values[trough_month] = 0.0
+        chunks.append(values)
+    return pd.DataFrame(
+        {"extent_pct": np.concatenate(chunks), "invalid_pct": 0.0}, index=index
+    )
+
+
+def _diffuse_uniform_marginal_record():
+    """Seven broad-peak years: high SNR but uniform timing has little power."""
+    index = pd.date_range("1990-01-01", periods=12 * 7, freq="MS")
+    values = np.tile(np.array([8.0] * 11 + [0.0]), 7)
+    for year, month in enumerate([1, 3, 5, 7, 9, 11, 1]):
+        values[12 * year + month - 1] = 8.1
+    return pd.DataFrame(
+        {"extent_pct": values, "invalid_pct": 0.0}, index=index
+    )
+
+
 # --- routing runs without prompting ---------------------------------------
 
 def test_seasonal_routes_to_per_year_detection():
@@ -153,6 +190,59 @@ def test_seasonal_routes_to_per_year_detection():
     assert result.regime.regime == "seasonal"
     assert result.route == "per_year_detection"
     assert not result.hydro_years.empty
+    assert "trough timing" in result.route_reason.lower()
+
+
+def test_seasonal_record_with_unstable_trough_uses_fixed_window():
+    result = analyze_catchment(_timing_route_record("unstable_trough"), n_bootstrap=40)
+
+    assert result.regime.regime == "seasonal"
+    assert result.regime.supports_per_year_boundaries is False
+    assert result.route == "fixed_climatological_window"
+    assert "fixed climatological window" in result.route_reason.lower()
+
+
+def test_concentrated_nonuniform_marginal_uses_fixed_window():
+    result = analyze_catchment(_timing_route_record("concentrated_nonuniform"), n_bootstrap=40)
+
+    assert result.regime.regime == "marginal"
+    assert result.regime.peak_timing_uniformity_p < 0.1
+    assert result.regime.trough_timing_uniformity_p < 0.1
+    assert result.regime.supports_fixed_window is True
+    assert result.route == "fixed_climatological_window"
+
+
+def test_diffuse_uniform_marginal_uses_event_characterisation():
+    result = analyze_catchment(_diffuse_uniform_marginal_record(), n_bootstrap=40)
+
+    assert result.regime.regime == "marginal"
+    assert result.regime.peak_timing_uniformity_p >= 0.1
+    assert result.regime.supports_fixed_window is False
+    assert result.route == "event_characterisation"
+    assert "complex or diffuse timing" in result.route_reason.lower()
+
+
+def test_per_year_boundary_failure_falls_back_to_event_characterisation(monkeypatch):
+    def fail(*args, **kwargs):
+        raise ValueError("dynamic detector rejected the record")
+
+    monkeypatch.setattr("hydroseason._catchment.analyze_hydrological_state", fail)
+
+    result = analyze_catchment(_seasonal(), n_bootstrap=40)
+
+    assert result.route == "event_characterisation"
+    assert result.hydro_years.empty
+    assert "trough timing" in result.route_reason.lower()
+
+
+def test_catchment_threads_existing_bootstrap_controls_to_regime_assessment():
+    extent = _marginal()
+    direct = assess_water_regime(extent, n_bootstrap=40, random_state=11)
+    routed = analyze_catchment(extent, n_bootstrap=40, random_state=11)
+
+    assert routed.regime.peak_timing_concentration_ci_low == direct.peak_timing_concentration_ci_low
+    assert routed.regime.peak_timing_concentration_ci_high == direct.peak_timing_concentration_ci_high
+    assert routed.regime.peak_timing_uniformity_p == direct.peak_timing_uniformity_p
 
 
 def test_marginal_routes_to_fixed_window():
@@ -291,12 +381,66 @@ def test_peak_and_trough_withheld_for_aseasonal():
     assert result.climatological_trough_month is None
 
 
-def test_summary_row_is_flat_and_serialisable():
-    """One row per catchment, for the cross-catchment summary table."""
-    row = analyze_catchment(_seasonal()).summary_row(name="test_catchment")
-    assert row["catchment"] == "test_catchment"
-    assert row["regime"] == "seasonal"
-    assert row["route"] == "per_year_detection"
-    assert isinstance(row["n_hydro_years"], int)
+def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
+    """One row has a stable flat schema with precise, JSON-safe timing evidence."""
+    analysis = analyze_catchment(_seasonal())
+    timing_regime = replace(
+        analysis.regime,
+        peak_timing_concentration=0.1236,
+        peak_timing_concentration_ci_low=0.2346,
+        peak_timing_concentration_ci_high=0.3456,
+        peak_timing_uniformity_p=0.4566,
+        peak_phase_iqr_months=1.236,
+        trough_timing_concentration=0.5676,
+        trough_timing_concentration_ci_low=0.6786,
+        trough_timing_concentration_ci_high=0.7896,
+        trough_timing_uniformity_p=0.8916,
+        trough_phase_iqr_months=2.344,
+        n_timing_years=17,
+    )
+    row = replace(analysis, regime=timing_regime).summary_row(name="test_catchment")
+
+    assert list(row) == [
+        "catchment",
+        "regime",
+        "route",
+        "amplitude_snr",
+        "peak_timing_concentration",
+        "peak_timing_concentration_ci_low",
+        "peak_timing_concentration_ci_high",
+        "peak_timing_uniformity_p",
+        "peak_phase_iqr_months",
+        "trough_timing_concentration",
+        "trough_timing_concentration_ci_low",
+        "trough_timing_concentration_ci_high",
+        "trough_timing_uniformity_p",
+        "trough_phase_iqr_months",
+        "n_timing_years",
+        "n_usable_years",
+        "n_usable_months",
+        "n_hydro_years",
+        "boundary_basis",
+        "climatological_peak_month",
+        "climatological_trough_month",
+        "n_wet_events",
+        "median_event_duration_months",
+        "longest_low_spell_months",
+        "median_recurrence_months",
+        "years_without_wet_event",
+    ]
+    assert {
+        "peak_timing_concentration": 0.124,
+        "peak_timing_concentration_ci_low": 0.235,
+        "peak_timing_concentration_ci_high": 0.346,
+        "peak_timing_uniformity_p": 0.457,
+        "peak_phase_iqr_months": 1.24,
+        "trough_timing_concentration": 0.568,
+        "trough_timing_concentration_ci_low": 0.679,
+        "trough_timing_concentration_ci_high": 0.79,
+        "trough_timing_uniformity_p": 0.892,
+        "trough_phase_iqr_months": 2.34,
+        "n_timing_years": 17,
+    }.items() <= row.items()
+    assert json.dumps(row)
     for value in row.values():
         assert not isinstance(value, (list, dict, tuple, pd.DataFrame))

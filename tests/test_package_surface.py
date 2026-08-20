@@ -15,6 +15,7 @@ def test_package_import_exposes_only_migration_safe_surface():
         "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
         "verify_cache_footprints", "open_completed_dual_extent_counts",
         "build_wet_planning_footprint", "WetPlanningFootprint", "HistoricalWaterMask",
+        "HistoricalMaskCoverageWarning",
         "build_historical_water_mask", "load_or_build_historical_water_mask",
         "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
         "DynamicHydroYearConfig", "HydrologicalStateResult",
@@ -26,6 +27,8 @@ def test_package_import_exposes_only_migration_safe_surface():
         "WaterEventResult", "extract_water_events",
         "CatchmentAnalysis", "analyze_catchment",
         "HydroSeasonRunResult", "run_hydroseason",
+        "HydroSeasonAOIOutcome", "HydroSeasonBatchError", "HydroSeasonBatchResult",
+        "run_hydroseason_many",
     ]
     assert callable(hydroseason.detect_hydrological_years)
     assert callable(hydroseason.label_hydrological_months)
@@ -52,6 +55,7 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert callable(hydroseason.build_wet_planning_footprint)
     assert hydroseason.WetPlanningFootprint.__name__ == "WetPlanningFootprint"
     assert hydroseason.HistoricalWaterMask.__name__ == "HistoricalWaterMask"
+    assert issubclass(hydroseason.HistoricalMaskCoverageWarning, UserWarning)
     assert callable(hydroseason.build_historical_water_mask)
     assert callable(hydroseason.load_or_build_historical_water_mask)
     assert callable(hydroseason.assess_water_regime)
@@ -60,6 +64,10 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert callable(hydroseason.generate_catchment_report)
     assert callable(hydroseason.run_hydroseason)
     assert hydroseason.HydroSeasonRunResult.__name__ == "HydroSeasonRunResult"
+    assert hydroseason.HydroSeasonAOIOutcome.__name__ == "HydroSeasonAOIOutcome"
+    assert hydroseason.HydroSeasonBatchError.__name__ == "HydroSeasonBatchError"
+    assert hydroseason.HydroSeasonBatchResult.__name__ == "HydroSeasonBatchResult"
+    assert callable(hydroseason.run_hydroseason_many)
     assert "get_monthly_silo_rainfall" not in vars(hydroseason)
     assert "ValidationSeasonConfig" not in vars(hydroseason)
 
@@ -72,11 +80,21 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert stripped_names.isdisjoint(vars(hydroseason))
 
 
-def test_package_metadata_has_no_removed_cli_entry_point():
-    pyproject_text = Path("pyproject.toml").read_text(encoding="utf-8")
+def test_package_metadata_declares_only_the_orchestrator_cli():
+    """0.1.1 adds exactly one console script: the thin `hydroseason run`
+    wrapper around run_hydroseason (see
+    docs/superpowers/specs/2026-08-11-cli-case-study-maps-design.md). The
+    removed pre-rewrite rainfall CLI must never come back."""
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
 
-    assert "[project.scripts]" not in pyproject_text
-    assert "rainfall" not in pyproject_text.lower()
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert project["project"]["scripts"] == {
+        "hydroseason": "hydroseason.cli:main"
+    }
 
 
 def test_invalid_conda_recipe_is_not_shipped():
@@ -118,3 +136,34 @@ def test_report_assets_resolve_from_source_package():
         "/**"
     )
     assert "MIT License" in root.joinpath("PLOTLY-LICENSE.txt").read_text(encoding="utf-8")
+
+
+def test_vendored_leaflet_assets_and_license_resolve_from_source_package():
+    """Removing a Leaflet artifact or its upstream attribution must break packaging checks."""
+    root = resources.files("hydroseason").joinpath("_assets")
+
+    javascript = root.joinpath("leaflet-1.9.4.min.js").read_text(encoding="utf-8")
+    stylesheet = root.joinpath("leaflet-1.9.4.css").read_text(encoding="utf-8")
+    license_text = root.joinpath("LEAFLET-LICENSE.txt").read_text(encoding="utf-8")
+
+    assert javascript.startswith("/* @preserve")
+    assert "Leaflet 1.9.4" in javascript
+    assert stylesheet.startswith("/* required styles */")
+    assert "BSD 2-Clause License" in license_text
+    assert "Copyright (c) 2010-2023, Volodymyr Agafonkin" in license_text
+
+
+def test_package_data_includes_all_vendored_leaflet_asset_types():
+    """Dropping CSS, JavaScript, or license files from wheels must fail."""
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert project["tool"]["setuptools"]["package-data"]["hydroseason"] == [
+        "_assets/*.js",
+        "_assets/*.css",
+        "_assets/*.txt",
+    ]

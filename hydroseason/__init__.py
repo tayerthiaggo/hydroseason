@@ -6,6 +6,12 @@ from importlib.metadata import version as _pkg_version
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import WaterEventResult, extract_water_events
 from ._regime import Regime, WaterRegimeAssessment, assess_water_regime
+from .batch import (
+    HydroSeasonAOIOutcome,
+    HydroSeasonBatchError,
+    HydroSeasonBatchResult,
+    run_hydroseason_many,
+)
 from .hydro_year import (
     HydroYearConfig,
     detect_hydrological_years,
@@ -26,6 +32,7 @@ from .hydrological_state import (
     suggest_dynamic_hydro_year_config,
 )
 from .io import (
+    HistoricalMaskCoverageWarning,
     HistoricalWaterMask,
     WetPlanningFootprint,
     WOfSCacheHandle,
@@ -51,7 +58,7 @@ from .workflow import HydroSeasonRunResult, run_hydroseason
 try:
     __version__ = _pkg_version("hydroseason")
 except PackageNotFoundError:  # running from a source tree without install
-    __version__ = "0.1.0"
+    __version__ = "0.1.1"
 
 __all__ = [
     "__version__", "HydroYearConfig", "detect_hydrological_years",
@@ -61,6 +68,7 @@ __all__ = [
     "acquire_wofs_cache", "WOfSCacheHandle", "open_wo_statistics", "open_completed_mask_cache",
     "verify_cache_footprints", "open_completed_dual_extent_counts",
     "build_wet_planning_footprint", "WetPlanningFootprint", "HistoricalWaterMask",
+    "HistoricalMaskCoverageWarning",
     "build_historical_water_mask", "load_or_build_historical_water_mask",
     "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
     "DynamicHydroYearConfig", "HydrologicalStateResult",
@@ -72,4 +80,6 @@ __all__ = [
     "WaterEventResult", "extract_water_events",
     "CatchmentAnalysis", "analyze_catchment",
     "HydroSeasonRunResult", "run_hydroseason",
+    "HydroSeasonAOIOutcome", "HydroSeasonBatchError", "HydroSeasonBatchResult",
+    "run_hydroseason_many",
 ]

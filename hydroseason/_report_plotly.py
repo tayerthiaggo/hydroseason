@@ -75,6 +75,7 @@ def _base_layout(*, rangeslider: bool) -> dict[str, Any]:
             "showgrid": True,
             "gridcolor": "#e2e8f0",
             "zeroline": False,
+            "rangemode": "tozero",
         },
         "legend": {
             "orientation": "h",
@@ -450,7 +451,15 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
     layout["annotations"] = hydro_annotations
     layout["margin"]["t"] = 52
     if has_rainfall:
-        layout["yaxis2"] = {"title": {"text": "Rainfall (mm)"}, "type": "linear", "overlaying": "y", "side": "right", "showgrid": False, "zeroline": False}
+        layout["yaxis2"] = {
+            "title": {"text": "Rainfall (mm)"},
+            "type": "linear",
+            "overlaying": "y",
+            "side": "right",
+            "showgrid": False,
+            "zeroline": False,
+            "rangemode": "tozero",
+        }
     return {"data": data, "layout": layout, "config": _config()}
 
 
@@ -528,7 +537,7 @@ def secondary_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict
             "marker": {"size": 6, "color": "#0284c7"},
         },
     ]
-    layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 58, "b": 40}, "title": {"text": "Long-term monthly water extent (+/-1 std)", "x": 0.02, "xanchor": "left", "font": {"size": 13, "color": "#334155"}}, "xaxis": {"title": {"text": "Month"}, "showgrid": False}, "yaxis": {"title": {"text": "Mean Extent (%)"}, "showgrid": True, "gridcolor": "#e2e8f0"}}
+    layout = {"paper_bgcolor": "#ffffff", "plot_bgcolor": "#f8fafc", "margin": {"l": 50, "r": 30, "t": 58, "b": 40}, "title": {"text": "Long-term monthly water extent (+/-1 std)", "x": 0.02, "xanchor": "left", "font": {"size": 13, "color": "#334155"}}, "xaxis": {"title": {"text": "Month"}, "showgrid": False}, "yaxis": {"title": {"text": "Mean Extent (%)"}, "showgrid": True, "gridcolor": "#e2e8f0", "rangemode": "tozero"}}
     return {"data": data, "layout": layout, "config": _secondary_config()}
 
 
@@ -672,12 +681,17 @@ def rainfall_context_figure(monthly: pd.DataFrame) -> dict[str, Any] | None:
             "plot_bgcolor": "#f8fafc",
             "margin": {"l": 50, "r": 50, "t": 20, "b": 40},
             "xaxis": {"title": {"text": "Calendar month"}, "showgrid": False},
-            "yaxis": {"title": {"text": "Water Extent (%)"}, "gridcolor": "#e2e8f0"},
+            "yaxis": {
+                "title": {"text": "Water Extent (%)"},
+                "gridcolor": "#e2e8f0",
+                "rangemode": "tozero",
+            },
             "yaxis2": {
                 "title": {"text": "Rainfall (mm)"},
                 "overlaying": "y",
                 "side": "right",
                 "showgrid": False,
+                "rangemode": "tozero",
             },
             "legend": {"orientation": "h", "y": -0.22, "x": 0.5, "xanchor": "center"},
         },

@@ -217,7 +217,6 @@ def _child_run(args: argparse.Namespace) -> int:
         statistics_started = time.perf_counter()
         historical_water_mask = load_or_build_historical_water_mask(
             CASES[args.case],
-            analysis_end=YEAR_END,
             cache_root=args.historical_mask_cache,
             offline=args.run_kind == "warm",
             crs=CRS,

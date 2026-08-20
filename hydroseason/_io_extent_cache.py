@@ -16,7 +16,12 @@ import numpy as np
 import pandas as pd
 
 from hydroseason._historical_water_mask import HistoricalWaterMask
-from hydroseason._io_dea_stats import DEFAULT_WO_STATISTICS_STAC_URL
+from hydroseason._io_dea_stats import (
+    DEFAULT_WO_STATISTICS_PRODUCT,
+    DEFAULT_WO_STATISTICS_STAC_URL,
+    DEAStatsUnavailable,
+    HistoricalWaterMaskUnavailable,
+)
 from hydroseason.hydro_year import monthly_water_extent
 
 
@@ -423,14 +428,6 @@ def _historical_mask_identity(mask: HistoricalWaterMask | None) -> str:
     )
 
 
-def _validate_historical_mask_coverage(mask: HistoricalWaterMask, end_date: str) -> None:
-    if pd.Timestamp(mask.coverage_end).tz_localize(None) < pd.Timestamp(end_date).tz_localize(None):
-        raise ValueError(
-            "historical water mask does not cover requested end_date "
-            f"{end_date!r} (coverage ends {mask.coverage_end!r})"
-        )
-
-
 def _validate_supplied_historical_water_mask(
     mask: HistoricalWaterMask,
     *,
@@ -498,7 +495,6 @@ def _validate_supplied_historical_water_mask(
         raise ValueError("historical_water_mask has invalid coverage provenance")
     if coverage_end < coverage_start:
         raise ValueError("historical_water_mask coverage provenance is inverted")
-    _validate_historical_mask_coverage(mask, end_date)
 
     expected_digest = _mask_digest(
         values,
@@ -527,6 +523,7 @@ def _resolve_historical_water_mask(
     *,
     aoi,
     collection: str,
+    start_date: str,
     end_date: str,
     cache_root: Path | None,
     offline: bool,
@@ -535,6 +532,7 @@ def _resolve_historical_water_mask(
     resolution: float | None,
     historical_water_mask: HistoricalWaterMask | None,
     io_facade,
+    on_warning: "Callable[[str], None] | None" = None,
 ) -> HistoricalWaterMask:
     """Resolve one exact Multi-Year mask, cache-first when a root is available."""
     if historical_water_mask is not None:
@@ -546,40 +544,55 @@ def _resolve_historical_water_mask(
             resolution=resolution,
             end_date=end_date,
         )
-        return historical_water_mask
-
-    statistics_crs = f"EPSG:{crs}" if isinstance(crs, int) else (crs or "EPSG:3577")
-    statistics_resolution = 30.0 if resolution is None else float(resolution)
-    if cache_root is not None:
-        mask = io_facade.load_or_build_historical_water_mask(
-            aoi,
-            analysis_end=end_date,
-            cache_root=cache_root,
-            offline=offline,
-            stac_url=statistics_stac_url,
-            crs=statistics_crs,
-            resolution=statistics_resolution,
-        )
+        mask = historical_water_mask
     else:
-        if offline:
-            from hydroseason._io_dea_stats import DEAStatsUnavailable
-
-            raise DEAStatsUnavailable(
-                "no cached historical water mask is available while offline=True "
-                "and no historical-mask cache root was supplied"
+        statistics_crs = f"EPSG:{crs}" if isinstance(crs, int) else (crs or "EPSG:3577")
+        statistics_resolution = 30.0 if resolution is None else float(resolution)
+        if cache_root is not None:
+            mask = io_facade.load_or_build_historical_water_mask(
+                aoi,
+                cache_root=cache_root,
+                offline=offline,
+                stac_url=statistics_stac_url,
+                crs=statistics_crs,
+                resolution=statistics_resolution,
+                end_date=end_date,
             )
-        # No filesystem root was requested: retain the same exact-Multi-Year
-        # semantics, but leave the artifact entirely in memory.
-        statistics = io_facade.open_wo_statistics(
-            aoi,
-            stac_url=statistics_stac_url,
-            crs=statistics_crs,
-            resolution=statistics_resolution,
-        )
-        mask = io_facade.build_historical_water_mask(
-            statistics, aoi, analysis_end=end_date
-        )
-    _validate_historical_mask_coverage(mask, end_date)
+        else:
+            if offline:
+                from hydroseason._io_dea_stats import DEAStatsUnavailable
+
+                raise DEAStatsUnavailable(
+                    "no cached historical water mask is available while offline=True "
+                    "and no historical-mask cache root was supplied"
+                )
+            # No filesystem root was requested: retain the same exact-Multi-Year
+            # semantics, but leave the artifact entirely in memory.
+            statistics = io_facade.open_wo_statistics(
+                aoi,
+                stac_url=statistics_stac_url,
+                crs=statistics_crs,
+                resolution=statistics_resolution,
+            )
+            mask = io_facade.build_historical_water_mask(statistics, aoi)
+
+    from hydroseason._historical_water_mask import (
+        HistoricalMaskCoverageWarning,
+        describe_coverage_gap,
+    )
+
+    message = describe_coverage_gap(
+        coverage_start=mask.coverage_start,
+        coverage_end=mask.coverage_end,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if message is not None:
+        import warnings as py_warnings
+
+        py_warnings.warn(message, HistoricalMaskCoverageWarning, stacklevel=2)
+        if on_warning is not None:
+            on_warning(message)
     return mask
 
 
@@ -620,6 +633,7 @@ def load_wofs_monthly_extent(
     progress: bool = False,
     progress_desc: str | None = None,
     progress_position: int | None = None,
+    on_warning: Callable[[str], None] | None = None,
     auto_tiling: bool = True,
     read_workers: int | None = None,
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
@@ -642,6 +656,9 @@ def load_wofs_monthly_extent(
     ``progress=True`` shows a tqdm bar ticking once per calendar year
     processed (cache hits included), so long tiled STAC pulls give visible
     feedback instead of blocking silently.
+
+    ``on_warning``, if given, is called once per non-fatal provenance notice;
+    the notice is also emitted as a ``UserWarning`` regardless.
 
     ``read_workers``, if given (and > 0), overrides dask's threaded-scheduler
     worker count while the lazy STAC/COG graph is materialised -- both the
@@ -810,18 +827,38 @@ def load_wofs_monthly_extent(
             if historical_mask_cache_dir is not None
             else (Path(mask_cache_dir) if mask_cache_dir is not None else cache_root)
         )
-        resolved_historical_mask = _resolve_historical_water_mask(
-            aoi=aoi,
-            collection=collection,
-            end_date=end_date,
-            cache_root=historical_cache_root,
-            offline=offline,
-            statistics_stac_url=statistics_stac_url,
-            crs=crs,
-            resolution=resolution,
-            historical_water_mask=historical_water_mask,
-            io_facade=_io,
-        )
+        try:
+            resolved_historical_mask = _resolve_historical_water_mask(
+                aoi=aoi,
+                collection=collection,
+                start_date=start_date,
+                end_date=end_date,
+                cache_root=historical_cache_root,
+                offline=offline,
+                statistics_stac_url=statistics_stac_url,
+                crs=crs,
+                resolution=resolution,
+                historical_water_mask=historical_water_mask,
+                io_facade=_io,
+                on_warning=on_warning,
+            )
+        except DEAStatsUnavailable as exc:
+            # Fatal on purpose -- see HistoricalWaterMaskUnavailable. The
+            # re-raise exists only to make the failure diagnosable: the raw
+            # chain from here is a pystac_client/urllib3 traceback that names
+            # neither the endpoint nor the argument that redirects it.
+            raise HistoricalWaterMaskUnavailable(
+                "HydroSeason could not resolve the fixed multiyear water mask "
+                "that defines this run's spatial denominator, so the run "
+                "stopped rather than silently using a different denominator.\n"
+                f"  statistics STAC endpoint : {statistics_stac_url}\n"
+                f"  statistics product       : {DEFAULT_WO_STATISTICS_PRODUCT}\n"
+                f"  underlying failure       : {type(exc).__name__}: {exc}\n"
+                "Check network/proxy access to that endpoint (it must be "
+                "reachable for HTTPS), or pass statistics_stac_url= "
+                "(hydroseason run --statistics-stac-url) to name a reachable "
+                "DEA Explorer STAC."
+            ) from exc
         planning_footprint = _io.build_planning_footprint_from_historical_mask(
             resolved_historical_mask
         )

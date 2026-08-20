@@ -66,11 +66,19 @@ directly — see [Advanced: calling the building blocks directly](guide.md#advan
 
 ---
 
+## Multi-AOI runs
+
+`run_hydroseason_many` is the DEA/STAC entry point for a vector layer with
+many independent AOIs. It preserves source rows: one input row produces one
+analysis and one report, while one-row `MultiPolygon` geometries remain one
+AOI. See [Many AOIs: one row, one analysis](guide.md#many-aois-one-row-one-analysis).
+
 ## Navigation & Documentation
 
 | Page | Contents |
 |---|---|
 | [User Guide](guide.md) | Start with `run_hydroseason`, the four ways to run it, routing, data quality, and advanced DEA internals |
+| [CLI Recipes](cli-recipes.md) | Run the same orchestrator from the command line, with progress, log redirection, cache reuse, and exit status |
 | [Hydrological State](hydrological-state.md) | Dynamic years, trough diagnostics, and phase models |
 | [Case Studies Overview](case-studies/index.md) | Three reproducible studies across five catchments |
 | [Main Workflow Study](case-studies/main-workflow.md) | Case Study 1 — Route-aware analysis across 5 catchments |

@@ -4,10 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydroseason"
-version = "0.1.0"
+version = "0.1.1"
 description = "Remote-sensing-first hydro-year detection from monthly surface-water extent"
 readme = "README.md"
-requires-python = ">=3.10"
+# Upper bound is deliberate, not conservatism-by-default: the raster/stac
+# extras pull native wheels (rasterio, GDAL, h5py, and user-installed
+# backends such as netCDF4) whose ABI must
+# match the installed NumPy. On Python 3.14 that combination emitted
+# "numpy.ndarray size changed, may indicate binary incompatibility" at
+# import in the field; the reproduction did not prove it caused the reported
+# kernel death. Lift this cap only after the 3.14 CI matrices are green.
+requires-python = ">=3.10,<3.14"
 authors = [
   { name = "Thiaggo C. Tayer", email = "thiaggo.tayer@uwa.edu.au" }
 ]
@@ -31,6 +38,7 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering",
   "Topic :: Scientific/Engineering :: GIS",
   "Topic :: Scientific/Engineering :: Information Analysis"
@@ -50,6 +58,7 @@ raster = [
   "affine>=2.4",
   "dask[array]>=2024.1",
   "zarr>=2.16,<3",
+  "numcodecs<0.16",
   "h5netcdf>=1.3",
   "h5py>=3.10",
   "s3fs>=2024.6"
@@ -66,6 +75,7 @@ stac = [
   "pystac>=1.12",
   "pystac-client>=0.8",
   "odc-stac>=0.5",
+  "psutil>=5.9",
   "tqdm>=4.65"
 ]
 all = [
@@ -73,7 +83,6 @@ all = [
 ]
 case-study = [
   "hydroseason[stac]",
-  "psutil>=5.9",
 ]
 docs = [
   "mkdocs>=1.6",
@@ -98,11 +107,14 @@ Repository = "https://github.com/tayerthiaggo/hydroseason"
 Issues = "https://github.com/tayerthiaggo/hydroseason/issues"
 Changelog = "https://github.com/tayerthiaggo/hydroseason/blob/main/CHANGELOG.md"
 
+[project.scripts]
+hydroseason = "hydroseason.cli:main"
+
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.package-data]
-hydroseason = ["_assets/*.js", "_assets/*.txt"]
+hydroseason = ["_assets/*.js", "_assets/*.css", "_assets/*.txt"]
 
 [tool.setuptools.packages.find]
 where = ["."]

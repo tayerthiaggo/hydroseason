@@ -2,13 +2,13 @@
 
 [![Tests](https://github.com/tayerthiaggo/hydroseason/actions/workflows/test.yml/badge.svg)](https://github.com/tayerthiaggo/hydroseason/actions/workflows/test.yml)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://tayerthiaggo.github.io/hydroseason/)
-[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://github.com/tayerthiaggo/hydroseason)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/tayerthiaggo/hydroseason)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/tayerthiaggo/hydroseason/blob/main/LICENSE)
-[![DOI](https://zenodo.org/badge/1251842440.svg)](https://doi.org/10.5281/zenodo.21866898)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21866898.svg)](https://doi.org/10.5281/zenodo.21866898)
 
 **HydroSeason is an open-source Python package for hydrological-year detection and seasonal/aseasonal analysis from monthly satellite-derived surface-water extent.**
 
-**HydroSeason turns a monthly surface-water record into a hydrological year report** — from a satellite-derived water-mask time series (such as Digital Earth Australia Water Observations), it works out when a catchment floods and dries, where each hydrological year begins and ends, and whether the pattern is even seasonal at all.
+HydroSeason turns a monthly surface-water record into a hydrological year report — from a satellite-derived water-mask time series (such as Digital Earth Australia Water Observations), it works out when a catchment floods and dries, where each hydrological year begins and ends, and whether the pattern is even seasonal at all.
 
 > [!NOTE]
 > HydroSeason analyzes surface-water extent percentages. It does **not** estimate river discharge, channel depth, total water volume, or groundwater storage.
@@ -64,6 +64,50 @@ print(f"HTML: {result.artifacts.html}")
 [the four ways to run it](#the-four-ways-to-run-it) below for rasters,
 DEA fetching, and optional rainfall context.
 
+### Many AOIs: one vector row, one report
+
+For independent DEA/STAC analyses from a multi-row vector layer, use
+`run_hydroseason_many`. One input row produces one analysis and one report;
+each result is isolated under its resolved identifier. This differs from
+`run_hydroseason`, which treats a multi-row AOI as one combined analysis over
+its union footprint. A one-row `MultiPolygon` is still one AOI.
+
+```python
+from hydroseason import run_hydroseason_many
+
+batch = run_hydroseason_many(
+    "catchments.gpkg",
+    output_dir="results",
+    cache_dir="cache",
+    start_date="2000-01-01",
+    end_date="2025-12-01",
+    id_col="catchment_id",
+    workers="auto",
+)
+for outcome in batch.outcomes:
+    if outcome.succeeded:
+        print(outcome.id, outcome.result.artifacts.html)
+    else:
+        print(outcome.id, outcome.error_type, outcome.error_message)
+batch.raise_for_failures()
+```
+
+`workers="auto"` uses a default concurrency cap of 2 and admits work only
+within 80% of currently available RAM. See the [Usage Guide](https://tayerthiaggo.github.io/hydroseason/guide/#many-aois-one-row-one-analysis) for memory and scheduling details.
+
+For runs long enough to outlive a notebook session, use the CLI — same
+orchestrator, its own process, resumable via `--cache-dir`:
+
+```bash
+hydroseason run --aoi data/fitzroy_kimberley_aoi.geojson --aoi-name "Fitzroy River (WA)" \
+  --start-date 2005-01-01 --end-date 2025-12-01 \
+  --output-dir output/fitzroy --cache-dir cache/fitzroy
+```
+
+`hydroseason doctor` reports whether an environment has the optional
+dependencies a given path needs. Full recipes:
+[CLI Recipes](https://tayerthiaggo.github.io/hydroseason/cli-recipes/).
+
 ---
 
 ## How it works
@@ -112,6 +156,9 @@ Fitzroy, Gilbert, Lachlan, Moonie):
 
 ## Scientific Limitations
 
+- **Timing evidence**: Fewer than 30 usable annual timings (not 30 months) can make bootstrap intervals wide; fewer than five usable annual timings is insufficient for regime assessment.
+- **Circular timing**: A low mean resultant length can mean diffuse timing or two cancelling preferred seasons; inspect the accompanying Kuiper uniformity result and trough evidence.
+
 - **Extent is not Volume or Discharge**: Surface area percentage (`extent_pct`) dilutes narrow river channels and misses sub-canopy water.
 - **Cloud Gaps**: High cloud/shadow invalid coverage (`invalid_pct`) distorts extent statistics if unflagged.
 - **Resolution**: Coarsening spatial resolution distorts peak/trough timing and event boundaries. 30 m resolution remains authoritative.
@@ -124,6 +171,8 @@ Fitzroy, Gilbert, Lachlan, Moonie):
 |---|---|
 | `run_hydroseason` | One-call orchestrator: resolve water input, analyze, optional rainfall, write report |
 | `HydroSeasonRunResult` | Everything a `run_hydroseason` call produced (`.analysis`, `.artifacts`, `.rainfall_status`, ...) |
+| `run_hydroseason_many` | DEA/STAC batch orchestrator: preserve each input vector row as one independent run |
+| `HydroSeasonBatchResult` | Source-ordered successful and failed per-row outcomes; call `.raise_for_failures()` after inspection |
 | `load_extent_csv` | Read a monthly extent CSV directly, for the lower-level building blocks |
 | `analyze_catchment` | Assess regime, then run the analysis that regime supports (the routing authority) |
 | `generate_catchment_report` | Write the self-contained HTML report plus the 4-CSV bundle |
@@ -135,27 +184,19 @@ Full API reference, grouped by task: [Workflow, Loading Data, Analysis, Reportin
 
 ## Citation
 
-If you use HydroSeason in your research, please cite both the **software
-release** (see [`CITATION.cff`](https://github.com/tayerthiaggo/hydroseason/blob/main/CITATION.cff)) and the **methodological paper**:
+If you use HydroSeason in your research, please cite the **software release** (see [`CITATION.cff`](https://github.com/tayerthiaggo/hydroseason/blob/main/CITATION.cff)):
 
 ```bibtex
-@article{tayer2026mapping,
-  author  = {Tayer, Thiaggo C. and Beesley, Leah S. and Stewart-Koster, Ben
-             and Bond, Nick and Douglas, Michael M. and Rossi, Maria J.
-             and McGregor, Glenn B. and Marshall, Jonathan C.},
-  title   = {Mapping resilience: A framework for analysing surface-water
-             dynamics and persistent pools in non-perennial rivers using
-             remote sensing, rainfall and river discharge data},
-  journal = {Journal of Hydrology},
-  volume  = {666},
-  pages   = {134750},
+@software{tayer_hydroseason,
+  author  = {Tayer, Thiaggo C.},
+  title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
   year    = {2026},
-  doi     = {10.1016/j.jhydrol.2025.134750}
+  url     = {https://github.com/tayerthiaggo/hydroseason},
+  doi     = {10.5281/zenodo.21866898}
 }
 ```
 
-Full citation guidance, including the software BibTeX entry and the Zenodo DOI
-policy, is in [docs/citation.md](https://tayerthiaggo.github.io/hydroseason/citation/).
+Full citation guidance, including the version-specific DOI policy, is in [docs/citation.md](https://tayerthiaggo.github.io/hydroseason/citation/).
 
 ---
 

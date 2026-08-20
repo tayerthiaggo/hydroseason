@@ -89,7 +89,7 @@ def test_low_quality_month_has_no_condition_rank():
         {"extent_pct": [10.0, 20.0], "invalid_pct": [0.0, 50.0]},
         index=pd.to_datetime(["2000-01-01", "2001-01-01"]),
     )
-    result = compute_monthly_surface_water_condition(frame)
+    result = compute_monthly_surface_water_condition(frame, quality_policy="exclude")
     assert pd.isna(result.loc["2001-01-01", "condition_percentile"])
 
 

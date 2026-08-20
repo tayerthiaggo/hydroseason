@@ -163,7 +163,7 @@ def extract_water_events(
     min_separation_months: int = 1,
     min_low_months: int = 2,
     max_invalid_pct: float = 20.0,
-    quality_policy: QualityPolicy = "exclude",
+    quality_policy: QualityPolicy = "flag",
 ) -> WaterEventResult:
     """Extract wet episodes and dry spells from a monthly extent record.
 

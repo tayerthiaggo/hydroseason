@@ -61,7 +61,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -89,7 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -194,6 +194,16 @@ jobs:
       - name: Validate release metadata
         run: python scripts/check_release_metadata.py
 
+      - name: Read project version
+        id: project-version
+        run: |
+          python -c '
+          import os, tomllib, pathlib
+          version = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"version={version}\n")
+          '
+
       - name: Build sdist and wheel
         run: python -m build
 
@@ -216,11 +226,11 @@ jobs:
           /tmp/smoke-core/bin/python -m pip install dist/*.whl
           /tmp/smoke-core/bin/python -c "
           import hydroseason
-          assert hydroseason.__version__ == '0.1.0', hydroseason.__version__
+          assert hydroseason.__version__ == '${{ steps.project-version.outputs.version }}', hydroseason.__version__
           import pandas as pd
           from hydroseason import analyze_catchment
           idx = pd.date_range('2020-01-01', periods=24, freq='MS')
-          extent = pd.DataFrame({'extent_pct': [10.0 + (i % 12)] * 1 for i in range(24)}, index=idx)
+          extent = pd.DataFrame({'extent_pct': [10.0 + (i % 12) for i in range(24)]}, index=idx)
           analysis = analyze_catchment(extent, phase_model='rule_based')
           assert analysis is not None
           print('core smoke OK')
@@ -230,7 +240,8 @@ jobs:
         run: |
           python -m venv /tmp/smoke-all
           /tmp/smoke-all/bin/python -m pip install --upgrade pip
-          /tmp/smoke-all/bin/python -m pip install "dist/$(ls dist | grep .whl)[all]"
+          WHEEL=$(echo dist/*.whl)
+          /tmp/smoke-all/bin/python -m pip install "${WHEEL}[all]"
           /tmp/smoke-all/bin/python -c "
           from hydroseason import (
               open_wo_statistics,
@@ -256,11 +267,11 @@ jobs:
           /tmp/smoke-sdist/bin/python -m pip install /tmp/sdist-dist/*.whl
           /tmp/smoke-sdist/bin/python -c "
           import hydroseason
-          assert hydroseason.__version__ == '0.1.0', hydroseason.__version__
+          assert hydroseason.__version__ == '${{ steps.project-version.outputs.version }}', hydroseason.__version__
           import pandas as pd
           from hydroseason import analyze_catchment
           idx = pd.date_range('2020-01-01', periods=24, freq='MS')
-          extent = pd.DataFrame({'extent_pct': [10.0 + (i % 12)] * 1 for i in range(24)}, index=idx)
+          extent = pd.DataFrame({'extent_pct': [10.0 + (i % 12) for i in range(24)]}, index=idx)
           analysis = analyze_catchment(extent, phase_model='rule_based')
           assert analysis is not None
           print('sdist-rebuilt core smoke OK')

@@ -1,9 +1,9 @@
 cff-version: 1.2.0
-message: "If you use HydroSeason in your research, please cite both this software release and the associated methodological paper."
+message: "If you use HydroSeason in your research, please cite this software release."
 title: "HydroSeason: Remote-sensing-first hydrological year and season detection"
 type: software
-version: "0.1.0"
-date-released: "2026-08-10"
+version: "0.1.1"
+date-released: "2026-08-20"
 authors:
   - family-names: "Tayer"
     given-names: "Thiaggo C."
@@ -11,7 +11,6 @@ authors:
     affiliation: "The University of Western Australia"
 repository-code: "https://github.com/tayerthiaggo/hydroseason"
 url: "https://tayerthiaggo.github.io/hydroseason/"
-doi: "10.5281/zenodo.21866899"
 license: "MIT"
 keywords:
   - hydrology
@@ -20,28 +19,3 @@ keywords:
   - seasonality
   - non-perennial rivers
   - ecohydrology
-references:
-  - type: article
-    authors:
-      - family-names: "Tayer"
-        given-names: "Thiaggo C."
-      - family-names: "Beesley"
-        given-names: "Leah S."
-      - family-names: "Stewart-Koster"
-        given-names: "Ben"
-      - family-names: "Bond"
-        given-names: "Nick"
-      - family-names: "Douglas"
-        given-names: "Michael M."
-      - family-names: "Rossi"
-        given-names: "Maria J."
-      - family-names: "McGregor"
-        given-names: "Glenn B."
-      - family-names: "Marshall"
-        given-names: "Jonathan C."
-    title: "Mapping resilience: A framework for analysing surface-water dynamics and persistent pools in non-perennial rivers using remote sensing, rainfall and river discharge data"
-    journal: "Journal of Hydrology"
-    volume: "666"
-    year: 2026
-    doi: "10.1016/j.jhydrol.2025.134750"
-    start: "134750"
