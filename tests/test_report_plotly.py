@@ -204,7 +204,9 @@ def test_timeline_uses_single_rainfall_secondary_axis(seasonal_data_with_rainfal
 
     figure = timeline_figure(monthly, analysis)
 
+    assert figure["layout"]["yaxis"]["rangemode"] == "tozero"
     assert figure["layout"]["yaxis2"]["title"] == {"text": "Rainfall (mm)"}
+    assert figure["layout"]["yaxis2"]["rangemode"] == "tozero"
     assert "yaxis3" not in figure["layout"]
     assert "domain" not in figure["layout"]["xaxis"]
 
