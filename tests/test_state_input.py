@@ -22,9 +22,13 @@ def test_quality_states_are_explicit_and_unknown_is_fail_closed():
         {"extent_pct": [10.0, 20.0, np.nan, 40.0], "invalid_pct": [0.0, 21.0, 100.0, np.nan]},
         index=index,
     )
-    result = prepare_monthly_extent(frame)
+    result = prepare_monthly_extent(frame, quality_policy="exclude")
     assert result["quality_state"].tolist() == ["usable", "low", "missing", "unknown"]
     assert result["candidate_usable"].tolist() == [True, False, False, False]
+
+    # Under default "flag" policy, high-invalid observed months remain usable candidates
+    flag_result = prepare_monthly_extent(frame)
+    assert flag_result["candidate_usable"].tolist() == [True, True, False, True]
 
 
 def test_counts_are_authoritative_and_gap_month_is_missing():
@@ -44,8 +48,8 @@ def test_counts_are_authoritative_and_gap_month_is_missing():
 
 def test_unknown_quality_can_be_explicitly_enabled():
     series = pd.Series([12.0], index=pd.to_datetime(["2020-01-01"]))
-    assert prepare_monthly_extent(series)["candidate_usable"].tolist() == [False]
-    assert prepare_monthly_extent(series, allow_unknown_quality=True)["candidate_usable"].tolist() == [True]
+    assert prepare_monthly_extent(series, quality_policy="exclude")["candidate_usable"].tolist() == [False]
+    assert prepare_monthly_extent(series, quality_policy="exclude", allow_unknown_quality=True)["candidate_usable"].tolist() == [True]
 
 
 def test_flag_quality_policy_keeps_high_invalid_observed_values_usable():

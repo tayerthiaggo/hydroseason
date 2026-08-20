@@ -201,7 +201,7 @@ def assess_water_regime(
     date_col: str | None = None,
     min_months_per_year: int = _DEFAULT_MIN_MONTHS_PER_YEAR,
     max_invalid_pct: float = 20.0,
-    quality_policy: QualityPolicy = "exclude",
+    quality_policy: QualityPolicy = "flag",
     n_bootstrap: int = 200,
     random_state: int = 0,
 ) -> WaterRegimeAssessment:

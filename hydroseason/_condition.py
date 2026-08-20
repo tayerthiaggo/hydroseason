@@ -230,7 +230,7 @@ def compute_monthly_surface_water_condition(
     date_col: str | None = None,
     max_invalid_pct: float = 20.0,
     allow_unknown_quality: bool = False,
-    quality_policy: QualityPolicy = "exclude",
+    quality_policy: QualityPolicy = "flag",
 ) -> pd.DataFrame:
     frame = prepare_monthly_extent(
         extent, value_col=value_col, date_col=date_col,

@@ -15,7 +15,7 @@ def prepare_monthly_extent(
     date_col: str | None = None,
     max_invalid_pct: float = 20.0,
     allow_unknown_quality: bool = False,
-    quality_policy: QualityPolicy = "exclude",
+    quality_policy: QualityPolicy = "flag",
 ) -> pd.DataFrame:
     if not 0.0 <= max_invalid_pct <= 100.0:
         raise ValueError("max_invalid_pct must be between 0 and 100.")

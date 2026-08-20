@@ -384,7 +384,7 @@ def detect_hydrological_years(
     duplicate_month_policy: DuplicateMonthPolicy = "raise",
     missing_month_policy: MissingMonthPolicy = "raise",
     max_invalid_pct: float = 20.0,
-    quality_policy: QualityPolicy = "exclude",
+    quality_policy: QualityPolicy = "flag",
 ) -> pd.DataFrame:
     """Detect hydrological years from a complete, quality-screened monthly series.
 

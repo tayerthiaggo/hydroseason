@@ -36,7 +36,7 @@ class DynamicHydroYearConfig:
     pulse_rejection_window_months: int | None = None
     max_invalid_pct: float = 20.0
     allow_unknown_quality: bool = False
-    quality_policy: QualityPolicy = "exclude"
+    quality_policy: QualityPolicy = "flag"
     min_usable_months_per_cycle: int = 8
     min_usable_trough_candidates: int = 2
     min_baseline_cycles: int = 10

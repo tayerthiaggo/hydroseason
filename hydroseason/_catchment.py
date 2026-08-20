@@ -68,7 +68,7 @@ class CatchmentAnalysis:
     state: HydrologicalStateResult | None = None
     # Retain the quality policy used to construct this analysis so report
     # exports validate and label months against the same candidate set.
-    quality_policy: QualityPolicy = "exclude"
+    quality_policy: QualityPolicy = "flag"
     max_invalid_pct: float = 20.0
 
     def summary_row(self, *, name: str) -> dict:
@@ -231,7 +231,7 @@ def analyze_catchment(
     date_col: str | None = None,
     min_months_per_year: int = 9,
     max_invalid_pct: float = 20.0,
-    quality_policy: QualityPolicy = "exclude",
+    quality_policy: QualityPolicy = "flag",
     phase_model: Literal["none", "rule_based"] = "rule_based",
     n_bootstrap: int = 200,
     random_state: int = 0,
