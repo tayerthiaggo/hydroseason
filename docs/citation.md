@@ -12,7 +12,8 @@ Prefer the versioned GitHub/Zenodo release.
   title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
   version = {0.1.1},
   year    = {2026},
-  url     = {https://github.com/tayerthiaggo/hydroseason}
+  url     = {https://github.com/tayerthiaggo/hydroseason},
+  doi     = {10.5281/zenodo.21866899}
 }
 ```
 

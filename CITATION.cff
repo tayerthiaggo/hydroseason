@@ -3,6 +3,7 @@ message: "If you use HydroSeason in your research, please cite this software rel
 title: "HydroSeason: Remote-sensing-first hydrological year and season detection"
 type: software
 version: "0.1.1"
+doi: "10.5281/zenodo.21866899"
 date-released: "2026-08-20"
 authors:
   - family-names: "Tayer"
