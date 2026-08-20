@@ -53,12 +53,10 @@ def test_missing_optional_dependency_is_an_error_naming_the_extra(monkeypatch):
 def test_missing_rainfall_dependencies_lists_the_silo_imports(monkeypatch):
     import hydroseason._diagnostics as mod
 
-    real_import = mod.importlib.import_module
-
     def blocked(name):
         if name in {"s3fs", "h5netcdf"}:
             raise ImportError(f"No module named {name!r}")
-        return real_import(name)
+        return object()
 
     monkeypatch.setattr(mod.importlib, "import_module", blocked)
 
@@ -68,6 +66,7 @@ def test_missing_rainfall_dependencies_lists_the_silo_imports(monkeypatch):
 def test_no_missing_rainfall_dependencies_when_everything_imports():
     pytest.importorskip("s3fs")
     pytest.importorskip("h5netcdf")
+    pytest.importorskip("h5py")
 
     assert missing_rainfall_dependencies() == ()
 
