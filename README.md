@@ -184,27 +184,19 @@ Full API reference, grouped by task: [Workflow, Loading Data, Analysis, Reportin
 
 ## Citation
 
-If you use HydroSeason in your research, please cite both the **software
-release** (see [`CITATION.cff`](https://github.com/tayerthiaggo/hydroseason/blob/main/CITATION.cff)) and the **methodological paper**:
+If you use HydroSeason in your research, please cite the **software release** (see [`CITATION.cff`](https://github.com/tayerthiaggo/hydroseason/blob/main/CITATION.cff)):
 
 ```bibtex
-@article{tayer2026mapping,
-  author  = {Tayer, Thiaggo C. and Beesley, Leah S. and Stewart-Koster, Ben
-             and Bond, Nick and Douglas, Michael M. and Rossi, Maria J.
-             and McGregor, Glenn B. and Marshall, Jonathan C.},
-  title   = {Mapping resilience: A framework for analysing surface-water
-             dynamics and persistent pools in non-perennial rivers using
-             remote sensing, rainfall and river discharge data},
-  journal = {Journal of Hydrology},
-  volume  = {666},
-  pages   = {134750},
+@software{tayer_hydroseason,
+  author  = {Tayer, Thiaggo C.},
+  title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
   year    = {2026},
-  doi     = {10.1016/j.jhydrol.2025.134750}
+  url     = {https://github.com/tayerthiaggo/hydroseason},
+  doi     = {10.5281/zenodo.21866898}
 }
 ```
 
-Full citation guidance, including the software BibTeX entry and the Zenodo DOI
-policy, is in [docs/citation.md](https://tayerthiaggo.github.io/hydroseason/citation/).
+Full citation guidance, including the version-specific DOI policy, is in [docs/citation.md](https://tayerthiaggo.github.io/hydroseason/citation/).
 
 ---
 

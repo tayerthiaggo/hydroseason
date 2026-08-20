@@ -8,11 +8,22 @@ except ImportError:
 from scripts.check_release_metadata import validate_release_metadata
 
 
-def test_first_remote_sensing_release_version_is_0_1_0():
-    root = Path.cwd()
-    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    assert project["project"]["version"] == "0.1.0"
-    assert 'version: "0.1.0"' in (root / "CITATION.cff").read_text(encoding="utf-8")
+def test_raster_extra_keeps_zarr_2_compatible_with_numcodecs():
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert "numcodecs<0.16" in project["project"]["optional-dependencies"]["raster"]
+
+
+def test_build_smokes_read_the_expected_version_from_project_metadata():
+    workflow = Path(".github/workflows/test.yml").read_text(encoding="utf-8")
+
+    expected_assertion = (
+        "assert hydroseason.__version__ == "
+        "'${{ steps.project-version.outputs.version }}'"
+    )
+    assert "id: project-version" in workflow
+    assert workflow.count(expected_assertion) == 2
+    assert "assert hydroseason.__version__ == '0.1.0'" not in workflow
 
 
 def test_repository_metadata_is_consistent_before_release():

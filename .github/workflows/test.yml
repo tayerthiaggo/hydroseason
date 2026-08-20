@@ -194,6 +194,10 @@ jobs:
       - name: Validate release metadata
         run: python scripts/check_release_metadata.py
 
+      - name: Read project version
+        id: project-version
+        run: echo "version=$(python -c 'import tomllib; print(tomllib.load(open(\"pyproject.toml\", \"rb\"))[\"project\"][\"version\"])')" >> "$GITHUB_OUTPUT"
+
       - name: Build sdist and wheel
         run: python -m build
 
@@ -216,7 +220,7 @@ jobs:
           /tmp/smoke-core/bin/python -m pip install dist/*.whl
           /tmp/smoke-core/bin/python -c "
           import hydroseason
-          assert hydroseason.__version__ == '0.1.0', hydroseason.__version__
+          assert hydroseason.__version__ == '${{ steps.project-version.outputs.version }}', hydroseason.__version__
           import pandas as pd
           from hydroseason import analyze_catchment
           idx = pd.date_range('2020-01-01', periods=24, freq='MS')
@@ -256,7 +260,7 @@ jobs:
           /tmp/smoke-sdist/bin/python -m pip install /tmp/sdist-dist/*.whl
           /tmp/smoke-sdist/bin/python -c "
           import hydroseason
-          assert hydroseason.__version__ == '0.1.0', hydroseason.__version__
+          assert hydroseason.__version__ == '${{ steps.project-version.outputs.version }}', hydroseason.__version__
           import pandas as pd
           from hydroseason import analyze_catchment
           idx = pd.date_range('2020-01-01', periods=24, freq='MS')

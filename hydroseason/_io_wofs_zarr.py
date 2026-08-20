@@ -380,6 +380,22 @@ def _read_json(path: Path) -> dict | None:
         return None
 
 
+def _rename_dir(source: Path | str, target: Path | str) -> None:
+    source_str = str(source)
+    target_str = str(target)
+    for attempt in range(5):
+        try:
+            os.rename(source_str, target_str)
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+            import gc
+
+            gc.collect()
+
+
 def _is_pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
@@ -1233,7 +1249,7 @@ def write_annual_group(
         gc.collect()
         if Path(_long_path(final_year_path)).exists():
             _shutil.rmtree(_long_path(final_year_path))
-        os.rename(_long_path(temp_path), _long_path(final_year_path))
+        _rename_dir(_long_path(temp_path), _long_path(final_year_path))
     except BaseException:
         _shutil.rmtree(_long_path(temp_path), ignore_errors=True)
         raise
@@ -1503,7 +1519,7 @@ def write_empty_annual_group(
         gc.collect()
         if Path(_long_path(final_year_path)).exists():
             _shutil.rmtree(_long_path(final_year_path))
-        os.rename(_long_path(temp_path), _long_path(final_year_path))
+        _rename_dir(_long_path(temp_path), _long_path(final_year_path))
     except BaseException:
         _shutil.rmtree(_long_path(temp_path), ignore_errors=True)
         raise
@@ -1967,7 +1983,7 @@ def record_cache_analysis_mask(handle: WOfSCacheHandle, historical_mask) -> Cach
 
         if Path(_hwm_long_path(final_dir)).exists():
             _shutil.rmtree(_hwm_long_path(final_dir))
-        os.rename(_hwm_long_path(temp_dir), _hwm_long_path(final_dir))
+        _rename_dir(_hwm_long_path(temp_dir), _hwm_long_path(final_dir))
     except BaseException:
         _shutil.rmtree(_hwm_long_path(temp_dir), ignore_errors=True)
         raise

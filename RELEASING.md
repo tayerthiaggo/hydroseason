@@ -50,7 +50,7 @@ automated by this repository's workflows.
   re-upload. Before any file is uploaded, fixes may reuse the candidate
   version. Once TestPyPI or PyPI accepts any file, that project/version
   filename is permanently consumed; use a new prerelease or final version
-  (for example `0.1.0rc2` or `0.1.1`) for corrections. Never mutate an
+  (for example `X.Y.Zrc2` or `X.Y.Z`) for corrections. Never mutate an
   uploaded version.
 
 ## Release steps
@@ -59,9 +59,17 @@ automated by this repository's workflows.
 
 Freeze the release metadata and run the complete local gate:
 
+For a new version, remove the previous release's version-specific `doi` from
+`CITATION.cff` before tagging; retaining it would associate the new version
+with the old archive. Update the software version in `docs/citation.md` and
+temporarily direct readers to the versioned GitHub Release. Keep the README's
+Zenodo concept-DOI badge unchanged. Step 5 adds the new version DOI after
+Zenodo mints it.
+
 ```bash
-# 1. Freeze metadata: pyproject version, CITATION.cff `version` +
-#    `date-released`, and a dated `## [<version>] - YYYY-MM-DD` CHANGELOG
+# 1. Freeze metadata: pyproject version, the fallback in
+#    hydroseason/__init__.py, CITATION.cff `version` + `date-released`,
+#    docs/citation.md, and a dated `## [<version>] - YYYY-MM-DD` CHANGELOG
 #    heading must all agree. Verify with:
 python scripts/check_release_metadata.py --tag "v<version>" --require-released
 
@@ -126,10 +134,11 @@ Once the required CI checks pass on the release commit and Step 2 is clean:
 
 1. Create an annotated tag on the exact `main` commit tested on TestPyPI:
    ```bash
-   git tag -a v0.1.0 -m "HydroSeason 0.1.0" <merge-commit-sha>
-   git push origin v0.1.0
+   VERSION="<version>"
+   git tag -a "v$VERSION" -m "HydroSeason $VERSION" <merge-commit-sha>
+   git push origin "v$VERSION"
    ```
-2. Draft a GitHub Release from the tag, using the `[0.1.0]` section of
+2. Draft a GitHub Release from the tag, using the `[<version>]` section of
    `CHANGELOG.md` as the release body.
 3. Before publishing, verify the draft's target commit matches the tag and
    that no additional commits have landed on `main` since.
@@ -139,7 +148,7 @@ Once the required CI checks pass on the release commit and Step 2 is clean:
    - re-validates tag/version/date/changelog agreement;
    - re-runs every release gate against the tagged commit;
    - builds the sdist/wheel once, builds
-     `hydroseason-0.1.0-case-studies.zip` from the checked case-study
+     `hydroseason-<version>-case-studies.zip` from the checked case-study
      results and docs, and uploads them as a build artifact;
    - waits for human approval on the `pypi` environment, then publishes the
      exact downloaded sdist/wheel to PyPI via OIDC trusted publishing;
@@ -160,7 +169,7 @@ automatically; no manual Zenodo action is required at this step.
 
 Once PyPI publishing completes:
 
-- Fresh-install `hydroseason==0.1.0` from PyPI in a clean environment and run
+- Fresh-install `hydroseason==<version>` from PyPI in a clean environment and run
   the documented CSV/report smoke from `README.md`.
 - Check PyPI project metadata and rendered README at
   https://pypi.org/project/hydroseason/.
@@ -176,10 +185,11 @@ Once PyPI publishing completes:
 
 Only after Zenodo has minted a DOI for the archived release:
 
-1. Add the real DOI to `CITATION.cff`, `docs/citation.md`, the README badge,
-   and any other project URLs that reference it.
+1. Add the version-specific DOI to `CITATION.cff`, `docs/citation.md`, and
+   any other version-specific citation URLs. Keep the README's Zenodo concept-
+   DOI badge unchanged.
 2. Commit this as a normal follow-up commit on `main`.
-3. **Do not amend or move the `v0.1.0` tag** to attach the DOI commit — the
+3. **Do not amend or move the `v<version>` tag** to attach the DOI commit — the
    DOI commit lands after the tag, as ordinary repository history.
 
 ## Never automated by this repository

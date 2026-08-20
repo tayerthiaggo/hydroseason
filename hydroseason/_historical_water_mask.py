@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
@@ -610,6 +611,22 @@ def _read_json(path: Path) -> dict | None:
         return None
 
 
+def _rename_dir(source: Path | str, target: Path | str) -> None:
+    source_str = str(source)
+    target_str = str(target)
+    for attempt in range(5):
+        try:
+            os.rename(source_str, target_str)
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+            import gc
+
+            gc.collect()
+
+
 def _mask_manifest_payload(mask: HistoricalWaterMask) -> dict:
     return {
         "schema_version": HISTORICAL_MASK_CACHE_SCHEMA_VERSION,
@@ -700,7 +717,7 @@ def write_historical_water_mask(
 
             if Path(_long_path(final_dir)).exists():
                 shutil.rmtree(_long_path(final_dir))
-            os.rename(_long_path(temp_dir), _long_path(final_dir))
+            _rename_dir(_long_path(temp_dir), _long_path(final_dir))
         except BaseException:
             shutil.rmtree(_long_path(temp_dir), ignore_errors=True)
             raise

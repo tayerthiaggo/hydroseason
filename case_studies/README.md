@@ -1,6 +1,6 @@
 # HydroSeason Case Studies: Reproduction and Provenance
 
-This directory contains the committed, reproducible inputs and checked results for the HydroSeason v0.1.0 release case studies.
+This directory contains the committed, reproducible inputs and checked results for HydroSeason release case studies.
 
 ## Case Study Overview
 

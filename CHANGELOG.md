@@ -5,22 +5,28 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
-### Changed
-- Historical water-mask coverage no longer gates whether a run can proceed.
-  A run whose requested window falls outside the statistics product's
-  recorded `[coverage_start, coverage_end]` now succeeds with a
-  `HistoricalMaskCoverageWarning` instead of raising
-  `HistoricalWaterMaskUnavailable`. Two user-visible consequences: (a)
-  previously-failing requests now succeed; (b) a request past
-  `coverage_end` cannot count water first inundated after that date.
-  Supplying a precomputed `historical_water_mask=` whose coverage falls
-  short is likewise no longer a `ValueError`.
-- Adopting a refreshed statistics vintage (see `### Added` below) changes
-  `n_aoi` and therefore `extent_pct` across the entire record, not only the
-  newly-covered months. This is the change most likely to surprise someone
-  comparing two runs.
+## [0.1.1] - 2026-08-20
 
 ### Added
+- **Multi-AOI batch orchestration**: `run_hydroseason_many`, `HydroSeasonBatchResult`,
+  `HydroSeasonAOIOutcome`, and `HydroSeasonBatchError` for executing independent
+  DEA/STAC or local analyses row-by-row across vector AOIs with isolated output
+  directories.
+- **Memory-bounded batch scheduler**: `_batch_scheduler` dynamically budgets
+  concurrency and admits work based on available RAM (`workers="auto"` uses up to
+  2 workers and 80% available RAM).
+- **Self-contained AOI boundary map rendering**: `AOIContext`, `build_aoi_context`,
+  `render_aoi_map_html`, and `display_aoi_map` for accessible, dependency-light
+  inline HTML map generation with vendored Leaflet CSS/JS.
+- **Seasonality and circular timing**: Refined circular timing and Kuiper
+  uniformity statistics for unimodal vs complex/irregular seasonality classification.
+- **Process-isolated CLI**: `hydroseason run` for running the orchestrator in its
+  own process with `--cache-dir` resumption support, and `hydroseason doctor` for
+  probing the Python environment, dependencies, and netCDF4/NumPy ABI compatibility.
+- **Five-step progress reporting**: `ProgressCallback`, `StepProgressEvent`, and
+  terminal progress indicators in `run_hydroseason`.
+- **Python 3.13 support**: Python 3.13 added to CI test matrices and package
+  classifiers, with `requires-python = ">=3.10,<3.14"`.
 - `HistoricalMaskCoverageWarning`; `HistoricalMaskRefreshedWarning`;
   automatic adoption of a refreshed statistics vintage when a run's window
   overhangs its cached mask's coverage, with the denominator delta reported
@@ -35,6 +41,30 @@ All notable changes to HydroSeason are documented here. This project follows
   behavior, and the default `None` preserves the prior strict-pinning
   behavior unchanged.
 
+### Changed
+- Historical water-mask coverage no longer gates whether a run can proceed.
+  A run whose requested window falls outside the statistics product's
+  recorded `[coverage_start, coverage_end]` now succeeds with a
+  `HistoricalMaskCoverageWarning` instead of raising
+  `HistoricalWaterMaskUnavailable`. Two user-visible consequences: (a)
+  previously-failing requests now succeed; (b) a request past
+  `coverage_end` cannot count water first inundated after that date.
+  Supplying a precomputed `historical_water_mask=` whose coverage falls
+  short is likewise no longer a `ValueError`.
+- Adopting a refreshed statistics vintage (see `### Added` above) changes
+  `n_aoi` and therefore `extent_pct` across the entire record, not only the
+  newly-covered months. This is the change most likely to surprise someone
+  comparing two runs.
+
+### Fixed
+- Raster and STAC installs now constrain `numcodecs<0.16` while Zarr 2.x is
+  supported, preventing the import failure caused when older Zarr 2 releases
+  resolve against NumCodecs 0.16's removed compatibility aliases.
+- Suppressed rasterio's `NotGeoreferencedWarning` during CLI runs on
+  STAC-georeferenced DEA WOfS assets.
+- Declared `*.css` in `MANIFEST.in` to ensure vendored Leaflet stylesheet
+  inclusion in source distribution archives.
+
 ### Removed
 - **Breaking for direct callers.** The `analysis_end` keyword is gone from
   `build_historical_water_mask`, `read_historical_water_mask`, and
@@ -46,6 +76,9 @@ All notable changes to HydroSeason are documented here. This project follows
   release, permitted under SemVer clause 4 (pre-1.0); both
   `build_historical_water_mask` and `load_or_build_historical_water_mask`
   are re-exported from the package root.
+- Removed precursor method paper citation from `CITATION.cff`, `README.md`, and
+  `docs/citation.md` in favor of software-only citation pending dedicated method
+  paper publication.
 
 ## [0.1.0] - 2026-08-10
 
