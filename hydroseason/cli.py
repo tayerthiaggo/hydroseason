@@ -26,8 +26,6 @@ import sys
 import warnings
 from typing import Sequence
 
-import rasterio.errors
-
 from ._diagnostics import check_environment
 from .workflow import run_hydroseason
 
@@ -172,10 +170,15 @@ def _run(args: argparse.Namespace) -> int:
         # than an embedded geotransform; rasterio warns on each internal
         # reproject regardless, which is expected and not actionable here.
         with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                category=rasterio.errors.NotGeoreferencedWarning,
-            )
+            try:
+                import rasterio.errors
+
+                warnings.filterwarnings(
+                    "ignore",
+                    category=rasterio.errors.NotGeoreferencedWarning,
+                )
+            except ImportError:
+                pass
             result = run_hydroseason(args.water_source, **kwargs)
     except Exception as exc:
         print(f"hydroseason run failed: {type(exc).__name__}: {exc}", file=sys.stderr)

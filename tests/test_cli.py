@@ -271,6 +271,21 @@ def test_doctor_exits_zero_when_everything_is_ok(monkeypatch):
     assert cli.main(["doctor"]) == 0
 
 
+def test_cli_runs_without_rasterio(monkeypatch, tmp_path):
+    """The CLI entry point must be importable and runnable on core-only installs."""
+    monkeypatch.setitem(sys.modules, "rasterio", None)
+    monkeypatch.setitem(sys.modules, "rasterio.errors", None)
+    csv_file = _extent_csv(tmp_path / "extent.csv")
+    exit_code = cli.main(
+        [
+            "run",
+            "--water-source", str(csv_file),
+            "--output-dir", str(tmp_path / "out"),
+        ]
+    )
+    assert exit_code == 0
+
+
 class _FakeResult:
     def __init__(self, tmp_path, *, rainfall_status="disabled"):
         from types import SimpleNamespace
