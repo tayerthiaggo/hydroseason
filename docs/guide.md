@@ -123,12 +123,12 @@ calendar year during a DEA fetch:
 
 ```python
 result = run_hydroseason(
-    output_dir="output/isaac",
-    aoi="isaac.geojson",
-    aoi_name="Isaac River",
+    output_dir="output/fitzroy",
+    aoi="data/fitzroy_kimberley_aoi.geojson",
+    aoi_name="Fitzroy River (WA)",
     start_date="2005-01-01",
     end_date="2025-12-01",
-    cache_dir="cache/isaac",
+    cache_dir="cache/fitzroy",
     progress=True,
 )
 ```

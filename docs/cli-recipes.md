@@ -42,8 +42,8 @@ from hydroseason import run_hydroseason
 
 result = run_hydroseason(
     "monthly_extent.csv",
-    output_dir="output/isaac",
-    aoi_name="Isaac River",
+    output_dir="output/fitzroy",
+    aoi_name="Fitzroy River (WA)",
 )
 ```
 
@@ -52,15 +52,15 @@ CLI:
 ```bash
 hydroseason run \
   --water-source monthly_extent.csv \
-  --output-dir output/isaac \
-  --aoi-name "Isaac River"
+  --output-dir output/fitzroy \
+  --aoi-name "Fitzroy River (WA)"
 ```
 
 ```bash
 python -m hydroseason run \
   --water-source monthly_extent.csv \
-  --output-dir output/isaac \
-  --aoi-name "Isaac River"
+  --output-dir output/fitzroy \
+  --aoi-name "Fitzroy River (WA)"
 ```
 
 ## 3. Run rasters, NetCDF, or Zarr
@@ -95,12 +95,12 @@ Kernel:
 
 ```python
 result = run_hydroseason(
-    output_dir="output/isaac",
-    aoi="isaac.geojson",
-    aoi_name="Isaac River",
+    output_dir="output/fitzroy",
+    aoi="data/fitzroy_kimberley_aoi.geojson",
+    aoi_name="Fitzroy River (WA)",
     start_date="2005-01-01",
     end_date="2025-12-01",
-    cache_dir="cache/isaac",
+    cache_dir="cache/fitzroy",
 )
 ```
 
@@ -108,12 +108,12 @@ CLI:
 
 ```bash
 hydroseason run \
-  --aoi isaac.geojson \
-  --aoi-name "Isaac River" \
+  --aoi data/fitzroy_kimberley_aoi.geojson \
+  --aoi-name "Fitzroy River (WA)" \
   --start-date 2005-01-01 \
   --end-date 2025-12-01 \
-  --output-dir output/isaac \
-  --cache-dir cache/isaac
+  --output-dir output/fitzroy \
+  --cache-dir cache/fitzroy
 ```
 
 `--stac-url` configures **both** DEA searches this path performs: the
@@ -131,15 +131,15 @@ water-only bundle is still written and the command still exits 0.
 ```bash
 hydroseason run \
   --water-source monthly_extent.csv \
-  --output-dir output/isaac \
+  --output-dir output/fitzroy \
   --rainfall-csv monthly_rainfall.csv
 ```
 
 ```bash
 hydroseason run \
-  --aoi isaac.geojson --aoi-name "Isaac River" \
+  --aoi data/fitzroy_kimberley_aoi.geojson --aoi-name "Fitzroy River (WA)" \
   --start-date 2005-01-01 --end-date 2025-12-01 \
-  --output-dir output/isaac \
+  --output-dir output/fitzroy \
   --fetch-rainfall
 ```
 
@@ -166,22 +166,22 @@ turns it off.
 [4/5] rainfall comparison ...
 [4/5] rainfall comparison done (skipped) in 0.0s
 [5/5] write report ...
-[5/5] write report done (isaac-river-report.html) in 1.8s
+[5/5] write report done (fitzroy-river-wa.html) in 1.8s
 ```
 
 **Log redirection.** Progress and warnings go to standard error, the result
 summary to standard output, so both can be captured:
 
 ```powershell
-hydroseason run --aoi isaac.geojson --aoi-name "Isaac River" `
+hydroseason run --aoi data/fitzroy_kimberley_aoi.geojson --aoi-name "Fitzroy River (WA)" `
   --start-date 2005-01-01 --end-date 2025-12-01 `
-  --output-dir output/isaac --cache-dir cache/isaac *> hydroseason.log
+  --output-dir output/fitzroy --cache-dir cache/fitzroy *> hydroseason.log
 ```
 
 ```bash
-hydroseason run --aoi isaac.geojson --aoi-name "Isaac River" \
+hydroseason run --aoi data/fitzroy_kimberley_aoi.geojson --aoi-name "Fitzroy River (WA)" \
   --start-date 2005-01-01 --end-date 2025-12-01 \
-  --output-dir output/isaac --cache-dir cache/isaac > hydroseason.log 2>&1
+  --output-dir output/fitzroy --cache-dir cache/fitzroy > hydroseason.log 2>&1
 ```
 
 **Interruption and retry.** Ctrl-C is safe. Re-run the identical command

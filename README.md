@@ -2,9 +2,9 @@
 
 [![Tests](https://github.com/tayerthiaggo/hydroseason/actions/workflows/test.yml/badge.svg)](https://github.com/tayerthiaggo/hydroseason/actions/workflows/test.yml)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://tayerthiaggo.github.io/hydroseason/)
-[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://github.com/tayerthiaggo/hydroseason)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/tayerthiaggo/hydroseason)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/tayerthiaggo/hydroseason/blob/main/LICENSE)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21866899.svg)](https://doi.org/10.5281/zenodo.21866899)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21866898.svg)](https://doi.org/10.5281/zenodo.21866898)
 
 **HydroSeason is an open-source Python package for hydrological-year detection and seasonal/aseasonal analysis from monthly satellite-derived surface-water extent.**
 
@@ -99,9 +99,9 @@ For runs long enough to outlive a notebook session, use the CLI — same
 orchestrator, its own process, resumable via `--cache-dir`:
 
 ```bash
-hydroseason run --aoi isaac.geojson --aoi-name "Isaac River" \
+hydroseason run --aoi data/fitzroy_kimberley_aoi.geojson --aoi-name "Fitzroy River (WA)" \
   --start-date 2005-01-01 --end-date 2025-12-01 \
-  --output-dir output/isaac --cache-dir cache/isaac
+  --output-dir output/fitzroy --cache-dir cache/fitzroy
 ```
 
 `hydroseason doctor` reports whether an environment has the optional
@@ -192,7 +192,7 @@ If you use HydroSeason in your research, please cite the **software release** (s
   title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
   year    = {2026},
   url     = {https://github.com/tayerthiaggo/hydroseason},
-  doi     = {10.5281/zenodo.21866899}
+  doi     = {10.5281/zenodo.21866898}
 }
 ```
 

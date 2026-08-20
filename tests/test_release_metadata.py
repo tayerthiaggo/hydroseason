@@ -92,3 +92,20 @@ def test_requires_python_matches_the_tested_interpreters():
 
     workflow = Path(".github/workflows/test.yml").read_text(encoding="utf-8")
     assert workflow.count('python-version: ["3.10", "3.11", "3.12", "3.13"]') == 2
+
+
+def test_no_gitignored_or_process_files_are_tracked_in_git():
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        return
+    res = subprocess.run(
+        ["git", "ls-files", "-c", "-i", "--exclude-standard"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if res.returncode == 0:
+        tracked_ignored = [f for f in res.stdout.splitlines() if f.strip()]
+        assert tracked_ignored == [], f"Tracked files matching .gitignore: {tracked_ignored}"
