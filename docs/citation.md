@@ -10,7 +10,7 @@ Prefer the versioned GitHub/Zenodo release.
 @software{tayer_hydroseason,
   author  = {Tayer, Thiaggo C.},
   title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
-  version = {0.1.1},
+  version = {0.1.1rc1},
   year    = {2026},
   url     = {https://github.com/tayerthiaggo/hydroseason}
 }
