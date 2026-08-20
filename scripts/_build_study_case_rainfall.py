@@ -75,6 +75,17 @@ def build_rainfall_study(
             rainfall = load_monthly_rainfall_csv(rainfall_csv)
             rainfall = align_monthly_rainfall(rainfall, extent.index)
             comparison = compare_rainfall_to_extent_regime(analysis.regime, rainfall)
+            aoi_path = REPO_ROOT / "data" / "catchments" / f"{key}_boundary.geojson"
+            aoi_context = None
+            if aoi_path.exists():
+                try:
+                    from hydroseason._aoi_context import build_aoi_context
+                    from hydroseason._boundary import load_aoi
+
+                    aoi_context = build_aoi_context(load_aoi(aoi_path), display_name=name)
+                except Exception:
+                    pass
+
             generate_catchment_report(
                 extent,
                 output_dir / key,
@@ -90,6 +101,7 @@ def build_rainfall_study(
                 rainfall=rainfall,
                 rainfall_comparison=comparison,
                 rainfall_source="silo",
+                aoi_context=aoi_context,
             )
             rows.append(
                 {

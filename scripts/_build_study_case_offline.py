@@ -54,6 +54,17 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
                 phase_model="rule_based",
                 quality_policy="flag",
             )
+            aoi_path = REPO_ROOT / "data" / "catchments" / f"{key}_boundary.geojson"
+            aoi_context = None
+            if aoi_path.exists():
+                try:
+                    from hydroseason._aoi_context import build_aoi_context
+                    from hydroseason._boundary import load_aoi
+
+                    aoi_context = build_aoi_context(load_aoi(aoi_path), display_name=name)
+                except Exception:
+                    pass
+
             generate_catchment_report(
                 extent,
                 output_dir / key,
@@ -66,6 +77,7 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
                     "invalid coverage is reported and low-quality boundaries are "
                     "marked provisional/low confidence."
                 ),
+                aoi_context=aoi_context,
             )
             rows.append(
                 {
