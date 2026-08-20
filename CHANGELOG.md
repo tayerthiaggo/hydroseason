@@ -5,7 +5,7 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-08-20
+## [0.1.1rc1] - 2026-08-20
 
 ### Added
 - **Multi-AOI batch orchestration**: `run_hydroseason_many`, `HydroSeasonBatchResult`,
