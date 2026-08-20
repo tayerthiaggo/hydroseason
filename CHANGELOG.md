@@ -23,8 +23,8 @@ All notable changes to HydroSeason are documented here. This project follows
 - **Process-isolated CLI**: `hydroseason run` for running the orchestrator in its
   own process with `--cache-dir` resumption support, and `hydroseason doctor` for
   probing the Python environment, dependencies, and netCDF4/NumPy ABI compatibility.
-- **Five-step progress reporting**: `ProgressCallback`, `StepProgressEvent`, and
-  terminal progress indicators in `run_hydroseason`.
+- **Five-step progress reporting**: `ProgressEvent`, `WorkflowProgress`, and
+  `resolve_progress_reporter` in `run_hydroseason`.
 - **Python 3.13 support**: Python 3.13 added to CI test matrices and package
   classifiers, with `requires-python = ">=3.10,<3.14"`.
 - `HistoricalMaskCoverageWarning`; `HistoricalMaskRefreshedWarning`;
