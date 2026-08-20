@@ -1,6 +1,8 @@
 """Build standalone HTML examples for documentation and README."""
-from pathlib import Path
+from __future__ import annotations
+
 import shutil
+from pathlib import Path
 
 from hydroseason import run_hydroseason
 
