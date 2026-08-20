@@ -51,13 +51,13 @@ the trough timing concentration confidence interval.
 ## Main Study Results
 
 <!-- BEGIN GENERATED MAIN RESULTS -->
-| Catchment | Regime | Route | SNR | Peak-month IQR (months) | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |
-|---|---|---|---|---|---|---|---|---|---|
-| Daly River (NT) | seasonal | per_year_detection | 2.46 | 2.0 | 21 | 21 | 6 | Mar | Nov |
-| Fitzroy River (WA) | seasonal | per_year_detection | 2.65 | 1.0 | 21 | 18 | 8 | Feb | Nov |
-| Gilbert River (QLD) | seasonal | per_year_detection | 3.62 | 1.0 | 21 | 24 | 10 | Feb | Nov |
-| Lachlan River (NSW) | aseasonal | event_characterisation | 0.67 | 4.0 | 0 | 5 | 55 | N/A | N/A |
-| Moonie River (QLD/NSW) | aseasonal | event_characterisation | 0.62 | 3.0 | 0 | 14 | 22 | N/A | N/A |
+| Catchment | Regime | Route | SNR | Peak R | Trough R | Trough R CI low | Peak-month IQR (months) | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Daly River (NT) | seasonal | per_year_detection | 2.46 | 0.864 | 0.800 | 0.703 | 2.0 | 21 | 21 | 6 | Mar | Nov |
+| Fitzroy River (WA) | seasonal | per_year_detection | 2.65 | 0.907 | 0.919 | 0.881 | 1.0 | 21 | 18 | 8 | Feb | Nov |
+| Gilbert River (QLD) | seasonal | per_year_detection | 3.62 | 0.934 | 0.975 | 0.967 | 1.0 | 21 | 24 | 10 | Feb | Nov |
+| Lachlan River (NSW) | aseasonal | event_characterisation | 0.67 | 0.324 | 0.604 | 0.455 | 4.0 | 0 | 5 | 55 | N/A | N/A |
+| Moonie River (QLD/NSW) | aseasonal | event_characterisation | 0.62 | 0.532 | 0.687 | 0.549 | 3.0 | 0 | 14 | 22 | N/A | N/A |
 <!-- END GENERATED MAIN RESULTS -->
 
 ### Why Daly River is seasonal and supports per-year boundaries

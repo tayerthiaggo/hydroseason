@@ -25,13 +25,13 @@ comparison columns are new: `rainfall_regime`, `rainfall_amplitude_snr`,
 ## Results
 
 <!-- BEGIN GENERATED RAINFALL RESULTS -->
-| Catchment | Water Regime | Rainfall Regime | Water SNR | Rainfall SNR | Divergence | Peak Lag (months) |
-|---|---|---|---|---|---|---|
-| Daly River (NT) | seasonal | seasonal | 2.46 | 5.81 | agree | 2 |
-| Fitzroy River (WA) | seasonal | seasonal | 2.65 | 5.71 | agree | 1 |
-| Gilbert River (QLD) | seasonal | seasonal | 3.62 | 4.79 | agree | 1 |
-| Lachlan River (NSW) | aseasonal | marginal | 0.67 | 0.86 | extent_damped | N/A |
-| Moonie River (QLD/NSW) | aseasonal | marginal | 0.62 | 1.34 | extent_damped | N/A |
+| Catchment | Water Regime | Rainfall Regime | Water SNR | Rainfall SNR | Water Peak R | Rainfall Peak R | Divergence | Peak Lag (months) |
+|---|---|---|---|---|---|---|---|---|
+| Daly River (NT) | seasonal | seasonal | 2.46 | 5.81 | 0.864 | 0.867 | agree | 2 |
+| Fitzroy River (WA) | seasonal | seasonal | 2.65 | 5.71 | 0.907 | 0.902 | agree | 1 |
+| Gilbert River (QLD) | seasonal | seasonal | 3.62 | 4.79 | 0.934 | 0.922 | agree | 1 |
+| Lachlan River (NSW) | aseasonal | marginal | 0.67 | 0.86 | 0.324 | 0.365 | extent_damped | N/A |
+| Moonie River (QLD/NSW) | aseasonal | marginal | 0.62 | 1.34 | 0.532 | 0.579 | extent_damped | N/A |
 <!-- END GENERATED RAINFALL RESULTS -->
 
 `rainfall_divergence` describes how the rainfall-only regime compares to the

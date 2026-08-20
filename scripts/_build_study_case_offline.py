@@ -54,17 +54,6 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
                 phase_model="rule_based",
                 quality_policy="flag",
             )
-            aoi_path = REPO_ROOT / "data" / "catchments" / f"{key}_boundary.geojson"
-            aoi_context = None
-            if aoi_path.exists():
-                try:
-                    from hydroseason._aoi_context import build_aoi_context
-                    from hydroseason._boundary import load_aoi
-
-                    aoi_context = build_aoi_context(load_aoi(aoi_path), display_name=name)
-                except Exception:
-                    pass
-
             generate_catchment_report(
                 extent,
                 output_dir / key,
@@ -77,7 +66,6 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
                     "invalid coverage is reported and low-quality boundaries are "
                     "marked provisional/low confidence."
                 ),
-                aoi_context=aoi_context,
             )
             rows.append(
                 {
@@ -94,6 +82,21 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
                         "longest_low_spell_months", 0
                     ),
                     "amplitude_snr": round(float(analysis.regime.amplitude_snr), 3),
+                    "peak_timing_concentration": (
+                        round(float(analysis.regime.peak_timing_concentration), 3)
+                        if analysis.regime.peak_timing_concentration is not None
+                        else None
+                    ),
+                    "trough_timing_concentration": (
+                        round(float(analysis.regime.trough_timing_concentration), 3)
+                        if analysis.regime.trough_timing_concentration is not None
+                        else None
+                    ),
+                    "trough_timing_concentration_ci_low": (
+                        round(float(analysis.regime.trough_timing_concentration_ci_low), 3)
+                        if analysis.regime.trough_timing_concentration_ci_low is not None
+                        else None
+                    ),
                     "peak_phase_iqr_months": (
                         round(float(analysis.regime.peak_phase_iqr_months), 3)
                         if analysis.regime.peak_phase_iqr_months is not None
