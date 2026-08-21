@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -10,6 +12,7 @@ from hydroseason._seasonality import (
     _year_gram,
     _year_matrices,
     amplitude_evidence,
+    periodicity_p_value,
     select_harmonic_order,
 )
 from hydroseason._state_input import candidate_weights, prepare_monthly_extent
@@ -340,6 +343,87 @@ def test_resolution_floor_must_be_positive():
 
     with pytest.raises(ValueError, match="resolution_floor_pp"):
         amplitude_evidence(values, weights, selection, resolution_floor_pp=0.0)
+
+
+def test_strong_seasonal_record_is_significant():
+    values, weights = _matrices(_multi_year_frame(n_years=12, amplitude=20.0))
+
+    p_value = periodicity_p_value(values, weights, n_null=199, random_state=0)
+
+    assert p_value <= 0.01
+
+
+def test_noise_record_is_not_significant():
+    rng = np.random.default_rng(11)
+    months = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    frame = pd.DataFrame(
+        {"extent_pct": rng.uniform(20.0, 60.0, size=len(months)), "invalid_pct": 0.0},
+        index=months,
+    )
+    values, weights = _matrices(frame)
+
+    p_value = periodicity_p_value(values, weights, n_null=199, random_state=0)
+
+    assert p_value > 0.05
+
+
+def test_p_value_is_bounded_and_deterministic():
+    values, weights = _matrices(_multi_year_frame(n_years=8))
+
+    first = periodicity_p_value(values, weights, n_null=99, random_state=4)
+    second = periodicity_p_value(values, weights, n_null=99, random_state=4)
+
+    assert first == second
+    assert 1.0 / (99 + 1.0) <= first <= 1.0
+
+
+def test_rotation_preserves_each_years_values_weights_and_gaps():
+    from hydroseason._seasonality import _rotate_years
+
+    values = np.array([[1.0, 2.0, np.nan, 4.0]], dtype=float)
+    weights = np.array([[1.0, 0.5, 0.0, 1.0]], dtype=float)
+
+    rotated_values, rotated_weights = _rotate_years(values, weights, np.array([1]))
+
+    assert np.nansum(rotated_values) == pytest.approx(np.nansum(values))
+    assert rotated_weights.sum() == pytest.approx(weights.sum())
+    assert np.count_nonzero(np.isnan(rotated_values)) == 1
+    # Value and its weight must travel together.
+    moved = int(np.where(np.isnan(rotated_values[0]))[0][0])
+    assert rotated_weights[0, moved] == 0.0
+
+
+def test_holding_the_order_fixed_inflates_significance():
+    """Pinning the documented reason order re-selection lives inside the loop.
+
+    A null that cannot re-select order is a weaker null, so it produces a
+    smaller p-value. If this ever inverts, the re-selection has been lost.
+    """
+    from hydroseason._seasonality import _null_skills
+
+    rng = np.random.default_rng(2)
+    months = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
+    angle = 2.0 * np.pi * (months.month.to_numpy() - 7) / 12.0
+    series = np.clip(50.0 + 4.0 * np.cos(angle) + rng.normal(0.0, 6.0, size=len(months)), 0, 100)
+    frame = pd.DataFrame({"extent_pct": series, "invalid_pct": 0.0}, index=months)
+    values, weights = _matrices(frame)
+
+    reselected = _null_skills(values, weights, n_null=199, random_state=1, max_order=3, reselect_order=True)
+    fixed = _null_skills(values, weights, n_null=199, random_state=1, max_order=3, reselect_order=False)
+
+    assert np.mean(reselected) >= np.mean(fixed)
+
+
+def test_null_runs_within_a_sane_time_budget():
+    """999 resamples over a 30-year record must stay interactive."""
+    values, weights = _matrices(_multi_year_frame(n_years=30, amplitude=20.0))
+
+    started = time.perf_counter()
+    periodicity_p_value(values, weights, n_null=999, random_state=0)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 30.0
+
 
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from numbers import Integral
 from typing import Literal
 
 import numpy as np
@@ -292,6 +293,93 @@ def amplitude_evidence(
         amplitude_noise_ratio=float(ratio),
         at_or_below_floor=bool(at_or_below_floor),
     )
+
+
+_DEFAULT_N_NULL = 999
+
+
+def _rotate_years(
+    values: np.ndarray,
+    weights: np.ndarray,
+    offsets: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Roll each year around the calendar circle by its own offset.
+
+    Values and weights roll together so a poorly observed month stays poorly
+    observed. Gaps roll with them, so each year keeps its own shape, spacing and
+    missingness; only its alignment with the calendar is destroyed.
+    """
+    rotated_values = np.empty_like(values)
+    rotated_weights = np.empty_like(weights)
+    for row in range(values.shape[0]):
+        shift = int(offsets[row])
+        rotated_values[row] = np.roll(values[row], shift)
+        rotated_weights[row] = np.roll(weights[row], shift)
+    return rotated_values, rotated_weights
+
+
+def _null_skills(
+    values: np.ndarray,
+    weights: np.ndarray,
+    *,
+    n_null: int,
+    random_state: int,
+    max_order: int,
+    reselect_order: bool = True,
+) -> np.ndarray:
+    """Pooled skills under the rotation null.
+
+    ``reselect_order=False`` exists only so tests can demonstrate why
+    re-selection is required; production callers must leave it True.
+    """
+    fixed_order = None
+    if not reselect_order:
+        observed_selection = select_harmonic_order(values, weights, max_order=max_order)
+        fixed_order = observed_selection.order if observed_selection is not None else 0
+
+    rng = np.random.default_rng(np.random.SeedSequence(int(random_state)))
+    offsets = rng.integers(0, _MONTHS_PER_YEAR, size=(int(n_null), values.shape[0]))
+    skills = np.zeros(int(n_null), dtype=float)
+    for position in range(int(n_null)):
+        rotated_values, rotated_weights = _rotate_years(values, weights, offsets[position])
+        order_cap = max_order if fixed_order is None else fixed_order
+        selection = select_harmonic_order(rotated_values, rotated_weights, max_order=order_cap)
+        if selection is None:
+            continue
+        if fixed_order is not None and selection.order != fixed_order:
+            continue
+        skills[position] = selection.pooled_skill
+    return skills
+
+
+def periodicity_p_value(
+    values: np.ndarray,
+    weights: np.ndarray,
+    *,
+    n_null: int = _DEFAULT_N_NULL,
+    random_state: int = 0,
+    max_order: int = _MAX_HARMONIC_ORDER,
+) -> float:
+    """Probability of the observed seasonal skill under calendar-phase rotation.
+
+    The complete leave-one-year-out procedure, order re-selection included, is
+    re-run for every resample. Because the observed statistic is post-selection
+    and therefore optimistically biased, the null must carry the same bias for
+    the p-value to be calibrated.
+    """
+    if isinstance(n_null, bool) or not isinstance(n_null, Integral) or n_null < 1:
+        raise ValueError("n_null must be a positive integer.")
+
+    observed_selection = select_harmonic_order(values, weights, max_order=max_order)
+    if observed_selection is None:
+        return 1.0
+    observed = observed_selection.pooled_skill
+
+    null_skills = _null_skills(
+        values, weights, n_null=int(n_null), random_state=random_state, max_order=max_order
+    )
+    return float((1.0 + np.count_nonzero(null_skills >= observed)) / (int(n_null) + 1.0))
+
 
 
 
