@@ -1,12 +1,25 @@
-"""Deterministic circular statistics for calendar-month timing."""
-from __future__ import annotations
-
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Integral, Real
 from typing import Iterable, Literal
 
 import numpy as np
 import pandas as pd
+
+_MONTHS_PER_YEAR = 12
+
+
+@dataclass(frozen=True)
+class AnnualTimingSummary:
+    """Circular summary of annual extremum timing, resampled by year."""
+
+    concentration: float | None
+    ci_low: float | None
+    ci_high: float | None
+    iqr_months: float | None
+    uniformity_p: float | None
+    n_years: int
+    dominant_month: int | None
 
 
 @dataclass(frozen=True)
@@ -17,6 +30,139 @@ class CircularTimingSummary:
     iqr_months: float | None
     uniformity_p: float | None
     n: int
+
+
+def _expand_year_weights(
+    month_sets: Sequence[tuple[int, ...]],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Flatten per-year month sets to angles and weights totalling 1 per year."""
+    angles: list[float] = []
+    weights: list[float] = []
+    for months in month_sets:
+        if not months:
+            continue
+        share = 1.0 / len(months)
+        for month in months:
+            angles.append(2.0 * np.pi * (month - 1) / _MONTHS_PER_YEAR)
+            weights.append(share)
+    return np.asarray(angles, dtype=float), np.asarray(weights, dtype=float)
+
+
+def _weighted_resultant(angles: np.ndarray, weights: np.ndarray) -> complex:
+    total = float(weights.sum())
+    if total <= 0.0:
+        return 0j
+    return complex(np.sum(weights * np.exp(1j * angles)) / total)
+
+
+def _weighted_kuiper(angles: np.ndarray, weights: np.ndarray) -> float:
+    """Kuiper statistic on a weighted sample of circular phases."""
+    if len(angles) == 0:
+        return 0.0
+    phases = np.mod(angles / (2.0 * np.pi), 1.0)
+    order = np.argsort(phases)
+    ordered_phases = phases[order]
+    ordered_weights = weights[order]
+    total = float(ordered_weights.sum())
+    if total <= 0.0:
+        return 0.0
+    upper = np.cumsum(ordered_weights) / total
+    lower = upper - ordered_weights / total
+    return float(np.max(upper - ordered_phases) + np.max(ordered_phases - lower))
+
+
+def _rotate_month_set(months: tuple[int, ...], offset: int) -> tuple[int, ...]:
+    """Shift a month set around the calendar circle, preserving its spacing."""
+    return tuple(((month - 1 + offset) % _MONTHS_PER_YEAR) + 1 for month in months)
+
+
+def _circular_offsets(angles: np.ndarray, centre: float) -> np.ndarray:
+    return np.angle(np.exp(1j * (angles - centre))) * _MONTHS_PER_YEAR / (2.0 * np.pi)
+
+
+def summarise_annual_timing(
+    month_sets: Mapping[int, Sequence[int]],
+    *,
+    n_resamples: int = 200,
+    random_state: int = 0,
+    confidence: float = 0.95,
+) -> AnnualTimingSummary:
+    """Summarise annual extremum timing, resampling years rather than entries.
+
+    Each year carries total weight 1 spread equally over its equivalent months,
+    so an ambiguous year contributes a diffuse vote of the same total size as a
+    sharp year's single vote. The bootstrap draws years with replacement and the
+    uniformity null rotates each year's month set by a uniform offset, which
+    preserves tie structure while destroying calendar alignment.
+    """
+    if isinstance(n_resamples, bool) or not isinstance(n_resamples, Integral):
+        raise TypeError("n_resamples must be an integer")
+    if n_resamples < 20:
+        raise ValueError("n_resamples must be at least 20")
+    if isinstance(random_state, bool) or not isinstance(random_state, Integral):
+        raise TypeError("random_state must be an integer")
+    if not 0.0 < float(confidence) < 1.0:
+        raise ValueError("confidence must be between 0 and 1")
+
+    cleaned: list[tuple[int, ...]] = []
+    for year in sorted(month_sets):
+        months = tuple(int(month) for month in month_sets[year])
+        if any(month < 1 or month > _MONTHS_PER_YEAR for month in months):
+            raise ValueError("months must be integers from 1 to 12")
+        if months:
+            cleaned.append(months)
+
+    n_years = len(cleaned)
+    if n_years == 0:
+        return AnnualTimingSummary(None, None, None, None, None, 0, None)
+
+    angles, weights = _expand_year_weights(cleaned)
+    resultant = _weighted_resultant(angles, weights)
+    concentration = float(abs(resultant))
+
+    seed_sequence = np.random.SeedSequence(int(random_state))
+    bootstrap_seed, null_seed = seed_sequence.spawn(2)
+    bootstrap_rng = np.random.default_rng(bootstrap_seed)
+    null_rng = np.random.default_rng(null_seed)
+
+    # Resample YEARS, not expanded entries.
+    draws = bootstrap_rng.integers(0, n_years, size=(int(n_resamples), n_years))
+    bootstrap_lengths = np.empty(int(n_resamples), dtype=float)
+    for position, row in enumerate(draws):
+        drawn_angles, drawn_weights = _expand_year_weights([cleaned[index] for index in row])
+        bootstrap_lengths[position] = abs(_weighted_resultant(drawn_angles, drawn_weights))
+    alpha = (1.0 - float(confidence)) / 2.0
+    ci_low, ci_high = np.percentile(bootstrap_lengths, [100.0 * alpha, 100.0 * (1.0 - alpha)])
+
+    observed_stat = _weighted_kuiper(angles, weights)
+    n_null = max(int(n_resamples), 999)
+    offsets = null_rng.integers(0, _MONTHS_PER_YEAR, size=(n_null, n_years))
+    null_stats = np.empty(n_null, dtype=float)
+    for position, row in enumerate(offsets):
+        rotated = [_rotate_month_set(months, int(offset)) for months, offset in zip(cleaned, row)]
+        null_angles, null_weights = _expand_year_weights(rotated)
+        null_stats[position] = _weighted_kuiper(null_angles, null_weights)
+    uniformity_p = (1.0 + np.count_nonzero(null_stats >= observed_stat)) / (n_null + 1.0)
+
+    if concentration <= np.finfo(float).eps:
+        dominant_month: int | None = None
+        iqr_months: float | None = None
+    else:
+        centre = float(np.angle(resultant))
+        dominant_month = int(round(centre * _MONTHS_PER_YEAR / (2.0 * np.pi))) % _MONTHS_PER_YEAR + 1
+        offsets_months = _circular_offsets(angles, centre)
+        iqr_months = float(np.percentile(offsets_months, 75) - np.percentile(offsets_months, 25))
+
+    return AnnualTimingSummary(
+        concentration=concentration,
+        ci_low=float(ci_low),
+        ci_high=float(ci_high),
+        iqr_months=iqr_months,
+        uniformity_p=float(uniformity_p),
+        n_years=n_years,
+        dominant_month=dominant_month,
+    )
+
 
 
 def _validate_months(months: Iterable[object]) -> np.ndarray:
@@ -144,5 +290,11 @@ def equivalent_extremum_months(
     return tuple(sorted({int(stamp.month) for stamp in selected.index}))
 
 
-__all__ = ["CircularTimingSummary", "equivalent_extremum_months", "summarise_circular_months"]
+__all__ = [
+    "AnnualTimingSummary",
+    "CircularTimingSummary",
+    "equivalent_extremum_months",
+    "summarise_annual_timing",
+    "summarise_circular_months",
+]
 
