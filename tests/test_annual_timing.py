@@ -7,6 +7,8 @@ from hydroseason._circular_timing import (
     equivalent_extremum_months,
     summarise_annual_timing,
 )
+from hydroseason._seasonality import _year_matrices, retained_modes
+from hydroseason._state_input import candidate_weights, prepare_monthly_extent
 
 
 def _year(values, year=2000):
@@ -152,4 +154,97 @@ def test_empty_input_returns_an_abstention_not_an_exception():
     assert summary.n_years == 0
     assert summary.concentration is None
     assert summary.uniformity_p is None
+
+
+def _matrices_from(series_values, n_periods):
+    months = pd.date_range("2000-01-01", periods=n_periods, freq="MS")
+    frame = pd.DataFrame({"extent_pct": series_values, "invalid_pct": 0.0}, index=months)
+    prepared = prepare_monthly_extent(frame)
+    weights = candidate_weights(prepared)
+    _, values, matrix_weights = _year_matrices(prepared, weights)
+    return values, matrix_weights
+
+
+def test_unimodal_record_retains_one_peak():
+    months = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
+    angle = 2.0 * np.pi * (months.month.to_numpy() - 3) / 12.0
+    values, weights = _matrices_from(50.0 + 20.0 * np.cos(angle), 12 * 10)
+
+    modes = retained_modes(
+        values, weights, kind="peak", min_frequency=0.60, min_separation_months=2, random_state=0
+    )
+
+    assert len(modes) == 1
+    assert modes[0] == 3
+
+
+def test_bimodal_record_retains_two_peaks():
+    months = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    angle = 2.0 * np.pi * (months.month.to_numpy() - 1) / 12.0
+    values, weights = _matrices_from(50.0 + 20.0 * np.cos(2.0 * angle), 12 * 12)
+
+    modes = retained_modes(
+        values, weights, kind="peak", min_frequency=0.60, min_separation_months=2, random_state=0
+    )
+
+    assert len(modes) == 2
+
+
+def test_close_modes_are_thinned_to_one():
+    months = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
+    angle = 2.0 * np.pi * (months.month.to_numpy() - 6) / 12.0
+    values, weights = _matrices_from(50.0 + 20.0 * np.cos(angle), 12 * 10)
+
+    modes = retained_modes(
+        values, weights, kind="peak", min_frequency=0.10, min_separation_months=6, random_state=0
+    )
+
+    assert len(modes) == 1
+
+
+def test_trough_kind_finds_the_minimum_side():
+    months = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
+    angle = 2.0 * np.pi * (months.month.to_numpy() - 3) / 12.0
+    values, weights = _matrices_from(50.0 + 20.0 * np.cos(angle), 12 * 10)
+
+    modes = retained_modes(
+        values, weights, kind="trough", min_frequency=0.60, min_separation_months=2, random_state=0
+    )
+
+    assert modes == (9,)
+
+
+def test_flat_record_retains_no_modes():
+    values, weights = _matrices_from(np.full(12 * 10, 30.0), 12 * 10)
+
+    modes = retained_modes(
+        values, weights, kind="peak", min_frequency=0.60, min_separation_months=2, random_state=0
+    )
+
+    assert modes == ()
+
+
+def test_mode_retention_is_deterministic():
+    months = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
+    angle = 2.0 * np.pi * (months.month.to_numpy() - 3) / 12.0
+    values, weights = _matrices_from(50.0 + 20.0 * np.cos(angle), 12 * 10)
+
+    first = retained_modes(
+        values, weights, kind="peak", min_frequency=0.60, min_separation_months=2, random_state=9
+    )
+    second = retained_modes(
+        values, weights, kind="peak", min_frequency=0.60, min_separation_months=2, random_state=9
+    )
+
+    assert first == second
+
+
+def test_min_frequency_must_be_a_fraction():
+    values, weights = _matrices_from(np.full(12 * 10, 30.0), 12 * 10)
+
+    with pytest.raises(ValueError, match="min_frequency"):
+        retained_modes(
+            values, weights, kind="peak", min_frequency=1.5, min_separation_months=2, random_state=0
+        )
+
 

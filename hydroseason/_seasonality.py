@@ -381,6 +381,82 @@ def periodicity_p_value(
     return float((1.0 + np.count_nonzero(null_skills >= observed)) / (int(n_null) + 1.0))
 
 
+def _curve_extrema(curve: np.ndarray, kind: str) -> list[int]:
+    """Local extremum months of a closed 12-month curve."""
+    sign = 1.0 if kind == "peak" else -1.0
+    scaled = sign * curve
+    span = float(scaled.max() - scaled.min())
+    if span <= np.finfo(float).eps:
+        return []
+    return [
+        index + 1
+        for index in range(_MONTHS_PER_YEAR)
+        if scaled[index] > scaled[(index - 1) % _MONTHS_PER_YEAR]
+        and scaled[index] >= scaled[(index + 1) % _MONTHS_PER_YEAR]
+    ]
+
+
+def _circular_month_distance(left: int, right: int) -> int:
+    raw = abs(left - right)
+    return min(raw, _MONTHS_PER_YEAR - raw)
+
+
+def retained_modes(
+    values: np.ndarray,
+    weights: np.ndarray,
+    *,
+    kind: Literal["peak", "trough"],
+    min_frequency: float,
+    min_separation_months: int,
+    n_bootstrap: int = 200,
+    random_state: int = 0,
+) -> tuple[int, ...]:
+    """Modes surviving year-bootstrap refits, thinned by circular separation.
+
+    A single full-record fit reports whatever shape it happened to land on. A
+    mode is only reported here if it reappears across resampled refits, so
+    ``*_timing_n_modes`` reflects reproducible structure rather than one fit.
+    """
+    if kind not in {"peak", "trough"}:
+        raise ValueError("kind must be 'peak' or 'trough'.")
+    if not 0.0 < float(min_frequency) <= 1.0:
+        raise ValueError("min_frequency must be in (0, 1].")
+    if min_separation_months < 1:
+        raise ValueError("min_separation_months must be at least 1.")
+
+    n_years = values.shape[0]
+    if n_years < 2:
+        return ()
+
+    rng = np.random.default_rng(np.random.SeedSequence(int(random_state)))
+    draws = rng.integers(0, n_years, size=(int(n_bootstrap), n_years))
+    counts = np.zeros(_MONTHS_PER_YEAR + 1, dtype=float)
+    valid = 0
+    for row in draws:
+        selection = select_harmonic_order(values[row], weights[row])
+        if selection is None:
+            continue
+        valid += 1
+        curve = _design(selection.order) @ selection.coefficients
+        for month in _curve_extrema(curve, kind):
+            counts[month] += 1.0
+    if valid == 0:
+        return ()
+
+    frequencies = counts / valid
+    candidates = sorted(
+        (month for month in range(1, _MONTHS_PER_YEAR + 1) if frequencies[month] >= float(min_frequency)),
+        key=lambda month: (-frequencies[month], month),
+    )
+
+    kept: list[int] = []
+    for month in candidates:
+        if all(_circular_month_distance(month, other) >= min_separation_months for other in kept):
+            kept.append(month)
+    return tuple(sorted(kept))
+
+
+
 
 
 
