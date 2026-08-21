@@ -87,3 +87,26 @@ def prepare_monthly_extent(
             allow_unknown_quality & (frame["quality_state"] == "unknown")
         )
     return frame.rename(columns={value_col: "extent_pct"})
+
+
+# Fitting weight floor. A month observed at 0.5% still carries real signal
+# about its own value, so it is down-weighted rather than discarded; without a
+# floor its weight underflows to effectively zero and the month is silently
+# dropped from every fit.
+_MIN_CANDIDATE_WEIGHT = 0.05
+
+
+def candidate_weights(prepared: pd.DataFrame, *, min_weight: float = _MIN_CANDIDATE_WEIGHT) -> pd.Series:
+    """Per-month weight for weighted fits: observed fraction, zero if unusable.
+
+    ``observed_fraction`` is NaN when ``invalid_pct`` is unknown. An unknown
+    invalid fraction is not evidence of poor observation, so those months are
+    weighted as fully observed; ``candidate_usable`` is what decides whether
+    they enter the fit at all.
+    """
+    if not 0.0 < min_weight <= 1.0:
+        raise ValueError("min_weight must be in (0, 1].")
+    observed = pd.to_numeric(prepared["observed_fraction"], errors="coerce")
+    weights = observed.where(observed.notna(), 1.0).clip(lower=min_weight, upper=1.0)
+    return weights.where(prepared["candidate_usable"].to_numpy(dtype=bool), 0.0).astype(float)
+
