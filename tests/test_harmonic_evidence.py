@@ -2,7 +2,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._seasonality import _design, _solve_gram, _year_gram, _year_matrices
+from hydroseason._seasonality import (
+    HarmonicSelection,
+    _design,
+    _solve_gram,
+    _year_gram,
+    _year_matrices,
+    select_harmonic_order,
+)
 from hydroseason._state_input import candidate_weights, prepare_monthly_extent
 
 
@@ -127,4 +134,118 @@ def test_gram_solve_recovers_a_known_harmonic():
 
 def test_solve_gram_returns_none_when_singular():
     assert _solve_gram(np.zeros((3, 3)), np.zeros(3)) is None
+
+
+def _matrices(frame):
+    prepared = prepare_monthly_extent(frame)
+    weights = candidate_weights(prepared)
+    _, values, matrix_weights = _year_matrices(prepared, weights)
+    return values, matrix_weights
+
+
+def test_clean_sinusoid_selects_order_one():
+    values, weights = _matrices(_multi_year_frame(n_years=8, amplitude=20.0))
+
+    selection = select_harmonic_order(values, weights)
+
+    assert isinstance(selection, HarmonicSelection)
+    assert selection.order == 1
+    assert selection.mean_skill > 0.9
+
+
+def test_order_zero_scores_exactly_zero():
+    """Order 0 is the training weighted mean, which is the null itself."""
+    values, weights = _matrices(_multi_year_frame(n_years=6))
+
+    selection = select_harmonic_order(values, weights, max_order=0)
+
+    assert selection.order == 0
+    assert selection.mean_skill == pytest.approx(0.0, abs=1e-12)
+    assert selection.pooled_skill == pytest.approx(0.0, abs=1e-12)
+
+
+def test_pure_noise_selects_the_nonseasonal_null():
+    rng = np.random.default_rng(0)
+    months = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
+    frame = pd.DataFrame(
+        {"extent_pct": rng.uniform(20.0, 60.0, size=len(months)), "invalid_pct": 0.0},
+        index=months,
+    )
+    values, weights = _matrices(frame)
+
+    selection = select_harmonic_order(values, weights)
+
+    assert selection.order == 0
+
+
+def test_one_standard_error_rule_prefers_the_simpler_order():
+    """A higher harmonic that adds only noise-level skill must not be selected."""
+    rng = np.random.default_rng(7)
+    months = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    angle = 2.0 * np.pi * (months.month.to_numpy() - 7) / 12.0
+    values_series = 50.0 + 20.0 * np.cos(angle) + rng.normal(0.0, 3.0, size=len(months))
+    frame = pd.DataFrame({"extent_pct": np.clip(values_series, 0, 100), "invalid_pct": 0.0}, index=months)
+    values, weights = _matrices(frame)
+
+    selection = select_harmonic_order(values, weights)
+
+    assert selection.order == 1
+    assert 3 in selection.eligible_orders
+
+
+
+def test_bimodal_record_selects_order_two():
+    months = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
+    angle = 2.0 * np.pi * (months.month - 1) / 12.0
+    values_series = 50.0 + 20.0 * np.cos(2.0 * angle)
+    frame = pd.DataFrame({"extent_pct": values_series, "invalid_pct": 0.0}, index=months)
+    values, weights = _matrices(frame)
+
+    selection = select_harmonic_order(values, weights)
+
+    assert selection.order == 2
+
+
+def test_partial_years_contribute_rather_than_being_dropped():
+    frame = _multi_year_frame(n_years=8)
+    frame.loc[frame.index[3], "extent_pct"] = np.nan
+    frame.loc[frame.index[16], "extent_pct"] = np.nan
+    frame.loc[frame.index[17], "extent_pct"] = np.nan
+    values, weights = _matrices(frame)
+
+    selection = select_harmonic_order(values, weights)
+
+    assert selection.order == 1
+    assert len(selection.fold_skills) == 8
+
+
+def test_low_weight_months_are_less_informative_than_full_months():
+    clean = _multi_year_frame(n_years=8)
+    degraded = clean.copy()
+    for position in (5, 17, 29):
+        degraded.iloc[position, degraded.columns.get_loc("extent_pct")] = 0.0
+        degraded.iloc[position, degraded.columns.get_loc("invalid_pct")] = 99.0
+
+    clean_selection = select_harmonic_order(*_matrices(clean))
+    degraded_selection = select_harmonic_order(*_matrices(degraded))
+
+    assert degraded_selection.order == clean_selection.order
+    assert degraded_selection.mean_skill > 0.8
+
+
+def test_too_few_years_returns_none():
+    values, weights = _matrices(_multi_year_frame(n_years=1))
+
+    assert select_harmonic_order(values, weights) is None
+
+
+def test_selection_is_deterministic():
+    values, weights = _matrices(_multi_year_frame(n_years=6))
+
+    first = select_harmonic_order(values, weights)
+    second = select_harmonic_order(values, weights)
+
+    assert first.order == second.order
+    assert first.fold_skills == second.fold_skills
+
 

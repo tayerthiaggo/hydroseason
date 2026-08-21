@@ -99,6 +99,138 @@ def _solve_gram(gram: np.ndarray, moment: np.ndarray) -> np.ndarray | None:
         return None
 
 
+@dataclass(frozen=True)
+class HarmonicSelection:
+    """Result of leave-one-year-out harmonic order selection."""
+
+    order: int
+    fold_skills: tuple[float, ...]
+    mean_skill: float
+    standard_error: float
+    pooled_skill: float
+    eligible_orders: tuple[int, ...]
+    coefficients: np.ndarray
+
+
+def _fold_scores(values: np.ndarray, weights: np.ndarray, order: int) -> tuple[list[float], float, float] | None:
+    """Per-fold skills plus pooled candidate and null SSE for one order.
+
+    Returns None when any fold's training sample cannot support the candidate,
+    which makes eligibility a property of the whole cross-validation rather
+    than of the full record only.
+    """
+    design = _design(order)
+    n_coefficients = design.shape[1]
+    n_years = values.shape[0]
+    if n_years < 2:
+        return None
+
+    grams, moments, weight_sums = [], [], []
+    for row in range(n_years):
+        gram, moment, weight_sum, _ = _year_gram(values[row], weights[row], design)
+        grams.append(gram)
+        moments.append(moment)
+        weight_sums.append(weight_sum)
+    total_gram = np.sum(grams, axis=0)
+    total_moment = np.sum(moments, axis=0)
+    total_weight = float(np.sum(weight_sums))
+
+    fold_skills: list[float] = []
+    pooled_candidate = 0.0
+    pooled_null = 0.0
+    for row in range(n_years):
+        test_weights = weights[row]
+        if test_weights.sum() <= 0.0:
+            continue
+        n_train_observations = int(np.count_nonzero(weights) - np.count_nonzero(test_weights))
+        if n_train_observations <= n_coefficients + 1:
+            return None
+
+        beta = _solve_gram(total_gram - grams[row], total_moment - moments[row])
+        if beta is None:
+            return None
+
+        train_weight_total = total_weight - weight_sums[row]
+        if train_weight_total <= 0.0:
+            return None
+        # The intercept moment divided by total weight IS the weighted mean,
+        # so the order-0 null costs no extra fit.
+        null_prediction = (total_moment[0] - moments[row][0]) / train_weight_total
+
+        observed = np.where(np.isfinite(values[row]), values[row], 0.0)
+        predicted = design @ beta
+        candidate_sse = float(np.sum(test_weights * (observed - predicted) ** 2))
+        null_sse = float(np.sum(test_weights * (observed - null_prediction) ** 2))
+        pooled_candidate += candidate_sse
+        pooled_null += null_sse
+        fold_skills.append(1.0 - candidate_sse / null_sse if null_sse > 0.0 else 0.0)
+
+    if not fold_skills:
+        return None
+    return fold_skills, pooled_candidate, pooled_null
+
+
+def select_harmonic_order(
+    values: np.ndarray,
+    weights: np.ndarray,
+    *,
+    max_order: int = _MAX_HARMONIC_ORDER,
+) -> HarmonicSelection | None:
+    """Choose harmonic order by leave-one-year-out skill under the 1-SE rule.
+
+    The one-standard-error rule selects the lowest order whose mean fold skill
+    is within one standard error of the best candidate's mean. It replaces a
+    fixed absolute tolerance, which is scale-dependent: the same margin is
+    loose on a short noisy record and tight on a long clean one.
+    """
+    if max_order < 0 or max_order > _MAX_HARMONIC_ORDER:
+        raise ValueError(f"max_order must be between 0 and {_MAX_HARMONIC_ORDER}.")
+
+    scored: dict[int, tuple[list[float], float, float]] = {}
+    for order in range(max_order + 1):
+        result = _fold_scores(values, weights, order)
+        if result is not None:
+            scored[order] = result
+    if not scored:
+        return None
+
+    means = {order: float(np.mean(skills)) for order, (skills, _, _) in scored.items()}
+    best_order = max(means, key=lambda order: (means[order], -order))
+    best_skills = scored[best_order][0]
+    best_error = (
+        float(np.std(best_skills, ddof=1) / np.sqrt(len(best_skills))) if len(best_skills) > 1 else 0.0
+    )
+    threshold = means[best_order] - best_error
+    chosen = min(order for order in scored if means[order] >= threshold)
+
+    skills, pooled_candidate, pooled_null = scored[chosen]
+    pooled_skill = 1.0 - pooled_candidate / pooled_null if pooled_null > 0.0 else 0.0
+
+    design = _design(chosen)
+    gram = np.zeros((design.shape[1], design.shape[1]))
+    moment = np.zeros(design.shape[1])
+    for row in range(values.shape[0]):
+        year_gram, year_moment, _, _ = _year_gram(values[row], weights[row], design)
+        gram += year_gram
+        moment += year_moment
+    coefficients = _solve_gram(gram, moment)
+    if coefficients is None:
+        return None
+
+    standard_error = float(np.std(skills, ddof=1) / np.sqrt(len(skills))) if len(skills) > 1 else 0.0
+
+    return HarmonicSelection(
+        order=chosen,
+        fold_skills=tuple(float(value) for value in skills),
+        mean_skill=float(np.mean(skills)),
+        standard_error=standard_error,
+        pooled_skill=float(pooled_skill),
+        eligible_orders=tuple(sorted(scored)),
+        coefficients=coefficients,
+    )
+
+
+
 def _fit(month: np.ndarray, values: np.ndarray, order: int) -> tuple[np.ndarray, float]:
     matrix = _design_for_months(month, order)
     beta = np.linalg.lstsq(matrix, values, rcond=None)[0]
