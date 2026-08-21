@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from numbers import Integral, Real
-from typing import Iterable
+from typing import Iterable, Literal
 
 import numpy as np
+import pandas as pd
 
 
 @dataclass(frozen=True)
@@ -115,4 +116,33 @@ def summarise_circular_months(
     )
 
 
-__all__ = ["CircularTimingSummary", "summarise_circular_months"]
+def equivalent_extremum_months(
+    values: pd.Series,
+    *,
+    kind: Literal["min", "max"],
+    tolerance: float,
+) -> tuple[int, ...]:
+    """Calendar months tied with a year's extremum, within measurement tolerance.
+
+    A flat or near-flat year has no single argmin. ``idxmin``/``idxmax`` answer
+    anyway by returning the first row, which silently reports January. This
+    returns the full equivalent set so a tied year contributes a diffuse timing
+    distribution instead of a fabricated one.
+    """
+    if kind not in {"min", "max"}:
+        raise ValueError("kind must be 'min' or 'max'.")
+    if not np.isfinite(tolerance) or tolerance < 0.0:
+        raise ValueError("tolerance must be a non-negative finite number.")
+    finite = values.dropna()
+    if finite.empty:
+        return ()
+    extremum = float(finite.min() if kind == "min" else finite.max())
+    if kind == "min":
+        selected = finite.loc[finite <= extremum + tolerance]
+    else:
+        selected = finite.loc[finite >= extremum - tolerance]
+    return tuple(sorted({int(stamp.month) for stamp in selected.index}))
+
+
+__all__ = ["CircularTimingSummary", "equivalent_extremum_months", "summarise_circular_months"]
+
