@@ -230,6 +230,71 @@ def select_harmonic_order(
     )
 
 
+# Scaling that makes the median absolute deviation a consistent estimator of
+# the standard deviation for normally distributed residuals.
+_MAD_TO_SIGMA = 1.4826
+
+
+@dataclass(frozen=True)
+class AmplitudeEvidence:
+    """Seasonal amplitude against a robust, floored noise scale."""
+
+    seasonal_amplitude_pp: float
+    robust_noise_pp: float
+    amplitude_noise_ratio: float
+    at_or_below_floor: bool
+
+
+def amplitude_evidence(
+    values: np.ndarray,
+    weights: np.ndarray,
+    selection: HarmonicSelection,
+    *,
+    resolution_floor_pp: float,
+) -> AmplitudeEvidence:
+    """Seasonal amplitude and its ratio to a noise scale that cannot be zero.
+
+    The denominator is the larger of the robust residual scale and the
+    observation-resolution floor, so a noiseless or constant record yields a
+    finite ratio rather than infinity. When the amplitude itself is at or below
+    the floor the record has no resolvable seasonal signal at all, and the ratio
+    is reported as zero rather than as a large number divided by a small one.
+    """
+    if not np.isfinite(resolution_floor_pp) or resolution_floor_pp <= 0.0:
+        raise ValueError("resolution_floor_pp must be a positive finite number.")
+
+    design = _design(selection.order)
+    curve = design @ selection.coefficients
+    amplitude = float(curve.max() - curve.min())
+
+    residuals = []
+    for row in range(values.shape[0]):
+        observed = values[row]
+        mask = (weights[row] > 0.0) & np.isfinite(observed)
+        if mask.any():
+            residuals.append(observed[mask] - curve[mask])
+    if residuals:
+        stacked = np.concatenate(residuals)
+        mad = float(np.median(np.abs(stacked - np.median(stacked))))
+        robust_noise = _MAD_TO_SIGMA * mad
+    else:
+        robust_noise = 0.0
+
+    at_or_below_floor = amplitude <= resolution_floor_pp
+    if at_or_below_floor:
+        ratio = 0.0
+    else:
+        ratio = amplitude / max(robust_noise, float(resolution_floor_pp))
+
+    return AmplitudeEvidence(
+        seasonal_amplitude_pp=amplitude,
+        robust_noise_pp=float(robust_noise),
+        amplitude_noise_ratio=float(ratio),
+        at_or_below_floor=bool(at_or_below_floor),
+    )
+
+
+
 
 def _fit(month: np.ndarray, values: np.ndarray, order: int) -> tuple[np.ndarray, float]:
     matrix = _design_for_months(month, order)

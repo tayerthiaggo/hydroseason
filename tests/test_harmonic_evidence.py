@@ -3,11 +3,13 @@ import pandas as pd
 import pytest
 
 from hydroseason._seasonality import (
+    AmplitudeEvidence,
     HarmonicSelection,
     _design,
     _solve_gram,
     _year_gram,
     _year_matrices,
+    amplitude_evidence,
     select_harmonic_order,
 )
 from hydroseason._state_input import candidate_weights, prepare_monthly_extent
@@ -247,5 +249,97 @@ def test_selection_is_deterministic():
 
     assert first.order == second.order
     assert first.fold_skills == second.fold_skills
+
+
+def test_amplitude_matches_the_fitted_curve_range():
+    values, weights = _matrices(_multi_year_frame(n_years=8, amplitude=20.0))
+    selection = select_harmonic_order(values, weights)
+
+    evidence = amplitude_evidence(values, weights, selection, resolution_floor_pp=0.5)
+
+    assert isinstance(evidence, AmplitudeEvidence)
+    assert evidence.seasonal_amplitude_pp == pytest.approx(40.0, abs=1e-6)
+    assert not evidence.at_or_below_floor
+
+
+def test_constant_record_never_produces_infinity():
+    """The defect this replaces: amplitude / 0 evaluated to np.inf."""
+    months = pd.date_range("2000-01-01", periods=12 * 8, freq="MS")
+    frame = pd.DataFrame({"extent_pct": 0.0, "invalid_pct": 0.0}, index=months)
+    values, weights = _matrices(frame)
+    selection = select_harmonic_order(values, weights)
+
+    evidence = amplitude_evidence(values, weights, selection, resolution_floor_pp=0.5)
+
+    assert np.isfinite(evidence.amplitude_noise_ratio)
+    assert evidence.amplitude_noise_ratio == 0.0
+    assert evidence.at_or_below_floor
+
+
+def test_constant_nonzero_record_also_stays_finite():
+    months = pd.date_range("2000-01-01", periods=12 * 8, freq="MS")
+    frame = pd.DataFrame({"extent_pct": 42.0, "invalid_pct": 0.0}, index=months)
+    values, weights = _matrices(frame)
+    selection = select_harmonic_order(values, weights)
+
+    evidence = amplitude_evidence(values, weights, selection, resolution_floor_pp=0.5)
+
+    assert evidence.amplitude_noise_ratio == 0.0
+    assert evidence.at_or_below_floor
+
+
+def test_amplitude_just_below_floor_is_flagged():
+    months = pd.date_range("2000-01-01", periods=12 * 8, freq="MS")
+    angle = 2.0 * np.pi * (months.month.to_numpy() - 7) / 12.0
+    frame = pd.DataFrame({"extent_pct": 50.0 + 0.1 * np.cos(angle), "invalid_pct": 0.0}, index=months)
+    values, weights = _matrices(frame)
+    selection = select_harmonic_order(values, weights)
+
+    evidence = amplitude_evidence(values, weights, selection, resolution_floor_pp=1.0)
+
+    assert evidence.at_or_below_floor
+    assert evidence.amplitude_noise_ratio == 0.0
+
+
+def test_noise_denominator_never_drops_below_the_floor():
+    """A noiseless record must not divide by a near-zero noise scale."""
+    values, weights = _matrices(_multi_year_frame(n_years=8, amplitude=20.0))
+    selection = select_harmonic_order(values, weights)
+
+    evidence = amplitude_evidence(values, weights, selection, resolution_floor_pp=2.0)
+
+    assert evidence.amplitude_noise_ratio == pytest.approx(40.0 / 2.0, rel=1e-6)
+
+
+def test_noisy_record_has_a_lower_ratio_than_a_clean_one():
+    rng = np.random.default_rng(3)
+    months = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
+    angle = 2.0 * np.pi * (months.month.to_numpy() - 7) / 12.0
+    clean = pd.DataFrame({"extent_pct": 50.0 + 20.0 * np.cos(angle), "invalid_pct": 0.0}, index=months)
+    noisy_values = np.clip(50.0 + 20.0 * np.cos(angle) + rng.normal(0.0, 8.0, size=len(months)), 0, 100)
+    noisy = pd.DataFrame({"extent_pct": noisy_values, "invalid_pct": 0.0}, index=months)
+
+    clean_values, clean_weights = _matrices(clean)
+    noisy_values_matrix, noisy_weights = _matrices(noisy)
+    clean_evidence = amplitude_evidence(
+        clean_values, clean_weights, select_harmonic_order(clean_values, clean_weights), resolution_floor_pp=0.5
+    )
+    noisy_evidence = amplitude_evidence(
+        noisy_values_matrix,
+        noisy_weights,
+        select_harmonic_order(noisy_values_matrix, noisy_weights),
+        resolution_floor_pp=0.5,
+    )
+
+    assert noisy_evidence.amplitude_noise_ratio < clean_evidence.amplitude_noise_ratio
+
+
+def test_resolution_floor_must_be_positive():
+    values, weights = _matrices(_multi_year_frame(n_years=6))
+    selection = select_harmonic_order(values, weights)
+
+    with pytest.raises(ValueError, match="resolution_floor_pp"):
+        amplitude_evidence(values, weights, selection, resolution_floor_pp=0.0)
+
 
 
