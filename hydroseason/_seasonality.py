@@ -25,16 +25,82 @@ class SeasonalPatternResult:
     n_complete_years: int
 
 
-def _design(month: np.ndarray, order: int) -> np.ndarray:
-    theta = 2.0 * np.pi * (month - 1) / 12.0
+_MONTHS_PER_YEAR = 12
+_MAX_HARMONIC_ORDER = 3
+_ALL_MONTHS = np.arange(1, _MONTHS_PER_YEAR + 1)
+
+
+def _design_for_months(month: np.ndarray, order: int) -> np.ndarray:
+    """Harmonic design matrix evaluated at arbitrary calendar months."""
+    theta = 2.0 * np.pi * (month - 1) / _MONTHS_PER_YEAR
     columns = [np.ones(len(month))]
     for harmonic in range(1, order + 1):
         columns.extend([np.sin(harmonic * theta), np.cos(harmonic * theta)])
     return np.column_stack(columns)
 
 
+def _design(order: int) -> np.ndarray:
+    """Fixed 12-row harmonic design over January..December."""
+    return _design_for_months(_ALL_MONTHS, order)
+
+
+def _year_matrices(prepared: pd.DataFrame, weights: pd.Series) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Reshape a prepared monthly frame into (years, values, weights) matrices.
+
+    Months are placed by their true calendar month, never by position, so a
+    partial year keeps its real phase. Absent or unusable months carry NaN
+    value and zero weight, which removes them from every weighted sum without
+    removing the year.
+    """
+    index = pd.DatetimeIndex(prepared.index)
+    year_values = index.year.to_numpy()
+    month_values = index.month.to_numpy()
+    years = np.unique(year_values)
+    row_of_year = {int(year): position for position, year in enumerate(years)}
+
+    values = np.full((len(years), _MONTHS_PER_YEAR), np.nan, dtype=float)
+    weight_matrix = np.zeros((len(years), _MONTHS_PER_YEAR), dtype=float)
+
+    extent = pd.to_numeric(prepared["extent_pct"], errors="coerce").to_numpy(dtype=float)
+    weight_array = weights.to_numpy(dtype=float)
+    for position in range(len(index)):
+        row = row_of_year[int(year_values[position])]
+        column = int(month_values[position]) - 1
+        values[row, column] = extent[position]
+        weight_matrix[row, column] = weight_array[position]
+
+    # A NaN value can never carry weight; guard rather than trusting callers.
+    weight_matrix = np.where(np.isfinite(values), weight_matrix, 0.0)
+    return years, values, weight_matrix
+
+
+def _year_gram(
+    values_row: np.ndarray,
+    weights_row: np.ndarray,
+    design: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, float, float]:
+    """Weighted normal-equation contributions from one year.
+
+    Returning per-year Gram pieces is what makes leave-one-year-out cheap:
+    training on all-but-one year is a subtraction, not a refit.
+    """
+    safe_values = np.where(np.isfinite(values_row), values_row, 0.0)
+    weighted = design * weights_row[:, None]
+    gram = weighted.T @ design
+    moment = weighted.T @ safe_values
+    return gram, moment, float(weights_row.sum()), float(np.sum(weights_row * safe_values**2))
+
+
+def _solve_gram(gram: np.ndarray, moment: np.ndarray) -> np.ndarray | None:
+    """Solve normal equations, returning None rather than raising when singular."""
+    try:
+        return np.linalg.solve(gram, moment)
+    except np.linalg.LinAlgError:
+        return None
+
+
 def _fit(month: np.ndarray, values: np.ndarray, order: int) -> tuple[np.ndarray, float]:
-    matrix = _design(month, order)
+    matrix = _design_for_months(month, order)
     beta = np.linalg.lstsq(matrix, values, rcond=None)[0]
     residual = values - matrix @ beta
     rss = max(float(residual @ residual), np.finfo(float).tiny)
@@ -42,6 +108,7 @@ def _fit(month: np.ndarray, values: np.ndarray, order: int) -> tuple[np.ndarray,
     aic = n * np.log(rss / n) + 2 * k
     aicc = aic + (2 * k * (k + 1) / (n - k - 1)) if n > k + 1 else np.inf
     return beta, float(aicc)
+
 
 
 def _local_extrema(curve: np.ndarray, kind: str) -> list[int]:
@@ -63,10 +130,11 @@ def _classify_values(month: np.ndarray, values: np.ndarray, tolerance: float) ->
     fits = [_fit(month, values, order) for order in (0, 1, 2)]
     order = int(np.argmin([item[1] for item in fits]))
     beta = fits[order][0]
-    curve = _design(np.arange(1, 13), order) @ beta
+    curve = _design(order) @ beta
     intercept_rss = max(float(np.sum((values - values.mean()) ** 2)), np.finfo(float).tiny)
-    selected_rss = max(float(np.sum((values - _design(month, order) @ beta) ** 2)), np.finfo(float).tiny)
+    selected_rss = max(float(np.sum((values - _design_for_months(month, order) @ beta) ** 2)), np.finfo(float).tiny)
     strength = float(np.clip(1.0 - selected_rss / intercept_rss, 0.0, 1.0))
+
     if float(curve.max() - curve.min()) <= tolerance:
         return "low_variability", curve, order, strength
     if order == 0:
