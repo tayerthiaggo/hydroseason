@@ -404,8 +404,11 @@ def equivalent_extremum_months(
 __all__ = [
     "AnnualTimingSummary",
     "CircularTimingSummary",
+    "PhaseDriftSummary",
     "equivalent_extremum_months",
+    "phase_drift",
     "summarise_annual_timing",
     "summarise_circular_months",
 ]
+
 

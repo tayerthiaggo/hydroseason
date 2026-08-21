@@ -547,3 +547,9 @@ def classify_seasonal_pattern(
         troughs[1] if len(troughs) > 1 else None,
         strength, bootstrap_support, _phase_iqr(boot_peaks), _phase_iqr(boot_troughs), len(complete_years),
     )
+
+
+# Backward-compatibility aliases during 0.2.x transition
+assess_seasonal_pattern = classify_seasonal_pattern
+fit_seasonal_harmonics = _fit
+
