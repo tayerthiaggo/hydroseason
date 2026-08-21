@@ -4,7 +4,9 @@ import pytest
 
 from hydroseason._circular_timing import (
     AnnualTimingSummary,
+    PhaseDriftSummary,
     equivalent_extremum_months,
+    phase_drift,
     summarise_annual_timing,
 )
 from hydroseason._seasonality import _year_matrices, retained_modes
@@ -246,5 +248,62 @@ def test_min_frequency_must_be_a_fraction():
         retained_modes(
             values, weights, kind="peak", min_frequency=1.5, min_separation_months=2, random_state=0
         )
+
+
+def test_december_january_transition_does_not_jump_eleven_months():
+    """Defect this replaces: December (12) -> January (1) registered as an 11-month drop."""
+    annual_months = {
+        2000: 11,
+        2001: 12,
+        2002: 12,
+        2003: 1,
+        2004: 1,
+        2005: 2,
+    }
+
+    drift = phase_drift(annual_months, random_state=0)
+
+    assert isinstance(drift, PhaseDriftSummary)
+    # 3 months over 5 intervals = ~0.6 months/year = ~6.0 months/decade, positive.
+    assert 4.0 <= drift.slope_months_per_decade <= 8.0
+    assert drift.p_value < 0.05
+
+
+def test_stationary_annual_timing_has_near_zero_drift():
+    annual_months = {year: 6 for year in range(2000, 2020)}
+
+    drift = phase_drift(annual_months, random_state=0)
+
+    assert drift.slope_months_per_decade == pytest.approx(0.0, abs=1e-6)
+    assert drift.p_value > 0.90
+
+
+def test_equivalent_extremum_months_contribute_their_mean_offset():
+    """A year with tied months 11 and 1 (around Dec) is centered on Dec (0 offset)."""
+    annual_months = {
+        2000: (11, 1),
+        2001: 12,
+        2002: 12,
+        2003: 12,
+        2004: (11, 1),
+    }
+
+    drift = phase_drift(annual_months, random_state=0)
+
+    assert drift.slope_months_per_decade == pytest.approx(0.0, abs=0.5)
+
+
+def test_phase_drift_requires_at_least_three_years():
+    assert phase_drift({2000: 1, 2001: 2}) is None
+
+
+def test_phase_drift_is_deterministic():
+    annual_months = {year: int((year % 3) + 5) for year in range(2000, 2015)}
+
+    first = phase_drift(annual_months, random_state=7)
+    second = phase_drift(annual_months, random_state=7)
+
+    assert first == second
+
 
 

@@ -1,5 +1,6 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from math import erf, sqrt
 from numbers import Integral, Real
 from typing import Iterable, Literal
 
@@ -7,6 +8,16 @@ import numpy as np
 import pandas as pd
 
 _MONTHS_PER_YEAR = 12
+
+
+@dataclass(frozen=True)
+class PhaseDriftSummary:
+    """Circular-safe drift in annual timing over time."""
+
+    slope_months_per_decade: float
+    standard_error: float
+    p_value: float
+    n_years: int
 
 
 @dataclass(frozen=True)
@@ -20,6 +31,7 @@ class AnnualTimingSummary:
     uniformity_p: float | None
     n_years: int
     dominant_month: int | None
+
 
 
 @dataclass(frozen=True)
@@ -162,6 +174,105 @@ def summarise_annual_timing(
         n_years=n_years,
         dominant_month=dominant_month,
     )
+
+
+def _unroll_offsets(
+    angles: np.ndarray,
+    centre_angle: float,
+    window_radius: float,
+) -> np.ndarray:
+    diff = (angles - centre_angle + np.pi) % (2.0 * np.pi) - np.pi
+    diff = np.clip(diff, -window_radius, window_radius)
+    return diff * _MONTHS_PER_YEAR / (2.0 * np.pi)
+
+
+def phase_drift(
+    annual_months: dict[int, int | float | tuple[int | float, ...]],
+    *,
+    window_radius_months: int = 6,
+    n_bootstrap: int = 400,
+    random_state: int = 0,
+) -> PhaseDriftSummary | None:
+    """Trend in peak or trough timing without circular boundary artifacts.
+
+    Unrolls annual extremum months into a symmetric window around the circular
+    mean before fitting the slope on year, which eliminates the artificial
+    11-month drop that standard linear regression sees across December/January.
+    Tied months within a year contribute their mean unrolled position.
+    """
+    if window_radius_months < 1 or window_radius_months > 6:
+        raise ValueError("window_radius_months must be between 1 and 6.")
+    if n_bootstrap < 20:
+        raise ValueError("n_bootstrap must be at least 20.")
+
+    cleaned: dict[int, tuple[float, ...]] = {}
+    for year, entry in annual_months.items():
+        if isinstance(entry, (int, float)):
+            cleaned[int(year)] = (float(entry),)
+        else:
+            cleaned[int(year)] = tuple(float(month) for month in entry)
+
+    if len(cleaned) < 3:
+        return None
+
+    years_sorted = sorted(cleaned)
+    month_sets = [cleaned[year] for year in years_sorted]
+
+    expanded_angles: list[float] = []
+    expanded_weights: list[float] = []
+    for months in month_sets:
+        n = len(months)
+        if n == 0:
+            continue
+        for month in months:
+            expanded_angles.append(2.0 * np.pi * (month - 1) / _MONTHS_PER_YEAR)
+            expanded_weights.append(1.0 / n)
+    if not expanded_angles:
+        return None
+
+    resultant = _weighted_resultant(np.array(expanded_angles), np.array(expanded_weights))
+    if abs(resultant) <= np.finfo(float).eps:
+        return None
+    centre_angle = float(np.angle(resultant))
+
+    window_radius = window_radius_months * (2.0 * np.pi / _MONTHS_PER_YEAR)
+    year_x = np.array(years_sorted, dtype=float)
+    year_y = np.empty(len(years_sorted), dtype=float)
+    for index, year in enumerate(years_sorted):
+        months = cleaned[year]
+        angles = np.array([2.0 * np.pi * (m - 1) / _MONTHS_PER_YEAR for m in months], dtype=float)
+        unrolled = _unroll_offsets(angles, centre_angle, window_radius)
+        year_y[index] = float(np.mean(unrolled))
+
+    centered_x = year_x - np.mean(year_x)
+    var_x = float(np.sum(centered_x**2))
+    if var_x <= 0.0:
+        return None
+    slope = float(np.sum(centered_x * (year_y - np.mean(year_y))) / var_x)
+
+    rng = np.random.default_rng(np.random.SeedSequence(int(random_state)))
+    n_years = len(year_x)
+    draws = rng.integers(0, n_years, size=(int(n_bootstrap), n_years))
+    boot_slopes = np.empty(int(n_bootstrap), dtype=float)
+    for position, row in enumerate(draws):
+        bx = centered_x[row]
+        by = year_y[row]
+        bx_c = bx - np.mean(bx)
+        denom = float(np.sum(bx_c**2))
+        boot_slopes[position] = float(np.sum(bx_c * (by - np.mean(by))) / denom) if denom > 0.0 else 0.0
+
+    se = float(np.std(boot_slopes, ddof=1))
+    z = slope / se if se > 0.0 else 0.0
+    # Two-sided standard normal p-value (erf-based for pure numpy)
+    p_value = float(2.0 * (1.0 - 0.5 * (1.0 + erf(abs(z) / sqrt(2.0)))))
+
+    return PhaseDriftSummary(
+        slope_months_per_decade=float(slope * 10.0),
+        standard_error=float(se * 10.0),
+        p_value=float(np.clip(p_value, 0.0, 1.0)),
+        n_years=n_years,
+    )
+
 
 
 
