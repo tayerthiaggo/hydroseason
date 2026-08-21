@@ -1,16 +1,36 @@
-"""Opt-in four-state hidden semi-Markov model (HSMM) boundary challenger.
+"""DEPRECATED four-state hidden semi-Markov model (HSMM) boundary challenger.
 
-This module is a probabilistic alternative to the shipped-default robust
-extrema detector (``hydroseason._boundary``). It models a hydrological year
-as a strict cycle through four states -- ``wet -> recession -> dry ->
-recovery -> wet`` -- each with an explicit (non-geometric) duration
-distribution, and estimates state occupancy via an explicit-duration
-Viterbi / forward-backward recursion in log space, with an outer EM loop
-that re-estimates the per-state Gaussian emission parameters.
+Deprecated in 0.2.0; scheduled for removal in 0.3.0. Do not import it from new
+code, and do not extend it. It is frozen: no new responsibility, no bug fixes.
 
-Nothing else in the codebase imports this module yet; it is exercised only
-by ``tests/test_semi_markov.py`` until a later task wires it into the public
-dispatch configuration.
+Deprecated because 0.2.0 labels the same four states through
+``hydroseason._cycle_phase``, which normalises each accepted trough-to-trough
+cycle against that cycle's own low-water envelope. This module cannot serve
+that role: it is a global fit that emits trough boundaries for the whole
+record, so it has no cycle-relative normalisation to offer, and its EM loop
+adds a convergence failure mode the threshold state machine does not have.
+See docs/superpowers/specs/2026-08-21-literature-informed-scientific-model-
+0.2.0-design.md, "Deprecation: ``_semi_markov``".
+
+Known defect, not being fixed: the explicit-duration recursions can emit
+``RuntimeWarning: invalid value encountered in logaddexp`` at frame edges. The
+``prior_score`` guards below do not cover ``duration_logp`` or ``segment``, so
+a NaN can still reach ``np.logaddexp``. No released code path reaches this
+module, which is why the warning is tolerated rather than repaired.
+
+What it does: models a hydrological year as a strict cycle through four states
+-- ``wet -> recession -> dry -> recovery -> wet`` -- each with an explicit
+(non-geometric) duration distribution, estimating state occupancy via an
+explicit-duration Viterbi / forward-backward recursion in log space, with an
+outer EM loop that re-estimates the per-state Gaussian emission parameters.
+
+Reachability: imported by ``hydroseason._dynamic_year`` for the private
+``detector="semi_markov"`` comparison path only. That value is rejected by
+``DynamicHydroYearConfig`` validation, so no public caller can select it. It is
+exercised by ``tests/test_semi_markov.py`` and by
+``tests/test_detector_comparison.py::test_semi_markov_promotion_gate``, the
+latter marked ``experimental`` and therefore deselected by the default
+``addopts = ["-m", "not experimental"]``.
 """
 
 from __future__ import annotations
