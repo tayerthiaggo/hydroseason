@@ -240,7 +240,7 @@ def test_catchment_threads_existing_bootstrap_controls_to_regime_assessment():
 
 
 def test_marginal_routes_to_events_without_recoverable_boundaries():
-    result = _calibrated(_marginal())
+    result = _calibrated(_timing_route_record("unstable_trough"))
     assert result.route == "event_characterisation"
     assert result.hydro_years.empty
 

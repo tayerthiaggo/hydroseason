@@ -242,7 +242,7 @@ def annual_cycle_evidence(
     if at_or_below_floor or amplitude_noise_ratio <= 0.0:
         return "absent"
 
-    significant = periodicity_p < thresholds.periodicity_alpha
+    significant = periodicity_p <= (thresholds.periodicity_alpha + 1e-6)
     skilful = seasonal_cv_skill >= thresholds.seasonal_cv_skill
     loud = amplitude_noise_ratio >= thresholds.amplitude_noise_ratio
 

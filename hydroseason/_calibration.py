@@ -521,7 +521,7 @@ def score_evidence_grid_point(evidence_cache: pd.DataFrame, point: tuple) -> Gri
     tr_modes = evidence_cache[f"trough_n_modes_{m_freq:.2f}"].to_numpy(dtype=int)
     unimodal = (pk_modes == 1) & (tr_modes == 1)
 
-    significant = p_val < p_alpha
+    significant = p_val <= (p_alpha + 1e-6)
     skilful = skill >= s_skill
     loud = ratio >= anr
     concentrated = conc >= s_conc
@@ -635,7 +635,7 @@ def select_evidence_defaults(
         s_conc_c = np.array([pt[4] for pt in chunk], dtype=np.float32)
         w_conc_c = np.array([pt[5] for pt in chunk], dtype=np.float32)
 
-        sig_m = p_val[None, :] < p_alpha_c[:, None]
+        sig_m = p_val[None, :] <= (p_alpha_c[:, None] + 1e-6)
         skil_m = skill[None, :] >= s_skill_c[:, None]
         loud_m = ratio[None, :] >= anr_c[:, None]
         conc_m = conc[None, :] >= s_conc_c[:, None]

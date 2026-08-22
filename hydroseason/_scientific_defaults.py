@@ -11,12 +11,12 @@ CALIBRATION_FINGERPRINT = "26d98a74f4d5b54dc9ccea784d618affbfba3f8c807151f39af83
 
 EVIDENCE_DEFAULTS = EvidenceThresholds(
     seasonal_cv_skill=0.8,
-    periodicity_alpha=0.01,
-    amplitude_noise_ratio=2.0,
+    periodicity_alpha=0.025,
+    amplitude_noise_ratio=1.5,
     mode_min_frequency=0.5,
     mode_min_separation_months=2,
     strong_timing_concentration=0.8,
-    weak_timing_concentration=0.3,
+    weak_timing_concentration=0.5,
     min_timing_years=5,
 )
 

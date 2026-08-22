@@ -23,14 +23,11 @@ import pandas as pd
 
 from ._boundary import RobustBoundaryConfig
 from ._boundary_recoverability import (
-    BoundaryRecoverability,
     RecoverabilityThresholds,
     assess_boundary_recoverability,
 )
 from ._circular_timing import (
-    CircularTimingSummary,
     summarise_annual_timing,
-    summarise_circular_months,
     timing_drift,
 )
 from ._events import extract_water_events
@@ -38,6 +35,10 @@ from ._evidence import (
     EvidenceThresholds,
     annual_cycle_evidence,
     annual_extremum_month_sets,
+)
+from ._scientific_defaults import (
+    EVIDENCE_DEFAULTS,
+    RECOVERABILITY_DEFAULTS,
 )
 from ._seasonality import classify_seasonal_pattern
 from ._state_input import QualityPolicy, prepare_monthly_extent
@@ -122,7 +123,7 @@ class WaterRegimeAssessment:
     boundary_cv_within_1_month_wilson_low: float = 0.0
     boundary_cv_p90_error_months: float = 12.0
     boundary_recoverability: str = "insufficient"
-    boundary_recoverability_reason: str = "calibration defaults not installed"
+    boundary_recoverability_reason: str = "insufficient_data"
 
     @property
     def supports_per_year_boundaries(self) -> bool:
@@ -158,24 +159,6 @@ class WaterRegimeAssessment:
             and self.peak_timing_concentration >= _WEAK_TIMING_CONCENTRATION
             and self.trough_timing_concentration >= _WEAK_TIMING_CONCENTRATION
         )
-
-
-def _classify_legacy(snr: float, peak: CircularTimingSummary) -> Regime:
-    if (
-        snr >= _SEASONAL_MIN_SNR
-        and peak.ci_low is not None
-        and peak.ci_low >= _STRONG_TIMING_CONCENTRATION
-    ):
-        return "seasonal"
-    if snr < _ASEASONAL_MAX_SNR:
-        return "aseasonal"
-    if (
-        peak.uniformity_p is not None
-        and peak.uniformity_p >= _CIRCULAR_UNIFORMITY_ALPHA
-        and peak.n >= _UNIFORMITY_MIN_TIMING_YEARS
-    ):
-        return "aseasonal"
-    return "marginal"
 
 
 def _regime_from_evidence(
@@ -229,8 +212,8 @@ def assess_water_regime(
     measurement_tolerance_pct: float = 1.0,
     n_bootstrap: int = 200,
     random_state: int = 0,
-    evidence_thresholds: EvidenceThresholds | None = None,
-    recoverability_thresholds: RecoverabilityThresholds | None = None,
+    evidence_thresholds: EvidenceThresholds = EVIDENCE_DEFAULTS,
+    recoverability_thresholds: RecoverabilityThresholds = RECOVERABILITY_DEFAULTS,
     robust_boundary_config: RobustBoundaryConfig | None = None,
     trough_search_radius_months: int = 3,
 ) -> WaterRegimeAssessment:
@@ -245,10 +228,10 @@ def assess_water_regime(
     if not 1 <= min_months_per_year <= 12:
         raise ValueError("min_months_per_year must be between 1 and 12.")
 
-    if (evidence_thresholds is None) != (recoverability_thresholds is None):
-        raise ValueError(
-            "Both evidence_thresholds and recoverability_thresholds must be provided together, or both omitted."
-        )
+    if evidence_thresholds is None:
+        evidence_thresholds = EVIDENCE_DEFAULTS
+    if recoverability_thresholds is None:
+        recoverability_thresholds = RECOVERABILITY_DEFAULTS
 
     prepared = prepare_monthly_extent(
         extent,
@@ -305,11 +288,7 @@ def assess_water_regime(
         trough_month_sets, n_resamples=n_bootstrap, random_state=random_state
     )
 
-    min_drift_years = (
-        evidence_thresholds.min_timing_years
-        if evidence_thresholds is not None
-        else 10
-    )
+    min_drift_years = evidence_thresholds.min_timing_years
     peak_drift = timing_drift(
         peak_month_sets,
         min_timing_years=min_drift_years,
@@ -322,17 +301,13 @@ def assess_water_regime(
     )
 
     # Seasonality harmonic analysis
-    if evidence_thresholds is not None:
-        mode_freq = evidence_thresholds.mode_min_frequency
-        mode_sep = evidence_thresholds.mode_min_separation_months
-        boot_n = max(n_bootstrap, 1)
-    else:
-        mode_freq = None
-        mode_sep = None
-        boot_n = n_bootstrap
+    mode_freq = evidence_thresholds.mode_min_frequency
+    mode_sep = evidence_thresholds.mode_min_separation_months
+    boot_n = max(n_bootstrap, 1)
 
     pattern_res = classify_seasonal_pattern(
         prepared,
+        resolution_floor_pp=1e-6,
         measurement_tolerance_pct=measurement_tolerance_pct,
         mode_min_frequency=mode_freq,
         mode_min_separation_months=mode_sep,
@@ -350,9 +325,9 @@ def assess_water_regime(
         max_invalid_pct=max_invalid_pct,
         quality_policy=quality_policy,
     ).summary
-    n_wet_events = event_summary["n_events"]
-    longest_low = event_summary["longest_low_spell_months"]
-    years_without = event_summary["years_without_event"]
+    n_wet_events = int(event_summary["n_events"])
+    longest_low = int(event_summary["longest_low_spell_months"])
+    years_without = int(event_summary["years_without_event"])
 
     if len(qualifying_years) < _MIN_USABLE_YEARS:
         return WaterRegimeAssessment(
@@ -399,60 +374,38 @@ def assess_water_regime(
             boundary_recoverability_reason=f"{len(qualifying_years)} usable years below minimum {_MIN_USABLE_YEARS}",
         )
 
-    if evidence_thresholds is not None and recoverability_thresholds is not None:
-        at_or_below_floor = (
-            pattern_res.seasonal_amplitude_pp <= measurement_tolerance_pct
-            or pattern_res.pattern == "low_variability"
-        )
-        evidence = annual_cycle_evidence(
-            seasonal_cv_skill=pattern_res.seasonal_cv_skill,
-            periodicity_p=pattern_res.periodicity_p,
-            amplitude_noise_ratio=pattern_res.amplitude_noise_ratio,
-            peak_n_modes=pattern_res.peak_timing_n_modes,
-            trough_n_modes=pattern_res.trough_timing_n_modes,
-            n_evaluable_years=pattern_res.n_evaluable_years,
-            at_or_below_floor=at_or_below_floor,
-            timing=trough_timing,
-            drift_status=trough_drift.status,
-            thresholds=evidence_thresholds,
-        )
-        regime = _regime_from_evidence(
-            evidence=evidence,
-            trough_modes=pattern_res.trough_timing_n_modes,
-            trough_drift_status=trough_drift.status,
-        )
-        boundary_rec = assess_boundary_recoverability(
-            prepared,
-            month_sets=trough_month_sets,
-            evidence=evidence,
-            thresholds=recoverability_thresholds,
-            drift=trough_drift,
-            n_trough_modes=pattern_res.trough_timing_n_modes,
-            config=robust_boundary_config or RobustBoundaryConfig(),
-            search_radius_months=trough_search_radius_months,
-            min_usable_months=min_months_per_year,
-        )
-    else:
-        # Non-release Plan 2 calibration bridge
-        legacy_peak_timing = summarise_circular_months(
-            [
-                int(group[value_col].idxmax().month)
-                for _, group in qualifying_groups
-            ],
-            n_resamples=n_bootstrap,
-            random_state=random_state,
-        )
-        regime = _classify_legacy(snr, legacy_peak_timing)
-        evidence = "insufficient"
-        boundary_rec = BoundaryRecoverability(
-            n=0,
-            coverage=0.0,
-            within_1_month=0.0,
-            within_1_month_wilson_low=0.0,
-            p90_error_months=12.0,
-            state="insufficient",
-            reason="calibration defaults not installed",
-        )
+    at_or_below_floor = (
+        pattern_res.seasonal_amplitude_pp <= 0.0
+        or pattern_res.pattern == "low_variability"
+    )
+    evidence = annual_cycle_evidence(
+        seasonal_cv_skill=pattern_res.seasonal_cv_skill,
+        periodicity_p=pattern_res.periodicity_p,
+        amplitude_noise_ratio=pattern_res.amplitude_noise_ratio,
+        peak_n_modes=pattern_res.peak_timing_n_modes,
+        trough_n_modes=pattern_res.trough_timing_n_modes,
+        n_evaluable_years=pattern_res.n_evaluable_years,
+        at_or_below_floor=at_or_below_floor,
+        timing=trough_timing,
+        drift_status=trough_drift.status,
+        thresholds=evidence_thresholds,
+    )
+    regime = _regime_from_evidence(
+        evidence=evidence,
+        trough_modes=pattern_res.trough_timing_n_modes,
+        trough_drift_status=trough_drift.status,
+    )
+    boundary_rec = assess_boundary_recoverability(
+        prepared,
+        month_sets=trough_month_sets,
+        evidence=evidence,
+        thresholds=recoverability_thresholds,
+        drift=trough_drift,
+        n_trough_modes=pattern_res.trough_timing_n_modes,
+        config=robust_boundary_config or RobustBoundaryConfig(),
+        search_radius_months=trough_search_radius_months,
+        min_usable_months=min_months_per_year,
+    )
 
     # Peak/trough assignment
     if regime in ("seasonal", "marginal"):

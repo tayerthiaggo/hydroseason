@@ -3,12 +3,12 @@
   "fingerprint": "26d98a74f4d5b54dc9ccea784d618affbfba3f8c807151f39af83a386e576c1b",
   "evidence": {
     "seasonal_cv_skill": 0.8,
-    "periodicity_alpha": 0.01,
-    "amplitude_noise_ratio": 2.0,
+    "periodicity_alpha": 0.025,
+    "amplitude_noise_ratio": 1.5,
     "mode_min_frequency": 0.5,
     "mode_min_separation_months": 2,
     "strong_timing_concentration": 0.8,
-    "weak_timing_concentration": 0.3,
+    "weak_timing_concentration": 0.5,
     "min_timing_years": 5
   },
   "recoverability": {
@@ -26,25 +26,25 @@
     "phase_smoothing_window": 5
   },
   "false_annualisation_by_length": {
-    "5": 0.0,
-    "7": 0.0,
-    "10": 0.0,
+    "5": 0.013422818791946308,
+    "7": 0.0017513134851138354,
+    "10": 0.001692047377326565,
     "20": 0.0,
     "30": 0.0
   },
   "drift_axis": {
-    "admit": 0.0,
-    "reject": 0.0
+    "admit": 0.003399048266485384,
+    "reject": 0.003399048266485384
   },
   "periodicity_null": {
-    "selected_alpha": 0.01,
+    "selected_alpha": 0.025,
     "bias_note": "The rotation null exhibits anti-conservative bias because rotating calendar months introduces artificial boundaries between December and January. To counteract this anti-conservative tendency and preserve strict false positive guarantees, the calibration objective selects a conservative alpha threshold."
   },
   "metrics": {
-    "false_annualisation_rate": 0.0,
-    "false_annualisation_wilson_high": 0.001304027740843594,
-    "routing_recall": 0.0,
-    "correct_abstention": 1.0,
+    "false_annualisation_rate": 0.003399048266485384,
+    "false_annualisation_wilson_high": 0.006245890632271767,
+    "routing_recall": 0.7874149680137634,
+    "correct_abstention": 0.8378607630729675,
     "boundary_mae": 0.13445497246517654,
     "phase_macro_accuracy": 0.49731208375067676,
     "phase_transition_mae": 1.646332395351889,

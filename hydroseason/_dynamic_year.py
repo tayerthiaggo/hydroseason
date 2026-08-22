@@ -15,6 +15,7 @@ from ._boundary import (
     select_cycle_peak,
     select_window_minimum,
 )
+from ._scientific_defaults import PHASE_DEFAULTS
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._semi_markov import SemiMarkovConfig, fit_semi_markov_boundaries
 from ._state_input import QualityPolicy, prepare_monthly_extent
@@ -46,10 +47,10 @@ class DynamicHydroYearConfig:
     measurement_tolerance_pct: float = 1.0
     detector: Literal["robust_extrema"] = "robust_extrema"
     phase_model: Literal["cycle_relative", "rule_based", "none"] = "cycle_relative"
-    phase_low_fraction: float = 0.25
-    phase_high_fraction: float = 0.75
-    phase_min_duration_months: int = 2
-    phase_smoothing_window: int = 3
+    phase_low_fraction: float = PHASE_DEFAULTS.phase_low_fraction
+    phase_high_fraction: float = PHASE_DEFAULTS.phase_high_fraction
+    phase_min_duration_months: int = PHASE_DEFAULTS.phase_min_duration_months
+    phase_smoothing_window: int = PHASE_DEFAULTS.phase_smoothing_window
 
     def __post_init__(self) -> None:
         if self.expected_trough_month not in range(1, 13):

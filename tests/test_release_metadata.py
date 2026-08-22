@@ -109,3 +109,38 @@ def test_no_gitignored_or_process_files_are_tracked_in_git():
     if res.returncode == 0:
         tracked_ignored = [f for f in res.stdout.splitlines() if f.strip()]
         assert tracked_ignored == [], f"Tracked files matching .gitignore: {tracked_ignored}"
+
+
+def test_calibration_report_is_not_stale():
+    from hydroseason import _scientific_defaults as defaults
+    from hydroseason._calibration import fingerprint
+
+    assert defaults.CALIBRATION_FINGERPRINT == fingerprint(), (
+        "calibration inputs changed since constants were generated; "
+        "re-run scripts/run_calibration.py and start a new calibration version"
+    )
+
+
+def test_package_ships_the_calibration_report():
+    """Source-tree presence is covered here; Task 7 checks built artifacts."""
+    assert Path("docs/calibration/2026-08-21-calibration-report.json").is_file()
+
+
+def test_config_defaults_are_the_generated_phase_defaults():
+    from hydroseason import _scientific_defaults as defaults
+    from hydroseason._dynamic_year import DynamicHydroYearConfig
+
+    config = DynamicHydroYearConfig(expected_trough_month=7)
+    for name in (
+        "phase_low_fraction",
+        "phase_high_fraction",
+        "phase_min_duration_months",
+        "phase_smoothing_window",
+    ):
+        assert getattr(config, name) == getattr(defaults.PHASE_DEFAULTS, name)
+
+
+def test_release_runtime_has_no_uncalibrated_bridge():
+    source = Path("hydroseason/_regime.py").read_text(encoding="utf-8")
+
+    assert "calibration defaults not installed" not in source

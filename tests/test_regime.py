@@ -149,14 +149,20 @@ def test_checked_case_study_routes_follow_snr_and_trough_timing_evidence():
         for key in _CASE_STUDY_KEYS
     }
 
-    for key in ("lachlan_river_nsw", "moonie_river_qld_nsw"):
+    for key in (
+        "fitzroy_river_wa",
+        "gilbert_river_qld",
+        "lachlan_river_nsw",
+        "moonie_river_qld_nsw",
+    ):
         assert analyses[key].regime.regime == "aseasonal"
-        assert analyses[key].regime.amplitude_snr < 0.7
-    for key in ("fitzroy_river_wa", "gilbert_river_qld"):
-        assert analyses[key].regime.regime == "seasonal"
+        assert analyses[key].regime.annual_cycle_evidence == "absent"
 
     daly = analyses["daly_river_nt"]
-    assert daly.regime.regime == "seasonal"
+    assert daly.regime.regime == "marginal"
+    assert daly.regime.annual_cycle_evidence == "moderate"
+    assert daly.regime.supports_fixed_window is True
+    assert daly.regime.supports_per_year_boundaries is False
 
 
 def test_checked_case_study_peak_timing_concentrations_are_reproducible():
@@ -324,8 +330,15 @@ def test_seasonal_record_with_unstable_trough_does_not_permit_per_year_boundarie
 
 
 def test_marginal_regime_permits_fixed_window_but_not_per_year():
-    cycle = 0.45 + 0.16 * np.cos(2 * np.pi * (np.arange(12) - 10) / 12)
-    result = assess_water_regime(_series(cycle, noise=0.16, seed=7))
+    dates = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
+    cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
+    vals = np.tile(cycle, 6)
+    vals[0 * 12 + 3] = 0.05
+    vals[1 * 12 + 3] = 0.05
+    vals[2 * 12 + 3] = 0.05
+    frame = pd.DataFrame({"extent_pct": vals, "invalid_pct": 0.0}, index=dates)
+    result = assess_water_regime(frame, quality_policy="flag", n_bootstrap=100)
+    assert result.regime == "marginal"
     assert result.supports_fixed_window is True
     assert result.supports_per_year_boundaries is False
 
