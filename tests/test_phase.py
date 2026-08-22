@@ -37,8 +37,8 @@ def monsonal_extent() -> pd.DataFrame:
     return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
 
 
-def test_phase_model_defaults_to_rule_based():
-    assert DynamicHydroYearConfig(expected_trough_month=9).phase_model == "rule_based"
+def test_phase_model_defaults_to_cycle_relative():
+    assert DynamicHydroYearConfig(expected_trough_month=9).phase_model == "cycle_relative"
 
 
 def test_phase_model_rejects_unreleased_semi_markov_mode():

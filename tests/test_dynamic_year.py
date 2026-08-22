@@ -603,3 +603,67 @@ def test_existing_columns_keep_their_order():
     existing = ["hy_year", "status", "status_reason"]
 
     assert list(result.columns)[: len(existing)] == existing
+
+
+
+def test_cycle_relative_is_the_default_phase_model():
+    assert DynamicHydroYearConfig(expected_trough_month=9).phase_model == "cycle_relative"
+
+
+def test_legacy_and_disabled_phase_models_remain_selectable():
+    assert DynamicHydroYearConfig(expected_trough_month=9, phase_model="rule_based").phase_model == "rule_based"
+    assert DynamicHydroYearConfig(expected_trough_month=9, phase_model="none").phase_model == "none"
+
+
+def test_unknown_phase_model_is_rejected():
+    with pytest.raises(ValueError, match="phase_model"):
+        DynamicHydroYearConfig(expected_trough_month=9, phase_model="semi_markov")
+
+
+@pytest.mark.parametrize(
+    "low, high",
+    [(0.5, 0.5), (0.8, 0.2), (-0.1, 0.7), (0.2, 1.1)],
+)
+def test_invalid_band_fractions_are_rejected(low, high):
+    with pytest.raises(ValueError, match="fraction"):
+        DynamicHydroYearConfig(expected_trough_month=9, phase_low_fraction=low, phase_high_fraction=high)
+
+
+def test_valid_band_fractions_are_accepted():
+    config = DynamicHydroYearConfig(expected_trough_month=9, phase_low_fraction=0.0, phase_high_fraction=1.0)
+
+    assert config.phase_low_fraction == 0.0
+    assert config.phase_high_fraction == 1.0
+
+
+def test_minimum_duration_must_be_at_least_one_month():
+    with pytest.raises(ValueError, match="phase_min_duration_months"):
+        DynamicHydroYearConfig(expected_trough_month=9, phase_min_duration_months=0)
+
+
+@pytest.mark.parametrize("window", [0, -1, 2, 4])
+def test_smoothing_window_must_be_odd_and_positive(window):
+    with pytest.raises(ValueError, match="phase_smoothing_window"):
+        DynamicHydroYearConfig(expected_trough_month=9, phase_smoothing_window=window)
+
+
+def test_smoothing_window_may_exceed_cycle_length():
+    """Oversized windows are resolved at use time, not rejected up front."""
+    assert DynamicHydroYearConfig(expected_trough_month=9, phase_smoothing_window=25).phase_smoothing_window == 25
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_phase_fractions_must_be_finite(value):
+    with pytest.raises(ValueError, match="fraction"):
+        DynamicHydroYearConfig(expected_trough_month=9, phase_low_fraction=value)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("phase_min_duration_months", True),
+    ("phase_min_duration_months", 1.5),
+    ("phase_smoothing_window", True),
+    ("phase_smoothing_window", 3.5),
+])
+def test_phase_integer_fields_reject_bools_and_floats(field, value):
+    with pytest.raises(ValueError, match=field):
+        DynamicHydroYearConfig(expected_trough_month=9, **{field: value})
