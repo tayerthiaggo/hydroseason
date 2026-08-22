@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -166,3 +169,60 @@ def test_phase_selection_uses_the_specified_lexicographic_order():
             item.thresholds.phase_min_duration_months,
         ),
     )
+
+
+def test_validation_report_exists_and_is_from_frozen_constants():
+    report_path = Path("docs/calibration/2026-08-21-validation-report.json")
+    assert report_path.exists(), "validation report not found"
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    from hydroseason import _scientific_defaults as defaults
+
+    assert payload["calibration_version"] == defaults.CALIBRATION_VERSION
+    assert payload["fingerprint"] == defaults.CALIBRATION_FINGERPRINT
+    assert payload["partition"] == "validation"
+
+
+def test_validation_seeds_never_overlap_calibration_seeds():
+    report_path = Path("docs/calibration/2026-08-21-validation-report.json")
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert min(payload["seeds"]) >= 20000
+
+
+def test_validation_report_carries_every_required_section():
+    report_path = Path("docs/calibration/2026-08-21-validation-report.json")
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+
+    for section in (
+        "evidence_confusion_matrix",
+        "false_annualisation",
+        "correct_abstention",
+        "false_annualisation_by_length",
+        "route_coverage",
+        "boundary_metrics",
+        "phase_accuracy",
+        "phase_stability_calibration",
+        "sensitivity",
+        "runtime",
+    ):
+        assert section in payload, f"missing required section {section}"
+
+
+def test_sensitivity_covers_extent_dependent_bias():
+    report_path = Path("docs/calibration/2026-08-21-validation-report.json")
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert "extent_dependent_bias" in payload["sensitivity"]
+
+
+def test_sensitivity_covers_every_fixed_recoverability_criterion():
+    report_path = Path("docs/calibration/2026-08-21-validation-report.json")
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert set(payload["recoverability_sensitivity"]) == {
+        "min_years",
+        "min_coverage",
+        "min_within_1_month",
+        "max_p90_error_months",
+    }
+
