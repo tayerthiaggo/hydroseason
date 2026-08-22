@@ -1,12 +1,18 @@
 import numpy as np
+import pytest
 
 from hydroseason._calibration import (
+    EVIDENCE_GRID,
+    PHASE_GRID,
     PhaseCycleStatistics,
     RecordStatistics,
     build_evidence_cache,
     build_phase_cache,
     compute_phase_statistics,
     compute_statistics,
+    iter_evidence_points,
+    select_evidence_defaults,
+    select_phase_defaults,
 )
 from hydroseason._synthetic import generate_record
 
@@ -84,3 +90,79 @@ def test_evidence_and_phase_cache_schemas_are_distinct():
     assert "seasonal_cv_skill" in evidence.columns
     assert phases and isinstance(phases[0], PhaseCycleStatistics)
     assert not hasattr(phases[0], "seasonal_cv_skill")
+
+
+def test_grid_matches_the_committed_specification():
+    assert EVIDENCE_GRID["seasonal_cv_skill"] == pytest.approx(
+        [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+    )
+    assert EVIDENCE_GRID["periodicity_alpha"] == pytest.approx([0.01, 0.025, 0.05, 0.10])
+    assert EVIDENCE_GRID["amplitude_noise_ratio"] == pytest.approx([0.5, 0.7, 1.0, 1.5, 2.0])
+    assert EVIDENCE_GRID["mode_min_frequency"] == pytest.approx([0.50, 0.60, 0.70, 0.80])
+    assert EVIDENCE_GRID["min_timing_years"] == [5, 7, 10]
+    assert EVIDENCE_GRID["within_1_month_wilson_floor"] == pytest.approx([0.30, 0.40, 0.50, 0.60])
+    assert EVIDENCE_GRID["admit_insufficient_drift"] == [False, True]
+
+
+def test_phase_grid_matches_the_committed_specification():
+    assert PHASE_GRID["phase_low_fraction"] == pytest.approx([0.10, 0.20, 0.25, 0.30])
+    assert PHASE_GRID["phase_high_fraction"] == pytest.approx([0.60, 0.70, 0.75, 0.80])
+    assert PHASE_GRID["phase_min_duration_months"] == [1, 2, 3]
+    assert PHASE_GRID["phase_smoothing_window"] == [1, 3, 5]
+
+
+def test_valid_evidence_grid_has_exact_cardinality():
+    assert sum(1 for _ in iter_evidence_points()) == 190_080
+
+
+def test_selection_is_deterministic():
+    evidence_cache = build_evidence_cache(range(10000, 10200), partition="calibration")
+    phase_cache = build_phase_cache(range(10000, 10200), partition="calibration")
+
+    first = (select_evidence_defaults(evidence_cache), select_phase_defaults(phase_cache))
+    second = (select_evidence_defaults(evidence_cache), select_phase_defaults(phase_cache))
+
+    assert first == second
+
+
+def test_selected_point_respects_the_negative_control_bound():
+    """Stage 1 of the objective is a hard constraint, not a preference."""
+    cache = build_evidence_cache(range(10000, 10400), partition="calibration")
+
+    _, _, scores = select_evidence_defaults(cache)
+    chosen = scores[0]
+
+    assert chosen.false_annualisation_wilson_high <= 0.05
+
+
+def test_weak_concentration_is_always_below_strong():
+    cache = build_evidence_cache(range(10000, 10200), partition="calibration")
+    evidence, _, _ = select_evidence_defaults(cache)
+
+    assert evidence.weak_timing_concentration < evidence.strong_timing_concentration
+
+
+def test_scoring_reports_false_annualisation_stratified_by_record_length():
+    cache = build_evidence_cache(range(10000, 10400), partition="calibration")
+    _, _, scores = select_evidence_defaults(cache)
+
+    assert set(scores[0].false_annualisation_by_length) >= {"5", "7", "10", "20", "30"} or set(scores[0].false_annualisation_by_length) >= {5, 7, 10, 20, 30}
+
+
+def test_phase_selection_uses_the_specified_lexicographic_order():
+    cache = build_phase_cache(range(10000, 10400), partition="calibration")
+
+    selected, scores = select_phase_defaults(cache)
+    best = scores[0]
+
+    assert best.thresholds == selected
+    assert scores == sorted(
+        scores,
+        key=lambda item: (
+            -item.macro_accuracy,
+            item.transition_mae,
+            item.forced_complete_rate,
+            item.thresholds.phase_smoothing_window,
+            item.thresholds.phase_min_duration_months,
+        ),
+    )
