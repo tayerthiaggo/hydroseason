@@ -3,9 +3,11 @@ import pandas as pd
 import pytest
 
 from hydroseason._cycle_phase import (
+    UNSPECIFIED,
     NormalisedCycle,
     PhaseThresholds,
     effective_window,
+    label_cycle,
     normalise_cycle,
     smooth_for_geometry,
 )
@@ -169,4 +171,96 @@ def test_no_value_is_ever_infinite():
     result = normalise_cycle(frame, start_extent=start, end_extent=end, window=1, resolution_floor_pp=0.5)
 
     assert np.isfinite(result.z.to_numpy(dtype=float)).all() or not result.sufficient
+
+
+def _labels(values, *, low=0.25, high=0.75, duration=1, window=1):
+    frame, start, end = _cycle(values)
+    normalised = normalise_cycle(
+        frame, start_extent=start, end_extent=end, window=window, resolution_floor_pp=0.5
+    )
+    return label_cycle(
+        normalised, low_fraction=low, high_fraction=high, min_duration_months=duration
+    ).tolist()
+
+
+def test_ideal_sinusoid_contains_all_four_phases_in_order():
+    """Failure 4: the old rules produced no recovery and started dry while high."""
+    months = np.arange(13)
+    values = (50.0 - 40.0 * np.cos(2.0 * np.pi * months / 12.0)).tolist()
+
+    labels = _labels(values)
+
+    order = [label for index, label in enumerate(labels) if index == 0 or label != labels[index - 1]]
+    assert order[0] == "dry"
+    assert "recovery" in order
+    assert "wet" in order
+    assert "recession" in order
+    assert order.index("recovery") < order.index("wet") < order.index("recession")
+
+
+def test_low_plateau_stays_dry_until_sustained_rise():
+    values = [5.0, 5.0, 5.0, 5.0, 20.0, 55.0, 85.0, 55.0, 20.0, 5.0]
+
+    labels = _labels(values, duration=1)
+
+    assert labels[:4] == ["dry"] * 4
+
+
+def test_high_post_peak_extent_cannot_become_dry_before_lower_band_entry():
+    values = [5.0, 30.0, 70.0, 95.0, 80.0, 60.0, 35.0, 5.0]
+
+    labels = _labels(values)
+
+    for label, value in zip(labels, values):
+        if value >= 60.0:
+            assert label != "dry"
+
+
+def test_missing_transition_evidence_yields_unspecified_not_a_forced_label():
+    """A cycle that never reaches the upper band has no wet phase to report."""
+    values = [5.0, 8.0, 12.0, 15.0, 12.0, 8.0, 5.0]
+
+    labels = _labels(values, low=0.25, high=0.95, duration=3)
+
+    assert UNSPECIFIED in labels
+    assert "wet" not in labels
+
+
+def test_min_duration_suppresses_a_one_month_blip():
+    values = [5.0, 5.0, 25.0, 5.0, 5.0, 40.0, 80.0, 40.0, 5.0]
+
+    labels = _labels(values, duration=2)
+
+    assert labels[2] in {"dry", UNSPECIFIED}
+
+
+def test_rewetting_pulse_does_not_restart_the_cycle():
+    values = [5.0, 30.0, 70.0, 95.0, 60.0, 75.0, 40.0, 10.0, 5.0]
+
+    labels = _labels(values)
+
+    assert labels.count("dry") >= 1
+    # One cycle, so the opening dry run and closing dry run are the only two.
+    runs = [label for index, label in enumerate(labels) if index == 0 or label != labels[index - 1]]
+    assert runs.count("wet") <= 1
+
+
+def test_insufficient_cycle_is_entirely_unspecified():
+    values = [10.0, 10.0, 10.0, 10.0]
+
+    labels = _labels(values)
+
+    assert set(labels) == {UNSPECIFIED}
+
+
+def test_labels_align_with_the_cycle_index():
+    values = [5.0, 30.0, 70.0, 95.0, 60.0, 30.0, 5.0]
+    frame, start, end = _cycle(values)
+    normalised = normalise_cycle(frame, start_extent=start, end_extent=end, window=1, resolution_floor_pp=0.5)
+
+    labels = label_cycle(normalised, low_fraction=0.25, high_fraction=0.75, min_duration_months=1)
+
+    assert labels.index.equals(frame.index)
+    assert len(labels) == len(frame)
+
 

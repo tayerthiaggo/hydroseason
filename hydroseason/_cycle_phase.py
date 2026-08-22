@@ -149,3 +149,109 @@ def normalise_cycle(
         True,
     )
 
+
+def _sustained(mask: np.ndarray, start: int, months: int) -> bool:
+    """Whether ``mask`` holds for ``months`` consecutive positions from ``start``."""
+    end = start + months
+    if end > len(mask):
+        return False
+    return bool(mask[start:end].all())
+
+
+def label_cycle(
+    normalised: NormalisedCycle,
+    *,
+    low_fraction: float,
+    high_fraction: float,
+    min_duration_months: int,
+) -> pd.Series:
+    """Walk dry -> recovery -> wet -> recession -> dry over band crossings.
+
+    Every transition must be evidenced. Where one cannot be established the
+    interval stays ``unspecified``: a forced label is worse than an absent one,
+    because a downstream duration metric cannot distinguish an invented phase
+    from an observed one.
+    """
+    if not 0.0 <= low_fraction < high_fraction <= 1.0:
+        raise ValueError("require 0 <= low_fraction < high_fraction <= 1")
+    if min_duration_months < 1:
+        raise ValueError("min_duration_months must be at least 1")
+
+    index = normalised.z.index
+    labels = pd.Series(UNSPECIFIED, index=index, dtype=object)
+    if not normalised.sufficient or len(index) == 0:
+        return labels
+
+    signal = normalised.smoothed_z.to_numpy(dtype=float)
+    n = len(signal)
+    finite = np.isfinite(signal)
+    if not finite.any():
+        return labels
+
+    rising = np.zeros(n, dtype=bool)
+    rising[1:] = np.diff(np.where(finite, signal, np.nan)) > 0.0
+    above_high = finite & (signal >= high_fraction)
+    below_low = finite & (signal <= low_fraction)
+
+    peak_position = normalised.observed_peak_position
+    if peak_position is None or not finite[peak_position]:
+        return labels
+
+    # Recovery: first sustained rise out of the lower band, before the peak.
+    recovery_start: int | None = None
+    for position in range(1, peak_position + 1):
+        if not below_low[position] and _sustained(rising, position, int(min_duration_months)):
+            recovery_start = position
+            break
+
+    # Wet: first upper-band upcrossing at or before the peak.
+    wet_start: int | None = None
+    for position in range(0, peak_position + 1):
+        if above_high[position] and _sustained(above_high, position, int(min_duration_months)):
+            wet_start = position
+            break
+
+    # Recession: first sustained upper-band downcrossing after the peak.
+    recession_start: int | None = None
+    if wet_start is not None:
+        for position in range(peak_position + 1, n):
+            if not above_high[position] and _sustained(~above_high, position, int(min_duration_months)):
+                recession_start = position
+                break
+
+    # Closing dry: first sustained lower-band entry after recession begins.
+    closing_dry_start: int | None = None
+    if recession_start is not None:
+        for position in range(recession_start, n):
+            if below_low[position] and _sustained(below_low, position, int(min_duration_months)):
+                closing_dry_start = position
+                break
+
+    if recovery_start is not None:
+        opening = np.arange(n) < recovery_start
+        labels.iloc[np.flatnonzero(opening & below_low)] = "dry"
+        end = wet_start if wet_start is not None else (peak_position + 1)
+        labels.iloc[recovery_start:end] = "recovery"
+    elif wet_start is not None:
+        opening = np.arange(n) < wet_start
+        labels.iloc[np.flatnonzero(opening & below_low)] = "dry"
+
+    if wet_start is not None:
+        end = recession_start if recession_start is not None else n
+        labels.iloc[wet_start:end] = "wet"
+
+    if recession_start is not None:
+        below_low_indices = np.flatnonzero((np.arange(n) >= recession_start) & below_low)
+        first_below = int(below_low_indices[0]) if len(below_low_indices) > 0 else n
+        end = closing_dry_start if closing_dry_start is not None else first_below
+        labels.iloc[recession_start:end] = "recession"
+
+    if closing_dry_start is not None:
+        closing = np.arange(n) >= closing_dry_start
+        labels.iloc[np.flatnonzero(closing & below_low)] = "dry"
+
+    labels.loc[~finite] = UNSPECIFIED
+    return labels
+
+
+
