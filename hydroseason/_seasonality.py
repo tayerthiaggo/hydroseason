@@ -5,6 +5,7 @@ from numbers import Integral
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 
 from ._harmonic import (
     _DEFAULT_N_NULL,
@@ -128,8 +129,12 @@ def classify_seasonal_pattern(
         if resolution_floor_pp is None
         else float(resolution_floor_pp)
     )
-
-    prepared = prepare_monthly_extent(extent, quality_policy=quality_policy)
+    if isinstance(extent, pd.DataFrame) and "candidate_usable" in extent.columns:
+        prepared = extent.copy()
+        if "observed_fraction" not in prepared.columns:
+            prepared["observed_fraction"] = 1.0
+    else:
+        prepared = prepare_monthly_extent(extent, quality_policy=quality_policy)
     weights = candidate_weights(prepared)
     usable = prepared.loc[prepared["candidate_usable"]]
     complete_years = [

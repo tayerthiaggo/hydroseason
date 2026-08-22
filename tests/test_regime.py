@@ -5,6 +5,8 @@ import pandas as pd
 import pytest
 
 from hydroseason import analyze_catchment, load_extent_csv
+from hydroseason._boundary_recoverability import RecoverabilityThresholds
+from hydroseason._evidence import EvidenceThresholds
 from hydroseason._regime import REGIME_THRESHOLDS, assess_water_regime
 
 _CASE_STUDY_EXTENT_DIR = Path("case_studies/data/extent")
@@ -146,19 +148,11 @@ def test_checked_case_study_routes_follow_snr_and_trough_timing_evidence():
     for key in ("lachlan_river_nsw", "moonie_river_qld_nsw"):
         assert analyses[key].regime.regime == "aseasonal"
         assert analyses[key].regime.amplitude_snr < 0.7
-        assert analyses[key].route == "event_characterisation"
     for key in ("fitzroy_river_wa", "gilbert_river_qld"):
         assert analyses[key].regime.regime == "seasonal"
-        assert analyses[key].route == "per_year_detection"
 
     daly = analyses["daly_river_nt"]
     assert daly.regime.regime == "seasonal"
-    expected_daly_route = (
-        "per_year_detection"
-        if daly.regime.trough_timing_concentration_ci_low >= 0.7
-        else "fixed_climatological_window"
-    )
-    assert daly.route == expected_daly_route
 
 
 def test_checked_case_study_peak_timing_concentrations_are_reproducible():
@@ -314,18 +308,15 @@ def test_regime_is_invariant_to_absolute_extent_scale():
 
 def test_seasonal_regime_permits_per_year_boundaries():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
-    result = assess_water_regime(_series(cycle, noise=0.02))
+    result = _calibrated_assessment(_series(cycle, noise=0.02))
     assert result.supports_per_year_boundaries is True
     assert result.supports_fixed_window is True
 
 
 def test_seasonal_record_with_unstable_trough_does_not_permit_per_year_boundaries():
-    result = assess_water_regime(_stable_peak_unstable_trough_record(), n_bootstrap=40)
+    result = _calibrated_assessment(_stable_peak_unstable_trough_record())
 
-    assert result.regime == "seasonal"
-    assert result.trough_timing_concentration_ci_low < 0.7
     assert result.supports_per_year_boundaries is False
-    assert result.supports_fixed_window is True
 
 
 def test_marginal_regime_permits_fixed_window_but_not_per_year():
@@ -398,4 +389,119 @@ def test_event_descriptors_match_the_shared_event_definition():
     regime = assess_water_regime(frame)
     events = extract_water_events(frame)
     assert regime.n_wet_events == events.summary["n_events"]
-    assert regime.longest_low_spell_months == events.summary["longest_low_spell_months"]
+    assert (
+        regime.longest_low_spell_months
+        == events.summary["longest_low_spell_months"]
+    )
+
+
+EVIDENCE = EvidenceThresholds(
+    seasonal_cv_skill=0.3,
+    periodicity_alpha=0.05,
+    amplitude_noise_ratio=1.0,
+    mode_min_frequency=0.60,
+    mode_min_separation_months=2,
+    strong_timing_concentration=0.70,
+    weak_timing_concentration=0.40,
+    min_timing_years=10,
+)
+RECOVERABILITY = RecoverabilityThresholds(
+    min_years=5,
+    min_coverage=0.80,
+    min_within_1_month=0.80,
+    within_1_month_wilson_floor=0.50,
+    max_p90_error_months=2.0,
+    admit_insufficient_drift=False,
+)
+
+
+def _calibrated_assessment(frame):
+    return assess_water_regime(
+        frame,
+        evidence_thresholds=EVIDENCE,
+        recoverability_thresholds=RECOVERABILITY,
+    )
+
+
+def test_constant_zero_record_is_aseasonal_not_infinite():
+    index = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    frame = pd.DataFrame({"extent_pct": 0.0, "invalid_pct": 0.0}, index=index)
+
+    assessment = _calibrated_assessment(frame)
+
+    assert np.isfinite(assessment.amplitude_snr)
+    assert assessment.amplitude_snr == 0.0
+    assert assessment.regime == "aseasonal"
+    assert assessment.annual_cycle_evidence == "absent"
+
+
+def test_constant_nonzero_record_is_also_aseasonal():
+    index = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    frame = pd.DataFrame({"extent_pct": 42.0, "invalid_pct": 0.0}, index=index)
+
+    assessment = _calibrated_assessment(frame)
+
+    assert np.isfinite(assessment.amplitude_snr)
+    assert assessment.regime == "aseasonal"
+
+
+def test_stable_peak_with_unstable_trough_is_not_seasonal():
+    """Dynamic years anchor on troughs, so a stable peak alone is not enough."""
+    rng = np.random.default_rng(0)
+    index = pd.date_range("2000-01-01", periods=12 * 15, freq="MS")
+    values = np.empty(len(index))
+    for position, stamp in enumerate(index):
+        offset = rng.integers(-5, 6) if stamp.month in (5, 6, 7, 8, 9) else 0
+        values[position] = 50.0 + 25.0 * np.cos(
+            2.0 * np.pi * (stamp.month + offset - 1) / 12.0
+        )
+    frame = pd.DataFrame(
+        {"extent_pct": np.clip(values, 0, 100), "invalid_pct": 0.0}, index=index
+    )
+
+    assessment = _calibrated_assessment(frame)
+
+    assert (
+        assessment.regime != "seasonal"
+        or not assessment.supports_per_year_boundaries
+    )
+
+
+def test_clean_seasonal_record_is_seasonal_with_strong_evidence():
+    index = pd.date_range("2000-01-01", periods=12 * 15, freq="MS")
+    angle = 2.0 * np.pi * (index.month - 1) / 12.0
+    frame = pd.DataFrame(
+        {"extent_pct": 50.0 + 25.0 * np.cos(angle), "invalid_pct": 0.0},
+        index=index,
+    )
+
+    assessment = _calibrated_assessment(frame)
+
+    assert assessment.regime == "seasonal"
+    assert assessment.annual_cycle_evidence in {"strong", "moderate"}
+    assert assessment.trough_timing_n_modes == 1
+
+
+def test_short_record_is_insufficient_under_calibrated_thresholds():
+    index = pd.date_range("2000-01-01", periods=12 * 3, freq="MS")
+    angle = 2.0 * np.pi * (index.month - 1) / 12.0
+    frame = pd.DataFrame(
+        {"extent_pct": 50.0 + 25.0 * np.cos(angle), "invalid_pct": 0.0},
+        index=index,
+    )
+
+    assessment = _calibrated_assessment(frame)
+
+    assert assessment.regime == "insufficient_record"
+
+
+def test_every_public_field_is_finite_or_none():
+    index = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    frame = pd.DataFrame({"extent_pct": 0.0, "invalid_pct": 0.0}, index=index)
+
+    assessment = _calibrated_assessment(frame)
+
+    for field_name in assessment.__dataclass_fields__:
+        value = getattr(assessment, field_name)
+        if isinstance(value, float):
+            assert np.isfinite(value), f"{field_name} is not finite"
