@@ -548,9 +548,30 @@ def assess_water_regime(
     )
 
 
+PublicRoute = Literal[
+    "per_year_detection", "event_characterisation", "insufficient_record"
+]
+
+
+def public_route(regime: Regime, recoverability: str) -> PublicRoute:
+    """Map regime and boundary recoverability to the public route.
+
+    Regime alone never authorises publication. A seasonal record whose troughs
+    do not reproduce out of sample routes to events, and a marginal record
+    whose troughs do reproduce is allowed dynamic years.
+    """
+    if regime == "insufficient_record":
+        return "insufficient_record"
+    if regime in {"seasonal", "marginal"} and recoverability == "supported":
+        return "per_year_detection"
+    return "event_characterisation"
+
+
 __all__ = [
+    "PublicRoute",
     "REGIME_THRESHOLDS",
     "Regime",
     "WaterRegimeAssessment",
     "assess_water_regime",
+    "public_route",
 ]

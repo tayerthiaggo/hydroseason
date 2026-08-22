@@ -7,7 +7,11 @@ import pytest
 from hydroseason import analyze_catchment, load_extent_csv
 from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._evidence import EvidenceThresholds
-from hydroseason._regime import REGIME_THRESHOLDS, assess_water_regime
+from hydroseason._regime import (
+    REGIME_THRESHOLDS,
+    assess_water_regime,
+    public_route,
+)
 
 _CASE_STUDY_EXTENT_DIR = Path("case_studies/data/extent")
 _CASE_STUDY_KEYS = (
@@ -505,3 +509,31 @@ def test_every_public_field_is_finite_or_none():
         value = getattr(assessment, field_name)
         if isinstance(value, float):
             assert np.isfinite(value), f"{field_name} is not finite"
+
+
+@pytest.mark.parametrize(
+    "regime, recoverability, expected",
+    [
+        ("seasonal", "supported", "per_year_detection"),
+        ("marginal", "supported", "per_year_detection"),
+        ("seasonal", "provisional", "event_characterisation"),
+        ("seasonal", "unsupported", "event_characterisation"),
+        ("seasonal", "insufficient", "event_characterisation"),
+        ("marginal", "provisional", "event_characterisation"),
+        ("aseasonal", "supported", "event_characterisation"),
+        ("aseasonal", "insufficient", "event_characterisation"),
+        ("insufficient_record", "supported", "insufficient_record"),
+        ("insufficient_record", "insufficient", "insufficient_record"),
+    ],
+)
+def test_route_matrix(regime, recoverability, expected):
+    assert public_route(regime, recoverability) == expected
+
+
+def test_marginal_supported_can_publish_years():
+    """A marginal record with reproducible troughs is allowed dynamic years."""
+    assert public_route("marginal", "supported") == "per_year_detection"
+
+
+def test_seasonal_without_recoverable_boundaries_abstains():
+    assert public_route("seasonal", "provisional") == "event_characterisation"
