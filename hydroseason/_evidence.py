@@ -7,8 +7,12 @@ the runtime uses rather than a reimplementation of them.
 from __future__ import annotations
 
 from numbers import Integral
+from typing import Literal
 
 import numpy as np
+import pandas as pd
+
+from ._circular_timing import equivalent_extremum_months
 
 # Two-sided normal quantile at 95%. Hard-coded because it is the default and
 # because a lookup avoids the approximation error below for the common case.
@@ -108,3 +112,33 @@ def wilson_interval(
         proportion * (1.0 - proportion) / n + z**2 / (4.0 * n**2)
     )
     return float(max(0.0, centre - half_width)), float(min(1.0, centre + half_width))
+
+
+def annual_extremum_month_sets(
+    prepared: pd.DataFrame,
+    *,
+    kind: Literal["min", "max"],
+    tolerance_pct: float,
+) -> dict[int, tuple[int, ...]]:
+    """Per-year equivalent extremum months, keyed by calendar year.
+
+    Replaces ``idxmin``/``idxmax`` over each year, which answer a tied year by
+    returning its first row and so report January for any flat record. Years
+    with no usable observation are omitted rather than mapped to an empty
+    tuple, so the mapping's length is the number of years carrying timing.
+    """
+    usable = prepared.loc[
+        prepared["candidate_usable"].to_numpy(dtype=bool), "extent_pct"
+    ]
+    usable = usable.loc[usable.notna()]
+    if usable.empty:
+        return {}
+
+    month_sets: dict[int, tuple[int, ...]] = {}
+    for year, group in usable.groupby(pd.DatetimeIndex(usable.index).year):
+        months = equivalent_extremum_months(
+            group, kind=kind, tolerance=float(tolerance_pct)
+        )
+        if months:
+            month_sets[int(year)] = months
+    return month_sets
