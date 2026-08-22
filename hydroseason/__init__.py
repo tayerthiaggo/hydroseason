@@ -1,8 +1,5 @@
 """HydroSeason: remote-sensing-first hydro-year and season detection from monthly surface-water extent."""
 
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as _pkg_version
-
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import WaterEventResult, extract_water_events
 from ._regime import Regime, WaterRegimeAssessment, assess_water_regime
@@ -55,10 +52,7 @@ from .io import (
 from .report import CatchmentReportPaths, generate_catchment_report, generate_html_report
 from .workflow import HydroSeasonRunResult, run_hydroseason
 
-try:
-    __version__ = _pkg_version("hydroseason")
-except PackageNotFoundError:  # running from a source tree without install
-    __version__ = "0.1.1"
+__version__ = "0.2.0"
 
 __all__ = [
     "__version__",
@@ -113,4 +107,3 @@ __all__ = [
     "HydroSeasonBatchResult",
     "run_hydroseason_many",
 ]
-

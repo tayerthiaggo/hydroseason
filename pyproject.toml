@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydroseason"
-version = "0.1.1"
+version = "0.2.0"
 description = "Remote-sensing-first hydro-year detection from monthly surface-water extent"
 readme = "README.md"
 # Upper bound is deliberate, not conservatism-by-default: the raster/stac
@@ -115,6 +115,12 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 hydroseason = ["_assets/*.js", "_assets/*.css", "_assets/*.txt"]
+
+[tool.setuptools.data-files]
+"share/hydroseason/calibration" = [
+  "docs/calibration/2026-08-21-calibration-report.json",
+  "docs/calibration/2026-08-21-validation-report.json",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

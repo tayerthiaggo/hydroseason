@@ -5,6 +5,19 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-21
+
+### Added
+- **Calibrated Scientific Defaults**: Frozen defaults for `EvidenceThresholds`, `RecoverabilityThresholds`, and `PhaseThresholds` derived from lexicographic optimization across 190,080 evidence grid points and 144 phase grid points over 5,000 synthetic calibration seeds (`10000..14999`).
+- **Untouched Validation Report**: Independent validation across 5,000 validation seeds (`20000..24999`) under frozen constants, documenting evidence confusion matrices, false annualisation rates with Wilson score intervals, stratified length performance, boundary recoverability MAE and coverage, phase macro-accuracy, and sensitivity matrices (`docs/calibration/2026-08-21-validation-report.json`).
+- **Calibration Pipeline and Gating**: `scripts/run_calibration.py` with multi-worker ProcessPool execution, SHA-256 parameter and generator fingerprinting, and automated staleness assertion in `tests/test_release_metadata.py`.
+- **Distribution Packaging**: Calibration and validation JSON reports bundled into Python wheel (`share/hydroseason/calibration/`) and source distributions (`docs/calibration/`).
+
+### Changed
+- `DynamicHydroYearConfig` and `assess_water_regime` now use calibrated `EVIDENCE_DEFAULTS`, `RECOVERABILITY_DEFAULTS`, and `PHASE_DEFAULTS` by default.
+- Removed legacy uncalibrated bridge and fallback classifications.
+- Clarified four distinct uncertainty concepts across documentation, stating that `seasonal_cv_skill` is post-selection cross-validation skill and distinguishing empirical benchmark error bounds from real-world field validation.
+
 ## [0.1.1] - 2026-08-20
 
 ### Added

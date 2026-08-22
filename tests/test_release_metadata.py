@@ -144,3 +144,60 @@ def test_release_runtime_has_no_uncalibrated_bridge():
     source = Path("hydroseason/_regime.py").read_text(encoding="utf-8")
 
     assert "calibration defaults not installed" not in source
+
+
+def test_docs_never_call_quality_grades_probabilities():
+    import re
+
+    banned = re.compile(
+        r"probability of (?:being )?correct|confidence that .* is (?:true|correct)",
+        re.I,
+    )
+    for path in list(Path("docs").rglob("*.md")) + [Path("README.md")]:
+        assert not banned.search(
+            path.read_text(encoding="utf-8")
+        ), f"{path} describes a grade as a probability"
+
+
+def test_docs_describe_seasonal_cv_skill_as_post_selection():
+    text = Path("docs/guide.md").read_text(encoding="utf-8").lower()
+
+    assert "post-selection" in text
+
+
+def test_release_metadata_reports_020():
+    import hydroseason
+
+    assert hydroseason.__version__.startswith("0.2.0")
+
+
+def test_built_distributions_ship_calibration_reports(tmp_path):
+    import subprocess
+    import sys
+    import tarfile
+    import zipfile
+
+    subprocess.run(
+        [sys.executable, "-m", "build", "--outdir", str(tmp_path)],
+        check=True,
+    )
+    wheel = next(tmp_path.glob("*.whl"))
+    sdist = next(tmp_path.glob("*.tar.gz"))
+
+    with zipfile.ZipFile(wheel) as archive:
+        wheel_names = set(archive.namelist())
+    with tarfile.open(sdist) as archive:
+        sdist_names = set(archive.getnames())
+
+    assert any(
+        name.endswith(
+            "share/hydroseason/calibration/2026-08-21-calibration-report.json"
+        )
+        or "2026-08-21-calibration-report.json" in name
+        for name in wheel_names
+    )
+    assert any(
+        name.endswith("docs/calibration/2026-08-21-calibration-report.json")
+        for name in sdist_names
+    )
+

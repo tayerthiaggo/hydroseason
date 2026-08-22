@@ -29,20 +29,15 @@ months.
 
 | Field | Units / range | `None` or zero when | Meaning |
 |---|---|---|---|
-| `amplitude_snr` | Unitless, >=0 (may be `inf`) | `0.0` for insufficient records | Climatological amplitude divided by mean within-month interannual SD. |
+| `amplitude_snr` | Unitless, >=0 (finite float) | `0.0` for insufficient records | Climatological amplitude divided by mean within-month interannual SD. |
 | `peak_timing_concentration`, `trough_timing_concentration` | Unitless mean resultant length, 0–1 | `None` for insufficient records | Concentration of annual peak/trough months. |
 | `*_timing_concentration_ci_low`, `*_ci_high` | Unitless 0–1 | `None` for insufficient records | Percentile 95% bootstrap bounds for the corresponding `R`. |
-| `peak_timing_uniformity_p`, `trough_timing_uniformity_p` | Probability 0–1 | `None` for insufficient records | Deterministic Monte Carlo Kuiper p-value for the discrete 12-month uniform null. |
+| `peak_timing_uniformity_p`, `trough_timing_uniformity_p` | p-value 0–1 | `None` for insufficient records | Deterministic Monte Carlo Kuiper p-value for the discrete 12-month uniform null. |
 | `peak_phase_iqr_months`, `trough_phase_iqr_months` | Months, 0–12 approximately | `None` when fewer than four timings or insufficient | Circular IQR; descriptive only and never a regime decision. |
 | `n_timing_years` | Integer >=0 years | `0` for insufficient records | Number of qualifying annual timing observations. |
 | `climatological_peak_month`, `climatological_trough_month` | Calendar month 1–12 | `None` for aseasonal/insufficient records | Pooled monthly-climatology extrema when the record supports reporting them. |
 
-The classifier uses peak evidence: seasonal requires SNR >= 2.0 and peak `R`
-CI low >= 0.70; aseasonal is SNR < 0.70 or a peak Kuiper p >= 0.10 with at
-least 10 timing years; marginal is otherwise; fewer than five usable annual
-timings is insufficient. Trough `R` CI low >= 0.70 separately authorises
-per-year boundaries. `R` can be small because of cancellation by bimodal
-timing, so the Kuiper result is a complement rather than a replacement.
+The classifier evaluates evidence against calibrated defaults (`EvidenceThresholds` and `RecoverabilityThresholds`). Seasonal regime requires strong annual-cycle evidence (significant permutation periodicity test, high cross-validation skill, amplitude SNR >= 1.5, concentrated timing, and unimodal harmonic structure) and supported boundary recoverability; marginal regime applies under moderate evidence or provisional recoverability; aseasonal regime applies when evidence is weak, absent, or variability is at the resolution floor; fewer than five usable annual timings is insufficient. Supported boundary recoverability authorises per-year boundaries.
 
 ::: hydroseason._regime
     options:

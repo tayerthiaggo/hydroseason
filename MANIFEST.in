@@ -4,12 +4,12 @@ include CHANGELOG.md
 include CITATION.cff
 include pyproject.toml
 recursive-include hydroseason/_assets *.js *.css *.txt
+recursive-include docs/calibration *.json
 prune hydroseason.egg-info
 
 exclude .gitignore
 prune dev
 prune tests
-prune docs
 prune site
 prune output
 prune notebooks

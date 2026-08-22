@@ -25,7 +25,7 @@ for the analysed footprint.
 ## Row-preserving DEA/STAC batches
 
 `run_hydroseason_many(aois, *, output_dir, start_date, end_date, ...)` has no
-`water_source` parameter: in 0.1.1 it is DEA/STAC-only. It loads the vector
+`water_source` parameter: it is DEA/STAC-only. It loads the vector
 once, splits it into one single-row AOI per input row, and invokes the
 single-AOI workflow for each. A `MultiPolygon` in one row remains one AOI.
 The result tuple is always in source order, even when scheduling begins larger

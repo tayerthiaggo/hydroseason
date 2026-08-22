@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 
-from hydroseason import run_hydroseason
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from hydroseason import run_hydroseason  # noqa: E402
+
 DOCS_EXAMPLES = REPO_ROOT / "docs" / "examples"
 DOCS_EXAMPLES.mkdir(parents=True, exist_ok=True)
 

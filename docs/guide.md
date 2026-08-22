@@ -301,6 +301,25 @@ coverage or no observed extent remains unusable.
 
 ---
 
+## Scientific uncertainty and calibration semantics
+
+HydroSeason rigorously separates four distinct uncertainty concepts and avoids conflating quality classifications with probabilistic confidence:
+
+1. **Observation uncertainty**: Satellite surface-water measurement error, cloud/shadow gaps, sensor resolution limitations, and historical mask boundaries.
+2. **Statistical sampling uncertainty**: Sampling variation across available observation years, quantified via non-parametric bootstrap confidence intervals (e.g., circular timing concentration CIs) and Wilson score intervals for discrete rates.
+3. **Model structural uncertainty**: Discretization choices in harmonic order selection, circular statistics assumptions, and rule-based cycle-relative phase thresholding.
+4. **Empirical threshold validation**: Calibrated false annualisation, abstention, boundary error, and phase accuracy bounds established over 5,000 independent synthetic benchmarks.
+
+### Post-selection held-out skill (`seasonal_cv_skill`)
+
+The `seasonal_cv_skill` metric measures **post-selection** cross-validation skill: the fraction of variance explained by the fitted seasonal harmonic model evaluated strictly on held-out folds after selecting the harmonic order. It quantifies how well the chosen seasonal cycle predicts unseen years, distinguishing true periodic regularities from in-sample overfitting.
+
+### Benchmark recoverability vs real-world validation
+
+Boundary recoverability metrics (such as leave-one-year-out within-one-month accuracy and MAE) demonstrate algorithmic recoverability under controlled benchmark data with known truth. Real-world boundary accuracy is not claimed as interchangeable with streamflow or gauge discharge without catchment-specific physical validation. Quality grades indicate methodological admissibility under explicit evidentiary thresholds, not probabilities of truth.
+
+---
+
 ## Advanced: calling the building blocks directly
 
 > [!NOTE]
