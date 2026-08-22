@@ -9,6 +9,7 @@ from hydroseason._cycle_phase import (
     effective_window,
     label_cycle,
     normalise_cycle,
+    phase_stability,
     smooth_for_geometry,
 )
 
@@ -262,5 +263,112 @@ def test_labels_align_with_the_cycle_index():
 
     assert labels.index.equals(frame.index)
     assert len(labels) == len(frame)
+
+
+def _stability(values, observed_fraction=1.0, noise_pp=1.0, n_replicates=199, **kwargs):
+    index = pd.date_range("2000-07-01", periods=len(values), freq="MS")
+    frame = pd.DataFrame(
+        {
+            "extent_pct": values,
+            "candidate_usable": True,
+            "observed_fraction": observed_fraction,
+        },
+        index=index,
+    )
+    params = dict(
+        start_extent_candidates=(values[0],),
+        end_extent_candidates=(values[-1],),
+        low_fraction=0.25,
+        high_fraction=0.75,
+        min_duration_months=1,
+        window=1,
+        resolution_floor_pp=0.5,
+        noise_pp=noise_pp,
+        noise_residuals=np.array([-noise_pp, 0.0, noise_pp]),
+        n_replicates=n_replicates,
+        random_state=0,
+    )
+    params.update(kwargs)
+    return phase_stability(frame, **params)
+
+
+def test_probabilities_sum_to_at_most_one_and_stability_is_the_max():
+    values = [5.0, 30.0, 70.0, 95.0, 60.0, 30.0, 5.0]
+
+    table = _stability(values)
+
+    totals = table[["p_dry", "p_recovery", "p_wet", "p_recession"]].sum(axis=1)
+    assert (totals <= 1.0 + 1e-9).all()
+    assert np.allclose(
+        table["phase_stability"],
+        table[["p_dry", "p_recovery", "p_wet", "p_recession"]].max(axis=1),
+    )
+
+
+def test_clean_cycle_is_highly_stable():
+    months = np.arange(13)
+    values = (50.0 - 40.0 * np.cos(2.0 * np.pi * months / 12.0)).tolist()
+
+    table = _stability(values, noise_pp=0.5)
+
+    assert table["phase_stability"].median() > 0.8
+
+
+def test_thin_observational_support_lowers_stability():
+    """Observation error is inside the bootstrap, so poorly observed months move."""
+    values = [5.0, 30.0, 70.0, 95.0, 60.0, 30.0, 5.0]
+
+    well_observed = _stability(values, observed_fraction=1.0, noise_pp=8.0)
+    thinly_observed = _stability(values, observed_fraction=0.1, noise_pp=8.0)
+
+    assert thinly_observed["phase_stability"].mean() <= well_observed["phase_stability"].mean()
+
+
+def test_month_on_a_threshold_is_less_stable_than_one_far_from_it():
+    values = [5.0, 30.0, 70.0, 95.0, 60.0, 30.0, 5.0]
+
+    table = _stability(values, noise_pp=6.0)
+
+    assert table["phase_stability"].min() < table["phase_stability"].max()
+
+
+def test_stability_is_deterministic_for_a_fixed_seed():
+    values = [5.0, 30.0, 70.0, 95.0, 60.0, 30.0, 5.0]
+
+    first = _stability(values, random_state=7)
+    second = _stability(values, random_state=7)
+
+    pd.testing.assert_frame_equal(first, second)
+
+
+def test_noise_fit_is_bootstrapped_from_record_residuals():
+    values = [5.0, 30.0, 70.0, 95.0, 60.0, 30.0, 5.0]
+
+    narrow = _stability(values, noise_residuals=np.array([-0.1, 0.0, 0.1]))
+    broad = _stability(values, noise_residuals=np.array([-12.0, 0.0, 12.0]))
+
+    assert broad["phase_stability"].mean() < narrow["phase_stability"].mean()
+
+
+def test_equivalent_boundary_choices_enter_the_bootstrap():
+    values = [5.0, 30.0, 70.0, 95.0, 60.0, 30.0, 5.0]
+
+    fixed = _stability(values)
+    ambiguous = _stability(
+        values,
+        start_extent_candidates=(5.0, 15.0),
+        end_extent_candidates=(5.0, 15.0),
+    )
+
+    assert ambiguous["phase_stability"].mean() <= fixed["phase_stability"].mean()
+
+
+def test_every_probability_is_finite():
+    values = [5.0, 30.0, 70.0, 95.0, 60.0, 30.0, 5.0]
+
+    table = _stability(values)
+
+    assert np.isfinite(table.to_numpy(dtype=float)).all()
+
 
 

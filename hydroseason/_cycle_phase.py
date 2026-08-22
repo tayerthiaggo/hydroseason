@@ -254,4 +254,93 @@ def label_cycle(
     return labels
 
 
+# Matches the periodicity null. Structural, not tuned; not in the grid.
+_DEFAULT_REPLICATES = 999
+_THRESHOLD_JITTER = 0.05
+
+
+def phase_stability(
+    cycle: pd.DataFrame,
+    *,
+    start_extent_candidates: tuple[float, ...],
+    end_extent_candidates: tuple[float, ...],
+    low_fraction: float,
+    high_fraction: float,
+    min_duration_months: int,
+    window: int,
+    resolution_floor_pp: float,
+    noise_pp: float,
+    noise_residuals: np.ndarray,
+    n_replicates: int = _DEFAULT_REPLICATES,
+    random_state: int = 0,
+) -> pd.DataFrame:
+    """Empirical label stability under threshold and observation perturbation.
+
+    Observations are perturbed inside the bootstrap rather than conditioned
+    out. Holding them fixed would measure only threshold sensitivity, which is
+    not the dominant error source: satellite extent error is largest and most
+    one-sided at the low-water end of the cycle. Naming the smaller uncertainty
+    and omitting the larger would make this number read as more reassuring than
+    the evidence supports.
+    """
+    index = cycle.index
+    counts = pd.DataFrame(0.0, index=index, columns=[f"p_{name}" for name in PHASES])
+    if len(index) == 0:
+        counts["phase_stability"] = []
+        return counts
+
+    extent = pd.to_numeric(cycle["extent_pct"], errors="coerce").astype(float)
+    if "observed_fraction" in cycle.columns:
+        observed = pd.to_numeric(cycle["observed_fraction"], errors="coerce").fillna(1.0).clip(0.05, 1.0)
+    else:
+        observed = pd.Series(1.0, index=index, dtype=float)
+    residuals = np.asarray(noise_residuals, dtype=float)
+    residuals = residuals[np.isfinite(residuals)]
+    starts = np.asarray(start_extent_candidates, dtype=float)
+    ends = np.asarray(end_extent_candidates, dtype=float)
+    if not len(residuals) or not np.isfinite(starts).all() or not np.isfinite(ends).all():
+        raise ValueError("noise residuals and boundary candidates must be finite and non-empty")
+
+    rng = np.random.default_rng(np.random.SeedSequence(int(random_state)))
+    valid = 0
+    for _ in range(int(n_replicates)):
+        residual_draw = rng.choice(residuals, size=len(residuals), replace=True)
+        residual_centre = float(np.median(residual_draw))
+        replicate_noise_pp = 1.4826 * float(
+            np.median(np.abs(residual_draw - residual_centre))
+        )
+        if replicate_noise_pp <= np.finfo(float).eps:
+            replicate_noise_pp = float(max(noise_pp, np.finfo(float).eps))
+        # A poorly observed month carries more uncertainty, so it moves more.
+        scale = replicate_noise_pp / np.sqrt(observed.to_numpy(dtype=float))
+        jitter = rng.normal(0.0, 1.0, size=len(index)) * scale
+        perturbed = cycle.copy()
+        perturbed["extent_pct"] = (extent.to_numpy(dtype=float) + jitter).clip(0.0, 100.0)
+
+        low = float(np.clip(low_fraction + rng.normal(0.0, _THRESHOLD_JITTER), 0.0, 0.98))
+        high = float(np.clip(high_fraction + rng.normal(0.0, _THRESHOLD_JITTER), low + 0.01, 1.0))
+
+        normalised = normalise_cycle(
+            perturbed,
+            start_extent=float(rng.choice(starts)) + float(jitter[0]),
+            end_extent=float(rng.choice(ends)) + float(jitter[-1]),
+            window=window,
+            resolution_floor_pp=resolution_floor_pp,
+        )
+        if not normalised.sufficient:
+            continue
+        labels = label_cycle(
+            normalised, low_fraction=low, high_fraction=high, min_duration_months=min_duration_months
+        )
+        valid += 1
+        for name in PHASES:
+            counts[f"p_{name}"] += (labels == name).to_numpy(dtype=float)
+
+    if valid:
+        counts = counts / valid
+    counts["phase_stability"] = counts[[f"p_{name}" for name in PHASES]].max(axis=1)
+    return counts
+
+
+
 
