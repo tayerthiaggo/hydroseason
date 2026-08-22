@@ -8,11 +8,18 @@ partition is where accuracy against known truth is established.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from numbers import Integral
+from typing import TYPE_CHECKING, Literal
 
+import numpy as np
 import pandas as pd
 
 from ._boundary import RobustBoundaryConfig, robust_scale, select_window_minimum
 from ._circular_timing import summarise_annual_timing
+from ._evidence import wilson_interval
+
+if TYPE_CHECKING:
+    from ._circular_timing import TimingDrift
 
 _MONTHS_PER_YEAR = 12
 
@@ -142,3 +149,175 @@ def evaluate_year(
 
     error = _distance_to_run(int(selection.selected_month.month), reference_run)
     return YearEvaluation(year, True, True, error, phase_month, "ok")
+
+
+RecoverabilityState = Literal["supported", "provisional", "unsupported", "insufficient"]
+
+
+@dataclass(frozen=True)
+class RecoverabilityThresholds:
+    """Calibrated gate for publishing hydrological years. No defaults."""
+
+    min_years: int
+    min_coverage: float
+    min_within_1_month: float
+    within_1_month_wilson_floor: float
+    max_p90_error_months: float
+    admit_insufficient_drift: bool
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.min_years, bool)
+            or not isinstance(self.min_years, Integral)
+            or int(self.min_years) < 1
+        ):
+            raise ValueError("min_years must be an integer >= 1.")
+
+        for name in (
+            "min_coverage",
+            "min_within_1_month",
+            "within_1_month_wilson_floor",
+            "max_p90_error_months",
+        ):
+            val = getattr(self, name)
+            if (
+                not isinstance(val, (int, float))
+                or isinstance(val, bool)
+                or not np.isfinite(val)
+            ):
+                raise ValueError(f"{name} must be a finite number.")
+
+        for name in (
+            "min_coverage",
+            "min_within_1_month",
+            "within_1_month_wilson_floor",
+        ):
+            val = float(getattr(self, name))
+            if not (0.0 <= val <= 1.0):
+                raise ValueError(f"{name} must be between 0 and 1.")
+
+        if float(self.max_p90_error_months) < 0.0:
+            raise ValueError("max_p90_error_months must be non-negative.")
+
+        if not isinstance(self.admit_insufficient_drift, bool):
+            raise ValueError("admit_insufficient_drift must be a boolean.")
+
+
+@dataclass(frozen=True)
+class BoundaryRecoverability:
+    """Reproducibility of trough boundaries, with the width of its evidence."""
+
+    n: int
+    coverage: float
+    within_1_month: float
+    within_1_month_wilson_low: float
+    p90_error_months: float
+    state: RecoverabilityState
+    reason: str
+
+
+def assess_boundary_recoverability(
+    prepared: pd.DataFrame,
+    *,
+    month_sets: dict[int, tuple[int, ...]],
+    evidence: str,
+    thresholds: RecoverabilityThresholds,
+    drift: TimingDrift,
+    n_trough_modes: int,
+    config: RobustBoundaryConfig,
+    search_radius_months: int,
+    min_usable_months: int,
+) -> BoundaryRecoverability:
+    """Aggregate per-year evaluations into a publication gate.
+
+    ``supported`` is the only state that authorises public hydrological years,
+    so it is bounded twice: by the point estimate and by the lower Wilson bound
+    of that estimate. Reporting only the point estimate would let a four-of-five
+    record publish on evidence consistent with a true rate below 40%.
+    """
+    evaluations = [
+        evaluate_year(
+            prepared,
+            year=year,
+            month_sets=month_sets,
+            config=config,
+            search_radius_months=search_radius_months,
+            min_usable_months=min_usable_months,
+        )
+        for year in sorted(month_sets)
+    ]
+    evaluable = [item for item in evaluations if item.evaluable]
+    resolved = [
+        item for item in evaluable if item.resolved and item.error_months is not None
+    ]
+
+    n = len(evaluable)
+    coverage = len(resolved) / n if n else 0.0
+    errors = np.asarray([item.error_months for item in resolved], dtype=float)
+    within_count = int(np.count_nonzero(errors <= 1.0)) if len(errors) else 0
+    within_rate = within_count / n if n else 0.0
+    wilson_low, _ = wilson_interval(within_count, n) if n else (0.0, 1.0)
+    p90 = float(np.percentile(errors, 90)) if len(errors) else float(_MONTHS_PER_YEAR)
+
+    if evidence == "absent" or (n and coverage == 0.0):
+        return BoundaryRecoverability(
+            n,
+            coverage,
+            within_rate,
+            wilson_low,
+            p90,
+            "unsupported",
+            "annual-cycle evidence absent"
+            if evidence == "absent"
+            else "zero boundary coverage",
+        )
+    if n < thresholds.min_years:
+        return BoundaryRecoverability(
+            n,
+            coverage,
+            within_rate,
+            wilson_low,
+            p90,
+            "insufficient",
+            f"{n} evaluable years below minimum {thresholds.min_years}",
+        )
+
+    failures: list[str] = []
+    if coverage < thresholds.min_coverage:
+        failures.append(f"coverage {coverage:.2f}")
+    if within_rate < thresholds.min_within_1_month:
+        failures.append(f"within_1_month {within_rate:.2f}")
+    if wilson_low < thresholds.within_1_month_wilson_floor:
+        failures.append(f"within_1_month Wilson lower bound {wilson_low:.2f}")
+    if p90 > thresholds.max_p90_error_months:
+        failures.append(f"p90 error {p90:.1f} months")
+    if n_trough_modes != 1:
+        failures.append(f"{n_trough_modes} trough modes")
+    if drift.status == "detected":
+        failures.append("trough timing drift detected")
+    elif (
+        drift.status == "insufficient_for_drift"
+        and not thresholds.admit_insufficient_drift
+    ):
+        failures.append("drift status insufficient_for_drift")
+
+    if failures:
+        return BoundaryRecoverability(
+            n,
+            coverage,
+            within_rate,
+            wilson_low,
+            p90,
+            "provisional",
+            "; ".join(failures),
+        )
+
+    # Never silent: an admitted unmeasurable drift is recorded on the way past.
+    reason = (
+        "supported with drift status insufficient_for_drift admitted by calibration"
+        if drift.status == "insufficient_for_drift"
+        else "supported"
+    )
+    return BoundaryRecoverability(
+        n, coverage, within_rate, wilson_low, p90, "supported", reason
+    )

@@ -1,9 +1,17 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from hydroseason._boundary import RobustBoundaryConfig
-from hydroseason._boundary_recoverability import YearEvaluation, evaluate_year
-from hydroseason._evidence import annual_extremum_month_sets
+from hydroseason._boundary_recoverability import (
+    BoundaryRecoverability,
+    RecoverabilityThresholds,
+    YearEvaluation,
+    assess_boundary_recoverability,
+    evaluate_year,
+)
+from hydroseason._circular_timing import TimingDrift, timing_drift
+from hydroseason._evidence import annual_extremum_month_sets, wilson_interval
 from hydroseason._state_input import prepare_monthly_extent
 
 CONFIG = RobustBoundaryConfig()
@@ -222,3 +230,141 @@ def test_two_disjoint_low_episodes_do_not_become_one_equivalent_low_run():
     )
     assert sel.run_start == pd.Timestamp("2000-02-01")
     assert sel.run_end == pd.Timestamp("2000-02-01")
+
+
+STRICT = RecoverabilityThresholds(
+    min_years=5,
+    min_coverage=0.80,
+    min_within_1_month=0.80,
+    within_1_month_wilson_floor=0.50,
+    max_p90_error_months=2.0,
+    admit_insufficient_drift=False,
+)
+LENIENT = RecoverabilityThresholds(
+    min_years=5,
+    min_coverage=0.80,
+    min_within_1_month=0.80,
+    within_1_month_wilson_floor=0.50,
+    max_p90_error_months=2.0,
+    admit_insufficient_drift=True,
+)
+
+
+def _assess(
+    prepared, thresholds=STRICT, evidence="strong", n_trough_modes=1, drift=None
+):
+    month_sets = _month_sets(prepared)
+    if drift is None:
+        drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
+    return assess_boundary_recoverability(
+        prepared,
+        month_sets=month_sets,
+        evidence=evidence,
+        thresholds=thresholds,
+        drift=drift,
+        n_trough_modes=n_trough_modes,
+        config=CONFIG,
+        search_radius_months=3,
+        min_usable_months=9,
+    )
+
+
+def test_stable_long_record_is_supported():
+    result = _assess(_seasonal_record(n_years=20))
+
+    assert isinstance(result, BoundaryRecoverability)
+    assert result.state == "supported"
+    assert result.within_1_month == pytest.approx(1.0)
+    assert result.within_1_month_wilson_low > 0.5
+
+
+def test_wilson_bound_is_published_alongside_the_point_estimate():
+    result = _assess(_seasonal_record(n_years=20))
+
+    assert 0.0 <= result.within_1_month_wilson_low <= result.within_1_month
+
+
+def test_absent_evidence_is_unsupported():
+    result = _assess(_seasonal_record(n_years=20), evidence="absent")
+
+    assert result.state == "unsupported"
+    assert "evidence" in result.reason
+
+
+def test_short_record_is_insufficient():
+    result = _assess(_seasonal_record(n_years=4))
+
+    assert result.state == "insufficient"
+
+
+def test_two_trough_modes_cannot_be_supported():
+    result = _assess(_seasonal_record(n_years=20), n_trough_modes=2)
+
+    assert result.state == "provisional"
+    assert "trough modes" in result.reason or "mode" in result.reason
+
+
+def test_detected_drift_cannot_be_supported():
+    drift = TimingDrift("detected", 3.0, 1.0, 5.0, 20)
+    result = _assess(_seasonal_record(n_years=20), drift=drift)
+
+    assert result.state == "provisional"
+    assert "drift" in result.reason
+
+
+def test_insufficient_drift_is_rejected_when_calibration_says_so():
+    """A short record must not satisfy a stability criterion by being unmeasurable."""
+    drift = TimingDrift("insufficient_for_drift", None, None, None, 7)
+    result = _assess(_seasonal_record(n_years=7), thresholds=STRICT, drift=drift)
+
+    assert result.state == "provisional"
+    assert "insufficient_for_drift" in result.reason
+
+
+def test_insufficient_drift_is_admitted_when_calibration_says_so():
+    drift = TimingDrift("insufficient_for_drift", None, None, None, 7)
+    result = _assess(_seasonal_record(n_years=7), thresholds=LENIENT, drift=drift)
+
+    assert result.state == "supported"
+    # Admitted, but never silent.
+    assert "insufficient_for_drift" in result.reason
+
+
+def test_thin_evidence_fails_the_wilson_floor_even_at_a_passing_rate():
+    """Four of five is 80% and still too thin to publish hydrological years."""
+    low, _ = wilson_interval(4, 5)
+
+    assert low < STRICT.within_1_month_wilson_floor
+
+
+def test_recoverability_thresholds_have_no_defaults():
+    with pytest.raises(TypeError):
+        RecoverabilityThresholds()
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"min_years": False}, "min_years"),
+        ({"min_years": 0}, "min_years"),
+        ({"min_coverage": 1.5}, "min_coverage"),
+        ({"min_coverage": -0.1}, "min_coverage"),
+        ({"min_within_1_month": 1.5}, "min_within_1_month"),
+        ({"within_1_month_wilson_floor": float("nan")}, "finite"),
+        ({"within_1_month_wilson_floor": -0.1}, "within_1_month_wilson_floor"),
+        ({"max_p90_error_months": -1.0}, "max_p90_error_months"),
+        ({"admit_insufficient_drift": "yes"}, "admit_insufficient_drift"),
+    ],
+)
+def test_recoverability_thresholds_validation(kwargs, match):
+    valid_args = dict(
+        min_years=5,
+        min_coverage=0.80,
+        min_within_1_month=0.80,
+        within_1_month_wilson_floor=0.50,
+        max_p90_error_months=2.0,
+        admit_insufficient_drift=False,
+    )
+    valid_args.update(kwargs)
+    with pytest.raises(ValueError, match=match):
+        RecoverabilityThresholds(**valid_args)
