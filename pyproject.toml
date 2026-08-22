@@ -133,6 +133,9 @@ markers = [
   "network: requires external DEA/STAC access",
   "performance: opt-in wall-clock performance gate",
 ]
+filterwarnings = [
+  "ignore:numpy.ndarray size changed, may indicate binary incompatibility:RuntimeWarning",
+]
 
 [tool.coverage.run]
 # Core CI runs without optional raster/STAC dependencies. Those modules are

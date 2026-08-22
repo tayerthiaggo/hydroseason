@@ -583,3 +583,23 @@ def test_secondary_extrema_survives_extrema_filtered_out_of_the_usable_series():
     assert trough_month is None or trough_month in without_extrema.index
     assert peak_value != peak_value or isinstance(peak_value, float)
     assert trough_value != trough_value or isinstance(trough_value, float)
+
+
+def test_selection_quality_mirrors_selection_support():
+    frame = _candidate_frame()
+    result = detect_dynamic_hydrological_years(
+        frame, config=DynamicHydroYearConfig(expected_trough_month=7)
+    )
+
+    assert "selection_quality" in result.columns
+    assert (result["selection_quality"] == result["selection_support"]).all()
+
+
+def test_existing_columns_keep_their_order():
+    frame = _candidate_frame()
+    result = detect_dynamic_hydrological_years(
+        frame, config=DynamicHydroYearConfig(expected_trough_month=7)
+    )
+    existing = ["hy_year", "status", "status_reason"]
+
+    assert list(result.columns)[: len(existing)] == existing

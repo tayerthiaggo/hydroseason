@@ -382,3 +382,34 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
     assert json.dumps(row)
     for value in row.values():
         assert not isinstance(value, (list, dict, tuple, pd.DataFrame))
+
+
+def test_public_rows_carry_global_evidence_fields():
+    result = _calibrated(_seasonal())
+
+    for column in ("annual_cycle_evidence", "boundary_recoverability", "seasonal_cv_skill"):
+        assert column in result.hydro_years.columns
+
+
+def test_unsupported_gate_hides_diagnostic_cycles(monkeypatch):
+    monkeypatch.setattr(
+        "hydroseason._catchment.public_route",
+        lambda *args, **kwargs: "event_characterisation",
+    )
+
+    result = _calibrated(_seasonal())
+
+    assert result.hydro_years.empty
+    assert result.route == "event_characterisation"
+
+
+def test_public_confirmation_requires_global_and_local_evidence():
+    result = _calibrated(_seasonal())
+    confirmed = result.hydro_years.loc[
+        result.hydro_years["boundary_status"] == "confirmed"
+    ]
+
+    assert not confirmed.empty
+    assert (confirmed["boundary_recoverability"] == "supported").all()
+    assert (confirmed["selection_status"] == "raw").all()
+    assert (confirmed["window_status"] == "full").all()

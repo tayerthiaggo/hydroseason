@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._catchment import analyze_catchment
+from hydroseason._evidence import EvidenceThresholds
 from hydroseason._report_export import (
     build_events_export,
     build_hydro_years_export,
@@ -15,16 +17,31 @@ from hydroseason._report_export import (
     write_report_csvs,
 )
 
+EVIDENCE = EvidenceThresholds(
+    seasonal_cv_skill=0.3,
+    periodicity_alpha=0.05,
+    amplitude_noise_ratio=1.0,
+    mode_min_frequency=0.60,
+    mode_min_separation_months=2,
+    strong_timing_concentration=0.70,
+    weak_timing_concentration=0.40,
+    min_timing_years=5,
+)
+RECOVERABILITY = RecoverabilityThresholds(
+    min_years=5,
+    min_coverage=0.80,
+    min_within_1_month=0.80,
+    within_1_month_wilson_floor=0.50,
+    max_p90_error_months=2.0,
+    admit_insufficient_drift=False,
+)
+
 
 @pytest.fixture
 def seasonal_extent():
-    dates = pd.date_range("2010-01-01", "2015-12-01", freq="MS")
-    records = []
-    for date in dates:
-        month = date.month
-        val = 10.0 + 30.0 * np.sin(2 * np.pi * (month - 1) / 12) + np.random.normal(0, 1)
-        records.append({"extent_pct": max(0.0, min(100.0, val)), "invalid_pct": 0.0})
-    return pd.DataFrame(records, index=dates)
+    dates = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    values = 20.0 + 15.0 * np.cos(2 * np.pi * (dates.month - 2) / 12)
+    return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
 
 
 @pytest.fixture
@@ -111,7 +128,13 @@ def test_monthly_export_aligns_optional_rainfall_by_month(seasonal_extent, rainf
 
 
 def test_build_hydro_years_export_and_summary(seasonal_extent):
-    analysis = analyze_catchment(seasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    analysis = analyze_catchment(
+        seasonal_extent,
+        phase_model="rule_based",
+        n_bootstrap=40,
+        evidence_thresholds=EVIDENCE,
+        recoverability_thresholds=RECOVERABILITY,
+    )
     years = build_hydro_years_export(analysis, name="Test Catchment")
     assert not years.empty
     assert "catchment" in years.columns

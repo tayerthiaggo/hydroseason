@@ -117,6 +117,29 @@ def _rounded(value: float | None, decimals: int) -> float | None:
     return round(value, decimals) if value is not None else None
 
 
+def _is_publicly_confirmed(
+    row: pd.Series,
+    *,
+    recoverability_state: str,
+    min_selection_quality: float,
+    min_cycle_coverage: float,
+) -> bool:
+    """Global and local evidence both constrain confirmation.
+
+    A row can be locally immaculate and still not confirmable, because the
+    record's trough phase does not reproduce out of sample. Confirmation is a
+    claim about the boundary being right, not about the window being tidy.
+    """
+    return (
+        recoverability_state == "supported"
+        and row.get("window_status") == "full"
+        and row.get("selection_status") == "raw"
+        and float(row.get("selection_quality", 0.0)) >= min_selection_quality
+        and row.get("peak_selection_status") not in {"unresolved", "low_quality"}
+        and float(row.get("n_usable_months", 0.0)) >= min_cycle_coverage
+    )
+
+
 def analyze_catchment(
     extent,
     *,
@@ -231,6 +254,30 @@ def analyze_catchment(
         years = state.hydro_years.copy()
         if not years.empty:
             years["boundary_basis"] = "detected_per_year"
+            years["annual_cycle_evidence"] = regime.annual_cycle_evidence
+            years["boundary_recoverability"] = regime.boundary_recoverability
+            years["seasonal_cv_skill"] = regime.seasonal_cv_skill
+            years["boundary_cv_coverage"] = regime.boundary_cv_coverage
+            years["boundary_cv_within_1_month"] = regime.boundary_cv_within_1_month
+            years["boundary_cv_p90_error_months"] = regime.boundary_cv_p90_error_months
+
+            boundary_cfg = robust_boundary_config or RobustBoundaryConfig()
+            min_qual = boundary_cfg.support_threshold
+            min_cov = float(config.min_usable_months_per_cycle)
+
+            for idx, row in years.iterrows():
+                is_conf = _is_publicly_confirmed(
+                    row,
+                    recoverability_state=regime.boundary_recoverability,
+                    min_selection_quality=min_qual,
+                    min_cycle_coverage=min_cov,
+                )
+                if not is_conf and row.get("boundary_status") == "confirmed":
+                    years.at[idx, "boundary_status"] = "provisional"
+                    years.at[idx, "status"] = "partial"
+                    if years.at[idx, "status_reason"] == "ok":
+                        years.at[idx, "status_reason"] = "boundary_provisional"
+
         state = replace(state, hydro_years=years)
         return CatchmentAnalysis(
             regime=regime,

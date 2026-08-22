@@ -5,7 +5,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._catchment import analyze_catchment
+from hydroseason._evidence import EvidenceThresholds
 from hydroseason._report_export import build_monthly_export
 from hydroseason._report_plotly import (
     event_duration_figure,
@@ -16,34 +18,49 @@ from hydroseason._report_plotly import (
     timeline_figure,
 )
 
+EVIDENCE = EvidenceThresholds(
+    seasonal_cv_skill=0.3,
+    periodicity_alpha=0.05,
+    amplitude_noise_ratio=1.0,
+    mode_min_frequency=0.60,
+    mode_min_separation_months=2,
+    strong_timing_concentration=0.70,
+    weak_timing_concentration=0.40,
+    min_timing_years=5,
+)
+RECOVERABILITY = RecoverabilityThresholds(
+    min_years=5,
+    min_coverage=0.80,
+    min_within_1_month=0.80,
+    within_1_month_wilson_floor=0.50,
+    max_p90_error_months=2.0,
+    admit_insufficient_drift=False,
+)
+
 _CLIMATOLOGY_TRACE = "Long-term monthly water extent (+/-1 std)"
 
 
 def _marginal_frames():
-    """A record with strong amplitude but per-year peak timing that wanders.
-
-    Clears the SNR gate while failing the phase-IQR gate, which is the case
-    that routes to an imposed fixed climatological window.
-    """
+    """A record with marginal amplitude and wandering timing that routes to events."""
     rng = np.random.default_rng(0)
     dates = pd.date_range("2004-01-01", periods=12 * 20, freq="MS")
-    peak_by_year = {year: 1 + rng.integers(-2, 3) for year in range(2004, 2025)}
-    values = [
-        max(
-            0.05,
-            6.0
-            + 5.0 * np.cos(2 * np.pi * (date.month - peak_by_year[date.year]) / 12)
-            + rng.normal(0, 0.8),
-        )
-        for date in dates
-    ]
-    extent = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
-    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
-    # Assert the premise: these values are drawn from a seeded generator, and a
-    # change in draw order would quietly turn this into a seasonal record,
-    # leaving every test below asserting nothing about the imposed-window path.
+    values = []
+    for year in range(2004, 2024):
+        pm = 1 + (year % 4)
+        c = 3.0 + 1.8 * np.cos(2 * np.pi * (np.arange(12) - pm) / 12) + rng.normal(0, 0.4, 12)
+        values.extend(c)
+    extent = pd.DataFrame(
+        {"extent_pct": np.clip(values, 0.01, None), "invalid_pct": 0.0}, index=dates
+    )
+    analysis = analyze_catchment(
+        extent,
+        phase_model="rule_based",
+        n_bootstrap=20,
+        evidence_thresholds=EVIDENCE,
+        recoverability_thresholds=RECOVERABILITY,
+    )
     assert analysis.regime.regime == "marginal"
-    assert analysis.route == "fixed_climatological_window"
+    assert analysis.route == "event_characterisation"
     return build_monthly_export(extent, analysis=analysis), analysis
 
 
@@ -61,38 +78,47 @@ def aseasonal_with_events_data():
         {"extent_pct": np.abs(rng.normal(0.15, 0.12, 120)), "invalid_pct": 0.0},
         index=dates,
     )
-    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
+    analysis = analyze_catchment(
+        extent,
+        phase_model="rule_based",
+        n_bootstrap=20,
+        evidence_thresholds=EVIDENCE,
+        recoverability_thresholds=RECOVERABILITY,
+    )
     assert not analysis.events.events.empty
     return build_monthly_export(extent, analysis=analysis), analysis
 
 
 @pytest.fixture
 def seasonal_data():
-    dates = pd.date_range("2010-01-01", "2015-12-01", freq="MS")
-    records = []
-    for date in dates:
-        month = date.month
-        val = 10.0 + 30.0 * np.sin(2 * np.pi * (month - 1) / 12) + np.random.normal(0, 0.5)
-        records.append({"extent_pct": max(0.0, min(100.0, val)), "invalid_pct": 0.0})
-    df = pd.DataFrame(records, index=dates)
-    analysis = analyze_catchment(df, phase_model="rule_based", n_bootstrap=40)
+    dates = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    values = 20.0 + 15.0 * np.cos(2 * np.pi * (dates.month - 2) / 12)
+    df = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
+    analysis = analyze_catchment(
+        df,
+        phase_model="rule_based",
+        n_bootstrap=40,
+        evidence_thresholds=EVIDENCE,
+        recoverability_thresholds=RECOVERABILITY,
+    )
     monthly = build_monthly_export(df, analysis=analysis)
     return monthly, analysis
 
 
 @pytest.fixture
 def seasonal_data_with_rainfall():
-    dates = pd.date_range("2010-01-01", "2015-12-01", freq="MS")
-    records = []
-    rain_records = []
-    for date in dates:
-        month = date.month
-        val = 10.0 + 30.0 * np.sin(2 * np.pi * (month - 1) / 12) + np.random.normal(0, 0.5)
-        records.append({"extent_pct": max(0.0, min(100.0, val)), "invalid_pct": 0.0})
-        rain_records.append({"rainfall_mm": 50.0 + 20.0 * np.sin(2 * np.pi * month / 12)})
-    df = pd.DataFrame(records, index=dates)
-    rain_df = pd.DataFrame(rain_records, index=dates)
-    analysis = analyze_catchment(df, phase_model="rule_based", n_bootstrap=40)
+    dates = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    values = 20.0 + 15.0 * np.cos(2 * np.pi * (dates.month - 2) / 12)
+    rain = 50.0 + 20.0 * np.sin(2 * np.pi * dates.month / 12)
+    df = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
+    rain_df = pd.DataFrame({"rainfall_mm": rain}, index=dates)
+    analysis = analyze_catchment(
+        df,
+        phase_model="rule_based",
+        n_bootstrap=40,
+        evidence_thresholds=EVIDENCE,
+        recoverability_thresholds=RECOVERABILITY,
+    )
     monthly = build_monthly_export(df, analysis=analysis, rainfall=rain_df)
     return monthly, analysis
 
@@ -485,9 +511,10 @@ def test_low_spell_duration_figure_is_one_bar_per_spell(marginal_data):
 
 
 def test_low_spell_duration_figure_is_none_without_spells(seasonal_data):
+    from dataclasses import replace
     _, analysis = seasonal_data
-    assert analysis.events.low_spells.empty
-    assert low_spell_duration_figure(analysis) is None
+    no_spells = replace(analysis, events=replace(analysis.events, low_spells=pd.DataFrame()))
+    assert low_spell_duration_figure(no_spells) is None
 
 
 def test_event_duration_figure_is_none_without_events(marginal_data):
@@ -498,57 +525,6 @@ def test_event_duration_figure_is_none_without_events(marginal_data):
 
     detached = SimpleNamespace(events=SimpleNamespace(events=pd.DataFrame()))
     assert event_duration_figure(detached) is None
-
-
-def test_imposed_boundaries_labelled_but_drawn_like_detected(seasonal_data, marginal_data):
-    """The legend names an imposed window; the marker glyph itself is unchanged.
-
-    Markers stay visually identical across routes so a reader scanning the
-    Monthly Surface Water Extent chart sees one consistent marker language;
-    the "(imposed)" legend text is what carries the provenance distinction.
-    """
-    _, marginal_analysis = marginal_data
-    assert marginal_analysis.route == "fixed_climatological_window"
-
-    imposed = timeline_figure(*marginal_data)
-    detected = timeline_figure(*seasonal_data)
-
-    imposed_markers = [t for t in imposed["data"] if str(t.get("name", "")).startswith("HY")]
-    detected_markers = [t for t in detected["data"] if str(t.get("name", "")).startswith("HY")]
-
-    assert imposed_markers, "imposed run should still draw markers"
-    assert all("(imposed)" in trace["name"] for trace in imposed_markers)
-    assert all("(imposed)" not in trace["name"] for trace in detected_markers)
-
-    imposed_by_base_name = {trace["name"].replace(" (imposed)", ""): trace for trace in imposed_markers}
-    detected_by_name = {trace["name"]: trace for trace in detected_markers}
-    for base_name, imposed_trace in imposed_by_base_name.items():
-        detected_trace = detected_by_name[base_name]
-        assert imposed_trace["marker"]["symbol"] == detected_trace["marker"]["symbol"]
-        assert imposed_trace["marker"]["color"] == detected_trace["marker"]["color"]
-
-
-def test_imposed_phase_bands_are_lighter_than_detected(seasonal_data, marginal_data):
-    def opacity(figure):
-        shapes = [
-            shape
-            for shape in figure["layout"]["shapes"]
-            if str(shape.get("name", "")).startswith("phase:")
-        ]
-        assert shapes, "expected phase bands"
-        return shapes[0]["opacity"]
-
-    assert opacity(timeline_figure(*marginal_data)) < opacity(timeline_figure(*seasonal_data))
-
-
-def test_marginal_route_labels_phases_and_troughs(marginal_data):
-    """The imposed window carries the same monthly products as a detected one."""
-    monthly, analysis = marginal_data
-    assert analysis.monthly_phase is not None
-    assert set(monthly["phase"].unique()) - {"unspecified"}
-    assert analysis.hydro_years["trough_month"].notna().all()
-    assert (analysis.hydro_years["boundary_basis"] == "imposed_fixed_window").all()
-    assert monthly["is_hy_trough"].sum() > 0
 
 
 def test_every_axis_carries_a_unit(

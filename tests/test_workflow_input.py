@@ -172,6 +172,7 @@ def _netcdf_writer_engine():
     pytest.skip("no NetCDF writer engine installed (h5netcdf, netCDF4, or scipy)")
 
 
+@pytest.mark.filterwarnings("ignore:numpy.ndarray size changed.*:RuntimeWarning")
 def test_dataarray_dataset_netcdf_and_zarr_match(tmp_path):
     pytest.importorskip("xarray")
     mask = _mask_array()

@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._catchment import analyze_catchment
+from hydroseason._evidence import EvidenceThresholds
 from hydroseason._regime_compare import compare_extent_and_rainfall_regimes
 from hydroseason._report_copy import (
     build_rainfall_context,
@@ -12,17 +14,38 @@ from hydroseason._report_copy import (
     wet_event_explainer,
 )
 
+EVIDENCE = EvidenceThresholds(
+    seasonal_cv_skill=0.3,
+    periodicity_alpha=0.05,
+    amplitude_noise_ratio=1.0,
+    mode_min_frequency=0.60,
+    mode_min_separation_months=2,
+    strong_timing_concentration=0.70,
+    weak_timing_concentration=0.40,
+    min_timing_years=5,
+)
+RECOVERABILITY = RecoverabilityThresholds(
+    min_years=5,
+    min_coverage=0.80,
+    min_within_1_month=0.80,
+    within_1_month_wilson_floor=0.50,
+    max_p90_error_months=2.0,
+    admit_insufficient_drift=False,
+)
+
 
 @pytest.fixture
 def seasonal_analysis():
-    dates = pd.date_range("2010-01-01", "2015-12-01", freq="MS")
-    records = []
-    for date in dates:
-        month = date.month
-        val = 10.0 + 30.0 * np.sin(2 * np.pi * (month - 1) / 12) + np.random.normal(0, 0.5)
-        records.append({"extent_pct": max(0.0, min(100.0, val)), "invalid_pct": 0.0})
-    df = pd.DataFrame(records, index=dates)
-    return analyze_catchment(df, phase_model="rule_based", n_bootstrap=40)
+    dates = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    values = 20.0 + 15.0 * np.cos(2 * np.pi * (dates.month - 2) / 12)
+    df = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
+    return analyze_catchment(
+        df,
+        phase_model="rule_based",
+        n_bootstrap=40,
+        evidence_thresholds=EVIDENCE,
+        recoverability_thresholds=RECOVERABILITY,
+    )
 
 
 @pytest.fixture
@@ -145,8 +168,15 @@ def test_low_spell_explainer_states_this_catchments_own_thresholds(aseasonal_ana
 
 
 def test_low_spell_explainer_handles_no_spells(seasonal_analysis):
-    assert seasonal_analysis.events.summary["n_low_spells"] == 0
-    text = low_spell_explainer(seasonal_analysis)
+    from dataclasses import replace
+    no_spells_events = replace(
+        seasonal_analysis.events,
+        summary={**seasonal_analysis.events.summary, "n_low_spells": 0},
+        low_spells=pd.DataFrame(),
+    )
+    no_spells_analysis = replace(seasonal_analysis, events=no_spells_events)
+    assert no_spells_analysis.events.summary["n_low_spells"] == 0
+    text = low_spell_explainer(no_spells_analysis)
     assert "no run of low extent" in text.casefold()
 
 

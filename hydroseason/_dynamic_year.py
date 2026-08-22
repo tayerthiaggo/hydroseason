@@ -126,7 +126,7 @@ def _month_delta(actual: pd.Timestamp, expected: pd.Timestamp) -> int:
 _TROUGH_DIAGNOSTIC_COLUMNS = (
     "raw_trough_month", "raw_trough_extent_pct",
     "low_run_start_month", "low_run_end_month",
-    "window_status", "selection_status", "selection_support",
+    "window_status", "selection_status", "selection_support", "selection_quality",
     "window_n_expected", "window_n_usable", "phase_shift_months",
 )
 
@@ -198,6 +198,7 @@ def _find_robust_trough_opportunities(frame: pd.DataFrame, config: DynamicHydroY
             "window_status": selection.window_status,
             "selection_status": selection_status,
             "selection_support": selection.support,
+            "selection_quality": selection.support,
             "window_n_expected": selection.n_expected,
             "window_n_usable": selection.n_usable,
         }
@@ -282,6 +283,7 @@ def _find_semi_markov_trough_opportunities(frame: pd.DataFrame, config: DynamicH
             "window_status": "full",
             "selection_status": "raw",
             "selection_support": np.nan,
+            "selection_quality": np.nan,
             "window_n_expected": np.nan,
             "window_n_usable": np.nan,
         }
@@ -305,6 +307,7 @@ def _find_semi_markov_trough_opportunities(frame: pd.DataFrame, config: DynamicH
             raw_trough_month=selected,
             raw_trough_extent_pct=float(observed["extent_pct"]),
             selection_support=support,
+            selection_quality=support,
         )
         rows.append(row)
     return pd.DataFrame(rows)
@@ -322,7 +325,7 @@ ANNUAL_COLUMNS = [
     "secondary_trough_month", "secondary_trough_extent_pct",
     "raw_trough_month", "raw_trough_extent_pct",
     "low_run_start_month", "low_run_end_month",
-    "window_status", "selection_status", "selection_support",
+    "window_status", "selection_status", "selection_support", "selection_quality",
     "window_n_expected", "window_n_usable", "phase_shift_months",
     "raw_peak_month", "raw_peak_extent_pct",
     "peak_selection_status", "peak_selection_support",
