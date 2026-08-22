@@ -384,6 +384,41 @@ _RECORD_STATS_CACHE: dict[tuple[int, str], RecordStatistics] = {}
 _PHASE_STATS_CACHE: dict[tuple[int, str], tuple[PhaseCycleStatistics, ...]] = {}
 
 
+def _worker_evidence(args: tuple[int, str]) -> dict:
+    seed, partition = args
+    record = generate_record(seed, partition=partition)
+    stats = compute_statistics(record)
+    mean_b_error = float(np.mean(stats.boundary_errors)) if stats.boundary_errors else 0.0
+    row = {
+        "seed": stats.seed,
+        "family": stats.family,
+        "n_years": stats.n_years,
+        "n_evaluable_years": stats.n_evaluable_years,
+        "seasonal_cv_skill": stats.seasonal_cv_skill,
+        "periodicity_p": stats.periodicity_p,
+        "amplitude_noise_ratio": stats.amplitude_noise_ratio,
+        "at_or_below_floor": stats.at_or_below_floor,
+        "timing_concentration": stats.timing_concentration,
+        "timing_uniformity_p": stats.timing_uniformity_p,
+        "drift_status": stats.drift_status,
+        "boundary_n": stats.boundary_n,
+        "boundary_coverage": stats.boundary_coverage,
+        "boundary_mae": mean_b_error,
+        "truth_is_annual": stats.truth_is_annual,
+        "truth_trough_month": stats.truth_trough_month if stats.truth_trough_month is not None else -1,
+    }
+    for freq in MODE_FREQUENCY_GRID:
+        row[f"peak_n_modes_{freq:.2f}"] = stats.peak_n_modes_by_frequency[freq]
+        row[f"trough_n_modes_{freq:.2f}"] = stats.trough_n_modes_by_frequency[freq]
+    return row
+
+
+def _worker_phase(args: tuple[int, str]) -> tuple[PhaseCycleStatistics, ...]:
+    seed, partition = args
+    record = generate_record(seed, partition=partition)
+    return compute_phase_statistics(record)
+
+
 def build_evidence_cache(
     seeds: Iterable[int], *, partition: Literal["calibration", "validation"]
 ) -> pd.DataFrame:
