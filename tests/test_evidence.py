@@ -2,7 +2,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._evidence import annual_extremum_month_sets, wilson_interval
+from hydroseason._circular_timing import AnnualTimingSummary
+from hydroseason._evidence import (
+    EvidenceThresholds,
+    annual_cycle_evidence,
+    annual_extremum_month_sets,
+    wilson_interval,
+)
 from hydroseason._state_input import prepare_monthly_extent
 
 
@@ -113,3 +119,134 @@ def test_partial_years_contribute_their_own_extremum():
     month_sets = annual_extremum_month_sets(prepared, kind="min", tolerance_pct=1.0)
 
     assert month_sets == {2000: (9,)}
+
+
+THRESHOLDS = EvidenceThresholds(
+    seasonal_cv_skill=0.3,
+    periodicity_alpha=0.05,
+    amplitude_noise_ratio=1.0,
+    mode_min_frequency=0.60,
+    mode_min_separation_months=2,
+    strong_timing_concentration=0.70,
+    weak_timing_concentration=0.40,
+    min_timing_years=10,
+)
+
+
+def _timing(concentration=0.9, uniformity_p=0.001, n_years=12):
+    return AnnualTimingSummary(
+        concentration=concentration,
+        ci_low=concentration - 0.05,
+        ci_high=min(1.0, concentration + 0.05),
+        iqr_months=1.0,
+        uniformity_p=uniformity_p,
+        n_years=n_years,
+        dominant_month=7,
+    )
+
+
+def _call(**overrides):
+    kwargs = dict(
+        seasonal_cv_skill=0.8,
+        periodicity_p=0.001,
+        amplitude_noise_ratio=4.0,
+        peak_n_modes=1,
+        trough_n_modes=1,
+        n_evaluable_years=12,
+        at_or_below_floor=False,
+        timing=_timing(),
+        drift_status="not_detected",
+        thresholds=THRESHOLDS,
+    )
+    kwargs.update(overrides)
+    return annual_cycle_evidence(**kwargs)
+
+
+def test_clean_seasonal_record_is_strong():
+    assert _call() == "strong"
+
+
+def test_amplitude_at_or_below_floor_is_absent():
+    """A record with no resolvable amplitude has no annual cycle to grade."""
+    assert _call(at_or_below_floor=True, amplitude_noise_ratio=0.0) == "absent"
+
+
+def test_short_record_is_insufficient_before_anything_else():
+    assert _call(n_evaluable_years=3) == "insufficient"
+
+
+def test_nonsignificant_periodicity_cannot_be_strong():
+    assert _call(periodicity_p=0.4) in {"weak", "absent"}
+
+
+def test_low_skill_cannot_be_strong():
+    assert _call(seasonal_cv_skill=0.05) != "strong"
+
+
+def test_bimodal_timing_is_not_strong():
+    """Two retained peak modes contradict a single stable annual cycle."""
+    assert _call(peak_n_modes=2) == "moderate"
+
+
+def test_detected_drift_is_not_strong():
+    assert _call(drift_status="detected") == "moderate"
+
+
+def test_diffuse_timing_downgrades_to_moderate():
+    assert _call(timing=_timing(concentration=0.5, uniformity_p=0.02)) == "moderate"
+
+
+def test_uniform_timing_is_weak_or_absent():
+    assert _call(timing=_timing(concentration=0.1, uniformity_p=0.6)) in {
+        "weak",
+        "absent",
+    }
+
+
+def test_evidence_is_monotone_in_skill():
+    """Raising skill must never lower the grade."""
+    order = ["absent", "weak", "moderate", "strong"]
+    grades = [
+        order.index(_call(seasonal_cv_skill=value)) for value in (0.0, 0.2, 0.4, 0.9)
+    ]
+    assert grades == sorted(grades)
+
+
+def test_thresholds_have_no_defaults():
+    with pytest.raises(TypeError):
+        EvidenceThresholds()
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"seasonal_cv_skill": float("nan")}, "finite"),
+        ({"periodicity_alpha": 1.5}, "periodicity_alpha"),
+        ({"periodicity_alpha": 0.0}, "periodicity_alpha"),
+        ({"amplitude_noise_ratio": -0.1}, "amplitude_noise_ratio"),
+        ({"mode_min_frequency": 0.0}, "mode_min_frequency"),
+        ({"mode_min_frequency": 1.5}, "mode_min_frequency"),
+        ({"mode_min_separation_months": True}, "mode_min_separation_months"),
+        ({"mode_min_separation_months": 0}, "mode_min_separation_months"),
+        ({"mode_min_separation_months": 13}, "mode_min_separation_months"),
+        ({"strong_timing_concentration": 0.3}, "weak_timing_concentration"),
+        ({"weak_timing_concentration": -0.1}, "weak_timing_concentration"),
+        ({"strong_timing_concentration": 1.5}, "strong_timing_concentration"),
+        ({"min_timing_years": False}, "min_timing_years"),
+        ({"min_timing_years": 0}, "min_timing_years"),
+    ],
+)
+def test_evidence_thresholds_validation(kwargs, match):
+    valid_args = dict(
+        seasonal_cv_skill=0.3,
+        periodicity_alpha=0.05,
+        amplitude_noise_ratio=1.0,
+        mode_min_frequency=0.60,
+        mode_min_separation_months=2,
+        strong_timing_concentration=0.70,
+        weak_timing_concentration=0.40,
+        min_timing_years=10,
+    )
+    valid_args.update(kwargs)
+    with pytest.raises(ValueError, match=match):
+        EvidenceThresholds(**valid_args)

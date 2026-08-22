@@ -6,13 +6,17 @@ the runtime uses rather than a reimplementation of them.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from numbers import Integral
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 
 from ._circular_timing import equivalent_extremum_months
+
+if TYPE_CHECKING:
+    from ._circular_timing import AnnualTimingSummary
 
 # Two-sided normal quantile at 95%. Hard-coded because it is the default and
 # because a lookup avoids the approximation error below for the common case.
@@ -142,3 +146,123 @@ def annual_extremum_month_sets(
         if months:
             month_sets[int(year)] = months
     return month_sets
+
+
+# The spec fixes this; it is not a tuned cutoff.
+_MIN_EVALUABLE_YEARS = 5
+
+AnnualCycleEvidence = Literal["strong", "moderate", "weak", "absent", "insufficient"]
+
+
+@dataclass(frozen=True)
+class EvidenceThresholds:
+    """Calibrated cutoffs, supplied together so none can drift out of step.
+
+    Deliberately without defaults. Plan 4's calibration generates every field;
+    a default value here would be a tuned constant living in source, which is
+    exactly what the calibration discipline exists to prevent.
+    """
+
+    seasonal_cv_skill: float
+    periodicity_alpha: float
+    amplitude_noise_ratio: float
+    mode_min_frequency: float
+    mode_min_separation_months: int
+    strong_timing_concentration: float
+    weak_timing_concentration: float
+    min_timing_years: int
+
+    def __post_init__(self) -> None:
+        for name in (
+            "seasonal_cv_skill",
+            "periodicity_alpha",
+            "amplitude_noise_ratio",
+            "mode_min_frequency",
+            "strong_timing_concentration",
+            "weak_timing_concentration",
+        ):
+            val = getattr(self, name)
+            if (
+                not isinstance(val, (int, float))
+                or isinstance(val, bool)
+                or not np.isfinite(val)
+            ):
+                raise ValueError(f"{name} must be a finite number.")
+
+        for name in ("mode_min_separation_months", "min_timing_years"):
+            val = getattr(self, name)
+            if isinstance(val, bool) or not isinstance(val, Integral):
+                raise ValueError(f"{name} must be an integer.")
+
+        if not (0.0 < float(self.periodicity_alpha) < 1.0):
+            raise ValueError("periodicity_alpha must be between 0 and 1 exclusive.")
+        if float(self.amplitude_noise_ratio) < 0.0:
+            raise ValueError("amplitude_noise_ratio must be non-negative.")
+        if not (0.0 < float(self.mode_min_frequency) <= 1.0):
+            raise ValueError("mode_min_frequency must be in (0, 1].")
+        if not (1 <= int(self.mode_min_separation_months) <= 12):
+            raise ValueError("mode_min_separation_months must be between 1 and 12.")
+        if not (0.0 <= float(self.weak_timing_concentration) <= 1.0):
+            raise ValueError("weak_timing_concentration must be between 0 and 1.")
+        if not (0.0 <= float(self.strong_timing_concentration) <= 1.0):
+            raise ValueError("strong_timing_concentration must be between 0 and 1.")
+        if float(self.weak_timing_concentration) >= float(
+            self.strong_timing_concentration
+        ):
+            raise ValueError(
+                "weak_timing_concentration must be strictly less than strong_timing_concentration."
+            )
+        if int(self.min_timing_years) < 1:
+            raise ValueError("min_timing_years must be at least 1.")
+
+
+def annual_cycle_evidence(
+    *,
+    seasonal_cv_skill: float,
+    periodicity_p: float,
+    amplitude_noise_ratio: float,
+    peak_n_modes: int,
+    trough_n_modes: int,
+    n_evaluable_years: int,
+    at_or_below_floor: bool,
+    timing: AnnualTimingSummary | None,
+    drift_status: str,
+    thresholds: EvidenceThresholds,
+) -> AnnualCycleEvidence:
+    """Grade calendar-aligned annual-cycle evidence.
+
+    Ordered so that structural disqualifications are answered before any
+    threshold comparison: too short is ``insufficient``, no resolvable
+    amplitude is ``absent``. Only then do skill, significance and timing
+    combine, and multimodality or detected drift cap the grade at ``moderate``
+    because neither is compatible with one stable annual cycle.
+    """
+    if n_evaluable_years < _MIN_EVALUABLE_YEARS:
+        return "insufficient"
+    if at_or_below_floor or amplitude_noise_ratio <= 0.0:
+        return "absent"
+
+    significant = periodicity_p < thresholds.periodicity_alpha
+    skilful = seasonal_cv_skill >= thresholds.seasonal_cv_skill
+    loud = amplitude_noise_ratio >= thresholds.amplitude_noise_ratio
+
+    concentration = timing.concentration if timing is not None else None
+    concentrated = (
+        concentration is not None
+        and concentration >= thresholds.strong_timing_concentration
+    )
+    weakly_concentrated = (
+        concentration is not None
+        and concentration >= thresholds.weak_timing_concentration
+    )
+
+    unimodal = peak_n_modes == 1 and trough_n_modes == 1
+    drifting = drift_status == "detected"
+
+    if significant and skilful and loud and concentrated and unimodal and not drifting:
+        return "strong"
+    if significant and (skilful or loud) and weakly_concentrated:
+        return "moderate"
+    if significant or skilful:
+        return "weak"
+    return "absent"
