@@ -18,8 +18,9 @@ from hydroseason.hydrological_state import analyze_hydrological_state
 PHASE_COLUMNS = [
     "hy_year", "phase", "phase_status", "phase_confidence", "phase_method",
     "boundary_basis", "p_wet", "p_recession", "p_dry", "p_recovery",
-    "extent_pct", "candidate_usable",
+    "extent_pct", "candidate_usable", "phase_stability",
 ]
+
 
 
 @pytest.fixture()
@@ -191,3 +192,81 @@ def test_monthly_phase_boundary_basis_matches_actual_annual_boundary_detector(mo
         result = analyze_hydrological_state(monsonal_extent, config=config, n_bootstrap=40)
         assert config.detector == "robust_extrema"
         assert result.monthly_phase["boundary_basis"].eq(config.detector).all()
+
+
+@pytest.fixture()
+def seasonal_frame() -> pd.DataFrame:
+    index = pd.date_range("2000-01-01", periods=15 * 12, freq="MS")
+    values = 30.0 + 25.0 * np.cos(2 * np.pi * (index.month - 2) / 12)
+    return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
+
+
+@pytest.fixture()
+def flat_frame() -> pd.DataFrame:
+    index = pd.date_range("2000-01-01", periods=15 * 12, freq="MS")
+    return pd.DataFrame({"extent_pct": 10.0, "invalid_pct": 0.0}, index=index)
+
+
+def test_cycle_relative_is_dispatched_by_default(seasonal_frame):
+    result = analyze_hydrological_state(seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7))
+
+    assert (result.monthly_phase["phase_method"] == "cycle_relative").all()
+
+
+def test_phase_stability_column_is_present_and_appended_last(seasonal_frame):
+    result = analyze_hydrological_state(seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7))
+
+    assert "phase_stability" in result.monthly_phase.columns
+    assert result.monthly_phase.columns[-1] == "phase_stability"
+
+
+def test_phase_confidence_equals_phase_stability_under_the_new_model(seasonal_frame):
+    result = analyze_hydrological_state(seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7))
+    labelled = result.monthly_phase.loc[result.monthly_phase["phase"] != "unspecified"]
+
+    assert np.allclose(labelled["phase_confidence"], labelled["phase_stability"])
+
+
+def test_legacy_rule_based_output_is_byte_for_byte_stable(seasonal_frame):
+    """The compatibility contract: a diff here is a failure, not a rounding change."""
+    frozen_rule_based_fixture = (
+        pd.read_csv(
+            "tests/fixtures/rule_based_phase_0_1_1.csv",
+            parse_dates=["month"],
+            dtype={"hy_year": "Int64"},
+        )
+        .set_index("month")
+    )
+    frozen_rule_based_fixture.index = pd.DatetimeIndex(frozen_rule_based_fixture.index, freq="MS")
+    frozen_rule_based_fixture.index.name = None
+
+    result = analyze_hydrological_state(
+        seasonal_frame,
+        config=DynamicHydroYearConfig(expected_trough_month=7, phase_model="rule_based"),
+    )
+
+    pd.testing.assert_frame_equal(
+        result.monthly_phase[frozen_rule_based_fixture.columns],
+        frozen_rule_based_fixture,
+        check_dtype=True,
+    )
+
+
+
+
+def test_none_model_still_disables_labelling(seasonal_frame):
+    result = analyze_hydrological_state(
+        seasonal_frame,
+        config=DynamicHydroYearConfig(expected_trough_month=7, phase_model="none"),
+    )
+
+    assert (result.monthly_phase["phase_status"] == "disabled").all()
+
+
+def test_insufficient_cycle_amplitude_is_recorded(flat_frame):
+    result = analyze_hydrological_state(flat_frame, config=DynamicHydroYearConfig(expected_trough_month=7))
+    statuses = set(result.monthly_phase["phase_status"])
+
+    assert "insufficient_cycle_amplitude" in statuses or "disabled" in statuses
+
+

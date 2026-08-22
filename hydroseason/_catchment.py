@@ -148,8 +148,9 @@ def analyze_catchment(
     min_months_per_year: int = 9,
     max_invalid_pct: float = 20.0,
     quality_policy: QualityPolicy = "flag",
-    phase_model: Literal["none", "rule_based", "cycle_relative"] = "rule_based",
+    phase_model: Literal["none", "rule_based", "cycle_relative"] = "cycle_relative",
     n_bootstrap: int = 200,
+
     random_state: int = 0,
     evidence_thresholds: EvidenceThresholds | None = None,
     recoverability_thresholds: RecoverabilityThresholds | None = None,
