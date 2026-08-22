@@ -1,6 +1,5 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from math import erf, sqrt
 from numbers import Integral, Real
 from typing import Iterable, Literal
 
@@ -11,12 +10,13 @@ _MONTHS_PER_YEAR = 12
 
 
 @dataclass(frozen=True)
-class PhaseDriftSummary:
-    """Circular-safe drift in annual timing over time."""
+class TimingDrift:
+    """Linear trend in annual extremum timing, with a bootstrap interval."""
 
-    slope_months_per_decade: float
-    standard_error: float
-    p_value: float
+    status: Literal["detected", "not_detected", "insufficient_for_drift"]
+    months_per_decade: float | None
+    ci_low: float | None
+    ci_high: float | None
     n_years: int
 
 
@@ -89,7 +89,29 @@ def _rotate_month_set(months: tuple[int, ...], offset: int) -> tuple[int, ...]:
 
 
 def _circular_offsets(angles: np.ndarray, centre: float) -> np.ndarray:
-    return np.angle(np.exp(1j * (angles - centre))) * _MONTHS_PER_YEAR / (2.0 * np.pi)
+    offsets = np.angle(np.exp(1j * (angles - centre))) * _MONTHS_PER_YEAR / (
+        2.0 * np.pi
+    )
+    return (offsets + _MONTHS_PER_YEAR / 2.0) % _MONTHS_PER_YEAR - (
+        _MONTHS_PER_YEAR / 2.0
+    )
+
+
+def _weighted_percentile(
+    values: np.ndarray,
+    weights: np.ndarray,
+    quantiles: Sequence[float],
+) -> np.ndarray:
+    """Inverted-CDF percentiles for non-negative weighted observations."""
+    order = np.argsort(values)
+    ordered_values = values[order]
+    ordered_weights = weights[order]
+    total = float(ordered_weights.sum())
+    if total <= 0.0:
+        return np.full(len(quantiles), np.nan)
+    cumulative = np.cumsum(ordered_weights) / total
+    positions = np.searchsorted(cumulative, np.asarray(quantiles, dtype=float), side="left")
+    return ordered_values[np.clip(positions, 0, len(ordered_values) - 1)]
 
 
 def summarise_annual_timing(
@@ -163,7 +185,8 @@ def summarise_annual_timing(
         centre = float(np.angle(resultant))
         dominant_month = int(round(centre * _MONTHS_PER_YEAR / (2.0 * np.pi))) % _MONTHS_PER_YEAR + 1
         offsets_months = _circular_offsets(angles, centre)
-        iqr_months = float(np.percentile(offsets_months, 75) - np.percentile(offsets_months, 25))
+        quartiles = _weighted_percentile(offsets_months, weights, (0.25, 0.75))
+        iqr_months = float(quartiles[1] - quartiles[0])
 
     return AnnualTimingSummary(
         concentration=concentration,
@@ -176,100 +199,98 @@ def summarise_annual_timing(
     )
 
 
-def _unroll_offsets(
-    angles: np.ndarray,
-    centre_angle: float,
-    window_radius: float,
-) -> np.ndarray:
-    diff = (angles - centre_angle + np.pi) % (2.0 * np.pi) - np.pi
-    diff = np.clip(diff, -window_radius, window_radius)
-    return diff * _MONTHS_PER_YEAR / (2.0 * np.pi)
+_MIN_DETECTABLE_DRIFT_MONTHS = 2.0
+_MONTHS_PER_DECADE = 10
 
 
-def phase_drift(
-    annual_months: dict[int, int | float | tuple[int | float, ...]],
+def _year_timing_angle(months: tuple[int, ...]) -> float:
+    """Circular mean angle of one year's equivalent month set."""
+    angles = 2.0 * np.pi * (np.asarray(months, dtype=float) - 1) / _MONTHS_PER_YEAR
+    return float(np.angle(np.mean(np.exp(1j * angles))))
+
+
+def _slope(years: np.ndarray, offsets: np.ndarray) -> float:
+    centred_years = years - years.mean()
+    denominator = float(np.sum(centred_years**2))
+    if denominator <= 0.0:
+        return 0.0
+    return float(np.sum(centred_years * (offsets - offsets.mean())) / denominator)
+
+
+def timing_drift(
+    month_sets: Mapping[int, Sequence[int]],
     *,
-    window_radius_months: int = 6,
-    n_bootstrap: int = 400,
+    min_timing_years: int,
+    n_resamples: int = 400,
     random_state: int = 0,
-) -> PhaseDriftSummary | None:
-    """Trend in peak or trough timing without circular boundary artifacts.
+    confidence: float = 0.95,
+) -> TimingDrift:
+    """Trend in annual extremum timing around the record's dominant mode."""
+    if (
+        isinstance(min_timing_years, bool)
+        or not isinstance(min_timing_years, Integral)
+        or min_timing_years < 2
+    ):
+        raise ValueError("min_timing_years must be an integer of at least 2.")
+    if isinstance(n_resamples, bool) or not isinstance(n_resamples, Integral):
+        raise TypeError("n_resamples must be an integer")
+    if n_resamples < 20:
+        raise ValueError("n_resamples must be at least 20")
+    if isinstance(random_state, bool) or not isinstance(random_state, Integral):
+        raise TypeError("random_state must be an integer")
+    if not 0.0 < float(confidence) < 1.0:
+        raise ValueError("confidence must be between 0 and 1")
 
-    Unrolls annual extremum months into a symmetric window around the circular
-    mean before fitting the slope on year, which eliminates the artificial
-    11-month drop that standard linear regression sees across December/January.
-    Tied months within a year contribute their mean unrolled position.
-    """
-    if window_radius_months < 1 or window_radius_months > 6:
-        raise ValueError("window_radius_months must be between 1 and 6.")
-    if n_bootstrap < 20:
-        raise ValueError("n_bootstrap must be at least 20.")
+    cleaned: dict[int, tuple[int, ...]] = {}
+    for year, raw_months in month_sets.items():
+        months = tuple(int(month) for month in raw_months)
+        if any(month < 1 or month > _MONTHS_PER_YEAR for month in months):
+            raise ValueError("months must be integers from 1 to 12")
+        if months:
+            cleaned[int(year)] = months
 
-    cleaned: dict[int, tuple[float, ...]] = {}
-    for year, entry in annual_months.items():
-        if isinstance(entry, (int, float)):
-            cleaned[int(year)] = (float(entry),)
-        else:
-            cleaned[int(year)] = tuple(float(month) for month in entry)
+    n_years = len(cleaned)
+    if n_years < int(min_timing_years):
+        return TimingDrift("insufficient_for_drift", None, None, None, n_years)
 
-    if len(cleaned) < 3:
-        return None
+    summary_seed, drift_seed = np.random.SeedSequence(int(random_state)).spawn(2)
+    summary_random_state = int(summary_seed.generate_state(1, dtype=np.uint32)[0])
+    summary = summarise_annual_timing(
+        cleaned,
+        n_resamples=int(n_resamples),
+        random_state=summary_random_state,
+        confidence=float(confidence),
+    )
+    if summary.dominant_month is None:
+        return TimingDrift("insufficient_for_drift", None, None, None, n_years)
 
-    years_sorted = sorted(cleaned)
-    month_sets = [cleaned[year] for year in years_sorted]
+    centre = 2.0 * np.pi * (summary.dominant_month - 1) / _MONTHS_PER_YEAR
+    years = np.asarray(sorted(cleaned), dtype=float)
+    angles = np.asarray(
+        [_year_timing_angle(cleaned[int(year)]) for year in years],
+        dtype=float,
+    )
+    offsets = _circular_offsets(angles, centre)
 
-    expanded_angles: list[float] = []
-    expanded_weights: list[float] = []
-    for months in month_sets:
-        n = len(months)
-        if n == 0:
-            continue
-        for month in months:
-            expanded_angles.append(2.0 * np.pi * (month - 1) / _MONTHS_PER_YEAR)
-            expanded_weights.append(1.0 / n)
-    if not expanded_angles:
-        return None
+    slope = _slope(years, offsets)
+    fitted_change = abs(slope * float(years.max() - years.min()))
 
-    resultant = _weighted_resultant(np.array(expanded_angles), np.array(expanded_weights))
-    if abs(resultant) <= np.finfo(float).eps:
-        return None
-    centre_angle = float(np.angle(resultant))
+    rng = np.random.default_rng(drift_seed)
+    draws = rng.integers(0, n_years, size=(int(n_resamples), n_years))
+    slopes = np.asarray([_slope(years[row], offsets[row]) for row in draws], dtype=float)
+    alpha = (1.0 - float(confidence)) / 2.0
+    ci_low, ci_high = np.percentile(
+        slopes,
+        [100.0 * alpha, 100.0 * (1.0 - alpha)],
+    )
 
-    window_radius = window_radius_months * (2.0 * np.pi / _MONTHS_PER_YEAR)
-    year_x = np.array(years_sorted, dtype=float)
-    year_y = np.empty(len(years_sorted), dtype=float)
-    for index, year in enumerate(years_sorted):
-        months = cleaned[year]
-        angles = np.array([2.0 * np.pi * (m - 1) / _MONTHS_PER_YEAR for m in months], dtype=float)
-        unrolled = _unroll_offsets(angles, centre_angle, window_radius)
-        year_y[index] = float(np.mean(unrolled))
-
-    centered_x = year_x - np.mean(year_x)
-    var_x = float(np.sum(centered_x**2))
-    if var_x <= 0.0:
-        return None
-    slope = float(np.sum(centered_x * (year_y - np.mean(year_y))) / var_x)
-
-    rng = np.random.default_rng(np.random.SeedSequence(int(random_state)))
-    n_years = len(year_x)
-    draws = rng.integers(0, n_years, size=(int(n_bootstrap), n_years))
-    boot_slopes = np.empty(int(n_bootstrap), dtype=float)
-    for position, row in enumerate(draws):
-        bx = centered_x[row]
-        by = year_y[row]
-        bx_c = bx - np.mean(bx)
-        denom = float(np.sum(bx_c**2))
-        boot_slopes[position] = float(np.sum(bx_c * (by - np.mean(by))) / denom) if denom > 0.0 else 0.0
-
-    se = float(np.std(boot_slopes, ddof=1))
-    z = slope / se if se > 0.0 else 0.0
-    # Two-sided standard normal p-value (erf-based for pure numpy)
-    p_value = float(2.0 * (1.0 - 0.5 * (1.0 + erf(abs(z) / sqrt(2.0)))))
-
-    return PhaseDriftSummary(
-        slope_months_per_decade=float(slope * 10.0),
-        standard_error=float(se * 10.0),
-        p_value=float(np.clip(p_value, 0.0, 1.0)),
+    excludes_zero = bool(ci_low > 0.0 or ci_high < 0.0)
+    detected = excludes_zero and fitted_change >= _MIN_DETECTABLE_DRIFT_MONTHS
+    return TimingDrift(
+        status="detected" if detected else "not_detected",
+        months_per_decade=float(slope * _MONTHS_PER_DECADE),
+        ci_low=float(ci_low * _MONTHS_PER_DECADE),
+        ci_high=float(ci_high * _MONTHS_PER_DECADE),
         n_years=n_years,
     )
 
@@ -390,7 +411,7 @@ def equivalent_extremum_months(
         raise ValueError("kind must be 'min' or 'max'.")
     if not np.isfinite(tolerance) or tolerance < 0.0:
         raise ValueError("tolerance must be a non-negative finite number.")
-    finite = values.dropna()
+    finite = values.loc[np.isfinite(values.to_numpy(dtype=float, na_value=np.nan))]
     if finite.empty:
         return ()
     extremum = float(finite.min() if kind == "min" else finite.max())
@@ -404,11 +425,11 @@ def equivalent_extremum_months(
 __all__ = [
     "AnnualTimingSummary",
     "CircularTimingSummary",
-    "PhaseDriftSummary",
+    "TimingDrift",
     "equivalent_extremum_months",
-    "phase_drift",
     "summarise_annual_timing",
     "summarise_circular_months",
+    "timing_drift",
 ]
 
 

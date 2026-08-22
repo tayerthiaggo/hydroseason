@@ -4,26 +4,8 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
 from ._catchment import CatchmentAnalysis, analyze_catchment
-from ._circular_timing import (
-    AnnualTimingSummary,
-    PhaseDriftSummary,
-    equivalent_extremum_months,
-    phase_drift,
-    summarise_annual_timing,
-)
 from ._events import WaterEventResult, extract_water_events
 from ._regime import Regime, WaterRegimeAssessment, assess_water_regime
-from ._seasonality import (
-    AmplitudeEvidence,
-    HarmonicSelection,
-    amplitude_evidence,
-    assess_seasonal_pattern,
-    fit_seasonal_harmonics,
-    periodicity_p_value,
-    retained_modes,
-    select_harmonic_order,
-)
-from ._state_input import candidate_weights
 from .batch import (
     HydroSeasonAOIOutcome,
     HydroSeasonBatchError,
@@ -130,20 +112,5 @@ __all__ = [
     "HydroSeasonBatchError",
     "HydroSeasonBatchResult",
     "run_hydroseason_many",
-    # 0.2.0 Evidence Primitives
-    "candidate_weights",
-    "equivalent_extremum_months",
-    "AnnualTimingSummary",
-    "summarise_annual_timing",
-    "HarmonicSelection",
-    "select_harmonic_order",
-    "AmplitudeEvidence",
-    "amplitude_evidence",
-    "periodicity_p_value",
-    "retained_modes",
-    "PhaseDriftSummary",
-    "phase_drift",
-    "assess_seasonal_pattern",
-    "fit_seasonal_harmonics",
 ]
 

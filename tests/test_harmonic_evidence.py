@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._seasonality import (
+from hydroseason._harmonic import (
     AmplitudeEvidence,
     HarmonicSelection,
     _design,
@@ -15,6 +15,7 @@ from hydroseason._seasonality import (
     periodicity_p_value,
     select_harmonic_order,
 )
+from hydroseason._seasonality import classify_seasonal_pattern
 from hydroseason._state_input import candidate_weights, prepare_monthly_extent
 
 
@@ -378,7 +379,7 @@ def test_p_value_is_bounded_and_deterministic():
 
 
 def test_rotation_preserves_each_years_values_weights_and_gaps():
-    from hydroseason._seasonality import _rotate_years
+    from hydroseason._harmonic import _rotate_years
 
     values = np.array([[1.0, 2.0, np.nan, 4.0]], dtype=float)
     weights = np.array([[1.0, 0.5, 0.0, 1.0]], dtype=float)
@@ -399,7 +400,7 @@ def test_holding_the_order_fixed_inflates_significance():
     A null that cannot re-select order is a weaker null, so it produces a
     smaller p-value. If this ever inverts, the re-selection has been lost.
     """
-    from hydroseason._seasonality import _null_skills
+    from hydroseason._harmonic import _null_skills
 
     rng = np.random.default_rng(2)
     months = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
@@ -425,5 +426,97 @@ def test_null_runs_within_a_sane_time_budget():
     assert elapsed < 30.0
 
 
+def _classification_kwargs(**overrides):
+    kwargs = {
+        "resolution_floor_pp": 0.5,
+        "mode_min_frequency": 0.60,
+        "mode_min_separation_months": 2,
+        "n_null": 99,
+        "random_state": 0,
+    }
+    kwargs.update(overrides)
+    return kwargs
 
+
+def test_partial_years_are_no_longer_discarded():
+    frame = _multi_year_frame(n_years=8).iloc[6:-6]
+
+    result = classify_seasonal_pattern(frame, **_classification_kwargs())
+
+    assert result.n_evaluable_years == 8
+    assert result.pattern == "unimodal_annual"
+
+
+def test_constant_record_is_low_variability_never_seasonal():
+    months = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
+    frame = pd.DataFrame({"extent_pct": 0.0, "invalid_pct": 0.0}, index=months)
+
+    result = classify_seasonal_pattern(frame, **_classification_kwargs())
+
+    assert result.pattern == "low_variability"
+    assert np.isfinite(result.amplitude_noise_ratio)
+    assert result.amplitude_noise_ratio == 0.0
+
+
+def test_reported_skill_is_the_pooled_value():
+    frame = _multi_year_frame(n_years=10, amplitude=20.0)
+
+    result = classify_seasonal_pattern(frame, **_classification_kwargs())
+    values, weights = _matrices(frame)
+    selection = select_harmonic_order(values, weights)
+
+    assert result.seasonal_cv_skill == pytest.approx(selection.pooled_skill)
+    assert result.selected_harmonic_order == selection.order
+
+
+def test_bimodal_record_reports_two_peak_modes():
+    months = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    angle = 2.0 * np.pi * (months.month - 1) / 12.0
+    frame = pd.DataFrame(
+        {"extent_pct": 50.0 + 20.0 * np.cos(2.0 * angle), "invalid_pct": 0.0},
+        index=months,
+    )
+
+    result = classify_seasonal_pattern(frame, **_classification_kwargs())
+
+    assert result.peak_timing_n_modes == 2
+    assert result.pattern == "bimodal_or_complex"
+
+
+def test_short_record_is_insufficient():
+    result = classify_seasonal_pattern(
+        _multi_year_frame(n_years=3),
+        **_classification_kwargs(),
+    )
+
+    assert result.pattern == "insufficient_record"
+
+
+def test_classification_is_deterministic():
+    frame = _multi_year_frame(n_years=8)
+    kwargs = _classification_kwargs(random_state=2)
+
+    assert classify_seasonal_pattern(frame, **kwargs) == classify_seasonal_pattern(
+        frame,
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize(
+    ("override", "match"),
+    [
+        ({"resolution_floor_pp": -1.0}, "resolution_floor_pp"),
+        ({"mode_min_frequency": 2.0}, "mode_min_frequency"),
+        ({"mode_min_separation_months": 0}, "mode_min_separation_months"),
+        ({"n_bootstrap": 0}, "n_bootstrap"),
+        ({"n_null": 0}, "n_null"),
+        ({"random_state": 1.5}, "random_state"),
+    ],
+)
+def test_invalid_classifier_configuration_raises_before_insufficiency(override, match):
+    kwargs = _classification_kwargs()
+    kwargs.update(override)
+
+    with pytest.raises(ValueError, match=match):
+        classify_seasonal_pattern(_multi_year_frame(n_years=3), **kwargs)
 

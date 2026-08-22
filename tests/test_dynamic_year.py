@@ -15,6 +15,13 @@ from hydroseason._dynamic_year import (
 from hydroseason._seasonality import classify_seasonal_pattern
 from hydroseason._state_input import prepare_monthly_extent
 
+_EVIDENCE_KWARGS = {
+    "resolution_floor_pp": 0.5,
+    "mode_min_frequency": 0.60,
+    "mode_min_separation_months": 2,
+    "n_null": 99,
+}
+
 
 def _monsoonal(years=12):
     index = pd.date_range("2000-01-01", periods=years * 12, freq="MS")
@@ -24,7 +31,7 @@ def _monsoonal(years=12):
 
 def test_suggestion_uses_advisory_phase_and_user_overrides_win():
     extent = _monsoonal()
-    pattern = classify_seasonal_pattern(extent, n_bootstrap=40)
+    pattern = classify_seasonal_pattern(extent, n_bootstrap=40, **_EVIDENCE_KWARGS)
     config = suggest_dynamic_hydro_year_config(extent, pattern=pattern, trough_search_radius_months=2)
     assert config.expected_trough_month == pattern.expected_trough_month
     assert config.expected_peak_month == pattern.expected_peak_month
@@ -33,8 +40,9 @@ def test_suggestion_uses_advisory_phase_and_user_overrides_win():
 
 def test_unstable_pattern_requires_explicit_trough():
     extent = _monsoonal(years=4)
+    pattern = classify_seasonal_pattern(extent, n_bootstrap=40, **_EVIDENCE_KWARGS)
     with pytest.raises(ValueError, match="expected_trough_month"):
-        suggest_dynamic_hydro_year_config(extent)
+        suggest_dynamic_hydro_year_config(extent, pattern=pattern)
 
 
 def test_dynamic_config_rejects_invalid_recovery_geometry():

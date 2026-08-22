@@ -63,8 +63,20 @@ def test_mock_regime_and_basin_cases():
     panel = pd.read_csv(FIXTURES / "dynamic_state_mock.csv", parse_dates=["date"])
     perennial = panel.loc[panel["site"] == "perennial"].set_index("date")[["extent_pct", "invalid_pct"]]
     bimodal = panel.loc[panel["site"] == "bimodal"].set_index("date")[["extent_pct", "invalid_pct"]]
-    assert classify_seasonal_pattern(perennial, n_bootstrap=40).pattern == "low_variability"
-    assert classify_seasonal_pattern(bimodal, n_bootstrap=40).pattern == "bimodal_or_complex"
+    evidence_kwargs = {
+        "resolution_floor_pp": 1.0,
+        "mode_min_frequency": 0.60,
+        "mode_min_separation_months": 2,
+        "n_null": 99,
+    }
+    assert (
+        classify_seasonal_pattern(perennial, n_bootstrap=40, **evidence_kwargs).pattern
+        == "low_variability"
+    )
+    assert (
+        classify_seasonal_pattern(bimodal, n_bootstrap=40, **evidence_kwargs).pattern
+        == "bimodal_or_complex"
+    )
 
     basin = panel.loc[panel["site"].isin(["basin_small", "basin_large"])].rename(columns={"site": "aoi_id"})
     result = aggregate_basin_monthly_extent(basin)

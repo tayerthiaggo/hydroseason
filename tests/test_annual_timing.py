@@ -4,12 +4,13 @@ import pytest
 
 from hydroseason._circular_timing import (
     AnnualTimingSummary,
-    PhaseDriftSummary,
+    TimingDrift,
+    _circular_offsets,
     equivalent_extremum_months,
-    phase_drift,
     summarise_annual_timing,
+    timing_drift,
 )
-from hydroseason._seasonality import _year_matrices, retained_modes
+from hydroseason._harmonic import _year_matrices, retained_modes
 from hydroseason._state_input import candidate_weights, prepare_monthly_extent
 
 
@@ -61,6 +62,12 @@ def test_all_missing_year_returns_empty():
     assert equivalent_extremum_months(series, kind="min", tolerance=1.0) == ()
 
 
+def test_all_non_finite_year_returns_empty():
+    series = _year([np.inf] * 12)
+
+    assert equivalent_extremum_months(series, kind="min", tolerance=1.0) == ()
+
+
 def test_missing_months_are_ignored_not_treated_as_zero():
     series = _year([50.0] * 12)
     series.iloc[2] = np.nan
@@ -101,6 +108,20 @@ def test_reported_n_is_years_not_expanded_entries():
     summary = summarise_annual_timing(month_sets, n_resamples=100, random_state=0)
 
     assert summary.n_years == 3
+
+
+def test_tied_years_have_equal_total_weight_in_timing_iqr():
+    """One diffuse year must not outvote three sharp years in the IQR."""
+    month_sets = {
+        2000: tuple(range(1, 13)),
+        2001: (7,),
+        2002: (7,),
+        2003: (7,),
+    }
+
+    summary = summarise_annual_timing(month_sets, n_resamples=100, random_state=0)
+
+    assert summary.iqr_months == pytest.approx(0.0, abs=1e-12)
 
 
 def test_tied_months_do_not_narrow_the_confidence_interval():
@@ -250,60 +271,79 @@ def test_min_frequency_must_be_a_fraction():
         )
 
 
-def test_december_january_transition_does_not_jump_eleven_months():
-    """Defect this replaces: December (12) -> January (1) registered as an 11-month drop."""
-    annual_months = {
-        2000: 11,
-        2001: 12,
-        2002: 12,
-        2003: 1,
-        2004: 1,
-        2005: 2,
-    }
+def test_stable_timing_is_not_detected():
+    month_sets = {year: (7,) for year in range(2000, 2020)}
 
-    drift = phase_drift(annual_months, random_state=0)
+    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
 
-    assert isinstance(drift, PhaseDriftSummary)
-    # 3 months over 5 intervals = ~0.6 months/year = ~6.0 months/decade, positive.
-    assert 4.0 <= drift.slope_months_per_decade <= 8.0
-    assert drift.p_value < 0.05
+    assert isinstance(drift, TimingDrift)
+    assert drift.status == "not_detected"
+    assert abs(drift.months_per_decade) < 0.5
 
 
-def test_stationary_annual_timing_has_near_zero_drift():
-    annual_months = {year: 6 for year in range(2000, 2020)}
+def test_steady_drift_is_detected():
+    month_sets = {2000 + step: ((3 + step // 4 - 1) % 12 + 1,) for step in range(24)}
 
-    drift = phase_drift(annual_months, random_state=0)
+    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
 
-    assert drift.slope_months_per_decade == pytest.approx(0.0, abs=1e-6)
-    assert drift.p_value > 0.90
-
-
-def test_equivalent_extremum_months_contribute_their_mean_offset():
-    """A year with tied months 11 and 1 (around Dec) is centered on Dec (0 offset)."""
-    annual_months = {
-        2000: (11, 1),
-        2001: 12,
-        2002: 12,
-        2003: 12,
-        2004: (11, 1),
-    }
-
-    drift = phase_drift(annual_months, random_state=0)
-
-    assert drift.slope_months_per_decade == pytest.approx(0.0, abs=0.5)
+    assert drift.status == "detected"
+    assert drift.months_per_decade > 1.5
 
 
-def test_phase_drift_requires_at_least_three_years():
-    assert phase_drift({2000: 1, 2001: 2}) is None
+def test_short_record_reports_insufficient_not_stable():
+    month_sets = {year: (7,) for year in range(2000, 2007)}
+
+    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
+
+    assert drift.status == "insufficient_for_drift"
+    assert drift.months_per_decade is None
 
 
-def test_phase_drift_is_deterministic():
-    annual_months = {year: int((year % 3) + 5) for year in range(2000, 2015)}
+def test_significant_but_tiny_drift_is_not_detected():
+    month_sets = {2000 + step: ((7,) if step < 15 else (8,)) for step in range(30)}
 
-    first = phase_drift(annual_months, random_state=7)
-    second = phase_drift(annual_months, random_state=7)
+    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
+
+    assert drift.status == "not_detected"
+
+
+def test_drift_across_the_december_january_boundary_is_circular():
+    month_sets = {2000 + step: ((11 + step // 4 - 1) % 12 + 1,) for step in range(24)}
+
+    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
+
+    assert drift.status == "detected"
+    assert drift.months_per_decade > 1.5
+
+
+def test_antipodal_offset_uses_negative_endpoint_of_half_open_window():
+    offsets = _circular_offsets(np.asarray([np.pi]), centre=0.0)
+
+    assert offsets.tolist() == pytest.approx([-6.0])
+
+
+def test_tied_years_contribute_one_timing_each():
+    month_sets = {year: (6, 7, 8) for year in range(2000, 2015)}
+
+    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
+
+    assert drift.n_years == 15
+    assert drift.status == "not_detected"
+
+
+def test_empty_years_are_excluded_without_runtime_warning():
+    month_sets = {2000: (7,), 2001: (), 2002: (8,)}
+
+    drift = timing_drift(month_sets, min_timing_years=3, random_state=0)
+
+    assert drift.status == "insufficient_for_drift"
+    assert drift.n_years == 2
+
+
+def test_drift_is_deterministic():
+    month_sets = {2000 + step: ((3 + step // 4 - 1) % 12 + 1,) for step in range(24)}
+
+    first = timing_drift(month_sets, min_timing_years=10, random_state=6)
+    second = timing_drift(month_sets, min_timing_years=10, random_state=6)
 
     assert first == second
-
-
-
