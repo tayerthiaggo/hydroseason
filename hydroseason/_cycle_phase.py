@@ -68,3 +68,84 @@ def smooth_for_geometry(values: pd.Series, window: int) -> pd.Series:
         return values.astype(float).copy()
     smoothed = values.astype(float).rolling(window=window, center=True, min_periods=1).median()
     return smoothed.astype(float)
+
+
+@dataclass(frozen=True)
+class NormalisedCycle:
+    """One cycle expressed against its own low-water envelope."""
+
+    z: pd.Series
+    smoothed_z: pd.Series
+    denominator_pp: float
+    smoothed_peak_position: int | None
+    observed_peak_position: int | None
+    sufficient: bool
+
+
+def normalise_cycle(
+    cycle: pd.DataFrame,
+    *,
+    start_extent: float,
+    end_extent: float,
+    window: int,
+    resolution_floor_pp: float,
+) -> NormalisedCycle:
+    """Express a cycle as z in [0, 1] between its low envelope and its peak.
+
+    The denominator uses the SMOOTHED peak. A raw peak is a single observation
+    setting the scale for every month in the cycle: one anomalously high month
+    deflates all of z, the upper band is never reached, and the cycle loses its
+    wet phase to ``unspecified``. The trough side is already protected by the
+    equivalent-low run, so this makes both ends of the normalisation symmetric.
+    """
+    if not np.isfinite(resolution_floor_pp) or resolution_floor_pp <= 0.0:
+        raise ValueError("resolution_floor_pp must be a positive finite number.")
+
+    extent = pd.to_numeric(cycle["extent_pct"], errors="coerce").astype(float)
+    n = len(extent)
+    if n == 0:
+        empty = pd.Series(dtype=float)
+        return NormalisedCycle(empty, empty, 0.0, None, None, False)
+
+    positions = np.arange(n, dtype=float)
+    span = max(float(n - 1), 1.0)
+    envelope = pd.Series(
+        float(start_extent) + (float(end_extent) - float(start_extent)) * positions / span,
+        index=extent.index,
+        dtype=float,
+    )
+
+    effective = effective_window(int(window), n)
+    smoothed_extent = smooth_for_geometry(extent, effective)
+    above = smoothed_extent - envelope
+    if not above.notna().any():
+        empty = pd.Series(np.nan, index=extent.index, dtype=float)
+        return NormalisedCycle(empty, empty, 0.0, None, None, False)
+
+    smoothed_peak_position = int(np.nanargmax(above.to_numpy(dtype=float)))
+    observed_above = extent - envelope
+    observed_peak_position = int(np.nanargmax(observed_above.to_numpy(dtype=float)))
+    denominator = float(above.iloc[smoothed_peak_position])
+
+    if not np.isfinite(denominator) or denominator <= float(resolution_floor_pp):
+        unspecified = pd.Series(np.nan, index=extent.index, dtype=float)
+        return NormalisedCycle(
+            unspecified,
+            unspecified,
+            max(denominator, 0.0) if np.isfinite(denominator) else 0.0,
+            smoothed_peak_position,
+            observed_peak_position,
+            False,
+        )
+
+    z = ((extent - envelope) / denominator).clip(lower=0.0, upper=1.0)
+    smoothed_z = ((smoothed_extent - envelope) / denominator).clip(lower=0.0, upper=1.0)
+    return NormalisedCycle(
+        z.astype(float),
+        smoothed_z.astype(float),
+        denominator,
+        smoothed_peak_position,
+        observed_peak_position,
+        True,
+    )
+
