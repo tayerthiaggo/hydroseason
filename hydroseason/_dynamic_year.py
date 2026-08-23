@@ -15,6 +15,13 @@ from ._boundary import (
     select_cycle_peak,
     select_window_minimum,
 )
+from ._phase_scheme import (
+    PHASE_SCHEME_UNSET,
+    LegacyPhaseModel,
+    PhaseScheme,
+    UnsetPhaseScheme,
+    resolve_phase_scheme,
+)
 from ._scientific_defaults import PHASE_DEFAULTS
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._semi_markov import SemiMarkovConfig, fit_semi_markov_boundaries
@@ -46,13 +53,21 @@ class DynamicHydroYearConfig:
     high_percentile: float = 80.0
     measurement_tolerance_pct: float = 1.0
     detector: Literal["robust_extrema"] = "robust_extrema"
-    phase_model: Literal["cycle_relative", "rule_based", "none"] = "cycle_relative"
+    phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET
+    phase_model: LegacyPhaseModel | None = None
     phase_low_fraction: float = PHASE_DEFAULTS.phase_low_fraction
     phase_high_fraction: float = PHASE_DEFAULTS.phase_high_fraction
     phase_min_duration_months: int = PHASE_DEFAULTS.phase_min_duration_months
     phase_smoothing_window: int = PHASE_DEFAULTS.phase_smoothing_window
 
     def __post_init__(self) -> None:
+        canonical = resolve_phase_scheme(
+            phase_scheme=self.phase_scheme,
+            phase_model=self.phase_model,
+        )
+        object.__setattr__(self, "phase_scheme", canonical)
+        object.__setattr__(self, "phase_model", None)
+
         if self.expected_trough_month not in range(1, 13):
             raise ValueError("expected_trough_month must be in 1..12.")
         if self.expected_peak_month is not None and self.expected_peak_month not in range(1, 13):
@@ -78,8 +93,6 @@ class DynamicHydroYearConfig:
                 "years (the semi-Markov challenger is internal-only, see "
                 "hydroseason._dynamic_year._find_semi_markov_trough_opportunities)"
             )
-        if self.phase_model not in {"cycle_relative", "rule_based", "none"}:
-            raise ValueError("phase_model must be 'cycle_relative', 'rule_based' or 'none'")
         fractions = (self.phase_low_fraction, self.phase_high_fraction)
         if not all(np.isfinite(value) for value in fractions) or not (
             0.0 <= self.phase_low_fraction < self.phase_high_fraction <= 1.0
