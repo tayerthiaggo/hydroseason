@@ -10,6 +10,7 @@ from hydroseason._phase import (
     PHASES,
     assign_monthly_phases,
     assign_rule_based_phases,
+    assign_two_phase_phases,
     empty_monthly_phase,
 )
 from hydroseason._state_input import prepare_monthly_extent
@@ -21,6 +22,58 @@ PHASE_COLUMNS = [
     "extent_pct", "candidate_usable", "phase_stability",
 ]
 
+
+def _one_cycle() -> pd.DataFrame:
+    return pd.DataFrame([{
+        "hy_year": 2019,
+        "status": "complete",
+        "hy_start": pd.Timestamp("2019-01-01"),
+        "hy_end": pd.Timestamp("2019-06-01"),
+        "peak_month": pd.Timestamp("2019-03-01"),
+        "boundary_status": "confirmed",
+        "peak_selection_status": "raw",
+    }])
+
+
+def test_two_phase_endpoints_are_start_through_peak_then_peak_plus_one_through_end(prepared_extent):
+    out = assign_two_phase_phases(
+        prepared_extent,
+        _one_cycle(),
+        boundary_basis="robust_extrema",
+    )
+    assert out.loc["2019-01":"2019-06", "phase"].tolist() == [
+        "recovery", "recovery", "recovery", "recession", "recession", "recession"
+    ]
+    assert out.loc[pd.Timestamp("2019-03-01"), "phase"] == "recovery"
+    assert out.loc[pd.Timestamp("2019-06-01"), "phase"] == "recession"
+
+
+def test_two_phase_keeps_geometry_on_unusable_month(prepared_extent):
+    prepared_extent.loc[pd.Timestamp("2019-02-01"), "candidate_usable"] = False
+    out = assign_two_phase_phases(prepared_extent, _one_cycle(), boundary_basis="robust_extrema")
+    assert out.loc[pd.Timestamp("2019-02-01"), "phase"] == "recovery"
+    assert out.loc[pd.Timestamp("2019-02-01"), "phase_status"] == "unusable"
+
+
+def test_two_phase_labels_first_partial_cycle_from_record_start(prepared_extent):
+    partial = pd.DataFrame([{
+        "hy_year": 2018,
+        "status": "partial",
+        "hy_start": prepared_extent.index.min(),
+        "hy_end": pd.Timestamp("2018-06-01"),
+        "peak_month": pd.Timestamp("2018-03-01"),
+        "boundary_status": "provisional",
+        "peak_selection_status": "raw",
+    }])
+    out = assign_two_phase_phases(
+        prepared_extent,
+        partial,
+        boundary_basis="robust_extrema",
+    )
+    assert out.loc["2018-01":"2018-03", "phase"].eq("recovery").all()
+    assert out.loc["2018-04":"2018-06", "phase"].eq("recession").all()
+    assert out.loc[pd.Timestamp("2018-07-01"), "phase"] == "unspecified"
+    assert out.loc[pd.Timestamp("2018-07-01"), "phase_status"] == "outside_cycle"
 
 
 @pytest.fixture()
@@ -38,22 +91,13 @@ def monsonal_extent() -> pd.DataFrame:
     return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
 
 
-def test_phase_model_defaults_to_cycle_relative():
-    assert DynamicHydroYearConfig(expected_trough_month=9).phase_model == "cycle_relative"
+def test_phase_scheme_defaults_to_two_phase():
+    assert DynamicHydroYearConfig(expected_trough_month=9).phase_scheme == "two_phase"
 
 
-def test_phase_model_rejects_unreleased_semi_markov_mode():
-    with pytest.raises(ValueError, match="phase_model"):
-        DynamicHydroYearConfig(expected_trough_month=9, phase_model="semi_markov")
-
-
-def test_rule_based_phases_require_robust_extrema_detector():
-    with pytest.raises(ValueError, match="robust_extrema"):
-        DynamicHydroYearConfig(
-            expected_trough_month=9,
-            detector="semi_markov",
-            phase_model="rule_based",
-        )
+def test_phase_scheme_rejects_unreleased_semi_markov_mode():
+    with pytest.raises(ValueError, match="phase_scheme"):
+        DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="semi_markov")
 
 
 def test_phase_helpers_stay_out_of_top_level_api():
@@ -72,13 +116,13 @@ def test_disabled_phase_frame_has_one_row_per_month(prepared_extent):
 
 
 def test_rule_based_phases_honor_peak_and_trough(monsonal_extent):
-    base = DynamicHydroYearConfig(expected_trough_month=9, phase_model="none")
-    phased = DynamicHydroYearConfig(expected_trough_month=9, phase_model="rule_based")
+    base = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="none")
+    phased = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="four_phase")
     annual_base = detect_dynamic_hydrological_years(monsonal_extent, config=base)
     annual_phased = detect_dynamic_hydrological_years(monsonal_extent, config=phased)
     pd.testing.assert_frame_equal(annual_base, annual_phased)
     prepared = prepare_monthly_extent(monsonal_extent)
-    labels = assign_monthly_phases(prepared, annual_phased, phased, noise_pp=0.0)
+    labels = assign_rule_based_phases(prepared, annual_phased, noise_pp=0.0)
     assert labels.index.equals(prepared.index)
     assert labels["phase_method"].eq("rule_based").all()
     assert set(labels["phase_status"]).issubset(
@@ -92,16 +136,13 @@ def test_rule_based_phases_honor_peak_and_trough(monsonal_extent):
 
 
 def test_rule_based_phases_follow_one_way_order(monsonal_extent):
-    result = analyze_hydrological_state(
-        monsonal_extent,
-        config=DynamicHydroYearConfig(
-            expected_trough_month=9,
-            phase_model="rule_based",
-        ),
-        n_bootstrap=40,
+    prepared = prepare_monthly_extent(monsonal_extent)
+    annual = detect_dynamic_hydrological_years(
+        monsonal_extent, config=DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="none")
     )
+    monthly_phase = assign_rule_based_phases(prepared, annual, noise_pp=0.0)
     rank = {"recovery": 0, "wet": 1, "recession": 2, "dry": 3}
-    for _, group in result.monthly_phase.dropna(subset=["hy_year"]).groupby("hy_year"):
+    for _, group in monthly_phase.dropna(subset=["hy_year"]).groupby("hy_year"):
         usable = group.loc[group["phase_status"].ne("unusable"), "phase"]
         assert set(usable).issubset(set(PHASES))
         values = [rank[value] for value in usable]
@@ -115,7 +156,6 @@ def test_rule_based_phases_use_baseline_and_half_peak_anomaly():
     values = baseline_year + baseline_year + target_year
     raw = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
     prepared = prepare_monthly_extent(raw)
-    config = DynamicHydroYearConfig(expected_trough_month=12, phase_model="rule_based")
     hydro_years = pd.DataFrame(
         [
             {
@@ -132,7 +172,7 @@ def test_rule_based_phases_use_baseline_and_half_peak_anomaly():
         ]
     )
 
-    labels = assign_monthly_phases(prepared, hydro_years, config, noise_pp=0.0)
+    labels = assign_rule_based_phases(prepared, hydro_years, noise_pp=0.0)
     actual = labels.loc["2020", "phase"].tolist()
 
     assert actual == [
@@ -207,21 +247,33 @@ def flat_frame() -> pd.DataFrame:
     return pd.DataFrame({"extent_pct": 10.0, "invalid_pct": 0.0}, index=index)
 
 
-def test_cycle_relative_is_dispatched_by_default(seasonal_frame):
+def test_two_phase_is_dispatched_by_default(seasonal_frame):
     result = analyze_hydrological_state(seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7))
 
-    assert (result.monthly_phase["phase_method"] == "cycle_relative").all()
+    assert (result.monthly_phase["phase_method"] == "two_phase").all()
+
+
+def test_four_phase_is_selectable(seasonal_frame):
+    result = analyze_hydrological_state(
+        seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
+    )
+
+    assert (result.monthly_phase["phase_method"] == "four_phase").all()
 
 
 def test_phase_stability_column_is_present_and_appended_last(seasonal_frame):
-    result = analyze_hydrological_state(seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7))
+    result = analyze_hydrological_state(
+        seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
+    )
 
     assert "phase_stability" in result.monthly_phase.columns
     assert result.monthly_phase.columns[-1] == "phase_stability"
 
 
 def test_phase_confidence_equals_phase_stability_under_the_new_model(seasonal_frame):
-    result = analyze_hydrological_state(seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7))
+    result = analyze_hydrological_state(
+        seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
+    )
     labelled = result.monthly_phase.loc[result.monthly_phase["phase"] != "unspecified"]
 
     assert np.allclose(labelled["phase_confidence"], labelled["phase_stability"])
@@ -240,31 +292,32 @@ def test_legacy_rule_based_output_is_byte_for_byte_stable(seasonal_frame):
     frozen_rule_based_fixture.index = pd.DatetimeIndex(frozen_rule_based_fixture.index, freq="MS")
     frozen_rule_based_fixture.index.name = None
 
-    result = analyze_hydrological_state(
-        seasonal_frame,
-        config=DynamicHydroYearConfig(expected_trough_month=7, phase_model="rule_based"),
+    prepared = prepare_monthly_extent(seasonal_frame)
+    annual = detect_dynamic_hydrological_years(
+        seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="none")
     )
+    monthly_phase = assign_rule_based_phases(prepared, annual, noise_pp=0.0)
 
     pd.testing.assert_frame_equal(
-        result.monthly_phase[frozen_rule_based_fixture.columns],
+        monthly_phase[frozen_rule_based_fixture.columns],
         frozen_rule_based_fixture,
         check_dtype=True,
     )
 
 
-
-
 def test_none_model_still_disables_labelling(seasonal_frame):
     result = analyze_hydrological_state(
         seasonal_frame,
-        config=DynamicHydroYearConfig(expected_trough_month=7, phase_model="none"),
+        config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="none"),
     )
 
     assert (result.monthly_phase["phase_status"] == "disabled").all()
 
 
 def test_insufficient_cycle_amplitude_is_recorded(flat_frame):
-    result = analyze_hydrological_state(flat_frame, config=DynamicHydroYearConfig(expected_trough_month=7))
+    result = analyze_hydrological_state(
+        flat_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
+    )
     statuses = set(result.monthly_phase["phase_status"])
 
     assert "insufficient_cycle_amplitude" in statuses or "disabled" in statuses

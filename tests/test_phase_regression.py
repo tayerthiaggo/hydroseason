@@ -1,3 +1,4 @@
+import dataclasses
 from pathlib import Path
 
 import pandas as pd
@@ -7,15 +8,15 @@ from hydroseason._dynamic_year import (
     detect_dynamic_hydrological_years,
     suggest_dynamic_hydro_year_config,
 )
-from hydroseason._phase import PHASES, assign_monthly_phases
+from hydroseason._phase import PHASES, assign_rule_based_phases
 from hydroseason._state_input import prepare_monthly_extent
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _assert_rule_based_fixture(monthly: pd.DataFrame, config: DynamicHydroYearConfig) -> None:
-    base = DynamicHydroYearConfig(**{**config.__dict__, "phase_model": "none"})
-    phased = DynamicHydroYearConfig(**{**config.__dict__, "phase_model": "rule_based"})
+    base = dataclasses.replace(config, phase_scheme="none")
+    phased = dataclasses.replace(config, phase_scheme="four_phase")
     annual_base = detect_dynamic_hydrological_years(monthly, config=base)
     annual_phased = detect_dynamic_hydrological_years(monthly, config=phased)
     pd.testing.assert_frame_equal(annual_base, annual_phased)
@@ -26,7 +27,7 @@ def _assert_rule_based_fixture(monthly: pd.DataFrame, config: DynamicHydroYearCo
         allow_unknown_quality=phased.allow_unknown_quality,
         quality_policy=phased.quality_policy,
     )
-    labels = assign_monthly_phases(prepared, annual_phased, phased, noise_pp=0.0)
+    labels = assign_rule_based_phases(prepared, annual_phased, noise_pp=0.0)
 
     assert labels.index.equals(prepared.index)
     assert labels["phase"].notna().all()
