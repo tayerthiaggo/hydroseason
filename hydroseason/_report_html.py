@@ -432,6 +432,16 @@ def render_report_html(
         else ""
     )
     challenger_block = ""
+    decision_policy = (
+        summary["decision_policy"].iloc[0]
+        if not summary.empty and "decision_policy" in summary.columns and pd.notna(summary["decision_policy"].iloc[0])
+        else "established_0_1_1"
+    )
+    phase_scheme = (
+        summary["phase_scheme"].iloc[0]
+        if not summary.empty and "phase_scheme" in summary.columns and pd.notna(summary["phase_scheme"].iloc[0])
+        else "two_phase"
+    )
     if not summary.empty and "challenger_route" in summary.columns and pd.notna(summary["challenger_route"].iloc[0]):
         c_route = summary["challenger_route"].iloc[0]
         c_regime = summary.get("challenger_regime", pd.Series(["N/A"])).iloc[0]
@@ -439,12 +449,12 @@ def render_report_html(
         c_recover = summary.get("challenger_boundary_recoverability", pd.Series(["N/A"])).iloc[0]
         c_skill = summary.get("challenger_seasonal_cv_skill", pd.Series([None])).iloc[0]
         skill_str = f"{float(c_skill):.3f}" if pd.notna(c_skill) and c_skill is not None else "N/A"
-        challenger_block = f"""  <details class="report-section">
-    <summary>Challenger Diagnostics (Research Preview)</summary>
+        challenger_block = f"""  <details class="report-section challenger-diagnostics">
+    <summary>Experimental challenger diagnostics</summary>
     <div class="report-section-content">
       <p class="subtitle" style="margin-bottom:12px;">
         Non-authoritative diagnostics from the experimental 0.2.0 harmonic/recoverability candidate.
-        The authoritative decision policy governing this report is <strong>established_0_1_1</strong>.
+        The authoritative decision policy governing this report is <strong>{_escape(decision_policy)}</strong> (phase scheme: <code>{_escape(phase_scheme)}</code>).
       </p>
       <table class="main-table">
         <thead><tr><th>Challenger Metric</th><th>Value</th></tr></thead>
@@ -454,6 +464,7 @@ def render_report_html(
           <tr><td>Annual Cycle Evidence</td><td>{_escape(c_evidence)}</td></tr>
           <tr><td>Boundary Recoverability</td><td>{_escape(c_recover)}</td></tr>
           <tr><td>Seasonal CV Skill</td><td>{_escape(skill_str)}</td></tr>
+          <tr><td>Authority Note</td><td>Experimental challenger; does not control public output.</td></tr>
         </tbody>
       </table>
     </div>

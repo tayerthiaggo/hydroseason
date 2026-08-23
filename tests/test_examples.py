@@ -25,6 +25,21 @@ def test_checked_fitzroy_reports_keep_rainfall_variant_distinct():
     assert basic != rainfall
 
 
+def test_generated_examples_state_the_restored_authority():
+    fitzroy = Path("docs/examples/fitzroy-river-wa.html").read_text(encoding="utf-8")
+    for phrase in (
+        "Seasonal",
+        "Per-Year Detection",
+        "established_0_1_1",
+        "two_phase",
+        "Experimental challenger diagnostics",
+    ):
+        assert phrase in fitzroy
+    lachlan = Path("docs/examples/lachlan-river-nsw.html").read_text(encoding="utf-8")
+    assert "Aseasonal" in lachlan
+    assert "Event" in lachlan
+
+
 def test_load_workflow_extent_uses_csv_fallback_for_offline_stac_default(tmp_path):
     extent, source = load_workflow_extent(
         input_source="stac",

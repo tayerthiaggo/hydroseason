@@ -11,11 +11,15 @@ import sys
 import tempfile
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 import pandas as pd
 
 from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv
+from scripts._scientific_baseline_guard import refuse_protected_baseline_output
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_DIR = REPO_ROOT / "case_studies" / "data" / "extent"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "case_studies" / "results" / "main"
 
@@ -32,6 +36,7 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
     """Build complete main study report bundle and summary dataframe from 30m inputs."""
     data_dir = Path(data_dir)
     output_dir = Path(output_dir)
+    refuse_protected_baseline_output(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     rows: list[dict] = []
@@ -51,7 +56,7 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
             # boundary flags rather than deleting the visible cycle.
             analysis = analyze_catchment(
                 extent,
-                phase_model="rule_based",
+                phase_scheme="two_phase",
                 quality_policy="flag",
             )
             generate_catchment_report(

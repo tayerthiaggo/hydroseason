@@ -37,7 +37,11 @@ months.
 | `n_timing_years` | Integer >=0 years | `0` for insufficient records | Number of qualifying annual timing observations. |
 | `climatological_peak_month`, `climatological_trough_month` | Calendar month 1–12 | `None` for aseasonal/insufficient records | Pooled monthly-climatology extrema when the record supports reporting them. |
 
-The classifier evaluates evidence against calibrated defaults (`EvidenceThresholds` and `RecoverabilityThresholds`). Seasonal regime requires strong annual-cycle evidence (significant permutation periodicity test, high cross-validation skill, amplitude SNR >= 1.5, concentrated timing, and unimodal harmonic structure) and supported boundary recoverability; marginal regime applies under moderate evidence or provisional recoverability; aseasonal regime applies when evidence is weak, absent, or variability is at the resolution floor; fewer than five usable annual timings is insufficient. Supported boundary recoverability authorises per-year boundaries.
+Public regime assessment and routing operate under the `established_0_1_1` decision policy using exact empirical monthly extrema and circular timing statistics. Extent is observed surface-water availability, not rainfall, discharge, storage volume, a climate variable, or natural-condition hydrology.
+
+### Experimental challenger diagnostics
+
+HydroSeason 0.2.0 also evaluates an experimental challenger model (harmonic regression order selection, rotation-null periodicity test, multi-frequency mode counts, timing drift, and cross-validated boundary recoverability). The challenger provides research diagnostics and does not control public regime, routing, extrema, or hydrological-year boundaries.
 
 ::: hydroseason._regime
     options:

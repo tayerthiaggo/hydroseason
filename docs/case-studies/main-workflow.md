@@ -19,7 +19,9 @@ This case study demonstrates the single route-aware HydroSeason workflow across 
 
 ## Methodology and Routing Authority
 
-HydroSeason uses `analyze_catchment` as the single routing authority. Before extracting annual boundaries or summary metrics, the pipeline assesses whether a catchment exhibits a stable, reproducible annual seasonal cycle (`per_year_detection`) or an irregular, non-seasonal hydrological regime (`event_characterisation`).
+HydroSeason uses `analyze_catchment` under the `established_0_1_1` decision policy as the single routing authority. Before extracting annual boundaries or summary metrics, the pipeline assesses whether a catchment exhibits a stable, reproducible annual seasonal cycle (`per_year_detection`) or an irregular, non-seasonal hydrological regime (`event_characterisation`).
+
+HydroSeason 0.2.0 also evaluates an experimental challenger model for harmonic evidence and boundary recoverability; this experimental challenger does not control public regime, route, extrema, or hydrological-year boundaries.
 
 The checked case-study build uses `quality_policy="flag"`: finite monthly
 observations remain available for cycle mapping, while `invalid_pct` is carried

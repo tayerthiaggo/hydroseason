@@ -81,8 +81,8 @@ def compare_resolution(
     denom = max(float(np.max(native_pct)), 1e-6)
     nmae = mad / denom
 
-    native_analysis = analyze_catchment(native, phase_model="rule_based")
-    cand_analysis = analyze_catchment(candidate, phase_model="rule_based")
+    native_analysis = analyze_catchment(native, phase_scheme="two_phase")
+    cand_analysis = analyze_catchment(candidate, phase_scheme="two_phase")
 
     amp_bias = float(cand_analysis.regime.amplitude_snr - native_analysis.regime.amplitude_snr)
     regime_match = bool(native_analysis.regime.regime == cand_analysis.regime.regime)

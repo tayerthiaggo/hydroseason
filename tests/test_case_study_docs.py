@@ -127,3 +127,39 @@ def test_release_docs_explain_batch_seasonality_and_map_contracts():
     assert "SNR > 1.5" not in guide
     assert "SNR ≤ 1.5" not in guide
     assert "1.5 months" not in guide
+
+
+EXPECTED_MAIN = {
+    "daly_river_nt": ("seasonal", "per_year_detection", 21, 3, 11),
+    "fitzroy_river_wa": ("seasonal", "per_year_detection", 21, 2, 11),
+    "gilbert_river_qld": ("seasonal", "per_year_detection", 21, 2, 11),
+    "lachlan_river_nsw": ("aseasonal", "event_characterisation", 0, None, None),
+    "moonie_river_qld_nsw": ("aseasonal", "event_characterisation", 0, None, None),
+}
+
+
+def test_checked_main_summary_has_all_protected_outcomes():
+    summary = pd.read_csv("case_studies/results/main/summary.csv").set_index("key")
+    for key, (regime, route, n_years, peak, trough) in EXPECTED_MAIN.items():
+        row = summary.loc[key]
+        assert row["regime"] == regime
+        assert row["route"] == route
+        assert row["n_hydro_years"] == n_years
+        if peak is not None:
+            assert row["water_extent_peak_month"] == peak
+            assert row["climatological_trough_month"] == trough
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "docs/api/analysis.md",
+        "docs/api/report.md",
+        "docs/hydrological-state.md",
+        "docs/case-studies/main-workflow.md",
+    ],
+)
+def test_public_model_docs_label_challenger_non_authoritative(path):
+    text = Path(path).read_text(encoding="utf-8").casefold()
+    assert "experimental challenger" in text
+    assert "does not control public" in text
