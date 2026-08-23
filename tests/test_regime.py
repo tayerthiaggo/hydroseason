@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason import analyze_catchment, load_extent_csv
+from hydroseason import load_extent_csv
 from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._evidence import EvidenceThresholds
 from hydroseason._regime import (

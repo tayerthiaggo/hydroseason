@@ -1,6 +1,6 @@
 import pytest
 
-from hydroseason._phase_scheme import PHASE_SCHEME_UNSET, resolve_phase_scheme
+from hydroseason._phase_scheme import resolve_phase_scheme
 
 
 def test_omitted_scheme_defaults_to_two_phase():

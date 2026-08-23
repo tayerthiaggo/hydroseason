@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._challenger import ChallengerAssessment, assess_challenger, failed_challenger
+from hydroseason._challenger import assess_challenger, failed_challenger
 from hydroseason._scientific_defaults import EVIDENCE_DEFAULTS, RECOVERABILITY_DEFAULTS
 from hydroseason._state_input import prepare_monthly_extent
 

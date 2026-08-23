@@ -23,12 +23,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import pandas as pd
+import pandas as pd  # noqa: E402
 
-from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv
-from hydroseason._rainfall import align_monthly_rainfall, load_monthly_rainfall_csv
-from hydroseason._regime_compare import compare_rainfall_to_extent_regime
-from scripts._scientific_baseline_guard import refuse_protected_baseline_output
+from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv  # noqa: E402
+from hydroseason._rainfall import align_monthly_rainfall, load_monthly_rainfall_csv  # noqa: E402
+from hydroseason._regime_compare import compare_rainfall_to_extent_regime  # noqa: E402
+from scripts._scientific_baseline_guard import refuse_protected_baseline_output  # noqa: E402
 
 DEFAULT_EXTENT_DIR = REPO_ROOT / "case_studies" / "data" / "extent"
 DEFAULT_RAINFALL_DIR = REPO_ROOT / "case_studies" / "data" / "rainfall"

@@ -20,8 +20,8 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 | Candidate Resolution | Route Agreement | Median Correlation | Median nMAE | Peak Within 1 Month | Trough Within 1 Month | Max Event Delta | Max Low Spell Delta | Recommended |
 |---|---|---|---|---|---|---|---|---|
 | 60 m | 5/5 | 0.9997 | 0.0030 | 100.0% | 100.0% | 1 | 3 | False |
-| 90 m | 4/5 | 0.9991 | 0.0058 | 100.0% | 100.0% | 1 | 4 | False |
-| 300 m | 4/5 | 0.9907 | 0.0198 | 100.0% | 100.0% | 3 | 6 | False |
+| 90 m | 5/5 | 0.9991 | 0.0058 | 100.0% | 100.0% | 1 | 4 | False |
+| 300 m | 3/5 | 0.9907 | 0.0198 | 100.0% | 90.5% | 3 | 6 | False |
 <!-- END GENERATED RESOLUTION RESULTS -->
 
 > [!NOTE]

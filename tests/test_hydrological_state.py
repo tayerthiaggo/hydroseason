@@ -20,12 +20,12 @@ def test_orchestrator_returns_all_public_products():
     assert not result.hydro_years.empty
     assert len(result.monthly_condition) == 15 * 12
     assert len(result.monthly_phase) == 15 * 12
-    # phase_model defaults to "cycle_relative": months inside complete cycles get
-    # a real phase label, not the "unspecified"/"disabled" placeholder.
-    assert result.monthly_phase["phase_method"].eq("cycle_relative").all()
+    # phase_scheme defaults to "two_phase": months inside complete cycles get
+    # a wet/dry label, not the "unspecified"/"disabled" placeholder.
+    assert result.monthly_phase["phase_method"].eq("two_phase").all()
 
     assert not result.monthly_phase["phase_status"].eq("disabled").any()
-    assert set(result.monthly_phase["phase"]) <= {"recovery", "wet", "recession", "dry", "unspecified"}
+    assert set(result.monthly_phase["phase"]) <= {"recovery", "recession", "unspecified"}
     assert result.data_quality["n_usable"] == 15 * 12
 
 

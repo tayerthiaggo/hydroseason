@@ -15,10 +15,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import pandas as pd
+import pandas as pd  # noqa: E402
 
-from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv
-from scripts._scientific_baseline_guard import refuse_protected_baseline_output
+from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv  # noqa: E402
+from scripts._scientific_baseline_guard import refuse_protected_baseline_output  # noqa: E402
 
 DEFAULT_DATA_DIR = REPO_ROOT / "case_studies" / "data" / "extent"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "case_studies" / "results" / "main"

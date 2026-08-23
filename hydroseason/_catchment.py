@@ -10,19 +10,16 @@ confidently-labelled boundaries fitted to noise.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Literal
 
-import numpy as np
 import pandas as pd
 
 from ._boundary import RobustBoundaryConfig, robust_scale
 from ._boundary_recoverability import RecoverabilityThresholds
 from ._challenger import ChallengerAssessment
-from ._decision_policy import DecisionPolicy, ESTABLISHED_POLICY, Route
+from ._decision_policy import ESTABLISHED_POLICY, DecisionPolicy, Route
 from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
 from ._evidence import EvidenceThresholds
-from .hydro_year import HydroYearConfig, detect_hydrological_years
 from ._phase import assign_monthly_phases
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
@@ -33,6 +30,7 @@ from ._phase_scheme import (
 )
 from ._regime import WaterRegimeAssessment, assess_water_regime
 from ._state_input import QualityPolicy, prepare_monthly_extent
+from .hydro_year import HydroYearConfig, detect_hydrological_years
 from .hydrological_state import HydrologicalStateResult, analyze_hydrological_state
 
 __all__ = ["CatchmentAnalysis", "Route", "analyze_catchment"]
