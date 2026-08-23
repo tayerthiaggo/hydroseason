@@ -43,29 +43,20 @@ from ._scientific_defaults import (
 from ._seasonality import classify_seasonal_pattern
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
-Regime = Literal["seasonal", "marginal", "aseasonal", "insufficient_record"]
+from ._decision_policy import (
+    ESTABLISHED_POLICY,
+    REGIME_THRESHOLDS,
+    DecisionPolicy,
+    EstablishedDecision,
+    Regime,
+    Route,
+    decide_established,
+)
 
 _DEFAULT_MIN_MONTHS_PER_YEAR = 9
 _MIN_USABLE_YEARS = 5
-
-_SEASONAL_MIN_SNR = 2.0
-_ASEASONAL_MAX_SNR = 0.7
-_STRONG_TIMING_CONCENTRATION = 0.7
-_WEAK_TIMING_CONCENTRATION = 0.3
-_CIRCULAR_UNIFORMITY_ALPHA = 0.1
-_UNIFORMITY_MIN_TIMING_YEARS = 10.0
 _DRIFT_MIN_TIMING_YEARS = 10
-_TIMING_RECORD_CAUTION_YEARS = 30.0
 
-REGIME_THRESHOLDS: dict[str, float] = {
-    "seasonal_min_snr": _SEASONAL_MIN_SNR,
-    "strong_timing_concentration": _STRONG_TIMING_CONCENTRATION,
-    "weak_timing_concentration": _WEAK_TIMING_CONCENTRATION,
-    "aseasonal_max_snr": _ASEASONAL_MAX_SNR,
-    "circular_uniformity_alpha": _CIRCULAR_UNIFORMITY_ALPHA,
-    "uniformity_min_timing_years": _UNIFORMITY_MIN_TIMING_YEARS,
-    "timing_record_caution_years": _TIMING_RECORD_CAUTION_YEARS,
-}
 
 _SCOPE_CAVEAT = (
     "extent_pct measures observed surface water (water availability), not "
