@@ -1,0 +1,6 @@
+"key","regime","route","n_hydro_years","water_extent_peak_month","climatological_trough_month"
+"daly_river_nt","seasonal","per_year_detection","21","3.0","11.0"
+"fitzroy_river_wa","seasonal","per_year_detection","21","2.0","11.0"
+"gilbert_river_qld","seasonal","per_year_detection","21","2.0","11.0"
+"lachlan_river_nsw","aseasonal","event_characterisation","0","",""
+"moonie_river_qld_nsw","aseasonal","event_characterisation","0","",""
