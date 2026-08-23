@@ -145,6 +145,7 @@ def test_build_hydro_years_export_and_summary(seasonal_extent):
     assert summary.loc[0, "verdict"] == "Seasonal regime detected."
     assert list(summary.columns) == [
         "catchment",
+        "decision_policy",
         "regime",
         "route",
         "amplitude_snr",
@@ -170,6 +171,11 @@ def test_build_hydro_years_export_and_summary(seasonal_extent):
         "longest_low_spell_months",
         "median_recurrence_months",
         "years_without_wet_event",
+        "challenger_route",
+        "challenger_regime",
+        "challenger_annual_cycle_evidence",
+        "challenger_boundary_recoverability",
+        "challenger_seasonal_cv_skill",
         "verdict",
     ]
     assert summary.loc[0].drop("verdict").to_dict() == analysis.summary_row(

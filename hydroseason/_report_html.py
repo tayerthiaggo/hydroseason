@@ -431,6 +431,34 @@ def render_report_html(
         if rainfall_warning
         else ""
     )
+    challenger_block = ""
+    if not summary.empty and "challenger_route" in summary.columns and pd.notna(summary["challenger_route"].iloc[0]):
+        c_route = summary["challenger_route"].iloc[0]
+        c_regime = summary.get("challenger_regime", pd.Series(["N/A"])).iloc[0]
+        c_evidence = summary.get("challenger_annual_cycle_evidence", pd.Series(["N/A"])).iloc[0]
+        c_recover = summary.get("challenger_boundary_recoverability", pd.Series(["N/A"])).iloc[0]
+        c_skill = summary.get("challenger_seasonal_cv_skill", pd.Series([None])).iloc[0]
+        skill_str = f"{float(c_skill):.3f}" if pd.notna(c_skill) and c_skill is not None else "N/A"
+        challenger_block = f"""  <details class="report-section">
+    <summary>Challenger Diagnostics (Research Preview)</summary>
+    <div class="report-section-content">
+      <p class="subtitle" style="margin-bottom:12px;">
+        Non-authoritative diagnostics from the experimental 0.2.0 harmonic/recoverability candidate.
+        The authoritative decision policy governing this report is <strong>established_0_1_1</strong>.
+      </p>
+      <table class="main-table">
+        <thead><tr><th>Challenger Metric</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Proposed Route</td><td><code>{_escape(c_route)}</code></td></tr>
+          <tr><td>Proposed Regime</td><td>{_escape(c_regime)}</td></tr>
+          <tr><td>Annual Cycle Evidence</td><td>{_escape(c_evidence)}</td></tr>
+          <tr><td>Boundary Recoverability</td><td>{_escape(c_recover)}</td></tr>
+          <tr><td>Seasonal CV Skill</td><td>{_escape(skill_str)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>"""
+
     rainfall_details = _rainfall_details(rainfall_context)
     rainfall_block = f"  {rainfall_details}" if rainfall_details else ""
     return f"""<!doctype html>
@@ -670,6 +698,7 @@ def render_report_html(
       </div>
     </div>
   </details>
+{challenger_block}
 {rainfall_block}
 </main>
 <script>

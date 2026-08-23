@@ -43,6 +43,13 @@ from ._aoi_context import AOIContext, build_aoi_context
 from ._aoi_map import display_aoi_map
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._diagnostics import missing_rainfall_dependencies
+from ._phase_scheme import (
+    PHASE_SCHEME_UNSET,
+    LegacyPhaseModel,
+    PhaseScheme,
+    UnsetPhaseScheme,
+    inject_phase_options,
+)
 from ._progress import ProgressEvent, WorkflowProgress, resolve_progress_reporter
 from ._rainfall import (
     align_monthly_rainfall,
@@ -128,6 +135,8 @@ def run_hydroseason(
     stac_collection: str = DEFAULT_STAC_COLLECTION,
     statistics_stac_url: str | None = None,
     cache_dir: str | Path | None = None,
+    phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET,
+    phase_model: LegacyPhaseModel | None = None,
     analysis_options: Mapping[str, Any] | None = None,
     report_title: str | None = None,
     report_subtitle: str | None = None,
@@ -217,7 +226,11 @@ def run_hydroseason(
     tracker.finish(1, f"{len(resolved.extent)} months, {resolved.source_kind}")
 
     tracker.start(2)
-    options = dict(analysis_options or {})
+    options = inject_phase_options(
+        analysis_options,
+        phase_scheme=phase_scheme,
+        phase_model=phase_model,
+    )
     analysis = analyze_catchment(resolved.extent, **options)
     tracker.finish(2, f"{analysis.route} route")
     messages = messages + list(analysis.warnings) + preflight + list(resolved.warnings)

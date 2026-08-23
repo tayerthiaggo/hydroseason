@@ -374,6 +374,7 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
 
     assert list(row) == [
         "catchment",
+        "decision_policy",
         "regime",
         "route",
         "amplitude_snr",
@@ -399,6 +400,11 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
         "longest_low_spell_months",
         "median_recurrence_months",
         "years_without_wet_event",
+        "challenger_route",
+        "challenger_regime",
+        "challenger_annual_cycle_evidence",
+        "challenger_boundary_recoverability",
+        "challenger_seasonal_cv_skill",
     ]
     assert {
         "peak_timing_concentration": 0.124,

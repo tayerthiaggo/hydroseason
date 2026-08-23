@@ -46,18 +46,16 @@ def _marginal_frames():
     dates = pd.date_range("2004-01-01", periods=12 * 20, freq="MS")
     values = []
     for year in range(2004, 2024):
-        pm = 1 + (year % 4)
-        c = 3.0 + 1.8 * np.cos(2 * np.pi * (np.arange(12) - pm) / 12) + rng.normal(0, 0.4, 12)
+        pm = 1 + (year % 8)
+        c = 3.0 + 1.2 * np.cos(2 * np.pi * (np.arange(12) - pm) / 12) + rng.normal(0, 0.3, 12)
         values.extend(c)
     extent = pd.DataFrame(
         {"extent_pct": np.clip(values, 0.01, None), "invalid_pct": 0.0}, index=dates
     )
     analysis = analyze_catchment(
         extent,
-        phase_model="rule_based",
+        phase_scheme="four_phase",
         n_bootstrap=20,
-        evidence_thresholds=EVIDENCE,
-        recoverability_thresholds=RECOVERABILITY,
     )
     assert analysis.regime.regime == "marginal"
     assert analysis.route == "event_characterisation"

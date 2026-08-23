@@ -64,8 +64,9 @@ class CatchmentAnalysis:
 
     def summary_row(self, *, name: str) -> dict:
         """Flat one-row-per-catchment record for a cross-catchment table."""
-        return {
+        row = {
             "catchment": name,
+            "decision_policy": self.decision_policy,
             "regime": self.regime.regime,
             "route": self.route,
             "amplitude_snr": round(self.regime.amplitude_snr, 3),
@@ -108,6 +109,15 @@ class CatchmentAnalysis:
             "median_recurrence_months": self.events.summary["median_recurrence_months"],
             "years_without_wet_event": self.regime.years_without_wet_event,
         }
+        if self.challenger is not None:
+            row.update({
+                "challenger_route": self.challenger.proposed_route,
+                "challenger_regime": self.challenger.proposed_regime,
+                "challenger_annual_cycle_evidence": self.challenger.annual_cycle_evidence,
+                "challenger_boundary_recoverability": self.challenger.boundary_recoverability,
+                "challenger_seasonal_cv_skill": _rounded(self.challenger.seasonal_cv_skill, 3),
+            })
+        return row
 
 
 def _rounded(value: float | None, decimals: int) -> float | None:

@@ -32,7 +32,7 @@ def _rainfall_csv(path: Path, index: pd.DatetimeIndex) -> Path:
 
 
 ANALYSIS_OPTIONS = {
-    "phase_model": "rule_based",
+    "phase_scheme": "two_phase",
     "n_bootstrap": 40,
     "random_state": 7,
 }
