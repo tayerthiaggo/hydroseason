@@ -15,7 +15,7 @@ independently of rainfall, so a flat or shifted signal is evidence about water
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -24,25 +24,17 @@ import pandas as pd
 from ._boundary import RobustBoundaryConfig
 from ._boundary_recoverability import (
     RecoverabilityThresholds,
-    assess_boundary_recoverability,
+)
+from ._challenger import (
+    ChallengerAssessment,
+    assess_challenger,
+    failed_challenger,
 )
 from ._circular_timing import (
-    summarise_annual_timing,
-    timing_drift,
+    AnnualTimingSummary,
+    CircularTimingSummary,
+    summarise_circular_months,
 )
-from ._events import extract_water_events
-from ._evidence import (
-    EvidenceThresholds,
-    annual_cycle_evidence,
-    annual_extremum_month_sets,
-)
-from ._scientific_defaults import (
-    EVIDENCE_DEFAULTS,
-    RECOVERABILITY_DEFAULTS,
-)
-from ._seasonality import classify_seasonal_pattern
-from ._state_input import QualityPolicy, prepare_monthly_extent
-
 from ._decision_policy import (
     ESTABLISHED_POLICY,
     REGIME_THRESHOLDS,
@@ -52,6 +44,15 @@ from ._decision_policy import (
     Route,
     decide_established,
 )
+from ._events import extract_water_events
+from ._evidence import (
+    EvidenceThresholds,
+)
+from ._scientific_defaults import (
+    EVIDENCE_DEFAULTS,
+    RECOVERABILITY_DEFAULTS,
+)
+from ._state_input import QualityPolicy, prepare_monthly_extent
 
 _DEFAULT_MIN_MONTHS_PER_YEAR = 9
 _MIN_USABLE_YEARS = 5
@@ -96,31 +97,14 @@ class WaterRegimeAssessment:
     recommended_action: str
     caveats: tuple[str, ...]
 
-    # 0.2.0 Evidence and recoverability additions (in spec order):
-    seasonal_amplitude_pp: float = 0.0
-    amplitude_noise_ratio: float = 0.0
-    seasonal_cv_skill: float = 0.0
-    periodicity_p: float = 1.0
-    selected_harmonic_order: int = 1
-    peak_timing_n_modes: int = 0
-    trough_timing_n_modes: int = 0
-    peak_timing_drift_months_per_decade: float | None = None
-    trough_timing_drift_months_per_decade: float | None = None
-    peak_timing_drift_status: str = "insufficient_for_drift"
-    trough_timing_drift_status: str = "insufficient_for_drift"
-    annual_cycle_evidence: str = "insufficient"
-    boundary_cv_n: int = 0
-    boundary_cv_coverage: float = 0.0
-    boundary_cv_within_1_month: float = 0.0
-    boundary_cv_within_1_month_wilson_low: float = 0.0
-    boundary_cv_p90_error_months: float = 12.0
-    boundary_recoverability: str = "insufficient"
-    boundary_recoverability_reason: str = "insufficient_data"
+    decision_policy: DecisionPolicy = ESTABLISHED_POLICY
+    public_route: Route = "insufficient_record"
+    challenger: ChallengerAssessment = field(default_factory=ChallengerAssessment)
 
     @property
     def supports_per_year_boundaries(self) -> bool:
         """Whether public hydrological years may be published for this record."""
-        return self.boundary_recoverability == "supported"
+        return self.public_route == "per_year_detection"
 
     @property
     def attempts_per_year_detection(self) -> bool:
@@ -134,40 +118,92 @@ class WaterRegimeAssessment:
         Seasonal records always support a fixed window. Marginal records
         require concentrated, non-uniform peak and trough timings.
         """
-        if self.regime == "seasonal":
-            return True
-        if self.regime != "marginal":
-            return False
-        timing_values = (
-            self.peak_timing_uniformity_p,
-            self.trough_timing_uniformity_p,
-            self.peak_timing_concentration,
-            self.trough_timing_concentration,
-        )
-        return (
-            all(value is not None for value in timing_values)
-            and self.peak_timing_uniformity_p < _CIRCULAR_UNIFORMITY_ALPHA
-            and self.trough_timing_uniformity_p < _CIRCULAR_UNIFORMITY_ALPHA
-            and self.peak_timing_concentration >= _WEAK_TIMING_CONCENTRATION
-            and self.trough_timing_concentration >= _WEAK_TIMING_CONCENTRATION
-        )
+        return self.public_route in {"per_year_detection", "fixed_climatological_window"}
 
+    # 0.2.0 Compatibility properties forwarding to self.challenger:
+    @property
+    def seasonal_amplitude_pp(self) -> float:
+        return self.challenger.seasonal_amplitude_pp
 
-def _regime_from_evidence(
-    evidence: str, trough_modes: int, trough_drift_status: str
-) -> Regime:
-    """Regime describes annual-cycle evidence, not routing permission."""
-    if evidence == "insufficient":
-        return "insufficient_record"
-    if evidence == "absent":
-        return "aseasonal"
-    if (
-        evidence == "strong"
-        and trough_modes == 1
-        and trough_drift_status != "detected"
-    ):
-        return "seasonal"
-    return "marginal"
+    @property
+    def amplitude_noise_ratio(self) -> float:
+        return self.challenger.amplitude_noise_ratio
+
+    @property
+    def seasonal_cv_skill(self) -> float:
+        return self.challenger.seasonal_cv_skill
+
+    @property
+    def periodicity_p(self) -> float:
+        return self.challenger.periodicity_p
+
+    @property
+    def selected_harmonic_order(self) -> int:
+        return self.challenger.selected_harmonic_order
+
+    @property
+    def peak_timing(self) -> AnnualTimingSummary | None:
+        return self.challenger.peak_timing
+
+    @property
+    def trough_timing(self) -> AnnualTimingSummary | None:
+        return self.challenger.trough_timing
+
+    @property
+    def peak_timing_n_modes(self) -> int:
+        return self.challenger.peak_timing_n_modes
+
+    @property
+    def trough_timing_n_modes(self) -> int:
+        return self.challenger.trough_timing_n_modes
+
+    @property
+    def peak_timing_drift_months_per_decade(self) -> float | None:
+        return self.challenger.peak_timing_drift_months_per_decade
+
+    @property
+    def trough_timing_drift_months_per_decade(self) -> float | None:
+        return self.challenger.trough_timing_drift_months_per_decade
+
+    @property
+    def peak_timing_drift_status(self) -> str:
+        return self.challenger.peak_timing_drift_status
+
+    @property
+    def trough_timing_drift_status(self) -> str:
+        return self.challenger.trough_timing_drift_status
+
+    @property
+    def annual_cycle_evidence(self) -> str:
+        return self.challenger.annual_cycle_evidence
+
+    @property
+    def boundary_cv_n(self) -> int:
+        return self.challenger.boundary_cv_n
+
+    @property
+    def boundary_cv_coverage(self) -> float:
+        return self.challenger.boundary_cv_coverage
+
+    @property
+    def boundary_cv_within_1_month(self) -> float:
+        return self.challenger.boundary_cv_within_1_month
+
+    @property
+    def boundary_cv_within_1_month_wilson_low(self) -> float:
+        return self.challenger.boundary_cv_within_1_month_wilson_low
+
+    @property
+    def boundary_cv_p90_error_months(self) -> float:
+        return self.challenger.boundary_cv_p90_error_months
+
+    @property
+    def boundary_recoverability(self) -> str:
+        return self.challenger.boundary_recoverability
+
+    @property
+    def boundary_recoverability_reason(self) -> str:
+        return self.challenger.boundary_recoverability_reason
 
 
 _ACTIONS: dict[Regime, str] = {
@@ -209,14 +245,7 @@ def assess_water_regime(
     robust_boundary_config: RobustBoundaryConfig | None = None,
     trough_search_radius_months: int = 3,
 ) -> WaterRegimeAssessment:
-    """Assess what the observed surface-water record supports.
-
-    Call this before hydrological-year detection and surface the result to the
-    user. Detectors downstream cannot themselves tell a weak cycle from none,
-    and their confidence grades are computed relative to the same weak signal,
-    so a record with no cycle can otherwise be reported back as many
-    high-confidence years.
-    """
+    """Assess what the observed surface-water record supports."""
     if not 1 <= min_months_per_year <= 12:
         raise ValueError("min_months_per_year must be between 1 and 12.")
 
@@ -242,75 +271,71 @@ def assess_water_regime(
     ]
     qualifying_years = [year for year, _ in qualifying_groups]
     sample = usable.loc[usable.index.year.isin(qualifying_years)]
-    values = sample[value_col]
 
-    # Calculate amplitude_snr (corrected legacy diagnostic)
-    if not sample.empty:
-        by_month = values.groupby(values.index.month)
+    if len(qualifying_years) < _MIN_USABLE_YEARS:
+        climatology = pd.Series(dtype=float)
+        snr = 0.0
+        peak_timing = CircularTimingSummary(None, None, None, None, None, 0)
+        trough_timing = CircularTimingSummary(None, None, None, None, None, 0)
+    else:
+        by_month = sample[value_col].groupby(sample.index.month)
         climatology = by_month.mean()
         amplitude = float(climatology.max() - climatology.min())
         within_month_sd = (
             float(by_month.std().mean()) if len(qualifying_years) > 1 else 0.0
         )
-    else:
-        climatology = pd.Series(dtype=float)
-        amplitude = 0.0
-        within_month_sd = 0.0
-
-    if within_month_sd > 0.0:
-        snr = float(amplitude / within_month_sd)
-    elif amplitude <= 0.0:
-        snr = 0.0
-    else:
-        snr = float(
-            amplitude / max(measurement_tolerance_pct, np.finfo(float).eps)
+        if amplitude == 0.0:
+            snr = 0.0
+        elif within_month_sd > 0.0:
+            snr = amplitude / within_month_sd
+        else:
+            snr = np.inf
+        per_year_peaks = [int(group[value_col].idxmax().month) for _, group in qualifying_groups]
+        per_year_troughs = [int(group[value_col].idxmin().month) for _, group in qualifying_groups]
+        peak_timing = summarise_circular_months(
+            per_year_peaks,
+            n_resamples=n_bootstrap,
+            random_state=random_state,
+        )
+        trough_timing = summarise_circular_months(
+            per_year_troughs,
+            n_resamples=n_bootstrap,
+            random_state=random_state,
         )
 
-    # Circular timing and drift
-    timing_tolerance_pct = min(
-        float(measurement_tolerance_pct),
-        0.10 * amplitude,
-    )
-    peak_month_sets = annual_extremum_month_sets(
-        sample, kind="max", tolerance_pct=timing_tolerance_pct
-    )
-    trough_month_sets = annual_extremum_month_sets(
-        sample, kind="min", tolerance_pct=timing_tolerance_pct
-    )
-    peak_timing = summarise_annual_timing(
-        peak_month_sets, n_resamples=n_bootstrap, random_state=random_state
-    )
-    trough_timing = summarise_annual_timing(
-        trough_month_sets, n_resamples=n_bootstrap, random_state=random_state
+    decision = decide_established(
+        n_usable_years=len(qualifying_years),
+        amplitude_snr=float(snr),
+        peak_timing=peak_timing,
+        trough_timing=trough_timing,
     )
 
-    peak_drift = timing_drift(
-        peak_month_sets,
-        min_timing_years=_DRIFT_MIN_TIMING_YEARS,
-        random_state=random_state,
-    )
-    trough_drift = timing_drift(
-        trough_month_sets,
-        min_timing_years=_DRIFT_MIN_TIMING_YEARS,
-        random_state=random_state,
-    )
+    if decision.regime in ("seasonal", "marginal") and not climatology.empty:
+        climatological_peak_month = int(climatology.idxmax())
+        climatological_trough_month = int(climatology.idxmin())
+    else:
+        climatological_peak_month = climatological_trough_month = None
 
-    # Seasonality harmonic analysis
-    mode_freq = evidence_thresholds.mode_min_frequency
-    mode_sep = evidence_thresholds.mode_min_separation_months
-    boot_n = max(n_bootstrap, 1)
-
-    pattern_res = classify_seasonal_pattern(
-        prepared,
-        resolution_floor_pp=1e-6,
-        measurement_tolerance_pct=measurement_tolerance_pct,
-        mode_min_frequency=mode_freq,
-        mode_min_separation_months=mode_sep,
-        n_bootstrap=boot_n,
-        n_null=max(n_bootstrap, 99),
-        random_state=random_state,
-        quality_policy=quality_policy,
-    )
+    try:
+        challenger = assess_challenger(
+            prepared,
+            value_col=value_col,
+            qualifying_years=qualifying_years,
+            min_months_per_year=min_months_per_year,
+            measurement_tolerance_pct=measurement_tolerance_pct,
+            n_bootstrap=n_bootstrap,
+            random_state=random_state,
+            evidence_thresholds=evidence_thresholds,
+            recoverability_thresholds=recoverability_thresholds,
+            robust_boundary_config=robust_boundary_config,
+            trough_search_radius_months=trough_search_radius_months,
+            established_regime=decision.regime,
+            established_route=decision.route,
+            quality_policy=quality_policy,
+        )
+    except Exception as exc:
+        challenger = failed_challenger(exc)
+        caveats.append(f"experimental challenger failed: {challenger.error}")
 
     # Events extraction
     event_summary = extract_water_events(
@@ -324,123 +349,30 @@ def assess_water_regime(
     longest_low = int(event_summary["longest_low_spell_months"])
     years_without = int(event_summary["years_without_event"])
 
-    if len(qualifying_years) < _MIN_USABLE_YEARS:
-        return WaterRegimeAssessment(
-            regime="insufficient_record",
-            amplitude_snr=0.0,
-            peak_phase_iqr_months=None,
-            peak_timing_concentration=None,
-            peak_timing_concentration_ci_low=None,
-            peak_timing_concentration_ci_high=None,
-            peak_timing_uniformity_p=None,
-            trough_phase_iqr_months=None,
-            trough_timing_concentration=None,
-            trough_timing_concentration_ci_low=None,
-            trough_timing_concentration_ci_high=None,
-            trough_timing_uniformity_p=None,
-            n_timing_years=0,
-            climatological_peak_month=None,
-            climatological_trough_month=None,
-            n_usable_years=len(qualifying_years),
-            n_usable_months=int(len(usable)),
-            n_wet_events=0,
-            longest_low_spell_months=0,
-            years_without_wet_event=0,
-            recommended_action=_ACTIONS["insufficient_record"],
-            caveats=tuple(caveats),
-            seasonal_amplitude_pp=pattern_res.seasonal_amplitude_pp,
-            amplitude_noise_ratio=pattern_res.amplitude_noise_ratio,
-            seasonal_cv_skill=pattern_res.seasonal_cv_skill,
-            periodicity_p=pattern_res.periodicity_p,
-            selected_harmonic_order=pattern_res.selected_harmonic_order,
-            peak_timing_n_modes=pattern_res.peak_timing_n_modes,
-            trough_timing_n_modes=pattern_res.trough_timing_n_modes,
-            peak_timing_drift_months_per_decade=peak_drift.months_per_decade,
-            trough_timing_drift_months_per_decade=trough_drift.months_per_decade,
-            peak_timing_drift_status=peak_drift.status,
-            trough_timing_drift_status=trough_drift.status,
-            annual_cycle_evidence="insufficient",
-            boundary_cv_n=0,
-            boundary_cv_coverage=0.0,
-            boundary_cv_within_1_month=0.0,
-            boundary_cv_within_1_month_wilson_low=0.0,
-            boundary_cv_p90_error_months=12.0,
-            boundary_recoverability="insufficient",
-            boundary_recoverability_reason=f"{len(qualifying_years)} usable years below minimum {_MIN_USABLE_YEARS}",
-        )
-
-    at_or_below_floor = (
-        pattern_res.seasonal_amplitude_pp <= 0.0
-        or pattern_res.pattern == "low_variability"
-    )
-    evidence = annual_cycle_evidence(
-        seasonal_cv_skill=pattern_res.seasonal_cv_skill,
-        periodicity_p=pattern_res.periodicity_p,
-        amplitude_noise_ratio=pattern_res.amplitude_noise_ratio,
-        peak_n_modes=pattern_res.peak_timing_n_modes,
-        trough_n_modes=pattern_res.trough_timing_n_modes,
-        n_evaluable_years=pattern_res.n_evaluable_years,
-        at_or_below_floor=at_or_below_floor,
-        timing=trough_timing,
-        drift_status=trough_drift.status,
-        thresholds=evidence_thresholds,
-    )
-    regime = _regime_from_evidence(
-        evidence=evidence,
-        trough_modes=pattern_res.trough_timing_n_modes,
-        trough_drift_status=trough_drift.status,
-    )
-    boundary_rec = assess_boundary_recoverability(
-        prepared,
-        month_sets=trough_month_sets,
-        evidence=evidence,
-        thresholds=recoverability_thresholds,
-        drift=trough_drift,
-        n_trough_modes=pattern_res.trough_timing_n_modes,
-        config=robust_boundary_config or RobustBoundaryConfig(),
-        search_radius_months=trough_search_radius_months,
-        min_usable_months=min_months_per_year,
-    )
-
-    # Peak/trough assignment
-    if regime in ("seasonal", "marginal"):
-        peak_month = (
-            pattern_res.expected_peak_month
-            if pattern_res.expected_peak_month is not None
-            else (int(climatology.idxmax()) if not climatology.empty else None)
-        )
-        trough_month = (
-            pattern_res.expected_trough_month
-            if pattern_res.expected_trough_month is not None
-            else (int(climatology.idxmin()) if not climatology.empty else None)
-        )
-    else:
-        peak_month = trough_month = None
-
-    if _MIN_USABLE_YEARS <= peak_timing.n_years < _TIMING_RECORD_CAUTION_YEARS:
+    if _MIN_USABLE_YEARS <= peak_timing.n < REGIME_THRESHOLDS["timing_record_caution_years"]:
         caveats.append(
             "fewer than 30 usable annual timings: classification is retained, "
             "but uncertainty intervals may be wide"
         )
     if (
-        _MIN_USABLE_YEARS <= peak_timing.n_years < _UNIFORMITY_MIN_TIMING_YEARS
-        and snr >= _SEASONAL_MIN_SNR
+        _MIN_USABLE_YEARS <= peak_timing.n < REGIME_THRESHOLDS["uniformity_min_timing_years"]
+        and snr >= REGIME_THRESHOLDS["seasonal_min_snr"]
         and peak_timing.ci_low is not None
-        and peak_timing.ci_low < _STRONG_TIMING_CONCENTRATION
+        and peak_timing.ci_low < REGIME_THRESHOLDS["strong_timing_concentration"]
         and peak_timing.uniformity_p is not None
-        and peak_timing.uniformity_p >= _CIRCULAR_UNIFORMITY_ALPHA
+        and peak_timing.uniformity_p >= REGIME_THRESHOLDS["circular_uniformity_alpha"]
     ):
         caveats.append(
             "the circular-uniformity result has little power with fewer than "
             "10 annual timings, so the record remains marginal"
         )
-    if regime == "marginal":
+    if decision.regime == "marginal":
         caveats.append(
             "peak-timing concentration does not provide strong enough evidence "
             "for per-year boundaries, so the climatological peak describes "
             "average behaviour only"
         )
-    if regime == "aseasonal":
+    if decision.regime == "aseasonal":
         caveats.append(
             "no reproducible annual cycle: peak and trough are withheld because "
             "any value would reflect noise rather than a seasonal signal"
@@ -448,11 +380,11 @@ def assess_water_regime(
     if years_without:
         caveats.append(
             f"{years_without} of {len(qualifying_groups)} usable years contain no "
-            "wet event above the record's own 75th percentile"
+            f"wet event above {max_invalid_pct:.0f}% invalid ceiling"
         )
 
     return WaterRegimeAssessment(
-        regime=regime,
+        regime=decision.regime,
         amplitude_snr=float(snr),
         peak_phase_iqr_months=peak_timing.iqr_months,
         peak_timing_concentration=peak_timing.concentration,
@@ -464,35 +396,19 @@ def assess_water_regime(
         trough_timing_concentration_ci_low=trough_timing.ci_low,
         trough_timing_concentration_ci_high=trough_timing.ci_high,
         trough_timing_uniformity_p=trough_timing.uniformity_p,
-        n_timing_years=peak_timing.n_years,
-        climatological_peak_month=peak_month,
-        climatological_trough_month=trough_month,
+        n_timing_years=peak_timing.n,
+        climatological_peak_month=climatological_peak_month,
+        climatological_trough_month=climatological_trough_month,
         n_usable_years=len(qualifying_years),
         n_usable_months=int(len(usable)),
         n_wet_events=n_wet_events,
         longest_low_spell_months=longest_low,
         years_without_wet_event=years_without,
-        recommended_action=_ACTIONS[regime],
+        recommended_action=_ACTIONS[decision.regime],
         caveats=tuple(caveats),
-        seasonal_amplitude_pp=pattern_res.seasonal_amplitude_pp,
-        amplitude_noise_ratio=pattern_res.amplitude_noise_ratio,
-        seasonal_cv_skill=pattern_res.seasonal_cv_skill,
-        periodicity_p=pattern_res.periodicity_p,
-        selected_harmonic_order=pattern_res.selected_harmonic_order,
-        peak_timing_n_modes=pattern_res.peak_timing_n_modes,
-        trough_timing_n_modes=pattern_res.trough_timing_n_modes,
-        peak_timing_drift_months_per_decade=peak_drift.months_per_decade,
-        trough_timing_drift_months_per_decade=trough_drift.months_per_decade,
-        peak_timing_drift_status=peak_drift.status,
-        trough_timing_drift_status=trough_drift.status,
-        annual_cycle_evidence=evidence,
-        boundary_cv_n=boundary_rec.n,
-        boundary_cv_coverage=boundary_rec.coverage,
-        boundary_cv_within_1_month=boundary_rec.within_1_month,
-        boundary_cv_within_1_month_wilson_low=boundary_rec.within_1_month_wilson_low,
-        boundary_cv_p90_error_months=boundary_rec.p90_error_months,
-        boundary_recoverability=boundary_rec.state,
-        boundary_recoverability_reason=boundary_rec.reason,
+        decision_policy=decision.policy,
+        public_route=decision.route,
+        challenger=challenger,
     )
 
 
@@ -502,12 +418,7 @@ PublicRoute = Literal[
 
 
 def public_route(regime: Regime, recoverability: str) -> PublicRoute:
-    """Map regime and boundary recoverability to the public route.
-
-    Regime alone never authorises publication. A seasonal record whose troughs
-    do not reproduce out of sample routes to events, and a marginal record
-    whose troughs do reproduce is allowed dynamic years.
-    """
+    """Map regime and boundary recoverability to the public route (legacy 0.2.0 diagnostic mapping)."""
     if regime == "insufficient_record":
         return "insufficient_record"
     if regime in {"seasonal", "marginal"} and recoverability == "supported":
@@ -516,10 +427,15 @@ def public_route(regime: Regime, recoverability: str) -> PublicRoute:
 
 
 __all__ = [
+    "DecisionPolicy",
+    "ESTABLISHED_POLICY",
+    "EstablishedDecision",
     "PublicRoute",
     "REGIME_THRESHOLDS",
     "Regime",
+    "Route",
     "WaterRegimeAssessment",
     "assess_water_regime",
+    "decide_established",
     "public_route",
 ]

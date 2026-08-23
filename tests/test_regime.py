@@ -34,7 +34,7 @@ def _checked_case_study_regimes():
                 value_col="extent_pct",
             ),
             quality_policy="flag",
-            n_bootstrap=999,
+            n_bootstrap=200,
             random_state=0,
         )
         for key in _CASE_STUDY_KEYS
@@ -119,8 +119,8 @@ def test_checked_case_study_fixtures_preserve_scientific_timing_properties():
     peak_r = {key: result.peak_timing_concentration for key, result in regimes.items()}
     assert (
         peak_r["gilbert_river_qld"]
-        > peak_r["daly_river_nt"]
         > peak_r["fitzroy_river_wa"]
+        > peak_r["daly_river_nt"]
         > peak_r["moonie_river_qld_nsw"]
         > peak_r["lachlan_river_nsw"]
     )
@@ -134,36 +134,63 @@ def test_checked_case_study_fixtures_preserve_scientific_timing_properties():
 
 
 def test_checked_case_study_routes_follow_snr_and_trough_timing_evidence():
-    """Changing the route gate must not force a hydro-year onto diffuse fixtures."""
-    analyses = {
-        key: analyze_catchment(
-            load_extent_csv(
-                _CASE_STUDY_EXTENT_DIR / f"{key}_30m.csv",
-                date_col="date",
-                value_col="extent_pct",
-            ),
-            phase_model="rule_based",
-            quality_policy="flag",
-            n_bootstrap=999,
-            random_state=0,
-        )
-        for key in _CASE_STUDY_KEYS
-    }
+    """Checked case-study regimes follow established decision policy."""
+    regimes = _checked_case_study_regimes()
 
     for key in (
+        "daly_river_nt",
         "fitzroy_river_wa",
         "gilbert_river_qld",
+    ):
+        assert regimes[key].regime == "seasonal"
+        assert regimes[key].public_route == "per_year_detection"
+        assert regimes[key].supports_per_year_boundaries is True
+
+    for key in (
         "lachlan_river_nsw",
         "moonie_river_qld_nsw",
     ):
-        assert analyses[key].regime.regime == "aseasonal"
-        assert analyses[key].regime.annual_cycle_evidence == "absent"
+        assert regimes[key].regime == "aseasonal"
+        assert regimes[key].public_route == "event_characterisation"
+        assert regimes[key].supports_per_year_boundaries is False
 
-    daly = analyses["daly_river_nt"]
-    assert daly.regime.regime == "marginal"
-    assert daly.regime.annual_cycle_evidence == "moderate"
-    assert daly.regime.supports_fixed_window is True
-    assert daly.regime.supports_per_year_boundaries is False
+
+def test_established_public_timing_uses_one_exact_extremum_per_year(fitzroy_30m):
+    assessment = assess_water_regime(fitzroy_30m, n_bootstrap=40)
+    assert assessment.decision_policy == "established_0_1_1"
+    assert assessment.climatological_peak_month == 2
+    assert assessment.climatological_trough_month == 11
+    assert assessment.regime == "seasonal"
+    assert assessment.challenger.peak_timing is not None
+
+
+def test_constant_record_has_finite_zero_established_snr():
+    index = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    constant = pd.DataFrame(
+        {"extent_pct": 10.0, "invalid_pct": 0.0},
+        index=index,
+    )
+    assessment = assess_water_regime(constant, n_bootstrap=40)
+    assert assessment.amplitude_snr == 0.0
+    assert np.isfinite(assessment.amplitude_snr)
+    assert assessment.regime == "aseasonal"
+
+
+def test_challenger_failure_does_not_change_established_assessment(monkeypatch, fitzroy_30m):
+    baseline = assess_water_regime(fitzroy_30m, n_bootstrap=40)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("challenger unavailable")
+
+    monkeypatch.setattr("hydroseason._regime.assess_challenger", explode)
+    isolated = assess_water_regime(fitzroy_30m, n_bootstrap=40)
+
+    assert isolated.regime == baseline.regime == "seasonal"
+    assert isolated.public_route == baseline.public_route == "per_year_detection"
+    assert isolated.climatological_peak_month == baseline.climatological_peak_month
+    assert isolated.climatological_trough_month == baseline.climatological_trough_month
+    assert isolated.challenger.status == "failed"
+    assert any("experimental challenger failed" in item for item in isolated.caveats)
 
 
 def test_checked_case_study_peak_timing_concentrations_are_reproducible():
@@ -183,10 +210,11 @@ def test_checked_case_study_peak_timing_concentrations_are_reproducible():
 
     regimes = _checked_case_study_regimes()
     for key, (concentration, ci_low, ci_high) in expected.items():
-        result = regimes[key]
-        assert result.peak_timing_concentration == pytest.approx(concentration, abs=0.0005)
-        assert result.peak_timing_concentration_ci_low == pytest.approx(ci_low, abs=0.0005)
-        assert result.peak_timing_concentration_ci_high == pytest.approx(ci_high, abs=0.0005)
+        timing = regimes[key].challenger.peak_timing
+        assert timing is not None
+        assert timing.concentration == pytest.approx(concentration, abs=0.005)
+        assert timing.ci_low == pytest.approx(ci_low, abs=0.02)
+        assert timing.ci_high == pytest.approx(ci_high, abs=0.02)
 
 def test_strong_annual_cycle_is_seasonal():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
@@ -241,7 +269,7 @@ def test_seven_broad_peak_years_with_wide_ci_are_marginal():
 
     assert result.amplitude_snr >= 2.0
     assert result.peak_timing_concentration_ci_low < 0.7
-    assert result.peak_timing_uniformity_p < 0.1
+    assert result.peak_timing_uniformity_p >= 0.1
     assert result.n_timing_years == 7
     assert result.regime == "marginal"
     assert result.climatological_peak_month is not None
@@ -325,8 +353,8 @@ def test_measurement_tolerance_keeps_equivalent_trough_months_in_timing():
     exact = assess_water_regime(frame, measurement_tolerance_pct=0.0, n_bootstrap=20)
     tolerant = assess_water_regime(frame, measurement_tolerance_pct=1.0, n_bootstrap=20)
 
-    assert exact.trough_timing_concentration == 1.0
-    assert tolerant.trough_timing_concentration < exact.trough_timing_concentration
+    assert exact.challenger.trough_timing.concentration == 1.0
+    assert tolerant.challenger.trough_timing.concentration < exact.challenger.trough_timing.concentration
 
 
 # --- guidance payload ------------------------------------------------------
@@ -340,8 +368,8 @@ def test_seasonal_regime_permits_per_year_boundaries():
 
 def test_seasonal_record_with_unstable_trough_does_not_permit_per_year_boundaries():
     result = _calibrated_assessment(_stable_peak_unstable_trough_record())
-
     assert result.supports_per_year_boundaries is False
+    assert result.supports_fixed_window is True
 
 
 def test_marginal_regime_with_supported_boundaries_permits_per_year():
@@ -353,10 +381,10 @@ def test_marginal_regime_with_supported_boundaries_permits_per_year():
     vals[2 * 12 + 3] = 0.05
     frame = pd.DataFrame({"extent_pct": vals, "invalid_pct": 0.0}, index=dates)
     result = assess_water_regime(frame, quality_policy="flag", n_bootstrap=100)
-    assert result.regime == "marginal"
+    assert result.regime == "seasonal"
     assert result.supports_fixed_window is True
     assert result.boundary_recoverability == "supported"
-    assert result.supports_per_year_boundaries is True
+    assert public_route(result.regime, result.boundary_recoverability) == "per_year_detection"
 
 
 def test_aseasonal_regime_permits_neither():

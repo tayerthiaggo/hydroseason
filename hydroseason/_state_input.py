@@ -27,6 +27,8 @@ def prepare_monthly_extent(
         frame = extent.copy()
     if date_col is not None:
         frame.index = pd.to_datetime(frame.pop(date_col))
+    elif not isinstance(frame.index, pd.DatetimeIndex) and "date" in frame.columns:
+        frame.index = pd.to_datetime(frame.pop("date"))
     else:
         frame.index = pd.to_datetime(frame.index)
     frame.index = frame.index.to_period("M").to_timestamp()

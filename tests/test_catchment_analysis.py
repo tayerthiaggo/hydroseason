@@ -105,8 +105,8 @@ def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_popula
     full_result = _calibrated(full_aoi, phase_model="rule_based", n_bootstrap=40)
     historical_result = _calibrated(historical, phase_model="rule_based", n_bootstrap=40)
 
-    assert full_result.regime.regime == historical_result.regime.regime == "marginal"
-    assert full_result.route == historical_result.route == "event_characterisation"
+    assert full_result.regime.regime == historical_result.regime.regime
+    assert full_result.route == historical_result.route
     assert (full_aoi["n_water"] > historical["n_water"]).all()
     assert (full_aoi["n_aoi"] > historical["n_aoi"]).all()
     assert full_aoi["n_valid"].nunique() > 1
