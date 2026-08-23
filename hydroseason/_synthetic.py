@@ -41,6 +41,7 @@ class TruthLabels:
     peak_month: int | None
     phase_by_month: pd.Series | None
     n_years: int
+    trough_month_by_year: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -122,12 +123,16 @@ def _derive_annual_phases(
             continue
 
         z = (y_val - v_min) / span
-        pk_idx = int(np.argmax(z))
+        peak_month = int(index[sl][int(np.argmax(z))].month)
+        trough_month = int(trough_months[y])
+        peak_position = (peak_month - trough_month) % 12
 
-        # Classify each month in the year based on normalized height and rise/fall limb
+        # Classify relative to trough-to-trough cycle, including calendar wrap.
         for m_idx in range(12):
             val_z = z[m_idx]
-            if m_idx <= pk_idx:
+            month = int(index[y * 12 + m_idx].month)
+            cycle_position = (month - trough_month) % 12
+            if cycle_position <= peak_position:
                 # Rising limb (trough -> peak)
                 if val_z < 0.25:
                     phases[y * 12 + m_idx] = "dry"
@@ -145,6 +150,20 @@ def _derive_annual_phases(
                     phases[y * 12 + m_idx] = "dry"
 
     return pd.Series(phases, index=index, dtype=object)
+
+
+def _scenario_for_seed(seed: int) -> ScenarioMetadata:
+    """Draw independent degradation axes from a seed-isolated RNG stream."""
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0x48594452]))
+    return ScenarioMetadata(
+        missingness=("none", "random", "seasonal")[int(rng.integers(0, 3))],
+        quality_loss=("none", "extrema")[int(rng.integers(0, 2))],
+        noise_pp=float((0.5, 2.0, 5.0, 8.0)[int(rng.integers(0, 4))]),
+        timing_jitter_months=int(rng.integers(0, 3)),
+        bias_strength_pp=float(
+            (0.0, 1.0, 2.0, 4.0, 8.0)[int(rng.integers(0, 5))]
+        ),
+    )
 
 
 # Waveform builders
@@ -452,18 +471,20 @@ def apply_observation_scenario(
     *,
     scenario: ScenarioMetadata,
     rng: np.random.Generator,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Apply degradation scenario in order: jitter, noise, missingness, quality loss, bias."""
     n_months = len(latent_values)
     values = latent_values.copy()
+    n_years = n_months // 12
+    timing_shifts = np.zeros(n_years, dtype=int)
 
     # 1. Timing jitter
     if scenario.timing_jitter_months > 0:
-        n_years = n_months // 12
         jittered = np.empty_like(values)
         for y in range(n_years):
             sl = slice(y * 12, (y + 1) * 12)
             shift = int(rng.integers(-scenario.timing_jitter_months, scenario.timing_jitter_months + 1))
+            timing_shifts[y] = shift
             jittered[sl] = np.roll(values[sl], shift)
         values = jittered
 
@@ -511,7 +532,7 @@ def apply_observation_scenario(
         s = pd.Series(values)
         values = apply_extent_dependent_bias(s, strength_pp=scenario.bias_strength_pp).to_numpy()
 
-    return values, invalid
+    return values, invalid, timing_shifts
 
 
 def generate_record(seed: int, *, partition: Literal["calibration", "validation"]) -> SyntheticRecord:
@@ -538,14 +559,8 @@ def generate_record(seed: int, *, partition: Literal["calibration", "validation"
         mean=mean,
         rng=rng,
     )
-    scenario = ScenarioMetadata(
-        missingness=("none", "random", "seasonal")[seed % 3],
-        quality_loss=("none", "extrema")[seed % 2],
-        noise_pp=float((0.5, 2.0, 5.0, 8.0)[seed % 4]),
-        timing_jitter_months=int((0, 1, 2)[seed % 3]),
-        bias_strength_pp=float((0.0, 1.0, 2.0, 4.0, 8.0)[seed % 5]),
-    )
-    values, invalid = apply_observation_scenario(
+    scenario = _scenario_for_seed(seed)
+    values, invalid, timing_shifts = apply_observation_scenario(
         latent.values,
         latent.trough_by_year,
         scenario=scenario,
@@ -556,12 +571,24 @@ def generate_record(seed: int, *, partition: Literal["calibration", "validation"
         {"extent_pct": np.clip(values, 0.0, 100.0), "invalid_pct": invalid},
         index=index,
     )
+    truth_troughs = (
+        (latent.trough_by_year.astype(int) - 1 + timing_shifts) % 12 + 1
+    ).astype(int)
+    truth_phases = latent.phase_by_month
+    if truth_phases is not None and np.any(timing_shifts):
+        adjusted = truth_phases.to_numpy(dtype=object).copy()
+        for year_index, shift in enumerate(timing_shifts):
+            sl = slice(year_index * 12, (year_index + 1) * 12)
+            adjusted[sl] = np.roll(adjusted[sl], int(shift))
+        truth_phases = pd.Series(adjusted, index=truth_phases.index, dtype=object)
+
     truth = TruthLabels(
         is_annual=family in _ANNUAL_FAMILIES,
         trough_month=trough_month if family in _ANNUAL_FAMILIES else None,
         peak_month=((trough_month + 5) % 12) + 1 if family in _ANNUAL_FAMILIES else None,
-        phase_by_month=latent.phase_by_month,
+        phase_by_month=truth_phases,
         n_years=n_years,
+        trough_month_by_year=tuple(int(month) for month in truth_troughs),
     )
     return SyntheticRecord(
         frame=frame, truth=truth, scenario=scenario, family=family, seed=seed

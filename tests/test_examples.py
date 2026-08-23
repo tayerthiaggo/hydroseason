@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from hydroseason.examples import (
@@ -8,6 +10,19 @@ from hydroseason.examples import (
     flag_extent_quality,
     load_workflow_extent,
 )
+
+
+def test_checked_fitzroy_reports_keep_rainfall_variant_distinct():
+    basic = Path("docs/examples/fitzroy-river-wa.html").read_text(encoding="utf-8")
+    rainfall = Path("docs/examples/fitzroy-river-wa-rainfall.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Surface Water Dynamics Report" in basic
+    assert '<details class="rainfall-context"' not in basic
+    assert "Surface Water &amp; Rainfall Dynamics Report" in rainfall
+    assert '<details class="rainfall-context"' in rainfall
+    assert basic != rainfall
 
 
 def test_load_workflow_extent_uses_csv_fallback_for_offline_stac_default(tmp_path):

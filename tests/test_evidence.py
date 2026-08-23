@@ -166,6 +166,11 @@ def test_clean_seasonal_record_is_strong():
     assert _call() == "strong"
 
 
+def test_timing_threshold_blocks_concentration_grades_when_record_is_too_short():
+    """Changing calibrated minimum timing years must change evidence grading."""
+    assert _call(timing=_timing(n_years=9)) == "weak"
+
+
 def test_amplitude_at_or_below_floor_is_absent():
     """A record with no resolvable amplitude has no annual cycle to grade."""
     assert _call(at_or_below_floor=True, amplitude_noise_ratio=0.0) == "absent"

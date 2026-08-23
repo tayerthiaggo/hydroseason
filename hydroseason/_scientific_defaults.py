@@ -6,32 +6,32 @@ from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._cycle_phase import PhaseThresholds
 from hydroseason._evidence import EvidenceThresholds
 
-CALIBRATION_VERSION = "0.2.0"
-CALIBRATION_FINGERPRINT = "26d98a74f4d5b54dc9ccea784d618affbfba3f8c807151f39af83a386e576c1b"
+CALIBRATION_VERSION = "0.2.0-audit.1"
+CALIBRATION_FINGERPRINT = "6a92be8f2306cf4f5cd43deae7d5850041cdaa4b68f8e9fc499be5fce876f9d4"
 
 EVIDENCE_DEFAULTS = EvidenceThresholds(
     seasonal_cv_skill=0.8,
-    periodicity_alpha=0.025,
-    amplitude_noise_ratio=1.5,
+    periodicity_alpha=0.1,
+    amplitude_noise_ratio=2.0,
     mode_min_frequency=0.5,
     mode_min_separation_months=2,
     strong_timing_concentration=0.8,
     weak_timing_concentration=0.5,
-    min_timing_years=5,
+    min_timing_years=10,
 )
 
 RECOVERABILITY_DEFAULTS = RecoverabilityThresholds(
     min_years=5,
     min_coverage=0.8,
     min_within_1_month=0.8,
-    within_1_month_wilson_floor=0.6,
+    within_1_month_wilson_floor=0.3,
     max_p90_error_months=2.0,
-    admit_insufficient_drift=False,
+    admit_insufficient_drift=True,
 )
 
 PHASE_DEFAULTS = PhaseThresholds(
-    phase_low_fraction=0.2,
+    phase_low_fraction=0.25,
     phase_high_fraction=0.8,
     phase_min_duration_months=1,
-    phase_smoothing_window=5,
+    phase_smoothing_window=3,
 )

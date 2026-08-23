@@ -57,6 +57,7 @@ def test_stable_trough_is_recovered_with_zero_error():
     assert evaluation.resolved
     assert evaluation.error_months == 0.0
     assert evaluation.training_trough_month == 7
+    assert evaluation.selected_month == 7
 
 
 def test_training_phase_excludes_the_target_year():

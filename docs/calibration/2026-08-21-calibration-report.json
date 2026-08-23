@@ -1,53 +1,77 @@
 {
-  "calibration_version": "0.2.0",
-  "fingerprint": "26d98a74f4d5b54dc9ccea784d618affbfba3f8c807151f39af83a386e576c1b",
+  "calibration_version": "0.2.0-audit.1",
+  "fingerprint": "6a92be8f2306cf4f5cd43deae7d5850041cdaa4b68f8e9fc499be5fce876f9d4",
   "evidence": {
     "seasonal_cv_skill": 0.8,
-    "periodicity_alpha": 0.025,
-    "amplitude_noise_ratio": 1.5,
+    "periodicity_alpha": 0.1,
+    "amplitude_noise_ratio": 2.0,
     "mode_min_frequency": 0.5,
     "mode_min_separation_months": 2,
     "strong_timing_concentration": 0.8,
     "weak_timing_concentration": 0.5,
-    "min_timing_years": 5
+    "min_timing_years": 10
   },
   "recoverability": {
     "min_years": 5,
     "min_coverage": 0.8,
     "min_within_1_month": 0.8,
-    "within_1_month_wilson_floor": 0.6,
+    "within_1_month_wilson_floor": 0.3,
     "max_p90_error_months": 2.0,
-    "admit_insufficient_drift": false
+    "admit_insufficient_drift": true
   },
   "phase": {
-    "phase_low_fraction": 0.2,
+    "phase_low_fraction": 0.25,
     "phase_high_fraction": 0.8,
     "phase_min_duration_months": 1,
-    "phase_smoothing_window": 5
+    "phase_smoothing_window": 3
   },
   "false_annualisation_by_length": {
-    "5": 0.013422818791946308,
-    "7": 0.0017513134851138354,
-    "10": 0.001692047377326565,
+    "5": 0.0016778523489932886,
+    "7": 0.0035026269702276708,
+    "10": 0.0,
     "20": 0.0,
     "30": 0.0
   },
+  "selection_survivors": {
+    "grid": 190080,
+    "negative_control_wilson": 190080,
+    "routing_recall": 2970,
+    "correct_abstention": 2970,
+    "boundary_mae": 2970,
+    "seasonal_cv_skill_margin": 165,
+    "periodicity_alpha_margin": 165,
+    "amplitude_noise_ratio_margin": 33,
+    "strong_timing_concentration_margin": 9,
+    "wilson_floor_margin": 9,
+    "min_timing_years_margin": 3,
+    "reject_insufficient_drift_margin": 3,
+    "mode_frequency_margin": 3,
+    "weak_timing_concentration_margin": 1,
+    "selected": 1
+  },
   "drift_axis": {
-    "admit": 0.003399048266485384,
-    "reject": 0.003399048266485384
+    "admit": 0.0010197144799456153,
+    "reject": 0.0
   },
   "periodicity_null": {
-    "selected_alpha": 0.025,
+    "selected_alpha": 0.1,
     "bias_note": "The rotation null exhibits anti-conservative bias because rotating calendar months introduces artificial boundaries between December and January. To counteract this anti-conservative tendency and preserve strict false positive guarantees, the calibration objective selects a conservative alpha threshold."
   },
   "metrics": {
-    "false_annualisation_rate": 0.003399048266485384,
-    "false_annualisation_wilson_high": 0.006245890632271767,
-    "routing_recall": 0.7874149680137634,
-    "correct_abstention": 0.8378607630729675,
-    "boundary_mae": 0.13445497246517654,
-    "phase_macro_accuracy": 0.49731208375067676,
-    "phase_transition_mae": 1.646332395351889,
-    "phase_forced_complete_rate": 0.2534035950909955
+    "false_annualisation_rate": 0.0010197144799456153,
+    "false_annualisation_wilson_high": 0.0029939429836186348,
+    "routing_recall": 0.6683673469387755,
+    "correct_abstention": 0.9558573853989814,
+    "boundary_mae": 0.05132801440001395,
+    "phase_macro_accuracy": 0.7358782080051632,
+    "phase_transition_mae": 1.0036404168072726,
+    "phase_forced_complete_rate": 0.01291787655424019
+  },
+  "runtime": {
+    "records": 5000,
+    "calibration_wall_seconds": 1586.0525320000015,
+    "records_per_second": 3.152480702322661,
+    "peak_sampled_rss_mb": 2251.28125,
+    "workers": 16
   }
 }

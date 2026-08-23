@@ -253,6 +253,24 @@ def analyze_catchment(
                 max_invalid_pct=max_invalid_pct,
             )
         years = state.hydro_years.copy()
+        if years.empty:
+            reason = "per-year boundary detection returned no hydrological years"
+            warnings.append(f"{reason}; using events")
+            return CatchmentAnalysis(
+                regime=regime,
+                route="event_characterisation",
+                route_reason=(
+                    f"{reason} despite supported recoverability; "
+                    "using event characterisation"
+                ),
+                hydro_years=empty_years,
+                events=events,
+                monthly=pd.DataFrame(),
+                state=None,
+                warnings=tuple(warnings),
+                quality_policy=quality_policy,
+                max_invalid_pct=max_invalid_pct,
+            )
         if not years.empty:
             years["boundary_basis"] = "detected_per_year"
             years["annual_cycle_evidence"] = regime.annual_cycle_evidence

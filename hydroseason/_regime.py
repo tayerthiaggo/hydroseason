@@ -54,6 +54,7 @@ _STRONG_TIMING_CONCENTRATION = 0.7
 _WEAK_TIMING_CONCENTRATION = 0.3
 _CIRCULAR_UNIFORMITY_ALPHA = 0.1
 _UNIFORMITY_MIN_TIMING_YEARS = 10.0
+_DRIFT_MIN_TIMING_YEARS = 10
 _TIMING_RECORD_CAUTION_YEARS = 30.0
 
 REGIME_THRESHOLDS: dict[str, float] = {
@@ -275,11 +276,15 @@ def assess_water_regime(
         )
 
     # Circular timing and drift
+    timing_tolerance_pct = min(
+        float(measurement_tolerance_pct),
+        0.10 * amplitude,
+    )
     peak_month_sets = annual_extremum_month_sets(
-        sample, kind="max", tolerance_pct=0.0
+        sample, kind="max", tolerance_pct=timing_tolerance_pct
     )
     trough_month_sets = annual_extremum_month_sets(
-        sample, kind="min", tolerance_pct=0.0
+        sample, kind="min", tolerance_pct=timing_tolerance_pct
     )
     peak_timing = summarise_annual_timing(
         peak_month_sets, n_resamples=n_bootstrap, random_state=random_state
@@ -288,15 +293,14 @@ def assess_water_regime(
         trough_month_sets, n_resamples=n_bootstrap, random_state=random_state
     )
 
-    min_drift_years = evidence_thresholds.min_timing_years
     peak_drift = timing_drift(
         peak_month_sets,
-        min_timing_years=min_drift_years,
+        min_timing_years=_DRIFT_MIN_TIMING_YEARS,
         random_state=random_state,
     )
     trough_drift = timing_drift(
         trough_month_sets,
-        min_timing_years=min_drift_years,
+        min_timing_years=_DRIFT_MIN_TIMING_YEARS,
         random_state=random_state,
     )
 

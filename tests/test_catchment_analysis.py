@@ -229,6 +229,21 @@ def test_per_year_boundary_failure_falls_back_to_event_characterisation(monkeypa
     assert "detection failed" in result.route_reason.lower()
 
 
+def test_empty_per_year_result_falls_back_to_event_characterisation(monkeypatch):
+    baseline = _calibrated(_seasonal(), n_bootstrap=40)
+    empty_state = replace(baseline.state, hydro_years=pd.DataFrame())
+    monkeypatch.setattr(
+        "hydroseason._catchment.analyze_hydrological_state",
+        lambda *args, **kwargs: empty_state,
+    )
+
+    result = _calibrated(_seasonal(), n_bootstrap=40)
+
+    assert result.route == "event_characterisation"
+    assert result.hydro_years.empty
+    assert "returned no hydrological years" in result.route_reason.lower()
+
+
 def test_catchment_threads_existing_bootstrap_controls_to_regime_assessment():
     extent = _marginal()
     direct = assess_water_regime(extent, n_bootstrap=40, random_state=11)

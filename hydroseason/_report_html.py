@@ -432,6 +432,7 @@ def render_report_html(
         else ""
     )
     rainfall_details = _rainfall_details(rainfall_context)
+    rainfall_block = f"  {rainfall_details}" if rainfall_details else ""
     return f"""<!doctype html>
 <html lang="en" data-theme="light">
 <head>
@@ -669,7 +670,7 @@ def render_report_html(
       </div>
     </div>
   </details>
-  {rainfall_details}
+{rainfall_block}
 </main>
 <script>
 /* {PLOTLY_ASSET_NAME}; vendored pinned offline runtime */

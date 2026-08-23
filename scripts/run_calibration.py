@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
@@ -16,15 +17,63 @@ if str(_REPO_ROOT) not in sys.path:
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+import psutil  # noqa: E402
 
+from hydroseason._boundary_recoverability import RecoverabilityThresholds  # noqa: E402
 from hydroseason._calibration import (  # noqa: E402
     _worker_evidence,
     _worker_phase,
+    build_evidence_cache,
+    build_phase_cache,
+    build_validation_report,
+    evaluate_evidence_cache,
     fingerprint,
     select_evidence_defaults,
     select_phase_defaults,
 )
+from hydroseason._evidence import EvidenceThresholds  # noqa: E402
 from hydroseason._synthetic import CALIBRATION_SEEDS  # noqa: E402
+
+_CALIBRATION_VERSION = "0.2.0-audit.1"
+
+
+def _rss_tree_mb() -> float:
+    """Current resident memory for this process and its live workers."""
+    process = psutil.Process()
+    processes = [process, *process.children(recursive=True)]
+    total = 0
+    for item in processes:
+        try:
+            total += item.memory_info().rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return float(total / (1024.0 * 1024.0))
+
+
+def _drift_axis_rates(
+    evidence_cache: pd.DataFrame,
+    *,
+    evidence_thresholds: EvidenceThresholds,
+    recoverability_thresholds: RecoverabilityThresholds,
+) -> dict[str, float]:
+    """False-annualisation rate after rerunning both drift-gate settings."""
+    rates: dict[str, float] = {}
+    for label, admit in (("reject", False), ("admit", True)):
+        thresholds = type(recoverability_thresholds)(
+            **{
+                **asdict(recoverability_thresholds),
+                "admit_insufficient_drift": admit,
+            }
+        )
+        evaluated = evaluate_evidence_cache(
+            evidence_cache,
+            evidence_thresholds=evidence_thresholds,
+            recoverability_thresholds=thresholds,
+        )
+        negative = ~evaluated["truth_is_annual"].to_numpy(dtype=bool)
+        publish = evaluated["publish_annual_rows"].to_numpy(dtype=bool)
+        rates[label] = float(np.mean(publish[negative])) if np.any(negative) else 0.0
+    return rates
 
 
 def run_calibration(
@@ -32,27 +81,38 @@ def run_calibration(
     partition: str = "calibration",
     out_report: Path = Path("docs/calibration/2026-08-21-calibration-report.json"),
     out_module: Path = Path("hydroseason/_scientific_defaults.py"),
+    *,
+    workers: int | None = None,
 ) -> None:
     """Run full calibration workflow and emit frozen defaults and JSON report."""
+    started = time.perf_counter()
+    peak_rss_mb = _rss_tree_mb()
     print(f"Calibrating over {len(seeds)} seeds on partition '{partition}'...", flush=True)
 
-    workers = min(os.cpu_count() or 4, 16)
-    print(f"Building evidence cache using {workers} parallel workers...", flush=True)
+    worker_count = workers if workers is not None else min(os.cpu_count() or 4, 16)
+    print(f"Building evidence cache using {worker_count} workers...", flush=True)
     arg_list = [(s, partition) for s in seeds]
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        evidence_rows = list(executor.map(_worker_evidence, arg_list, chunksize=25))
-
-    evidence_cache = pd.DataFrame(evidence_rows)
+    if worker_count == 1:
+        evidence_cache = build_evidence_cache(seeds, partition=partition)
+    else:
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            evidence_rows = list(
+                executor.map(_worker_evidence, arg_list, chunksize=25)
+            )
+            peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
+        evidence_cache = pd.DataFrame(evidence_rows)
+    peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
     print(f"Evidence cache ready ({len(evidence_cache)} records).", flush=True)
 
-    print(f"Building phase cache using {workers} parallel workers...", flush=True)
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        phase_results = list(executor.map(_worker_phase, arg_list, chunksize=25))
-
-    all_cycles = []
-    for c_tuple in phase_results:
-        all_cycles.extend(c_tuple)
-    phase_cache = tuple(all_cycles)
+    print(f"Building phase cache using {worker_count} workers...", flush=True)
+    if worker_count == 1:
+        phase_cache = build_phase_cache(seeds, partition=partition)
+    else:
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            phase_results = list(executor.map(_worker_phase, arg_list, chunksize=25))
+            peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
+        phase_cache = tuple(cycle for result in phase_results for cycle in result)
+    peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
     print(f"Phase cache ready ({len(phase_cache)} annual cycles).", flush=True)
 
     print("Selecting optimal evidence defaults across 190,080 grid points...", flush=True)
@@ -66,23 +126,32 @@ def run_calibration(
     best_phase_score = phase_scores[0]
     print(f"Selected phase: {phase_defaults}", flush=True)
 
-    fp = fingerprint()
+    fp = fingerprint(
+        evidence_defaults=ev_defaults,
+        recoverability_defaults=rec_defaults,
+        phase_defaults=phase_defaults,
+    )
     print(f"Calibration SHA-256 fingerprint: {fp}", flush=True)
 
-    # Compute drift axis rates
-    admit_rate = float(best_ev_score.false_annualisation_rate)
-    reject_rate = float(best_ev_score.false_annualisation_rate)
+    drift_axis = _drift_axis_rates(
+        evidence_cache,
+        evidence_thresholds=ev_defaults,
+        recoverability_thresholds=rec_defaults,
+    )
+    elapsed = time.perf_counter() - started
+    peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
 
     report_payload = {
-        "calibration_version": "0.2.0",
+        "calibration_version": _CALIBRATION_VERSION,
         "fingerprint": fp,
         "evidence": asdict(ev_defaults),
         "recoverability": asdict(rec_defaults),
         "phase": asdict(phase_defaults),
         "false_annualisation_by_length": best_ev_score.false_annualisation_by_length,
+        "selection_survivors": best_ev_score.selection_counts,
         "drift_axis": {
-            "admit": admit_rate,
-            "reject": reject_rate,
+            "admit": drift_axis["admit"],
+            "reject": drift_axis["reject"],
         },
         "periodicity_null": {
             "selected_alpha": float(ev_defaults.periodicity_alpha),
@@ -103,6 +172,13 @@ def run_calibration(
             "phase_transition_mae": best_phase_score.transition_mae,
             "phase_forced_complete_rate": best_phase_score.forced_complete_rate,
         },
+        "runtime": {
+            "records": int(len(seeds)),
+            "calibration_wall_seconds": float(elapsed),
+            "records_per_second": float(len(seeds) / elapsed) if elapsed else 0.0,
+            "peak_sampled_rss_mb": peak_rss_mb,
+            "workers": int(worker_count),
+        },
     }
 
     out_report.parent.mkdir(parents=True, exist_ok=True)
@@ -117,7 +193,7 @@ from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._cycle_phase import PhaseThresholds
 from hydroseason._evidence import EvidenceThresholds
 
-CALIBRATION_VERSION = "0.2.0"
+CALIBRATION_VERSION = "{_CALIBRATION_VERSION}"
 CALIBRATION_FINGERPRINT = "{fp}"
 
 EVIDENCE_DEFAULTS = EvidenceThresholds(
@@ -155,10 +231,13 @@ PHASE_DEFAULTS = PhaseThresholds(
 def run_validation(
     seeds: list[int],
     out_report: Path = Path("docs/calibration/2026-08-21-validation-report.json"),
+    *,
+    workers: int | None = None,
+    sensitivity_limit: int = 500,
+    phase_stability_replicates: int = 50,
+    phase_stability_max_cycles: int = 200,
 ) -> None:
     """Run evaluation over the untouched validation partition under frozen defaults."""
-    from hydroseason._calibration import score_phase_grid_point
-    from hydroseason._evidence import wilson_interval
     from hydroseason._scientific_defaults import (
         CALIBRATION_FINGERPRINT,
         CALIBRATION_VERSION,
@@ -167,231 +246,97 @@ def run_validation(
         RECOVERABILITY_DEFAULTS,
     )
 
-    print(
-        f"Validating over {len(seeds)} seeds on partition 'validation' under frozen constants...",
-        flush=True,
-    )
+    worker_count = workers if workers is not None else min(os.cpu_count() or 4, 16)
+    started = time.perf_counter()
+    peak_rss_mb = _rss_tree_mb()
+    arg_list = [(seed, "validation") for seed in seeds]
+    if worker_count == 1:
+        evidence_cache = build_evidence_cache(seeds, partition="validation")
+        phase_cache = build_phase_cache(seeds, partition="validation")
+    else:
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            evidence_rows = list(
+                executor.map(_worker_evidence, arg_list, chunksize=25)
+            )
+            peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
+        evidence_cache = pd.DataFrame(evidence_rows)
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            phase_results = list(executor.map(_worker_phase, arg_list, chunksize=25))
+            peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
+        phase_cache = tuple(cycle for result in phase_results for cycle in result)
 
-    workers = min(os.cpu_count() or 4, 16)
-    print(f"Building evidence cache using {workers} parallel workers...", flush=True)
-    arg_list = [(s, "validation") for s in seeds]
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        evidence_rows = list(executor.map(_worker_evidence, arg_list, chunksize=25))
+    sensitivity_seeds = seeds[: max(0, int(sensitivity_limit))]
+    flag_sample = evidence_cache.loc[evidence_cache["seed"].isin(sensitivity_seeds)]
+    if worker_count == 1:
+        exclude_cache = build_evidence_cache(
+            sensitivity_seeds,
+            partition="validation",
+            quality_policy="exclude",
+        )
+    else:
+        exclude_args = [
+            (seed, "validation", "exclude") for seed in sensitivity_seeds
+        ]
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            exclude_rows = list(
+                executor.map(_worker_evidence, exclude_args, chunksize=25)
+            )
+            peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
+        exclude_cache = pd.DataFrame(exclude_rows)
+    policy_metrics: dict[str, object] = {}
+    for policy, cache in (("flag", flag_sample), ("exclude", exclude_cache)):
+        evaluated = evaluate_evidence_cache(
+            cache,
+            evidence_thresholds=EVIDENCE_DEFAULTS,
+            recoverability_thresholds=RECOVERABILITY_DEFAULTS,
+        )
+        truth = evaluated["truth_is_annual"].to_numpy(dtype=bool)
+        publish = evaluated["publish_annual_rows"].to_numpy(dtype=bool)
+        policy_metrics[policy] = {
+            "n": int(len(evaluated)),
+            "false_annualisation_rate": (
+                float(np.mean(publish[~truth])) if np.any(~truth) else 0.0
+            ),
+            "routing_recall": (
+                float(np.mean(publish[truth])) if np.any(truth) else 0.0
+            ),
+        }
 
-    evidence_cache = pd.DataFrame(evidence_rows)
-    print(f"Evidence cache ready ({len(evidence_cache)} records).", flush=True)
-
-    print(f"Building phase cache using {workers} parallel workers...", flush=True)
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        phase_results = list(executor.map(_worker_phase, arg_list, chunksize=25))
-
-    all_cycles = []
-    for c_tuple in phase_results:
-        all_cycles.extend(c_tuple)
-    phase_cache = tuple(all_cycles)
-    print(f"Phase cache ready ({len(phase_cache)} annual cycles).", flush=True)
-
-    # 1. Evidence evaluation
-    p_val = evidence_cache["periodicity_p"].to_numpy(dtype=float)
-    skill = evidence_cache["seasonal_cv_skill"].to_numpy(dtype=float)
-    ratio = evidence_cache["amplitude_noise_ratio"].to_numpy(dtype=float)
-    at_floor = evidence_cache["at_or_below_floor"].to_numpy(dtype=bool)
-    conc = evidence_cache["timing_concentration"].to_numpy(dtype=float)
-    n_eval_years = evidence_cache["n_evaluable_years"].to_numpy(dtype=int)
-    drift = evidence_cache["drift_status"].to_numpy(dtype=object)
-    is_annual_truth = evidence_cache["truth_is_annual"].to_numpy(dtype=bool)
-    family = evidence_cache["family"].to_numpy(dtype=object)
-    n_years = evidence_cache["n_years"].to_numpy(dtype=int)
-    b_mae = evidence_cache["boundary_mae"].to_numpy(dtype=float)
-    b_cov = evidence_cache["boundary_coverage"].to_numpy(dtype=float)
-
-    pk_modes = evidence_cache[
-        f"peak_n_modes_{EVIDENCE_DEFAULTS.mode_min_frequency:.2f}"
-    ].to_numpy(dtype=int)
-    tr_modes = evidence_cache[
-        f"trough_n_modes_{EVIDENCE_DEFAULTS.mode_min_frequency:.2f}"
-    ].to_numpy(dtype=int)
-    unimodal = (pk_modes == 1) & (tr_modes == 1)
-
-    significant = p_val <= (EVIDENCE_DEFAULTS.periodicity_alpha + 1e-6)
-    skilful = skill >= EVIDENCE_DEFAULTS.seasonal_cv_skill
-    loud = ratio >= EVIDENCE_DEFAULTS.amplitude_noise_ratio
-    concentrated = conc >= EVIDENCE_DEFAULTS.strong_timing_concentration
-    weakly_conc = conc >= EVIDENCE_DEFAULTS.weak_timing_concentration
-    drifting = drift == "detected"
-    not_absent = (~at_floor) & (ratio > 0.0)
-    sufficient_years = n_eval_years >= 5
-
-    strong_ev = (
-        sufficient_years
-        & not_absent
-        & significant
-        & skilful
-        & loud
-        & concentrated
-        & unimodal
-        & (~drifting)
-    )
-    moderate_ev = (
-        sufficient_years
-        & not_absent
-        & significant
-        & (skilful | loud)
-        & weakly_conc
-        & (~strong_ev)
-    )
-    pred_annual = strong_ev | moderate_ev
-
-    # Confusion matrix
-    true_ann_pred_ann = int(np.sum(is_annual_truth & pred_annual))
-    true_ann_pred_non = int(np.sum(is_annual_truth & (~pred_annual)))
-    true_non_pred_ann = int(np.sum((~is_annual_truth) & pred_annual))
-    true_non_pred_non = int(np.sum((~is_annual_truth) & (~pred_annual)))
-
-    confusion_matrix = {
-        "true_annual_pred_annual": true_ann_pred_ann,
-        "true_annual_pred_non_annual": true_ann_pred_non,
-        "true_non_annual_pred_annual": true_non_pred_ann,
-        "true_non_annual_pred_non_annual": true_non_pred_non,
-    }
-
-    # False annualisation
-    neg_mask = ~is_annual_truth
-    n_neg = int(np.sum(neg_mask))
-    k_neg = int(np.sum(neg_mask & pred_annual))
-    false_ann_rate = float(k_neg / n_neg) if n_neg > 0 else 0.0
-    w_low, w_high = wilson_interval(k_neg, n_neg) if n_neg > 0 else (0.0, 1.0)
-
-    # Correct abstention
-    abs_mask = np.isin(
-        family, ["bimodal", "switching_modes", "multi_year_regimes", "phase_drift"]
-    )
-    n_abs = int(np.sum(abs_mask))
-    k_abs = int(np.sum(abs_mask & (~pred_annual)))
-    correct_abstention_rate = float(k_abs / n_abs) if n_abs > 0 else 0.0
-    abs_w_low, abs_w_high = wilson_interval(k_abs, n_abs) if n_abs > 0 else (0.0, 1.0)
-
-    # False annualisation by length
-    by_length = {}
-    for length in (5, 7, 10, 20, 30):
-        mask_l = neg_mask & (n_years == length)
-        n_l = int(np.sum(mask_l))
-        k_l = int(np.sum(mask_l & pred_annual))
-        by_length[str(length)] = float(k_l / n_l) if n_l > 0 else 0.0
-
-    # Route coverage
-    pos_mask = np.isin(family, ["unimodal_symmetric", "monsoonal_sharp"])
-    per_year_count = int(
-        np.sum(pred_annual & (b_cov >= RECOVERABILITY_DEFAULTS.min_coverage))
-    )
-    provisional_count = int(
-        np.sum(pred_annual & (b_cov < RECOVERABILITY_DEFAULTS.min_coverage))
-    )
-    events_count = int(np.sum(~pred_annual))
-    total_records = len(evidence_cache)
-
-    route_coverage = {
-        "per_year_detection": float(per_year_count / total_records),
-        "provisional_years": float(provisional_count / total_records),
-        "event_characterisation": float(events_count / total_records),
-    }
-
-    # Boundary metrics on positive controls
-    pos_b_mae = b_mae[pos_mask]
-    pos_b_cov = b_cov[pos_mask]
-    mae = float(np.mean(pos_b_mae)) if len(pos_b_mae) else 0.0
-    bias = float(np.mean(pos_b_mae * 0.0))
-    p90 = float(np.percentile(pos_b_mae, 90)) if len(pos_b_mae) else 0.0
-    within_1_count = int(np.sum(pos_b_mae <= 1.0))
-    within_1_rate = (
-        float(within_1_count / len(pos_b_mae)) if len(pos_b_mae) else 0.0
-    )
-    w1_low, _ = (
-        wilson_interval(within_1_count, len(pos_b_mae))
-        if len(pos_b_mae)
-        else (0.0, 1.0)
-    )
-    cov_mean = float(np.mean(pos_b_cov)) if len(pos_b_cov) else 0.0
-
-    boundary_metrics = {
-        "coverage": cov_mean,
-        "within_1_month": within_1_rate,
-        "within_1_month_wilson_low": w1_low,
-        "bias": bias,
-        "mae": mae,
-        "p90": p90,
-    }
-
-    # Phase accuracy
-    phase_score = score_phase_grid_point(phase_cache, PHASE_DEFAULTS)
-    phase_accuracy = {
-        "macro_accuracy": float(phase_score.macro_accuracy),
-        "transition_mae": float(phase_score.transition_mae),
-        "forced_complete_rate": float(phase_score.forced_complete_rate),
-        "by_phase": {
-            "rising": float(phase_score.macro_accuracy * 0.98),
-            "wet": float(phase_score.macro_accuracy * 1.02),
-            "receding": float(phase_score.macro_accuracy * 0.99),
-            "dry": float(phase_score.macro_accuracy * 1.01),
+    runtime_metrics = {
+        "records": int(len(seeds)),
+        "workers": int(worker_count),
+        "relative_to_0_1_1": {
+            "status": "not comparable",
+            "reason": (
+                "Hydroseason 0.1.1 has no synthetic calibration/validation "
+                "workflow with equivalent inputs or outputs."
+            ),
         },
     }
-
-    # Phase stability calibration
-    phase_stability_calibration = {
-        "with_perturbation": float(phase_score.macro_accuracy),
-        "without_perturbation": float(min(1.0, phase_score.macro_accuracy * 1.05)),
-    }
-
-    # Sensitivity
-    sensitivity = {
-        "missingness": {"0%": 0.02, "10%": 0.03, "20%": 0.04},
-        "noise": {"low": 0.01, "medium": 0.03, "high": 0.06},
-        "drift": {"none": 0.01, "moderate": 0.04, "severe": 0.08},
-        "multimodality": {"unimodal": 0.01, "bimodal": 0.03, "complex": 0.05},
-        "extent_dependent_bias": {"small_extent": 0.02, "large_extent": 0.02},
-    }
-
-    # Recoverability sensitivity
-    recoverability_sensitivity = {
-        "min_years": {"3": 0.88, "5": 0.94, "7": 0.96},
-        "min_coverage": {"0.6": 0.96, "0.8": 0.94, "0.9": 0.89},
-        "min_within_1_month": {"0.6": 0.97, "0.8": 0.94, "0.9": 0.85},
-        "max_p90_error_months": {"1.5": 0.89, "2.0": 0.94, "3.0": 0.97},
-    }
-
-    # Runtime metrics
-    runtime = {
-        "records_per_second": 18.5,
-        "peak_memory_mb": 42.0,
-        "speedup_vs_0_1_1": 2.4,
-    }
-
-    validation_payload = {
-        "calibration_version": CALIBRATION_VERSION,
-        "fingerprint": CALIBRATION_FINGERPRINT,
-        "partition": "validation",
-        "seeds": seeds,
-        "evidence_confusion_matrix": confusion_matrix,
-        "false_annualisation": {
-            "rate": false_ann_rate,
-            "wilson_low": float(w_low),
-            "wilson_high": float(w_high),
-        },
-        "correct_abstention": {
-            "rate": correct_abstention_rate,
-            "wilson_low": float(abs_w_low),
-            "wilson_high": float(abs_w_high),
-        },
-        "false_annualisation_by_length": by_length,
-        "route_coverage": route_coverage,
-        "boundary_metrics": boundary_metrics,
-        "phase_accuracy": phase_accuracy,
-        "phase_stability_calibration": phase_stability_calibration,
-        "sensitivity": sensitivity,
-        "recoverability_sensitivity": recoverability_sensitivity,
-        "runtime": runtime,
-    }
-
+    validation_payload = build_validation_report(
+        evidence_cache,
+        phase_cache=phase_cache,
+        seeds=seeds,
+        calibration_version=CALIBRATION_VERSION,
+        calibration_fingerprint=CALIBRATION_FINGERPRINT,
+        evidence_thresholds=EVIDENCE_DEFAULTS,
+        recoverability_thresholds=RECOVERABILITY_DEFAULTS,
+        phase_thresholds=PHASE_DEFAULTS,
+        runtime_metrics=runtime_metrics,
+        quality_policy_sensitivity=policy_metrics,
+        phase_stability_replicates=phase_stability_replicates,
+        phase_stability_max_cycles=phase_stability_max_cycles,
+    )
+    elapsed = time.perf_counter() - started
+    peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
+    runtime_metrics.update(
+        validation_wall_seconds=float(elapsed),
+        records_per_second=(
+            float(len(seeds) / elapsed) if elapsed > 0 else 0.0
+        ),
+        peak_sampled_rss_mb=peak_rss_mb,
+    )
+    validation_payload["runtime"] = runtime_metrics
     out_report.parent.mkdir(parents=True, exist_ok=True)
     out_report.write_text(json.dumps(validation_payload, indent=2), encoding="utf-8")
     print(f"Wrote validation report to {out_report}", flush=True)

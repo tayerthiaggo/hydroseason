@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from hydroseason import _scientific_defaults as defaults
@@ -33,6 +33,20 @@ def test_fingerprint_is_current():
     payload = json.loads(REPORT.read_text())
 
     assert payload["fingerprint"] == fingerprint() == defaults.CALIBRATION_FINGERPRINT
+
+
+def test_fingerprint_changes_when_selected_constants_change(monkeypatch):
+    current = fingerprint()
+    monkeypatch.setattr(
+        defaults,
+        "EVIDENCE_DEFAULTS",
+        replace(
+            defaults.EVIDENCE_DEFAULTS,
+            seasonal_cv_skill=defaults.EVIDENCE_DEFAULTS.seasonal_cv_skill - 0.1,
+        ),
+    )
+
+    assert fingerprint() != current
 
 
 def test_report_records_the_negative_control_rate_by_record_length():

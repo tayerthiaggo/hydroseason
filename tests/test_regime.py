@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -118,8 +119,8 @@ def test_checked_case_study_fixtures_preserve_scientific_timing_properties():
     peak_r = {key: result.peak_timing_concentration for key, result in regimes.items()}
     assert (
         peak_r["gilbert_river_qld"]
-        > peak_r["fitzroy_river_wa"]
         > peak_r["daly_river_nt"]
+        > peak_r["fitzroy_river_wa"]
         > peak_r["moonie_river_qld_nsw"]
         > peak_r["lachlan_river_nsw"]
     )
@@ -173,11 +174,11 @@ def test_checked_case_study_peak_timing_concentrations_are_reproducible():
     unrecorded Monte Carlo realization and are intentionally not used.
     """
     expected = {
-        "daly_river_nt": (0.864, 0.808, 0.925),
-        "fitzroy_river_wa": (0.907, 0.858, 0.956),
-        "gilbert_river_qld": (0.934, 0.907, 0.967),
-        "lachlan_river_nsw": (0.324, 0.119, 0.597),
-        "moonie_river_qld_nsw": (0.532, 0.315, 0.765),
+        "daly_river_nt": (0.853, 0.773, 0.927),
+        "fitzroy_river_wa": (0.829, 0.752, 0.905),
+        "gilbert_river_qld": (0.919, 0.890, 0.954),
+        "lachlan_river_nsw": (0.232, 0.095, 0.492),
+        "moonie_river_qld_nsw": (0.496, 0.300, 0.739),
     }
 
     regimes = _checked_case_study_regimes()
@@ -235,17 +236,17 @@ def test_qualifying_year_predicate_counts_distinct_months_for_timings(monkeypatc
     assert result.n_timing_years == result.n_usable_years
 
 
-def test_seven_strong_years_with_nonuniformity_low_power_are_marginal():
+def test_seven_broad_peak_years_with_wide_ci_are_marginal():
     result = assess_water_regime(_low_power_broad_peak_record(), n_bootstrap=999)
 
     assert result.amplitude_snr >= 2.0
     assert result.peak_timing_concentration_ci_low < 0.7
-    assert result.peak_timing_uniformity_p >= 0.1
+    assert result.peak_timing_uniformity_p < 0.1
     assert result.n_timing_years == 7
     assert result.regime == "marginal"
     assert result.climatological_peak_month is not None
     assert result.climatological_trough_month is not None
-    assert "little power" in " ".join(result.caveats)
+    assert "fewer than 30 usable annual timings" in " ".join(result.caveats)
 
 
 def test_ten_year_seasonal_record_carries_timing_caution():
@@ -314,6 +315,20 @@ def test_regime_is_invariant_to_absolute_extent_scale():
     assert small.climatological_peak_month == big.climatological_peak_month
 
 
+def test_measurement_tolerance_keeps_equivalent_trough_months_in_timing():
+    dates = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
+    cycle = np.array([8.0, 7.0, 6.0, 4.0, 2.0, 0.0, 0.5, 2.0, 4.0, 6.0, 7.0, 8.5])
+    frame = pd.DataFrame(
+        {"extent_pct": np.tile(cycle, 10), "invalid_pct": 0.0}, index=dates
+    )
+
+    exact = assess_water_regime(frame, measurement_tolerance_pct=0.0, n_bootstrap=20)
+    tolerant = assess_water_regime(frame, measurement_tolerance_pct=1.0, n_bootstrap=20)
+
+    assert exact.trough_timing_concentration == 1.0
+    assert tolerant.trough_timing_concentration < exact.trough_timing_concentration
+
+
 # --- guidance payload ------------------------------------------------------
 
 def test_seasonal_regime_permits_per_year_boundaries():
@@ -329,7 +344,7 @@ def test_seasonal_record_with_unstable_trough_does_not_permit_per_year_boundarie
     assert result.supports_per_year_boundaries is False
 
 
-def test_marginal_regime_permits_fixed_window_but_not_per_year():
+def test_marginal_regime_with_supported_boundaries_permits_per_year():
     dates = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
     vals = np.tile(cycle, 6)
@@ -340,7 +355,8 @@ def test_marginal_regime_permits_fixed_window_but_not_per_year():
     result = assess_water_regime(frame, quality_policy="flag", n_bootstrap=100)
     assert result.regime == "marginal"
     assert result.supports_fixed_window is True
-    assert result.supports_per_year_boundaries is False
+    assert result.boundary_recoverability == "supported"
+    assert result.supports_per_year_boundaries is True
 
 
 def test_aseasonal_regime_permits_neither():
@@ -464,19 +480,7 @@ def test_constant_nonzero_record_is_also_aseasonal():
 
 def test_stable_peak_with_unstable_trough_is_not_seasonal():
     """Dynamic years anchor on troughs, so a stable peak alone is not enough."""
-    rng = np.random.default_rng(0)
-    index = pd.date_range("2000-01-01", periods=12 * 15, freq="MS")
-    values = np.empty(len(index))
-    for position, stamp in enumerate(index):
-        offset = rng.integers(-5, 6) if stamp.month in (5, 6, 7, 8, 9) else 0
-        values[position] = 50.0 + 25.0 * np.cos(
-            2.0 * np.pi * (stamp.month + offset - 1) / 12.0
-        )
-    frame = pd.DataFrame(
-        {"extent_pct": np.clip(values, 0, 100), "invalid_pct": 0.0}, index=index
-    )
-
-    assessment = _calibrated_assessment(frame)
+    assessment = _calibrated_assessment(_stable_peak_unstable_trough_record())
 
     assert (
         assessment.regime != "seasonal"
@@ -497,6 +501,27 @@ def test_clean_seasonal_record_is_seasonal_with_strong_evidence():
     assert assessment.regime == "seasonal"
     assert assessment.annual_cycle_evidence in {"strong", "moderate"}
     assert assessment.trough_timing_n_modes == 1
+
+
+def test_drift_stays_unmeasurable_below_ten_years():
+    """Evidence timing threshold must not weaken structural drift minimum."""
+    index = pd.date_range("2000-01-01", periods=12 * 7, freq="MS")
+    angle = 2.0 * np.pi * (index.month - 1) / 12.0
+    frame = pd.DataFrame(
+        {"extent_pct": 50.0 + 25.0 * np.cos(angle), "invalid_pct": 0.0},
+        index=index,
+    )
+
+    assessment = assess_water_regime(
+        frame,
+        evidence_thresholds=replace(EVIDENCE, min_timing_years=5),
+        recoverability_thresholds=replace(
+            RECOVERABILITY, admit_insufficient_drift=True
+        ),
+    )
+
+    assert assessment.peak_timing_drift_status == "insufficient_for_drift"
+    assert assessment.trough_timing_drift_status == "insufficient_for_drift"
 
 
 def test_short_record_is_insufficient_under_calibrated_thresholds():

@@ -34,6 +34,7 @@ class YearEvaluation:
     error_months: float | None
     training_trough_month: int | None
     reason: str
+    selected_month: int | None = None
 
 
 def _circular_month_distance(left: int, right: int) -> int:
@@ -148,7 +149,15 @@ def evaluate_year(
         )
 
     error = _distance_to_run(int(selection.selected_month.month), reference_run)
-    return YearEvaluation(year, True, True, error, phase_month, "ok")
+    return YearEvaluation(
+        year,
+        True,
+        True,
+        error,
+        phase_month,
+        "ok",
+        int(selection.selected_month.month),
+    )
 
 
 RecoverabilityState = Literal["supported", "provisional", "unsupported", "insufficient"]
@@ -216,6 +225,91 @@ class BoundaryRecoverability:
     reason: str
 
 
+def _classify_boundary_recoverability(
+    *,
+    n: int,
+    resolved_count: int,
+    within_1_count: int,
+    p90_error_months: float,
+    evidence: str,
+    thresholds: RecoverabilityThresholds,
+    drift_status: str,
+    n_trough_modes: int,
+) -> BoundaryRecoverability:
+    """Apply shipping publication-gate rules to threshold-independent counts."""
+    coverage = resolved_count / n if n else 0.0
+    within_rate = within_1_count / n if n else 0.0
+    wilson_low, _ = wilson_interval(within_1_count, n) if n else (0.0, 1.0)
+
+    if evidence == "absent" or (n and coverage == 0.0):
+        return BoundaryRecoverability(
+            n,
+            coverage,
+            within_rate,
+            wilson_low,
+            p90_error_months,
+            "unsupported",
+            "annual-cycle evidence absent"
+            if evidence == "absent"
+            else "zero boundary coverage",
+        )
+    if n < thresholds.min_years:
+        return BoundaryRecoverability(
+            n,
+            coverage,
+            within_rate,
+            wilson_low,
+            p90_error_months,
+            "insufficient",
+            f"{n} evaluable years below minimum {thresholds.min_years}",
+        )
+
+    failures: list[str] = []
+    if coverage < thresholds.min_coverage:
+        failures.append(f"coverage {coverage:.2f}")
+    if within_rate < thresholds.min_within_1_month:
+        failures.append(f"within_1_month {within_rate:.2f}")
+    if wilson_low < thresholds.within_1_month_wilson_floor:
+        failures.append(f"within_1_month Wilson lower bound {wilson_low:.2f}")
+    if p90_error_months > thresholds.max_p90_error_months:
+        failures.append(f"p90 error {p90_error_months:.1f} months")
+    if n_trough_modes != 1:
+        failures.append(f"{n_trough_modes} trough modes")
+    if drift_status == "detected":
+        failures.append("trough timing drift detected")
+    elif (
+        drift_status == "insufficient_for_drift"
+        and not thresholds.admit_insufficient_drift
+    ):
+        failures.append("drift status insufficient_for_drift")
+
+    if failures:
+        return BoundaryRecoverability(
+            n,
+            coverage,
+            within_rate,
+            wilson_low,
+            p90_error_months,
+            "provisional",
+            "; ".join(failures),
+        )
+
+    reason = (
+        "supported with drift status insufficient_for_drift admitted by calibration"
+        if drift_status == "insufficient_for_drift"
+        else "supported"
+    )
+    return BoundaryRecoverability(
+        n,
+        coverage,
+        within_rate,
+        wilson_low,
+        p90_error_months,
+        "supported",
+        reason,
+    )
+
+
 def assess_boundary_recoverability(
     prepared: pd.DataFrame,
     *,
@@ -252,72 +346,16 @@ def assess_boundary_recoverability(
     ]
 
     n = len(evaluable)
-    coverage = len(resolved) / n if n else 0.0
     errors = np.asarray([item.error_months for item in resolved], dtype=float)
     within_count = int(np.count_nonzero(errors <= 1.0)) if len(errors) else 0
-    within_rate = within_count / n if n else 0.0
-    wilson_low, _ = wilson_interval(within_count, n) if n else (0.0, 1.0)
     p90 = float(np.percentile(errors, 90)) if len(errors) else float(_MONTHS_PER_YEAR)
-
-    if evidence == "absent" or (n and coverage == 0.0):
-        return BoundaryRecoverability(
-            n,
-            coverage,
-            within_rate,
-            wilson_low,
-            p90,
-            "unsupported",
-            "annual-cycle evidence absent"
-            if evidence == "absent"
-            else "zero boundary coverage",
-        )
-    if n < thresholds.min_years:
-        return BoundaryRecoverability(
-            n,
-            coverage,
-            within_rate,
-            wilson_low,
-            p90,
-            "insufficient",
-            f"{n} evaluable years below minimum {thresholds.min_years}",
-        )
-
-    failures: list[str] = []
-    if coverage < thresholds.min_coverage:
-        failures.append(f"coverage {coverage:.2f}")
-    if within_rate < thresholds.min_within_1_month:
-        failures.append(f"within_1_month {within_rate:.2f}")
-    if wilson_low < thresholds.within_1_month_wilson_floor:
-        failures.append(f"within_1_month Wilson lower bound {wilson_low:.2f}")
-    if p90 > thresholds.max_p90_error_months:
-        failures.append(f"p90 error {p90:.1f} months")
-    if n_trough_modes != 1:
-        failures.append(f"{n_trough_modes} trough modes")
-    if drift.status == "detected":
-        failures.append("trough timing drift detected")
-    elif (
-        drift.status == "insufficient_for_drift"
-        and not thresholds.admit_insufficient_drift
-    ):
-        failures.append("drift status insufficient_for_drift")
-
-    if failures:
-        return BoundaryRecoverability(
-            n,
-            coverage,
-            within_rate,
-            wilson_low,
-            p90,
-            "provisional",
-            "; ".join(failures),
-        )
-
-    # Never silent: an admitted unmeasurable drift is recorded on the way past.
-    reason = (
-        "supported with drift status insufficient_for_drift admitted by calibration"
-        if drift.status == "insufficient_for_drift"
-        else "supported"
-    )
-    return BoundaryRecoverability(
-        n, coverage, within_rate, wilson_low, p90, "supported", reason
+    return _classify_boundary_recoverability(
+        n=n,
+        resolved_count=len(resolved),
+        within_1_count=within_count,
+        p90_error_months=p90,
+        evidence=evidence,
+        thresholds=thresholds,
+        drift_status=drift.status,
+        n_trough_modes=n_trough_modes,
     )

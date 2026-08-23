@@ -246,7 +246,10 @@ def annual_cycle_evidence(
     skilful = seasonal_cv_skill >= thresholds.seasonal_cv_skill
     loud = amplitude_noise_ratio >= thresholds.amplitude_noise_ratio
 
-    concentration = timing.concentration if timing is not None else None
+    timing_adequate = (
+        timing is not None and timing.n_years >= thresholds.min_timing_years
+    )
+    concentration = timing.concentration if timing_adequate else None
     concentrated = (
         concentration is not None
         and concentration >= thresholds.strong_timing_concentration

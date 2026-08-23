@@ -114,6 +114,55 @@ def test_bias_axis_spans_zero_and_positive_strengths():
     assert strengths == {0.0, 1.0, 2.0, 4.0, 8.0}
 
 
+def test_degradation_axes_are_crossed_instead_of_confounded():
+    scenarios = [
+        generate_record(seed, partition="calibration").scenario
+        for seed in range(10000, 10720)
+    ]
+
+    missingness_jitter = {
+        (item.missingness, item.timing_jitter_months) for item in scenarios
+    }
+    quality_noise = {(item.quality_loss, item.noise_pp) for item in scenarios}
+
+    assert missingness_jitter == {
+        (missingness, jitter)
+        for missingness in ("none", "random", "seasonal")
+        for jitter in (0, 1, 2)
+    }
+    assert quality_noise == {
+        (quality, noise)
+        for quality in ("none", "extrema")
+        for noise in (0.5, 2.0, 5.0, 8.0)
+    }
+
+
+def test_phase_truth_follows_cycle_relative_rising_and_receding_limbs():
+    record = generate_record(10166, partition="calibration")
+    phases = record.truth.phase_by_month.groupby(
+        record.truth.phase_by_month.index.month
+    ).first()
+
+    assert record.family == "unimodal_symmetric"
+    assert record.scenario.timing_jitter_months == 0
+    assert record.truth.trough_month == 8
+    assert phases.loc[11] == "recovery"
+    assert phases.loc[5] == "recession"
+
+
+def test_timing_jitter_keeps_per_year_trough_and_phase_truth_aligned():
+    record = generate_record(10047, partition="calibration")
+    years = sorted(set(record.frame.index.year))
+
+    assert record.scenario.timing_jitter_months > 0
+    assert len(record.truth.trough_month_by_year) == len(years)
+    for year, trough_month in zip(
+        years, record.truth.trough_month_by_year, strict=True
+    ):
+        trough = pd.Timestamp(year=year, month=trough_month, day=1)
+        assert record.truth.phase_by_month.loc[trough] == "dry"
+
+
 def test_annual_phase_truth_is_populated_and_aligned():
     records = [
         generate_record(seed, partition="calibration")
