@@ -102,8 +102,8 @@ def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_popula
     full_aoi, historical = _percentage_equivalent_varying_coverage_series()
     full_prepared = prepare_monthly_extent(full_aoi)
     historical_prepared = prepare_monthly_extent(historical)
-    full_result = _calibrated(full_aoi, phase_model="rule_based", n_bootstrap=40)
-    historical_result = _calibrated(historical, phase_model="rule_based", n_bootstrap=40)
+    full_result = _calibrated(full_aoi, phase_scheme="four_phase", n_bootstrap=40)
+    historical_result = _calibrated(historical, phase_scheme="four_phase", n_bootstrap=40)
 
     assert full_result.regime.regime == historical_result.regime.regime
     assert full_result.route == historical_result.route
@@ -123,8 +123,22 @@ def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_popula
     assert full_prepared["invalid_pct"].nunique() > 1
     assert historical_prepared["invalid_pct"].eq(0.0).all()
     assert full_result.regime.n_usable_months == historical_result.regime.n_usable_months
-    assert full_result.hydro_years.empty
-    assert historical_result.hydro_years.empty
+    assert not full_result.hydro_years.empty
+    assert not historical_result.hydro_years.empty
+    selection_cols = [
+        "hy_year",
+        "status",
+        "hy_start",
+        "hy_end",
+        "peak_month",
+        "trough_month",
+        "peak_extent_pct",
+        "trough_extent_pct",
+        "boundary_basis",
+    ]
+    pd.testing.assert_frame_equal(
+        full_result.hydro_years[selection_cols], historical_result.hydro_years[selection_cols]
+    )
     assert not full_result.events.events.empty
     assert not full_result.events.low_spells.empty
     pd.testing.assert_frame_equal(full_result.events.events, historical_result.events.events)
@@ -197,17 +211,20 @@ def test_seasonal_routes_to_per_year_detection():
     assert "reproducible" in result.route_reason.lower()
 
 
-def test_seasonal_record_with_unstable_trough_routes_to_events():
+def test_seasonal_record_with_unstable_trough_routes_to_fixed_window():
     result = _calibrated(_timing_route_record("unstable_trough"), n_bootstrap=40)
 
     assert result.regime.supports_per_year_boundaries is False
-    assert result.route == "event_characterisation"
+    assert result.regime.supports_fixed_window is True
+    assert result.route == "fixed_climatological_window"
+    assert (result.hydro_years["boundary_basis"] == "imposed_fixed_window").all()
 
 
-def test_concentrated_nonuniform_marginal_routes_to_events_when_recoverability_not_supported():
+def test_concentrated_nonuniform_marginal_routes_to_fixed_window():
     result = _calibrated(_timing_route_record("concentrated_nonuniform"), n_bootstrap=40)
 
-    assert result.route == "event_characterisation"
+    assert result.route == "fixed_climatological_window"
+    assert (result.hydro_years["boundary_basis"] == "imposed_fixed_window").all()
 
 
 def test_diffuse_uniform_marginal_uses_event_characterisation():
@@ -255,7 +272,7 @@ def test_catchment_threads_existing_bootstrap_controls_to_regime_assessment():
 
 
 def test_marginal_routes_to_events_without_recoverable_boundaries():
-    result = _calibrated(_timing_route_record("unstable_trough"))
+    result = _calibrated(_diffuse_uniform_marginal_record())
     assert result.route == "event_characterisation"
     assert result.hydro_years.empty
 
@@ -302,26 +319,28 @@ def test_seasonal_years_are_marked_as_detected():
 
 
 def test_seasonal_route_uses_robust_dynamic_state():
-    result = _calibrated(_seasonal(), phase_model="rule_based", n_bootstrap=40)
+    result = _calibrated(_seasonal(), phase_scheme="four_phase", n_bootstrap=40)
 
     assert result.route == "per_year_detection"
     assert isinstance(result.state, HydrologicalStateResult)
     assert result.state.config.detector == "robust_extrema"
     pd.testing.assert_frame_equal(result.hydro_years, result.state.hydro_years)
     assert result.hydro_years["boundary_basis"].eq("detected_per_year").all()
-    assert result.state.monthly_phase["phase_method"].eq("rule_based").any()
+    assert result.state.monthly_phase["phase_method"].eq("four_phase").any()
 
 
 def test_analyze_catchment_phase_toggle_never_changes_public_annual_frame():
     extent = _seasonal()
-    none_result = _calibrated(extent, phase_model="none", n_bootstrap=40)
-    rule_based_result = _calibrated(extent, phase_model="rule_based", n_bootstrap=40)
+    none_result = _calibrated(extent, phase_scheme="none", n_bootstrap=40)
+    two_phase_result = _calibrated(extent, phase_scheme="two_phase", n_bootstrap=40)
+    four_phase_result = _calibrated(extent, phase_scheme="four_phase", n_bootstrap=40)
     assert not none_result.hydro_years.empty
-    pd.testing.assert_frame_equal(none_result.hydro_years, rule_based_result.hydro_years)
+    pd.testing.assert_frame_equal(none_result.hydro_years, two_phase_result.hydro_years)
+    pd.testing.assert_frame_equal(none_result.hydro_years, four_phase_result.hydro_years)
 
 
 def test_aseasonal_route_never_constructs_state_or_years():
-    result = _calibrated(_aseasonal(), phase_model="rule_based", n_bootstrap=40)
+    result = _calibrated(_aseasonal(), phase_scheme="two_phase", n_bootstrap=40)
 
     assert result.route == "event_characterisation"
     assert result.state is None
@@ -399,32 +418,20 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
         assert not isinstance(value, (list, dict, tuple, pd.DataFrame))
 
 
-def test_public_rows_carry_global_evidence_fields():
-    result = _calibrated(_seasonal())
-
-    for column in ("annual_cycle_evidence", "boundary_recoverability", "seasonal_cv_skill"):
-        assert column in result.hydro_years.columns
-
-
-def test_unsupported_gate_hides_diagnostic_cycles(monkeypatch):
-    monkeypatch.setattr(
-        "hydroseason._catchment.public_route",
-        lambda *args, **kwargs: "event_characterisation",
-    )
-
-    result = _calibrated(_seasonal())
-
-    assert result.hydro_years.empty
-    assert result.route == "event_characterisation"
+def test_catchment_analysis_exposes_decision_policy_and_isolated_challenger():
+    result = _calibrated(_seasonal(), n_bootstrap=40)
+    assert result.decision_policy == "established_0_1_1"
+    assert result.public_route == "per_year_detection"
+    assert result.challenger is not None
+    assert result.challenger.proposed_route in {"per_year_detection", "event_characterisation"}
 
 
-def test_public_confirmation_requires_global_and_local_evidence():
-    result = _calibrated(_seasonal())
-    confirmed = result.hydro_years.loc[
-        result.hydro_years["boundary_status"] == "confirmed"
-    ]
+def test_catchment_analysis_routes_independently_of_challenger_failure(monkeypatch):
+    def fail_challenger(*args, **kwargs):
+        raise RuntimeError("challenger crashed")
 
-    assert not confirmed.empty
-    assert (confirmed["boundary_recoverability"] == "supported").all()
-    assert (confirmed["selection_status"] == "raw").all()
-    assert (confirmed["window_status"] == "full").all()
+    monkeypatch.setattr("hydroseason._regime.assess_challenger", fail_challenger)
+    result = analyze_catchment(_seasonal(), n_bootstrap=40)
+    assert result.route == "per_year_detection"
+    assert result.decision_policy == "established_0_1_1"
+    assert result.challenger.status == "failed"
