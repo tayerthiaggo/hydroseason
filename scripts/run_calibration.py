@@ -21,6 +21,8 @@ import psutil  # noqa: E402
 
 from hydroseason._boundary_recoverability import RecoverabilityThresholds  # noqa: E402
 from hydroseason._calibration import (  # noqa: E402
+    AUTHORITY_SCOPE,
+    METRIC_GROUPS,
     _worker_evidence,
     _worker_phase,
     build_evidence_cache,
@@ -144,6 +146,8 @@ def run_calibration(
     report_payload = {
         "calibration_version": _CALIBRATION_VERSION,
         "fingerprint": fp,
+        "authority_scope": AUTHORITY_SCOPE,
+        "metric_groups": METRIC_GROUPS,
         "evidence": asdict(ev_defaults),
         "recoverability": asdict(rec_defaults),
         "phase": asdict(phase_defaults),
@@ -195,6 +199,10 @@ from hydroseason._evidence import EvidenceThresholds
 
 CALIBRATION_VERSION = "{_CALIBRATION_VERSION}"
 CALIBRATION_FINGERPRINT = "{fp}"
+
+EVIDENCE_AUTHORITY_SCOPE = "{AUTHORITY_SCOPE['evidence']}"
+RECOVERABILITY_AUTHORITY_SCOPE = "{AUTHORITY_SCOPE['recoverability']}"
+PHASE_AUTHORITY_SCOPE = "{AUTHORITY_SCOPE['phase']}"
 
 EVIDENCE_DEFAULTS = EvidenceThresholds(
     seasonal_cv_skill={ev_defaults.seasonal_cv_skill},

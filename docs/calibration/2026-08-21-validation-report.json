@@ -1,6 +1,20 @@
 {
   "calibration_version": "0.2.0-audit.1",
-  "fingerprint": "6a92be8f2306cf4f5cd43deae7d5850041cdaa4b68f8e9fc499be5fce876f9d4",
+  "fingerprint": "8d32bc8cd7b4757b129eedb082d30c029dcbe59c66957f3c86d1ba96aa4ee3db",
+  "authority_scope": {
+    "evidence": "experimental_challenger",
+    "recoverability": "experimental_challenger",
+    "phase": "authoritative_for_four_phase_labels_only"
+  },
+  "metric_groups": {
+    "challenger_decision": [
+      "evidence",
+      "recoverability"
+    ],
+    "four_phase": [
+      "phase"
+    ]
+  },
   "partition": "validation",
   "seeds": [
     20000,
@@ -23654,8 +23668,8 @@
       "status": "not comparable",
       "reason": "Hydroseason 0.1.1 has no synthetic calibration/validation workflow with equivalent inputs or outputs."
     },
-    "validation_wall_seconds": 927.4215266997926,
-    "records_per_second": 5.39129172232219,
-    "peak_sampled_rss_mb": 2277.98828125
+    "validation_wall_seconds": 943.1324549999554,
+    "records_per_second": 5.30148228225296,
+    "peak_sampled_rss_mb": 2283.57421875
   }
 }

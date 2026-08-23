@@ -22,6 +22,7 @@ nav:
   - Usage Guide: guide.md
   - CLI Recipes: cli-recipes.md
   - Dynamic Hydrological State: hydrological-state.md
+  - Decision Policy: decision-policy.md
   - Case Studies:
       - Overview: case-studies/index.md
       - Main Catchment Workflow: case-studies/main-workflow.md

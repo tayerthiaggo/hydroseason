@@ -7,7 +7,11 @@ from hydroseason._cycle_phase import PhaseThresholds
 from hydroseason._evidence import EvidenceThresholds
 
 CALIBRATION_VERSION = "0.2.0-audit.1"
-CALIBRATION_FINGERPRINT = "6a92be8f2306cf4f5cd43deae7d5850041cdaa4b68f8e9fc499be5fce876f9d4"
+CALIBRATION_FINGERPRINT = "8d32bc8cd7b4757b129eedb082d30c029dcbe59c66957f3c86d1ba96aa4ee3db"
+
+EVIDENCE_AUTHORITY_SCOPE = "experimental_challenger"
+RECOVERABILITY_AUTHORITY_SCOPE = "experimental_challenger"
+PHASE_AUTHORITY_SCOPE = "authoritative_for_four_phase_labels_only"
 
 EVIDENCE_DEFAULTS = EvidenceThresholds(
     seasonal_cv_skill=0.8,

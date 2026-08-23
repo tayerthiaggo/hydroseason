@@ -57,6 +57,17 @@ from ._synthetic import SyntheticRecord, generate_record
 
 MODE_FREQUENCY_GRID = (0.50, 0.60, 0.70, 0.80)
 
+AUTHORITY_SCOPE = {
+    "evidence": "experimental_challenger",
+    "recoverability": "experimental_challenger",
+    "phase": "authoritative_for_four_phase_labels_only",
+}
+
+METRIC_GROUPS = {
+    "challenger_decision": ["evidence", "recoverability"],
+    "four_phase": ["phase"],
+}
+
 EVIDENCE_GRID = {
     "seasonal_cv_skill": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
     "periodicity_alpha": [0.01, 0.025, 0.05, 0.10],
@@ -1036,6 +1047,8 @@ def build_validation_report(
     return {
         "calibration_version": calibration_version,
         "fingerprint": calibration_fingerprint,
+        "authority_scope": AUTHORITY_SCOPE,
+        "metric_groups": METRIC_GROUPS,
         "partition": "validation",
         "seeds": [int(seed) for seed in seeds],
         "evidence_confusion_matrix": confusion,
@@ -1566,6 +1579,11 @@ def fingerprint(
             recoverability_defaults or defaults.RECOVERABILITY_DEFAULTS
         ),
         "phase": asdict(phase_defaults or defaults.PHASE_DEFAULTS),
+        "authority_scope": {
+            "evidence": getattr(defaults, "EVIDENCE_AUTHORITY_SCOPE", AUTHORITY_SCOPE["evidence"]),
+            "recoverability": getattr(defaults, "RECOVERABILITY_AUTHORITY_SCOPE", AUTHORITY_SCOPE["recoverability"]),
+            "phase": getattr(defaults, "PHASE_AUTHORITY_SCOPE", AUTHORITY_SCOPE["phase"]),
+        },
     }
     hasher.update(json.dumps(selected, sort_keys=True).encode("utf-8"))
 

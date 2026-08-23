@@ -75,3 +75,9 @@ def test_defaults_module_is_generated_not_hand_edited():
 
     assert "generated" in header.lower()
     assert "do not edit" in header.lower()
+
+
+def test_generated_default_module_declares_scientific_scope():
+    assert defaults.EVIDENCE_AUTHORITY_SCOPE == "experimental_challenger"
+    assert defaults.RECOVERABILITY_AUTHORITY_SCOPE == "experimental_challenger"
+    assert defaults.PHASE_AUTHORITY_SCOPE == "authoritative_for_four_phase_labels_only"

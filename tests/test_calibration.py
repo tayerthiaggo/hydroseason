@@ -593,3 +593,22 @@ def test_sensitivity_covers_every_fixed_recoverability_criterion():
         "min_within_1_month",
         "max_p90_error_months",
     }
+
+
+def test_calibration_report_scopes_each_generated_product():
+    payload = json.loads(Path("docs/calibration/2026-08-21-calibration-report.json").read_text(encoding="utf-8"))
+    assert payload["authority_scope"] == {
+        "evidence": "experimental_challenger",
+        "recoverability": "experimental_challenger",
+        "phase": "authoritative_for_four_phase_labels_only",
+    }
+    assert payload["metric_groups"] == {
+        "challenger_decision": ["evidence", "recoverability"],
+        "four_phase": ["phase"],
+    }
+
+
+def test_validation_report_uses_the_same_authority_scope():
+    payload = json.loads(Path("docs/calibration/2026-08-21-validation-report.json").read_text(encoding="utf-8"))
+    assert payload["authority_scope"]["evidence"] == "experimental_challenger"
+    assert payload["authority_scope"]["phase"] == "authoritative_for_four_phase_labels_only"
