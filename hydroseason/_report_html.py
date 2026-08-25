@@ -47,20 +47,6 @@ def _records(frame: pd.DataFrame, *, max_rows: int = 200) -> list[dict[str, Any]
     return json.loads(limited.to_json(orient="records", date_format="iso"))
 
 
-def _table(frame: pd.DataFrame, *, empty_text: str) -> str:
-    if frame.empty:
-        return f'<p class="empty">{_escape(empty_text)}</p>'
-    shown = frame.copy()
-    for col in shown.columns:
-        if pd.api.types.is_datetime64_any_dtype(shown[col]):
-            shown[col] = shown[col].dt.strftime("%Y-%m-%d")
-    if "hy_year" in shown.columns:
-        shown["hy_year"] = shown["hy_year"].map(
-            lambda value: "" if pd.isna(value) else f"HY {int(value)}"
-        )
-    return shown.to_html(index=False, escape=True, classes="data-table", border=0)
-
-
 def _kpi_cards(kpis: list[dict[str, str]]) -> str:
     cards = []
     for item in kpis:
@@ -204,6 +190,21 @@ _STATUS_REASON_TEXT = {
 }
 
 
+_CONDITION_DISPLAY_MAP = {
+    "wet_persistent": "Wet Persistent",
+    "recharged_then_contracting": "Recharged, Contracting",
+    "buffered_low_recharge": "Buffered Low Recharge",
+    "dry_low_refuge": "Dry Low Refuge",
+    "typical_or_mixed": "Typical / Mixed",
+    "typical_uncertain": "Typical / Mixed",
+    "high": "High",
+    "low": "Low",
+    "typical": "Typical",
+    "insufficient_baseline": "Insufficient Baseline",
+    "not_applicable_low_variability": "Low Variability",
+}
+
+
 def _unbounded_year_card(row: pd.Series, year: Any) -> str:
     """Render a hydrological year that has no resolved start/end boundary.
 
@@ -212,11 +213,19 @@ def _unbounded_year_card(row: pd.Series, year: Any) -> str:
     """
     confidence = str(_row_value(row, "confidence") or "unassigned").lower()
     status = str(_row_value(row, "status") or "incomplete").lower()
+    condition_val = _row_value(row, "annual_condition", "annual_condition_qualified")
+    cond_item = ""
+    if condition_val and str(condition_val).lower() not in ("none", "nan", "unassigned", "<na>", "", "insufficient_baseline"):
+        c_str = str(condition_val).lower()
+        c_label = _CONDITION_DISPLAY_MAP.get(c_str, c_str.replace("_", " ").title())
+        cond_item = f'<span class="summary-stat">Condition: <strong>{_escape(c_label)}</strong></span>'
     reason_key = str(_row_value(row, "status_reason") or "").lower()
     reason = _STATUS_REASON_TEXT.get(
         reason_key,
         reason_key.replace("_", " ").capitalize() if reason_key else "",
     )
+    if reason and confidence and confidence != "unassigned":
+        reason = f"{confidence.title()} confidence: {reason}"
     trough_date = _row_value(row, "trough_month", "end_dry_month", "trough_date")
     trough_extent = _row_value(row, "trough_extent_pct", "end_extent_pct")
     observed = ""
@@ -238,6 +247,7 @@ def _unbounded_year_card(row: pd.Series, year: Any) -> str:
         '<span class="year-dates">Cycle boundaries not resolved</span>'
         "</div>"
         '<div class="year-meta-group">'
+        f'{cond_item}'
         f'<span class="summary-stat">Status: <strong>{_escape(status.title())}</strong></span>'
         f'<span class="confidence-badge badge-{_escape(confidence)}" title="Hydrological year data quality and boundary confidence: {_escape(confidence.upper())}">{_escape(confidence.upper())} CONFIDENCE</span>'
         "</div>"
@@ -272,7 +282,7 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
         mid_date = _row_value(row, "temporal_mid_dry_month", "mid_dry_month", "mid_dry_date")
         trough_date = _row_value(row, "trough_month", "end_dry_month", "trough_date")
         cycle = _row_value(row, "cycle_months", "n_months_cycle")
-        amplitude = _row_value(row, "drawdown_pct", "amplitude_pct")
+        amplitude = _row_value(row, "amplitude_pct", "drawdown_pct", "seasonal_amplitude_pp")
         confidence = str(_row_value(row, "confidence") or "unassigned").lower()
         status_reason = str(_row_value(row, "status_reason") or "").lower()
         if status_reason == "record_start_boundary":
@@ -285,15 +295,41 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             note_text = _escape(_STATUS_REASON_TEXT[status_reason])
         else:
             note_text = ""
+        if note_text and confidence and confidence != "unassigned":
+            note_text = f"{confidence.title()} confidence: {note_text}"
         inferred_start_note = (
             f'<p class="year-card-note">{note_text}</p>' if note_text else ""
         )
+        condition_val = _row_value(row, "annual_condition", "annual_condition_qualified")
+        condition_item = ""
+        if condition_val and str(condition_val).lower() not in ("none", "nan", "unassigned", "<na>", ""):
+            c_str = str(condition_val).lower()
+            c_label = _CONDITION_DISPLAY_MAP.get(c_str, c_str.replace("_", " ").title())
+            condition_item = f'<span class="summary-stat">Condition: <strong>{_escape(c_label)}</strong></span>'
+
+        meta_items = []
+        if condition_item:
+            meta_items.append(condition_item)
+        meta_items.extend([
+            f'<span class="summary-stat">Cycle: <strong>{_escape("N/A" if cycle is None or pd.isna(cycle) else f"{float(cycle):.1f} mos")}</strong></span>',
+            f'<span class="summary-stat">Amplitude: <strong>{_escape(_fmt_extent(amplitude))}</strong></span>',
+            f'<span class="confidence-badge badge-{_escape(confidence)}" title="Hydrological year data quality and boundary confidence: {_escape(confidence.upper())}">{_escape(confidence.upper())} CONFIDENCE</span>',
+        ])
+        meta_html = "".join(meta_items)
         segment = monthly_frame.loc[(monthly_frame.index >= start) & (monthly_frame.index <= end)]
         detail_rows: list[str] = []
+        phase_display_map = {
+            "recovery": "Rising",
+            "rising": "Rising",
+            "recession": "Receding",
+            "receding": "Receding",
+            "wet": "Wet",
+            "dry": "Dry",
+        }
         for date, month in segment.iterrows():
-            phase = str(month.get("phase", "unspecified") or "unspecified")
-            phase_label = "Unassigned" if phase == "unspecified" else phase.title()
-            phase_class = phase if phase in {"recovery", "wet", "recession", "dry"} else "unassigned"
+            phase = str(month.get("phase", "unspecified") or "unspecified").lower()
+            phase_label = phase_display_map.get(phase, "Unassigned" if phase == "unspecified" else phase.title())
+            phase_class = phase if phase in {"recovery", "rising", "wet", "recession", "receding", "dry"} else "unassigned"
             event = ""
             if _safe_date(peak_date) == date:
                 event = '<span class="cell-marker marker-wet">Wet Peak</span>'
@@ -322,9 +358,7 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             f'<span class="year-dates">{_escape(start.strftime("%b %Y"))} – {_escape(end.strftime("%b %Y"))}</span>'
             '</div>'
             '<div class="year-meta-group">'
-            f'<span class="summary-stat">Cycle: <strong>{_escape("N/A" if cycle is None or pd.isna(cycle) else f"{float(cycle):.1f} mos")}</strong></span>'
-            f'<span class="summary-stat">Amplitude: <strong>{_escape(_fmt_extent(amplitude))}</strong></span>'
-            f'<span class="confidence-badge badge-{_escape(confidence)}" title="Hydrological year data quality and boundary confidence: {_escape(confidence.upper())}">{_escape(confidence.upper())} CONFIDENCE</span>'
+            f'{meta_html}'
             '</div>'
             '</summary>'
             '<div class="year-detail-content">'
@@ -431,45 +465,6 @@ def render_report_html(
         if rainfall_warning
         else ""
     )
-    challenger_block = ""
-    decision_policy = (
-        summary["decision_policy"].iloc[0]
-        if not summary.empty and "decision_policy" in summary.columns and pd.notna(summary["decision_policy"].iloc[0])
-        else "established_0_1_1"
-    )
-    phase_scheme = (
-        summary["phase_scheme"].iloc[0]
-        if not summary.empty and "phase_scheme" in summary.columns and pd.notna(summary["phase_scheme"].iloc[0])
-        else "two_phase"
-    )
-    if not summary.empty and "challenger_route" in summary.columns and pd.notna(summary["challenger_route"].iloc[0]):
-        c_route = summary["challenger_route"].iloc[0]
-        c_regime = summary.get("challenger_regime", pd.Series(["N/A"])).iloc[0]
-        c_evidence = summary.get("challenger_annual_cycle_evidence", pd.Series(["N/A"])).iloc[0]
-        c_recover = summary.get("challenger_boundary_recoverability", pd.Series(["N/A"])).iloc[0]
-        c_skill = summary.get("challenger_seasonal_cv_skill", pd.Series([None])).iloc[0]
-        skill_str = f"{float(c_skill):.3f}" if pd.notna(c_skill) and c_skill is not None else "N/A"
-        challenger_block = f"""  <details class="report-section challenger-diagnostics">
-    <summary>Experimental challenger diagnostics</summary>
-    <div class="report-section-content">
-      <p class="subtitle" style="margin-bottom:12px;">
-        Non-authoritative diagnostics from the experimental 0.2.0 harmonic/recoverability candidate.
-        The authoritative decision policy governing this report is <strong>{_escape(decision_policy)}</strong> (phase scheme: <code>{_escape(phase_scheme)}</code>).
-      </p>
-      <table class="main-table">
-        <thead><tr><th>Challenger Metric</th><th>Value</th></tr></thead>
-        <tbody>
-          <tr><td>Proposed Route</td><td><code>{_escape(c_route)}</code></td></tr>
-          <tr><td>Proposed Regime</td><td>{_escape(c_regime)}</td></tr>
-          <tr><td>Annual Cycle Evidence</td><td>{_escape(c_evidence)}</td></tr>
-          <tr><td>Boundary Recoverability</td><td>{_escape(c_recover)}</td></tr>
-          <tr><td>Seasonal CV Skill</td><td>{_escape(skill_str)}</td></tr>
-          <tr><td>Authority Note</td><td>Experimental challenger; does not control public output.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </details>"""
-
     rainfall_details = _rainfall_details(rainfall_context)
     rainfall_block = f"  {rainfall_details}" if rainfall_details else ""
     return f"""<!doctype html>
@@ -633,8 +628,8 @@ def render_report_html(
     .nested-table th, .nested-table td, .main-table th, .main-table td {{ padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; }}
     .nested-table th, .main-table th {{ background: #eef2f7; font-size: .75rem; }}
     .phase-badge, .cell-marker {{ display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: .7rem; font-weight: 650; }}
-    .phase-recovery {{ background: #d3e9d2; color: #166534; }} .phase-wet {{ background: #b9d9ef; color: #075985; }}
-    .phase-recession {{ background: #f3e6c6; color: #92400e; }} .phase-dry {{ background: #f1d7d4; color: #991b1b; }}
+    .phase-recovery, .phase-rising {{ background: #d3e9d2; color: #166534; }} .phase-wet {{ background: #b9d9ef; color: #075985; }}
+    .phase-recession, .phase-receding {{ background: #f3e6c6; color: #92400e; }} .phase-dry {{ background: #f1d7d4; color: #991b1b; }}
     .phase-unassigned {{ background: #e2e8f0; color: #475569; }}
     .marker-wet {{ background: #2563eb; color: #fff; }} .marker-mid {{ background: #f97316; color: #fff; }} .marker-dry {{ background: #dc2626; color: #fff; }}
     .filters-row {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: end; padding: 14px; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }}
@@ -696,7 +691,7 @@ def render_report_html(
       <p>Filter and explore the monthly extent data directly.</p>
       <div class="filters-row">
         <div class="filter-item"><label for="raw-year-filter">Filter by Year</label><select id="raw-year-filter"><option value="all">All Years</option></select></div>
-        <div class="filter-item"><label for="raw-phase-filter">Filter by Phase</label><select id="raw-phase-filter"><option value="all">All Phases</option><option value="recovery">Recovery</option><option value="wet">Wet</option><option value="recession">Recession</option><option value="dry">Dry</option></select></div>
+        <div class="filter-item"><label for="raw-phase-filter">Filter by Phase</label><select id="raw-phase-filter"><option value="all">All Phases</option><option value="recovery">Rising</option><option value="recession">Receding</option></select></div>
         <div class="filter-item"><label for="raw-quality-filter">Data quality (threshold {quality_threshold:.1f}% invalid)</label><select id="raw-quality-filter"><option value="all">All Records</option><option value="good">Good</option><option value="flagged">Flagged</option><option value="missing">Missing/unknown</option></select></div>
         <div class="filter-item"><label for="raw-event-filter">Wet events</label><select id="raw-event-filter"><option value="all">All Records</option><option value="yes">In wet event</option><option value="no">Outside wet event</option></select></div>
         <div class="filter-item"><label for="raw-spell-filter">Low-extent spells</label><select id="raw-spell-filter"><option value="all">All Records</option><option value="yes">In low-extent spell</option><option value="no">Outside low-extent spell</option></select></div>
@@ -709,7 +704,6 @@ def render_report_html(
       </div>
     </div>
   </details>
-{challenger_block}
 {rainfall_block}
 </main>
 <script>
@@ -763,9 +757,10 @@ def render_report_html(
         (eventFilter.value === "all" || String(row.wet_event || "No").toLowerCase() === eventFilter.value) &&
         (spellFilter.value === "all" || String(row.low_extent_spell || "No").toLowerCase() === spellFilter.value)
       );
+      const phaseMap = {{ recovery: "Rising", rising: "Rising", recession: "Receding", receding: "Receding", wet: "Wet", dry: "Dry" }};
       body.innerHTML = rows.map(row => {{
         const phase = String(row.phase || "unspecified");
-        const phaseLabel = phase === "unspecified" ? "Unassigned" : phase.charAt(0).toUpperCase() + phase.slice(1);
+        const phaseLabel = phaseMap[phase] || (phase === "unspecified" ? "Unassigned" : phase.charAt(0).toUpperCase() + phase.slice(1));
         const hydroYear = row.hy_year == null ? "" : "HY " + row.hy_year;
         return "<tr><td>" + escapeHtml(row.display_date || row.date) + "</td><td>" + escapeHtml(phaseLabel) +
           "</td><td>" + escapeHtml(hydroYear) + "</td><td>" + formatPercent(row.extent_pct) +

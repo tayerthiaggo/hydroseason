@@ -13,9 +13,7 @@ if TYPE_CHECKING:
 LOG_FLOOR = 0.02
 PHASE_COLORS = {
     "recovery": "#d3e9d2",
-    "wet": "#b9d9ef",
     "recession": "#f3e6c6",
-    "dry": "#f1d7d4",
 }
 MARKERS = {
     "HY Peak": ("peak_month", "#2563eb", "circle"),
@@ -79,7 +77,7 @@ def _base_layout(*, rangeslider: bool) -> dict[str, Any]:
         },
         "legend": {
             "orientation": "h",
-            "y": -0.06,
+            "y": -0.05,
             "yanchor": "top",
             "x": 0.5,
             "xanchor": "center",
@@ -88,7 +86,16 @@ def _base_layout(*, rangeslider: bool) -> dict[str, Any]:
         },
         "legend2": {
             "orientation": "h",
-            "y": -0.27,
+            "y": -0.15,
+            "yanchor": "top",
+            "x": 0.5,
+            "xanchor": "center",
+            "itemclick": "toggle",
+            "itemdoubleclick": "toggleothers",
+        },
+        "legend3": {
+            "orientation": "h",
+            "y": -0.25,
             "yanchor": "top",
             "x": 0.5,
             "xanchor": "center",
@@ -124,11 +131,13 @@ def _extent_trace(
     name: str,
     customdata: list[Any] | None = None,
     hovertemplate: str | None = None,
+    legend: str = "legend2",
 ) -> dict[str, Any]:
     return {
         "type": "scatter",
         "mode": "lines+markers",
         "name": name,
+        "legend": legend,
         "x": dates,
         "y": values,
         "line": {"color": "#0284c7", "width": 2},
@@ -232,6 +241,7 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
         traces.append({
             "type": "scatter", "mode": "markers",
             "name": f"{name} (imposed)" if imposed else name,
+            "legend": "legend",
             "x": x, "y": y,
             "customdata": customdata,
             "hovertemplate": (
@@ -245,53 +255,77 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
     return traces
 
 
+PHASE_LABELS = {
+    "recovery": "Rising",
+    "rising": "Rising",
+    "recession": "Receding",
+    "receding": "Receding",
+}
+
+
 def _phase_shapes(
     monthly: pd.DataFrame,
     dates: list[pd.Timestamp],
     analysis: CatchmentAnalysis,
 ) -> list[dict[str, Any]]:
-    phases = monthly.get("phase", pd.Series(index=monthly.index, dtype=object)).tolist()
-    # Phases inside an imposed window are read from the observations, but the
-    # cycle bounding them is an assumption; a lighter band keeps them legible
-    # without asserting the same confidence as a detected cycle.
+    active = _active_phases(monthly, analysis)
+    if not active:
+        return []
+
     opacity = 0.28 if _is_imposed(analysis) else 0.48
-    rows = getattr(analysis, "hydro_years", pd.DataFrame())
-    trough_dates = set()
-    if rows is not None and not rows.empty:
-        trough_dates = {
-            pd.Timestamp(value).to_period("M").to_timestamp()
-            for value in rows.get("trough_month", pd.Series(dtype="datetime64[ns]")).dropna()
-        }
     shapes: list[dict[str, Any]] = []
-    start = 0
-    while start < len(dates):
-        phase = phases[start] if start < len(phases) else None
-        end = start + 1
-        while end < len(dates) and phases[end] == phase:
-            end += 1
-        if phase in PHASE_COLORS and pd.notna(dates[start]):
-            boundary = dates[end] if end < len(dates) else dates[-1] + pd.DateOffset(months=1)
-            phase_start = dates[start]
-            if phase == "dry" and end < len(dates) and phases[end] == "recovery":
-                prior_troughs = [value for value in trough_dates if value <= dates[end]]
-                if prior_troughs:
-                    prior_trough = max(prior_troughs)
-                    if prior_trough == dates[end] - pd.DateOffset(months=1):
-                        boundary = prior_trough
-            if phase == "recovery":
-                prior_troughs = [value for value in trough_dates if value <= phase_start]
-                if prior_troughs:
-                    prior_trough = max(prior_troughs)
-                    if prior_trough >= phase_start - pd.DateOffset(months=1):
-                        phase_start = prior_trough
-            shapes.append({
-                "name": f"phase:{phase}", "type": "rect", "xref": "x", "yref": "paper",
-                "x0": _iso_date(phase_start), "x1": _iso_date(boundary), "y0": 0, "y1": 1,
-                "fillcolor": PHASE_COLORS[phase], "opacity": opacity, "line": {"width": 0},
-                "layer": "below",
-            })
-        start = end
-    return shapes
+
+    hydro_years = getattr(analysis, "hydro_years", pd.DataFrame())
+    if hydro_years is not None and not hydro_years.empty:
+        prev_trough: pd.Timestamp | None = None
+        for _, row in hydro_years.sort_values("hy_year").iterrows():
+            start_val = row.get("hy_start")
+            peak_val = row.get("peak_month")
+            trough_val = row.get("trough_month") or row.get("hy_end")
+
+            start_ts = pd.Timestamp(start_val) if pd.notna(start_val) else None
+            peak_ts = pd.Timestamp(peak_val) if pd.notna(peak_val) else None
+            trough_ts = pd.Timestamp(trough_val) if pd.notna(trough_val) else None
+
+            rising_start = prev_trough if prev_trough is not None else start_ts
+
+            if rising_start is not None and peak_ts is not None and rising_start < peak_ts:
+                shapes.append({
+                    "name": "phase:recovery",
+                    "type": "rect",
+                    "xref": "x",
+                    "yref": "paper",
+                    "x0": _iso_date(rising_start),
+                    "x1": _iso_date(peak_ts),
+                    "y0": 0,
+                    "y1": 1,
+                    "fillcolor": PHASE_COLORS["recovery"],
+                    "opacity": opacity,
+                    "line": {"width": 0},
+                    "layer": "below",
+                })
+
+            if peak_ts is not None and trough_ts is not None and peak_ts < trough_ts:
+                shapes.append({
+                    "name": "phase:recession",
+                    "type": "rect",
+                    "xref": "x",
+                    "yref": "paper",
+                    "x0": _iso_date(peak_ts),
+                    "x1": _iso_date(trough_ts),
+                    "y0": 0,
+                    "y1": 1,
+                    "fillcolor": PHASE_COLORS["recession"],
+                    "opacity": opacity,
+                    "line": {"width": 0},
+                    "layer": "below",
+                })
+
+            if trough_ts is not None:
+                prev_trough = trough_ts
+        return shapes
+
+    return []
 
 
 def _hydro_year_context(analysis: CatchmentAnalysis) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -365,21 +399,35 @@ def _hydro_year_context(analysis: CatchmentAnalysis) -> tuple[list[dict[str, Any
     return shapes, annotations
 
 
-def _phase_legend_traces() -> list[dict[str, Any]]:
+def _active_phases(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[str]:
+    hydro_years = getattr(analysis, "hydro_years", pd.DataFrame())
+    if hydro_years is not None and not hydro_years.empty:
+        return ["recovery", "recession"]
+    if "phase" in monthly.columns:
+        present = set(monthly["phase"].dropna().unique()) - {"unspecified"}
+        if "recovery" in present or "recession" in present:
+            return ["recovery", "recession"]
+    return []
+
+
+def _phase_legend_traces(phases: list[str] | None = None) -> list[dict[str, Any]]:
+    if phases is None:
+        phases = list(PHASE_COLORS.keys())
     return [
         {
             "type": "scatter",
             "mode": "lines",
-            "name": phase.title(),
-            "legend": "legend2",
-            "legendgroup": f"phase:{phase}",
+            "name": PHASE_LABELS.get(phase, phase.title()),
+            "legend": "legend3",
             "x": [None],
             "y": [None],
-            "line": {"color": color, "width": 10},
-            "hoverinfo": "skip",
+            "line": {"color": PHASE_COLORS.get(phase, "#94a3b8"), "width": 10},
+            "showlegend": True,
+            "hoverinfo": "none",
             "meta": {"phase_legend": phase},
         }
-        for phase, color in PHASE_COLORS.items()
+        for phase in phases
+        if phase in PHASE_COLORS
     ]
 
 
@@ -395,6 +443,7 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
             dates,
             extent_vals,
             name="Water Extent (%)",
+            legend="legend2",
             customdata=_monthly_hover_data(monthly, dates, extent_vals, analysis),
             hovertemplate=(
                 "Date: %{x}<br>Water Extent: %{customdata[0]}%<br>"
@@ -405,6 +454,27 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
         )
     )
 
+    extent_series = pd.Series(
+        monthly["extent_pct"].to_numpy(dtype=float) if "extent_pct" in monthly.columns else [],
+        dtype=float,
+    )
+    if not extent_series.empty:
+        rolling_3m = extent_series.rolling(window=3, min_periods=1, center=True).mean()
+        rolling_3m_vals = _clean_list(rolling_3m)
+        data.append({
+            "type": "scatter",
+            "mode": "lines",
+            "name": "3-Month Rolling Avg",
+            "legend": "legend2",
+            "x": dates,
+            "y": rolling_3m_vals,
+            "customdata": rolling_3m_vals,
+            "line": {"color": "#0f766e", "width": 2, "dash": "dash"},
+            "visible": "legendonly",
+            "hovertemplate": "Date: %{x}<br>3-Month Avg Extent: %{customdata:.2f}%<extra></extra>",
+            "meta": _scale_meta(rolling_3m_vals),
+        })
+
     if "reference_median_pct" in monthly.columns:
         reference = _clean_list(monthly["reference_median_pct"])
         if any(value is not None for value in reference):
@@ -412,6 +482,7 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
                 "type": "scatter",
                 "mode": "lines",
                 "name": "Reference Median",
+                "legend": "legend2",
                 "x": dates,
                 "y": reference,
                 "customdata": reference,
@@ -427,6 +498,7 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
                 "type": "scatter",
                 "mode": "lines",
                 "name": "Median Baseline",
+                "legend": "legend2",
                 "x": [dates[0], dates[-1]],
                 "y": [median_baseline, median_baseline],
                 "customdata": [median_baseline, median_baseline],
@@ -438,9 +510,9 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
     data.extend(_marker_traces(monthly, analysis))
     has_rainfall = "rainfall_mm" in monthly.columns and monthly["rainfall_mm"].notna().any()
     if has_rainfall:
-        data.append({"type": "bar", "name": "Rainfall", "x": dates, "y": _clean_list(monthly["rainfall_mm"]),
+        data.append({"type": "bar", "name": "Rainfall", "legend": "legend2", "x": dates, "y": _clean_list(monthly["rainfall_mm"]),
                      "yaxis": "y2", "marker": {"color": "rgba(148, 163, 184, 0.4)"}})
-    data.extend(_phase_legend_traces())
+    data.extend(_phase_legend_traces(_active_phases(monthly, analysis)))
 
     layout = _base_layout(rangeslider=False)
     hydro_shapes, hydro_annotations = _hydro_year_context(analysis)

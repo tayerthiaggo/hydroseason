@@ -15,23 +15,13 @@ independently of rainfall, so a flat or shifted signal is evidence about water
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
 import pandas as pd
 
-from ._boundary import RobustBoundaryConfig
-from ._boundary_recoverability import (
-    RecoverabilityThresholds,
-)
-from ._challenger import (
-    ChallengerAssessment,
-    assess_challenger,
-    failed_challenger,
-)
 from ._circular_timing import (
-    AnnualTimingSummary,
     CircularTimingSummary,
     summarise_circular_months,
 )
@@ -45,13 +35,6 @@ from ._decision_policy import (
     decide_established,
 )
 from ._events import extract_water_events
-from ._evidence import (
-    EvidenceThresholds,
-)
-from ._scientific_defaults import (
-    EVIDENCE_DEFAULTS,
-    RECOVERABILITY_DEFAULTS,
-)
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
 _DEFAULT_MIN_MONTHS_PER_YEAR = 9
@@ -99,7 +82,6 @@ class WaterRegimeAssessment:
 
     decision_policy: DecisionPolicy = ESTABLISHED_POLICY
     public_route: Route = "insufficient_record"
-    challenger: ChallengerAssessment = field(default_factory=ChallengerAssessment)
 
     @property
     def supports_per_year_boundaries(self) -> bool:
@@ -119,91 +101,6 @@ class WaterRegimeAssessment:
         require concentrated, non-uniform peak and trough timings.
         """
         return self.public_route in {"per_year_detection", "fixed_climatological_window"}
-
-    # 0.2.0 Compatibility properties forwarding to self.challenger:
-    @property
-    def seasonal_amplitude_pp(self) -> float:
-        return self.challenger.seasonal_amplitude_pp
-
-    @property
-    def amplitude_noise_ratio(self) -> float:
-        return self.challenger.amplitude_noise_ratio
-
-    @property
-    def seasonal_cv_skill(self) -> float:
-        return self.challenger.seasonal_cv_skill
-
-    @property
-    def periodicity_p(self) -> float:
-        return self.challenger.periodicity_p
-
-    @property
-    def selected_harmonic_order(self) -> int:
-        return self.challenger.selected_harmonic_order
-
-    @property
-    def peak_timing(self) -> AnnualTimingSummary | None:
-        return self.challenger.peak_timing
-
-    @property
-    def trough_timing(self) -> AnnualTimingSummary | None:
-        return self.challenger.trough_timing
-
-    @property
-    def peak_timing_n_modes(self) -> int:
-        return self.challenger.peak_timing_n_modes
-
-    @property
-    def trough_timing_n_modes(self) -> int:
-        return self.challenger.trough_timing_n_modes
-
-    @property
-    def peak_timing_drift_months_per_decade(self) -> float | None:
-        return self.challenger.peak_timing_drift_months_per_decade
-
-    @property
-    def trough_timing_drift_months_per_decade(self) -> float | None:
-        return self.challenger.trough_timing_drift_months_per_decade
-
-    @property
-    def peak_timing_drift_status(self) -> str:
-        return self.challenger.peak_timing_drift_status
-
-    @property
-    def trough_timing_drift_status(self) -> str:
-        return self.challenger.trough_timing_drift_status
-
-    @property
-    def annual_cycle_evidence(self) -> str:
-        return self.challenger.annual_cycle_evidence
-
-    @property
-    def boundary_cv_n(self) -> int:
-        return self.challenger.boundary_cv_n
-
-    @property
-    def boundary_cv_coverage(self) -> float:
-        return self.challenger.boundary_cv_coverage
-
-    @property
-    def boundary_cv_within_1_month(self) -> float:
-        return self.challenger.boundary_cv_within_1_month
-
-    @property
-    def boundary_cv_within_1_month_wilson_low(self) -> float:
-        return self.challenger.boundary_cv_within_1_month_wilson_low
-
-    @property
-    def boundary_cv_p90_error_months(self) -> float:
-        return self.challenger.boundary_cv_p90_error_months
-
-    @property
-    def boundary_recoverability(self) -> str:
-        return self.challenger.boundary_recoverability
-
-    @property
-    def boundary_recoverability_reason(self) -> str:
-        return self.challenger.boundary_recoverability_reason
 
 
 _ACTIONS: dict[Regime, str] = {
@@ -240,19 +137,10 @@ def assess_water_regime(
     measurement_tolerance_pct: float = 1.0,
     n_bootstrap: int = 200,
     random_state: int = 0,
-    evidence_thresholds: EvidenceThresholds = EVIDENCE_DEFAULTS,
-    recoverability_thresholds: RecoverabilityThresholds = RECOVERABILITY_DEFAULTS,
-    robust_boundary_config: RobustBoundaryConfig | None = None,
-    trough_search_radius_months: int = 3,
 ) -> WaterRegimeAssessment:
     """Assess what the observed surface-water record supports."""
     if not 1 <= min_months_per_year <= 12:
         raise ValueError("min_months_per_year must be between 1 and 12.")
-
-    if evidence_thresholds is None:
-        evidence_thresholds = EVIDENCE_DEFAULTS
-    if recoverability_thresholds is None:
-        recoverability_thresholds = RECOVERABILITY_DEFAULTS
 
     prepared = prepare_monthly_extent(
         extent,
@@ -315,27 +203,6 @@ def assess_water_regime(
         climatological_trough_month = int(climatology.idxmin())
     else:
         climatological_peak_month = climatological_trough_month = None
-
-    try:
-        challenger = assess_challenger(
-            prepared,
-            value_col=value_col,
-            qualifying_years=qualifying_years,
-            min_months_per_year=min_months_per_year,
-            measurement_tolerance_pct=measurement_tolerance_pct,
-            n_bootstrap=n_bootstrap,
-            random_state=random_state,
-            evidence_thresholds=evidence_thresholds,
-            recoverability_thresholds=recoverability_thresholds,
-            robust_boundary_config=robust_boundary_config,
-            trough_search_radius_months=trough_search_radius_months,
-            established_regime=decision.regime,
-            established_route=decision.route,
-            quality_policy=quality_policy,
-        )
-    except Exception as exc:
-        challenger = failed_challenger(exc)
-        caveats.append(f"experimental challenger failed: {challenger.error}")
 
     # Events extraction
     event_summary = extract_water_events(
@@ -408,7 +275,6 @@ def assess_water_regime(
         caveats=tuple(caveats),
         decision_policy=decision.policy,
         public_route=decision.route,
-        challenger=challenger,
     )
 
 
@@ -417,12 +283,12 @@ PublicRoute = Literal[
 ]
 
 
-def public_route(regime: Regime, recoverability: str) -> PublicRoute:
-    """Map regime and boundary recoverability to the public route (legacy 0.2.0 diagnostic mapping)."""
+def public_route(regime: Regime) -> PublicRoute:
+    """Map regime to public route under established policy."""
+    if regime == "seasonal":
+        return "per_year_detection"
     if regime == "insufficient_record":
         return "insufficient_record"
-    if regime in {"seasonal", "marginal"} and recoverability == "supported":
-        return "per_year_detection"
     return "event_characterisation"
 
 

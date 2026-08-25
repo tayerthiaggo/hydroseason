@@ -72,6 +72,7 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
                     "marked provisional/low confidence."
                 ),
             )
+
             rows.append(
                 {
                     "key": key,

@@ -157,7 +157,6 @@ omit = [
   "hydroseason/_io_wofs_coarsen.py",
   "hydroseason/_io_wofs_compare.py",
   "hydroseason/_io_wofs_zarr.py",
-  "hydroseason/_report_svg.py",
   "hydroseason/_spatial_plan.py",
   "hydroseason/_study_aois.py",
   "hydroseason/_wet_aoi.py",

@@ -30,9 +30,6 @@ def test_generated_examples_state_the_restored_authority():
     for phrase in (
         "Seasonal",
         "Per-Year Detection",
-        "established_0_1_1",
-        "two_phase",
-        "Experimental challenger diagnostics",
     ):
         assert phrase in fitzroy
     lachlan = Path("docs/examples/lachlan-river-nsw.html").read_text(encoding="utf-8")

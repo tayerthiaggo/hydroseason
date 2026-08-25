@@ -48,7 +48,7 @@ class DynamicHydroYearConfig:
     quality_policy: QualityPolicy = "flag"
     min_usable_months_per_cycle: int = 8
     min_usable_trough_candidates: int = 2
-    min_baseline_cycles: int = 10
+    min_baseline_cycles: int = 5
     low_percentile: float = 20.0
     high_percentile: float = 80.0
     measurement_tolerance_pct: float = 1.0
@@ -129,18 +129,6 @@ class DynamicHydroYearConfig:
                 DeprecationWarning,
                 stacklevel=2,
             )
-
-    @property
-    def _effective_sustained_rise_months(self) -> int:
-        return self.sustained_rise_months if self.sustained_rise_months is not None else _DEFAULT_SUSTAINED_RISE_MONTHS
-
-    @property
-    def _effective_pulse_rejection_window_months(self) -> int:
-        return (
-            self.pulse_rejection_window_months
-            if self.pulse_rejection_window_months is not None
-            else _DEFAULT_PULSE_REJECTION_WINDOW_MONTHS
-        )
 
 
 def suggest_dynamic_hydro_year_config(extent, *, pattern: SeasonalPatternResult | None = None, **overrides) -> DynamicHydroYearConfig:
@@ -358,6 +346,7 @@ ANNUAL_COLUMNS = [
     "hy_year", "status", "status_reason", "hy_start", "hy_end", "cycle_months",
     "peak_month", "peak_extent_pct", "peak_invalid_pct",
     "temporal_mid_dry_month", "temporal_mid_dry_extent_pct",
+    "temporal_mid_dry_invalid_pct", "mid_dry_invalid_pct",
     "half_loss_month", "half_loss_extent_pct", "half_loss_target_pct",
     "trough_month", "trough_extent_pct", "trough_invalid_pct", "boundary_status",
     "drawdown_pct", "persistence_ratio", "recession_months", "half_loss_months",
@@ -577,6 +566,8 @@ def _assemble_dynamic_years(
             peak_month=peak, peak_extent_pct=peak_value,
             peak_invalid_pct=float(peak_invalid) if pd.notna(peak_invalid) else np.nan,
             temporal_mid_dry_month=midpoint, temporal_mid_dry_extent_pct=float(frame.loc[midpoint, "extent_pct"]),
+            temporal_mid_dry_invalid_pct=float(frame.loc[midpoint, "invalid_pct"]) if midpoint in frame.index and "invalid_pct" in frame.columns and pd.notna(frame.loc[midpoint, "invalid_pct"]) else np.nan,
+            mid_dry_invalid_pct=float(frame.loc[midpoint, "invalid_pct"]) if midpoint in frame.index and "invalid_pct" in frame.columns and pd.notna(frame.loc[midpoint, "invalid_pct"]) else np.nan,
             half_loss_month=half, half_loss_extent_pct=float(frame.loc[half, "extent_pct"]) if pd.notna(half) else np.nan,
             half_loss_target_pct=target, trough_month=trough, trough_extent_pct=trough_value,
             trough_invalid_pct=opportunity["trough_invalid_pct"], boundary_status=boundary_status,

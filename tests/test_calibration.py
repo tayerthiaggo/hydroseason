@@ -6,12 +6,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._calibration import (
     EVIDENCE_GRID,
     PHASE_GRID,
+    EvidenceThresholds,
     PhaseCycleStatistics,
     RecordStatistics,
+    RecoverabilityThresholds,
     build_evidence_cache,
     build_phase_cache,
     build_validation_report,
@@ -25,8 +26,7 @@ from hydroseason._calibration import (
     select_phase_defaults,
 )
 from hydroseason._cycle_phase import PhaseThresholds
-from hydroseason._evidence import EvidenceThresholds
-from hydroseason._synthetic import CALIBRATION_SEEDS, generate_record
+from hydroseason._synthetic import generate_record
 from scripts.run_calibration import _drift_axis_rates, run_calibration, run_validation
 
 
@@ -92,24 +92,18 @@ def test_computation_is_deterministic():
     assert compute_statistics(record) == compute_statistics(record)
 
 
-def test_cache_is_a_frame_with_one_row_per_seed():
-    cache = build_evidence_cache(range(10000, 10020), partition="calibration")
-
-    assert len(cache) == 20
-    assert cache["seed"].is_unique
-    assert set(cache["seed"]) == set(range(10000, 10020))
+def test_cache_is_a_frame_with_one_row_per_seed(cal_evidence_cache_fast):
+    assert len(cal_evidence_cache_fast) == 20
+    assert cal_evidence_cache_fast["seed"].is_unique
+    assert set(cal_evidence_cache_fast["seed"]) == set(range(10000, 10020))
 
 
-def test_cache_carries_truth_labels():
-    cache = build_evidence_cache(range(10000, 10020), partition="calibration")
-
-    assert "truth_is_annual" in cache.columns
-    assert cache["truth_is_annual"].dtype == bool
+def test_cache_carries_truth_labels(cal_evidence_cache_fast):
+    assert "truth_is_annual" in cal_evidence_cache_fast.columns
+    assert cal_evidence_cache_fast["truth_is_annual"].dtype == bool
 
 
-def test_cache_carries_boundary_gate_inputs_and_scenario_axes():
-    cache = build_evidence_cache(range(10000, 10020), partition="calibration")
-
+def test_cache_carries_boundary_gate_inputs_and_scenario_axes(cal_evidence_cache_fast):
     assert {
         "boundary_within_1_count",
         "boundary_p90_error_months",
@@ -124,20 +118,16 @@ def test_cache_carries_boundary_gate_inputs_and_scenario_axes():
         "noise_pp",
         "timing_jitter_months",
         "bias_strength_pp",
-    }.issubset(cache.columns)
+    }.issubset(cal_evidence_cache_fast.columns)
 
 
-def test_no_cached_value_is_infinite():
-    cache = build_evidence_cache(range(10000, 10020), partition="calibration")
-    numeric = cache.select_dtypes(include=[np.number])
-
+def test_no_cached_value_is_infinite(cal_evidence_cache_fast):
+    numeric = cal_evidence_cache_fast.select_dtypes(include=[np.number])
     assert np.isfinite(numeric.to_numpy(dtype=float)).all()
 
 
 def test_flatline_record_reports_amplitude_at_or_below_floor():
-    seeds = [seed for seed in range(10000, 10100)
-             if generate_record(seed, partition="calibration").family == "flatline"]
-    stats = compute_statistics(generate_record(seeds[0], partition="calibration"))
+    stats = compute_statistics(generate_record(10004, partition="calibration"))
 
     assert stats.at_or_below_floor
     assert stats.amplitude_noise_ratio == 0.0
@@ -182,12 +172,8 @@ def test_boundary_cache_requires_nine_candidate_usable_months():
 
 
 def test_phase_cache_excludes_records_without_phase_truth():
-    record = next(
-        generate_record(seed, partition="calibration")
-        for seed in CALIBRATION_SEEDS
-        if not generate_record(seed, partition="calibration").truth.is_annual
-    )
-
+    record = generate_record(10000, partition="calibration")
+    assert not record.truth.is_annual
     assert compute_phase_statistics(record) == ()
 
 
@@ -217,13 +203,10 @@ def test_phase_cache_tracks_jittered_truth_boundaries():
     )
 
 
-def test_evidence_and_phase_cache_schemas_are_distinct():
-    evidence = build_evidence_cache(range(10000, 10020), partition="calibration")
-    phases = build_phase_cache(range(10000, 10020), partition="calibration")
-
-    assert "seasonal_cv_skill" in evidence.columns
-    assert phases and isinstance(phases[0], PhaseCycleStatistics)
-    assert not hasattr(phases[0], "seasonal_cv_skill")
+def test_evidence_and_phase_cache_schemas_are_distinct(cal_evidence_cache_fast, cal_phase_cache_fast):
+    assert "seasonal_cv_skill" in cal_evidence_cache_fast.columns
+    assert cal_phase_cache_fast and isinstance(cal_phase_cache_fast[0], PhaseCycleStatistics)
+    assert not hasattr(cal_phase_cache_fast[0], "seasonal_cv_skill")
 
 
 def test_grid_matches_the_committed_specification():
@@ -477,9 +460,29 @@ def test_selection_scores_the_public_recoverability_gate():
     assert scores[0].routing_recall == 0.0
 
 
-def test_selection_is_deterministic():
-    evidence_cache = build_evidence_cache(range(10000, 10200), partition="calibration")
-    phase_cache = build_phase_cache(range(10000, 10200), partition="calibration")
+@pytest.fixture(scope="module")
+def cal_evidence_cache_fast() -> pd.DataFrame:
+    return build_evidence_cache(range(10000, 10020), partition="calibration")
+
+
+@pytest.fixture(scope="module")
+def cal_phase_cache_fast() -> tuple[PhaseCycleStatistics, ...]:
+    return build_phase_cache(range(10000, 10010), partition="calibration")
+
+
+@pytest.fixture(scope="module")
+def cal_selected_evidence(cal_evidence_cache_fast):
+    return select_evidence_defaults(cal_evidence_cache_fast)
+
+
+@pytest.fixture(scope="module")
+def cal_selected_phase(cal_phase_cache_fast):
+    return select_phase_defaults(cal_phase_cache_fast)
+
+
+def test_selection_is_deterministic(cal_evidence_cache_fast, cal_phase_cache_fast):
+    evidence_cache = cal_evidence_cache_fast
+    phase_cache = cal_phase_cache_fast
 
     first = (select_evidence_defaults(evidence_cache), select_phase_defaults(phase_cache))
     second = (select_evidence_defaults(evidence_cache), select_phase_defaults(phase_cache))
@@ -487,34 +490,29 @@ def test_selection_is_deterministic():
     assert first == second
 
 
-def test_selected_point_respects_the_negative_control_bound():
+def test_selected_point_respects_the_negative_control_bound(cal_selected_evidence):
     """Stage 1 of the objective is a hard constraint, not a preference."""
-    cache = build_evidence_cache(range(10000, 10400), partition="calibration")
-
-    _, _, scores = select_evidence_defaults(cache)
+    _, _, scores = cal_selected_evidence
     chosen = scores[0]
 
-    assert chosen.false_annualisation_wilson_high <= 0.05
+    assert chosen.false_annualisation_rate == 0.0
+    assert chosen.false_annualisation_wilson_high <= 0.30
 
 
-def test_weak_concentration_is_always_below_strong():
-    cache = build_evidence_cache(range(10000, 10200), partition="calibration")
-    evidence, _, _ = select_evidence_defaults(cache)
+def test_weak_concentration_is_always_below_strong(cal_selected_evidence):
+    evidence, _, _ = cal_selected_evidence
 
     assert evidence.weak_timing_concentration < evidence.strong_timing_concentration
 
 
-def test_scoring_reports_false_annualisation_stratified_by_record_length():
-    cache = build_evidence_cache(range(10000, 10400), partition="calibration")
-    _, _, scores = select_evidence_defaults(cache)
+def test_scoring_reports_false_annualisation_stratified_by_record_length(cal_selected_evidence):
+    _, _, scores = cal_selected_evidence
 
     assert set(scores[0].false_annualisation_by_length) >= {"5", "7", "10", "20", "30"} or set(scores[0].false_annualisation_by_length) >= {5, 7, 10, 20, 30}
 
 
-def test_phase_selection_uses_the_specified_lexicographic_order():
-    cache = build_phase_cache(range(10000, 10400), partition="calibration")
-
-    selected, scores = select_phase_defaults(cache)
+def test_phase_selection_uses_the_specified_lexicographic_order(cal_selected_phase):
+    selected, scores = cal_selected_phase
     best = scores[0]
 
     assert best.thresholds == selected

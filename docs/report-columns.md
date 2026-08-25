@@ -36,6 +36,7 @@ month; percentages are 0--100.
 | `usable_month` | Whether the month is admitted by the configured quality policy. In the review-oriented `flag` workflow, finite partial-invalid months remain usable and are flagged by `quality_state`. |
 | `quality_state` | Quality label for the month (`usable`, `low`, `missing`, or `unknown`). |
 | `hy_year` | Hydrological-year identifier, blank when the selected route does not define years. |
+| `confidence` | Hydrological-year confidence level (`high`, `medium`, `low`), blank when outside a resolved hydrological year. |
 | `phase` | Phase label according to the selected `phase_scheme` (`two_phase` [default]: `wet`/`dry`; `four_phase`: `recovery`/`wet`/`recession`/`dry`; `none`: `unspecified`). |
 | `phase_status` | Phase provenance (`ok`, `provisional`, `unresolved_cycle`, `outside_cycle`, `unusable`, or `disabled`). |
 | `is_hy_peak` | `True` for the detected annual maximum month. |
@@ -46,7 +47,6 @@ month; percentages are 0--100.
 | `regime` / `route` | The regime decision and analysis route applied to the record. |
 | `decision_policy` | Decision policy identifier controlling public routing (`established_0_1_1`). |
 | `rainfall_mm` / `rain_anomaly_mm` | Optional supplied-CSV or SILO rainfall context, written only when rainfall loads successfully. The anomaly is rainfall minus the median for the same calendar month. These fields never drive regime routing, boundaries, phases, events, or low spells. |
-| `challenger_*` | Experimental challenger diagnostics (e.g. `challenger_status`, `challenger_agreement`, `challenger_annual_cycle_evidence`, `challenger_boundary_recoverability`). These fields belong to research diagnostics and do not control public outputs. |
 
 ## Hydrological years (`<stem>_hydro_years.csv`)
 

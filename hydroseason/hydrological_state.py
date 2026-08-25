@@ -57,6 +57,10 @@ def analyze_hydrological_state(
         quality_policy=selected.quality_policy,
     )
     _amplitude_pp, noise_pp = robust_scale(prepared)
+    is_low_variability = (
+        False if (config is not None and config.expected_trough_month is not None)
+        else (pattern.pattern == "low_variability")
+    )
     annual = classify_annual_surface_water_condition(
         annual,
         reference=reference,
@@ -67,7 +71,7 @@ def analyze_hydrological_state(
         min_baseline_cycles=selected.min_baseline_cycles,
         low_percentile=selected.low_percentile,
         high_percentile=selected.high_percentile,
-        low_variability=pattern.pattern == "low_variability",
+        low_variability=is_low_variability,
         noise_pp=noise_pp,
     )
     monthly = compute_monthly_surface_water_condition(

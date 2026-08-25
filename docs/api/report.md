@@ -15,10 +15,7 @@ display and must not be treated as the analysed footprint.
 
 `generate_catchment_report(..., aoi_context=None)` preserves existing
 map-free reports. `CatchmentReportPaths` remains the five generated paths:
-HTML plus monthly, hydrological-year, wet-event, and low-spell CSV files.
-Reports display public results derived under `established_0_1_1`. Any displayed
-harmonic or recoverability details belong to the experimental challenger, which
-does not control public decisions or outputs.
+Reports display public results derived under `established_0_1_1`.
 
 ::: hydroseason.report
     options:

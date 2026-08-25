@@ -62,7 +62,7 @@ def classify_annual_surface_water_condition(
     reference_end: str | pd.Timestamp | None = None,
     rolling_window_cycles: int = 10,
     rolling_min_cycles: int = 5,
-    min_baseline_cycles: int = 10,
+    min_baseline_cycles: int = 5,
     low_percentile: float = 20.0,
     high_percentile: float = 80.0,
     low_variability: bool = False,

@@ -1,6 +1,6 @@
 # Decision policy and scientific baseline
 
-HydroSeason 0.2.0 publishes regime, route, exact climatological extrema, and hydrological years under `established_0_1_1`. The harmonic evidence and boundary-recoverability model is an experimental challenger. Its agreement is informative; its disagreement or failure cannot change public output.
+HydroSeason 0.2.0 publishes regime, route, exact climatological extrema, and hydrological years under `established_0_1_1`, using circular timing statistics of annual extrema and circular Kuiper uniformity testing.
 
 ## Protected baseline
 

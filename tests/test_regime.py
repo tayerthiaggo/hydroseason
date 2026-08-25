@@ -1,4 +1,3 @@
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -6,8 +5,6 @@ import pandas as pd
 import pytest
 
 from hydroseason import load_extent_csv
-from hydroseason._boundary_recoverability import RecoverabilityThresholds
-from hydroseason._evidence import EvidenceThresholds
 from hydroseason._regime import (
     REGIME_THRESHOLDS,
     assess_water_regime,
@@ -161,7 +158,7 @@ def test_established_public_timing_uses_one_exact_extremum_per_year(fitzroy_30m)
     assert assessment.climatological_peak_month == 2
     assert assessment.climatological_trough_month == 11
     assert assessment.regime == "seasonal"
-    assert assessment.challenger.peak_timing is not None
+    assert assessment.peak_timing_concentration is not None
 
 
 def test_constant_record_has_finite_zero_established_snr():
@@ -176,23 +173,6 @@ def test_constant_record_has_finite_zero_established_snr():
     assert assessment.regime == "aseasonal"
 
 
-def test_challenger_failure_does_not_change_established_assessment(monkeypatch, fitzroy_30m):
-    baseline = assess_water_regime(fitzroy_30m, n_bootstrap=40)
-
-    def explode(*args, **kwargs):
-        raise RuntimeError("challenger unavailable")
-
-    monkeypatch.setattr("hydroseason._regime.assess_challenger", explode)
-    isolated = assess_water_regime(fitzroy_30m, n_bootstrap=40)
-
-    assert isolated.regime == baseline.regime == "seasonal"
-    assert isolated.public_route == baseline.public_route == "per_year_detection"
-    assert isolated.climatological_peak_month == baseline.climatological_peak_month
-    assert isolated.climatological_trough_month == baseline.climatological_trough_month
-    assert isolated.challenger.status == "failed"
-    assert any("experimental challenger failed" in item for item in isolated.caveats)
-
-
 def test_checked_case_study_peak_timing_concentrations_are_reproducible():
     """Characterization: random_state=0, n_bootstrap=999, n_null=999.
 
@@ -201,20 +181,18 @@ def test_checked_case_study_peak_timing_concentrations_are_reproducible():
     unrecorded Monte Carlo realization and are intentionally not used.
     """
     expected = {
-        "daly_river_nt": (0.853, 0.773, 0.927),
-        "fitzroy_river_wa": (0.829, 0.752, 0.905),
-        "gilbert_river_qld": (0.919, 0.890, 0.954),
-        "lachlan_river_nsw": (0.232, 0.095, 0.492),
-        "moonie_river_qld_nsw": (0.496, 0.300, 0.739),
+        "daly_river_nt": (0.864, 0.812, 0.923),
+        "fitzroy_river_wa": (0.907, 0.855, 0.960),
+        "gilbert_river_qld": (0.934, 0.907, 0.966),
+        "lachlan_river_nsw": (0.324, 0.148, 0.653),
+        "moonie_river_qld_nsw": (0.532, 0.317, 0.740),
     }
 
     regimes = _checked_case_study_regimes()
     for key, (concentration, ci_low, ci_high) in expected.items():
-        timing = regimes[key].challenger.peak_timing
-        assert timing is not None
-        assert timing.concentration == pytest.approx(concentration, abs=0.005)
-        assert timing.ci_low == pytest.approx(ci_low, abs=0.02)
-        assert timing.ci_high == pytest.approx(ci_high, abs=0.02)
+        assert regimes[key].peak_timing_concentration == pytest.approx(concentration, abs=0.005)
+        assert regimes[key].peak_timing_concentration_ci_low == pytest.approx(ci_low, abs=0.02)
+        assert regimes[key].peak_timing_concentration_ci_high == pytest.approx(ci_high, abs=0.02)
 
 def test_strong_annual_cycle_is_seasonal():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
@@ -343,20 +321,6 @@ def test_regime_is_invariant_to_absolute_extent_scale():
     assert small.climatological_peak_month == big.climatological_peak_month
 
 
-def test_measurement_tolerance_keeps_equivalent_trough_months_in_timing():
-    dates = pd.date_range("2000-01-01", periods=12 * 10, freq="MS")
-    cycle = np.array([8.0, 7.0, 6.0, 4.0, 2.0, 0.0, 0.5, 2.0, 4.0, 6.0, 7.0, 8.5])
-    frame = pd.DataFrame(
-        {"extent_pct": np.tile(cycle, 10), "invalid_pct": 0.0}, index=dates
-    )
-
-    exact = assess_water_regime(frame, measurement_tolerance_pct=0.0, n_bootstrap=20)
-    tolerant = assess_water_regime(frame, measurement_tolerance_pct=1.0, n_bootstrap=20)
-
-    assert exact.challenger.trough_timing.concentration == 1.0
-    assert tolerant.challenger.trough_timing.concentration < exact.challenger.trough_timing.concentration
-
-
 # --- guidance payload ------------------------------------------------------
 
 def test_seasonal_regime_permits_per_year_boundaries():
@@ -372,7 +336,7 @@ def test_seasonal_record_with_unstable_trough_does_not_permit_per_year_boundarie
     assert result.supports_fixed_window is True
 
 
-def test_marginal_regime_with_supported_boundaries_permits_per_year():
+def test_marginal_regime_with_supported_boundaries_permits_fixed_window():
     dates = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
     vals = np.tile(cycle, 6)
@@ -383,8 +347,8 @@ def test_marginal_regime_with_supported_boundaries_permits_per_year():
     result = assess_water_regime(frame, quality_policy="flag", n_bootstrap=100)
     assert result.regime == "seasonal"
     assert result.supports_fixed_window is True
-    assert result.boundary_recoverability == "supported"
-    assert public_route(result.regime, result.boundary_recoverability) == "per_year_detection"
+    assert result.supports_per_year_boundaries is False
+    assert result.public_route == "fixed_climatological_window"
 
 
 def test_aseasonal_regime_permits_neither():
@@ -456,32 +420,8 @@ def test_event_descriptors_match_the_shared_event_definition():
     )
 
 
-EVIDENCE = EvidenceThresholds(
-    seasonal_cv_skill=0.3,
-    periodicity_alpha=0.05,
-    amplitude_noise_ratio=1.0,
-    mode_min_frequency=0.60,
-    mode_min_separation_months=2,
-    strong_timing_concentration=0.70,
-    weak_timing_concentration=0.40,
-    min_timing_years=10,
-)
-RECOVERABILITY = RecoverabilityThresholds(
-    min_years=5,
-    min_coverage=0.80,
-    min_within_1_month=0.80,
-    within_1_month_wilson_floor=0.50,
-    max_p90_error_months=2.0,
-    admit_insufficient_drift=False,
-)
-
-
 def _calibrated_assessment(frame):
-    return assess_water_regime(
-        frame,
-        evidence_thresholds=EVIDENCE,
-        recoverability_thresholds=RECOVERABILITY,
-    )
+    return assess_water_regime(frame)
 
 
 def test_constant_zero_record_is_aseasonal_not_infinite():
@@ -493,7 +433,6 @@ def test_constant_zero_record_is_aseasonal_not_infinite():
     assert np.isfinite(assessment.amplitude_snr)
     assert assessment.amplitude_snr == 0.0
     assert assessment.regime == "aseasonal"
-    assert assessment.annual_cycle_evidence == "absent"
 
 
 def test_constant_nonzero_record_is_also_aseasonal():
@@ -516,7 +455,7 @@ def test_stable_peak_with_unstable_trough_is_not_seasonal():
     )
 
 
-def test_clean_seasonal_record_is_seasonal_with_strong_evidence():
+def test_clean_seasonal_record_is_seasonal():
     index = pd.date_range("2000-01-01", periods=12 * 15, freq="MS")
     angle = 2.0 * np.pi * (index.month - 1) / 12.0
     frame = pd.DataFrame(
@@ -527,29 +466,6 @@ def test_clean_seasonal_record_is_seasonal_with_strong_evidence():
     assessment = _calibrated_assessment(frame)
 
     assert assessment.regime == "seasonal"
-    assert assessment.annual_cycle_evidence in {"strong", "moderate"}
-    assert assessment.trough_timing_n_modes == 1
-
-
-def test_drift_stays_unmeasurable_below_ten_years():
-    """Evidence timing threshold must not weaken structural drift minimum."""
-    index = pd.date_range("2000-01-01", periods=12 * 7, freq="MS")
-    angle = 2.0 * np.pi * (index.month - 1) / 12.0
-    frame = pd.DataFrame(
-        {"extent_pct": 50.0 + 25.0 * np.cos(angle), "invalid_pct": 0.0},
-        index=index,
-    )
-
-    assessment = assess_water_regime(
-        frame,
-        evidence_thresholds=replace(EVIDENCE, min_timing_years=5),
-        recoverability_thresholds=replace(
-            RECOVERABILITY, admit_insufficient_drift=True
-        ),
-    )
-
-    assert assessment.peak_timing_drift_status == "insufficient_for_drift"
-    assert assessment.trough_timing_drift_status == "insufficient_for_drift"
 
 
 def test_short_record_is_insufficient_under_calibrated_thresholds():
@@ -578,28 +494,13 @@ def test_every_public_field_is_finite_or_none():
 
 
 @pytest.mark.parametrize(
-    "regime, recoverability, expected",
+    "regime, expected",
     [
-        ("seasonal", "supported", "per_year_detection"),
-        ("marginal", "supported", "per_year_detection"),
-        ("seasonal", "provisional", "event_characterisation"),
-        ("seasonal", "unsupported", "event_characterisation"),
-        ("seasonal", "insufficient", "event_characterisation"),
-        ("marginal", "provisional", "event_characterisation"),
-        ("aseasonal", "supported", "event_characterisation"),
-        ("aseasonal", "insufficient", "event_characterisation"),
-        ("insufficient_record", "supported", "insufficient_record"),
-        ("insufficient_record", "insufficient", "insufficient_record"),
+        ("seasonal", "per_year_detection"),
+        ("marginal", "event_characterisation"),
+        ("aseasonal", "event_characterisation"),
+        ("insufficient_record", "insufficient_record"),
     ],
 )
-def test_route_matrix(regime, recoverability, expected):
-    assert public_route(regime, recoverability) == expected
-
-
-def test_marginal_supported_can_publish_years():
-    """A marginal record with reproducible troughs is allowed dynamic years."""
-    assert public_route("marginal", "supported") == "per_year_detection"
-
-
-def test_seasonal_without_recoverable_boundaries_abstains():
-    assert public_route("seasonal", "provisional") == "event_characterisation"
+def test_route_matrix(regime, expected):
+    assert public_route(regime) == expected

@@ -2,9 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._catchment import analyze_catchment
-from hydroseason._evidence import EvidenceThresholds
 from hydroseason._regime_compare import compare_extent_and_rainfall_regimes
 from hydroseason._report_copy import (
     build_rainfall_context,
@@ -12,25 +10,6 @@ from hydroseason._report_copy import (
     select_kpis,
     verdict_sentence,
     wet_event_explainer,
-)
-
-EVIDENCE = EvidenceThresholds(
-    seasonal_cv_skill=0.3,
-    periodicity_alpha=0.05,
-    amplitude_noise_ratio=1.0,
-    mode_min_frequency=0.60,
-    mode_min_separation_months=2,
-    strong_timing_concentration=0.70,
-    weak_timing_concentration=0.40,
-    min_timing_years=5,
-)
-RECOVERABILITY = RecoverabilityThresholds(
-    min_years=5,
-    min_coverage=0.80,
-    min_within_1_month=0.80,
-    within_1_month_wilson_floor=0.50,
-    max_p90_error_months=2.0,
-    admit_insufficient_drift=False,
 )
 
 
@@ -41,10 +20,8 @@ def seasonal_analysis():
     df = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
     return analyze_catchment(
         df,
-        phase_model="rule_based",
+        phase_scheme="two_phase",
         n_bootstrap=40,
-        evidence_thresholds=EVIDENCE,
-        recoverability_thresholds=RECOVERABILITY,
     )
 
 

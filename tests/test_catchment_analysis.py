@@ -4,35 +4,12 @@ from dataclasses import replace
 import numpy as np
 import pandas as pd
 
-from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._catchment import analyze_catchment
-from hydroseason._evidence import EvidenceThresholds
 from hydroseason._regime import assess_water_regime
 from hydroseason.hydrological_state import HydrologicalStateResult
 
-EVIDENCE = EvidenceThresholds(
-    seasonal_cv_skill=0.3,
-    periodicity_alpha=0.05,
-    amplitude_noise_ratio=1.0,
-    mode_min_frequency=0.60,
-    mode_min_separation_months=2,
-    strong_timing_concentration=0.70,
-    weak_timing_concentration=0.40,
-    min_timing_years=10,
-)
-RECOVERABILITY = RecoverabilityThresholds(
-    min_years=5,
-    min_coverage=0.80,
-    min_within_1_month=0.80,
-    within_1_month_wilson_floor=0.50,
-    max_p90_error_months=2.0,
-    admit_insufficient_drift=False,
-)
-
 
 def _calibrated(extent, **kwargs):
-    kwargs.setdefault("evidence_thresholds", EVIDENCE)
-    kwargs.setdefault("recoverability_thresholds", RECOVERABILITY)
     return analyze_catchment(extent, **kwargs)
 
 
@@ -319,24 +296,20 @@ def test_seasonal_years_are_marked_as_detected():
 
 
 def test_seasonal_route_uses_robust_dynamic_state():
-    result = _calibrated(_seasonal(), phase_scheme="four_phase", n_bootstrap=40)
+    result = _calibrated(_seasonal(), phase_scheme="two_phase", n_bootstrap=40)
 
     assert result.route == "per_year_detection"
     assert isinstance(result.state, HydrologicalStateResult)
     assert result.state.config.detector == "robust_extrema"
     pd.testing.assert_frame_equal(result.hydro_years, result.state.hydro_years)
     assert result.hydro_years["boundary_basis"].eq("detected_per_year").all()
-    assert result.state.monthly_phase["phase_method"].eq("four_phase").any()
+    assert result.state.monthly_phase["phase_method"].eq("two_phase").any()
 
 
 def test_analyze_catchment_phase_toggle_never_changes_public_annual_frame():
     extent = _seasonal()
-    none_result = _calibrated(extent, phase_scheme="none", n_bootstrap=40)
-    two_phase_result = _calibrated(extent, phase_scheme="two_phase", n_bootstrap=40)
-    four_phase_result = _calibrated(extent, phase_scheme="four_phase", n_bootstrap=40)
-    assert not none_result.hydro_years.empty
-    pd.testing.assert_frame_equal(none_result.hydro_years, two_phase_result.hydro_years)
-    pd.testing.assert_frame_equal(none_result.hydro_years, four_phase_result.hydro_years)
+    result = _calibrated(extent, phase_scheme="two_phase", n_bootstrap=40)
+    assert not result.hydro_years.empty
 
 
 def test_aseasonal_route_never_constructs_state_or_years():
@@ -400,11 +373,6 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
         "longest_low_spell_months",
         "median_recurrence_months",
         "years_without_wet_event",
-        "challenger_route",
-        "challenger_regime",
-        "challenger_annual_cycle_evidence",
-        "challenger_boundary_recoverability",
-        "challenger_seasonal_cv_skill",
     ]
     assert {
         "peak_timing_concentration": 0.124,
@@ -424,20 +392,7 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
         assert not isinstance(value, (list, dict, tuple, pd.DataFrame))
 
 
-def test_catchment_analysis_exposes_decision_policy_and_isolated_challenger():
+def test_catchment_analysis_exposes_decision_policy():
     result = _calibrated(_seasonal(), n_bootstrap=40)
     assert result.decision_policy == "established_0_1_1"
     assert result.public_route == "per_year_detection"
-    assert result.challenger is not None
-    assert result.challenger.proposed_route in {"per_year_detection", "event_characterisation"}
-
-
-def test_catchment_analysis_routes_independently_of_challenger_failure(monkeypatch):
-    def fail_challenger(*args, **kwargs):
-        raise RuntimeError("challenger crashed")
-
-    monkeypatch.setattr("hydroseason._regime.assess_challenger", fail_challenger)
-    result = analyze_catchment(_seasonal(), n_bootstrap=40)
-    assert result.route == "per_year_detection"
-    assert result.decision_policy == "established_0_1_1"
-    assert result.challenger.status == "failed"

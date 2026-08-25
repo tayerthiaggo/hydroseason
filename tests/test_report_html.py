@@ -216,3 +216,35 @@ def test_year_cards_explain_insufficient_cycle_coverage_on_bounded_card():
     assert "HY 2005" in html
     assert "year-card-unbounded" not in html
     assert "enough usable months" in html.lower()
+
+
+def test_year_cards_render_confidence_title_in_note_and_drawdown_stat():
+    monthly = _monthly()
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2025,
+                "hy_start": pd.Timestamp("2024-10-01"),
+                "hy_end": pd.Timestamp("2025-12-01"),
+                "peak_month": pd.Timestamp("2025-02-01"),
+                "trough_month": pd.Timestamp("2025-12-01"),
+                "cycle_months": 15.0,
+                "drawdown_pct": 0.32559,
+                "amplitude_pct": 0.45,
+                "annual_condition": "typical_or_mixed",
+                "confidence": "medium",
+                "status": "partial",
+                "status_reason": "boundary_provisional",
+            }
+        ]
+    )
+
+    html = _year_cards(monthly, hydro_years)
+
+    assert "Condition: <strong>Typical / Mixed</strong>" in html
+    assert "Medium confidence: Boundary is provisional and was not confirmed." in html
+    assert "Cycle: <strong>15.0 mos</strong>" in html
+    assert "Amplitude: <strong>0.45%</strong>" in html
+    assert "Drawdown" not in html
+    assert "MEDIUM CONFIDENCE" in html
+

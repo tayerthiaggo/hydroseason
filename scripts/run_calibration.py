@@ -19,10 +19,11 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import psutil  # noqa: E402
 
-from hydroseason._boundary_recoverability import RecoverabilityThresholds  # noqa: E402
 from hydroseason._calibration import (  # noqa: E402
     AUTHORITY_SCOPE,
     METRIC_GROUPS,
+    EvidenceThresholds,
+    RecoverabilityThresholds,
     _worker_evidence,
     _worker_phase,
     build_evidence_cache,
@@ -33,7 +34,6 @@ from hydroseason._calibration import (  # noqa: E402
     select_evidence_defaults,
     select_phase_defaults,
 )
-from hydroseason._evidence import EvidenceThresholds  # noqa: E402
 from hydroseason._synthetic import CALIBRATION_SEEDS  # noqa: E402
 
 _CALIBRATION_VERSION = "0.2.0-audit.1"
@@ -193,9 +193,8 @@ def run_calibration(
 """Calibrated scientific defaults frozen from calibration partition."""
 from __future__ import annotations
 
-from hydroseason._boundary_recoverability import RecoverabilityThresholds
+from hydroseason._calibration import EvidenceThresholds, RecoverabilityThresholds
 from hydroseason._cycle_phase import PhaseThresholds
-from hydroseason._evidence import EvidenceThresholds
 
 CALIBRATION_VERSION = "{_CALIBRATION_VERSION}"
 CALIBRATION_FINGERPRINT = "{fp}"
@@ -245,14 +244,14 @@ def run_validation(
     phase_stability_replicates: int = 50,
     phase_stability_max_cycles: int = 200,
 ) -> None:
-    """Run evaluation over the untouched validation partition under frozen defaults."""
+    import hydroseason._scientific_defaults as defaults
     from hydroseason._scientific_defaults import (
         CALIBRATION_FINGERPRINT,
         CALIBRATION_VERSION,
-        EVIDENCE_DEFAULTS,
         PHASE_DEFAULTS,
-        RECOVERABILITY_DEFAULTS,
     )
+    evidence_defaults = getattr(defaults, "EVIDENCE_DEFAULTS", EvidenceThresholds())
+    recoverability_defaults = getattr(defaults, "RECOVERABILITY_DEFAULTS", RecoverabilityThresholds())
 
     worker_count = workers if workers is not None else min(os.cpu_count() or 4, 16)
     started = time.perf_counter()
@@ -295,8 +294,8 @@ def run_validation(
     for policy, cache in (("flag", flag_sample), ("exclude", exclude_cache)):
         evaluated = evaluate_evidence_cache(
             cache,
-            evidence_thresholds=EVIDENCE_DEFAULTS,
-            recoverability_thresholds=RECOVERABILITY_DEFAULTS,
+            evidence_thresholds=evidence_defaults,
+            recoverability_thresholds=recoverability_defaults,
         )
         truth = evaluated["truth_is_annual"].to_numpy(dtype=bool)
         publish = evaluated["publish_annual_rows"].to_numpy(dtype=bool)
@@ -327,8 +326,8 @@ def run_validation(
         seeds=seeds,
         calibration_version=CALIBRATION_VERSION,
         calibration_fingerprint=CALIBRATION_FINGERPRINT,
-        evidence_thresholds=EVIDENCE_DEFAULTS,
-        recoverability_thresholds=RECOVERABILITY_DEFAULTS,
+        evidence_thresholds=evidence_defaults,
+        recoverability_thresholds=recoverability_defaults,
         phase_thresholds=PHASE_DEFAULTS,
         runtime_metrics=runtime_metrics,
         quality_policy_sensitivity=policy_metrics,

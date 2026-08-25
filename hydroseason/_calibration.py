@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from typing import Literal
 
@@ -21,13 +21,9 @@ from ._boundary import (
     robust_scale,
     select_window_minimum,
 )
-from ._boundary_recoverability import (
-    RecoverabilityThresholds,
-    _classify_boundary_recoverability,
-    evaluate_year,
-)
 from ._circular_timing import (
     AnnualTimingSummary,
+    equivalent_extremum_months,
     summarise_annual_timing,
     timing_drift,
 )
@@ -37,12 +33,6 @@ from ._cycle_phase import (
     label_cycle,
     normalise_cycle,
     phase_stability,
-)
-from ._evidence import (
-    EvidenceThresholds,
-    annual_cycle_evidence,
-    annual_extremum_month_sets,
-    wilson_interval,
 )
 from ._harmonic import (
     _curve_extrema,
@@ -55,6 +45,29 @@ from ._harmonic import (
 from ._state_input import QualityPolicy, candidate_weights, prepare_monthly_extent
 from ._synthetic import SyntheticRecord, generate_record
 
+
+@dataclass(frozen=True)
+class EvidenceThresholds:
+    seasonal_cv_skill: float = 0.8
+    periodicity_alpha: float = 0.1
+    amplitude_noise_ratio: float = 2.0
+    mode_min_frequency: float = 0.5
+    mode_min_separation_months: int = 2
+    strong_timing_concentration: float = 0.8
+    weak_timing_concentration: float = 0.5
+    min_timing_years: int = 10
+
+
+@dataclass(frozen=True)
+class RecoverabilityThresholds:
+    min_years: int = 5
+    min_coverage: float = 0.8
+    min_within_1_month: float = 0.8
+    within_1_month_wilson_floor: float = 0.3
+    max_p90_error_months: float = 2.0
+    admit_insufficient_drift: bool = True
+
+
 MODE_FREQUENCY_GRID = (0.50, 0.60, 0.70, 0.80)
 
 AUTHORITY_SCOPE = {
@@ -62,6 +75,177 @@ AUTHORITY_SCOPE = {
     "recoverability": "experimental_challenger",
     "phase": "authoritative_for_four_phase_labels_only",
 }
+
+
+def wilson_interval(k: int, n: int, confidence: float = 0.95) -> tuple[float, float]:
+    """Score interval for binomial proportion."""
+    if n <= 0:
+        return (0.0, 1.0)
+    z = 1.959963984540054
+    p = float(k) / float(n)
+    denom = 1.0 + (z**2) / float(n)
+    centre = (p + (z**2) / (2.0 * float(n))) / denom
+    spread = (z / denom) * np.sqrt((p * (1.0 - p) / float(n)) + (z**2) / (4.0 * (float(n) ** 2)))
+    return (float(max(0.0, centre - spread)), float(min(1.0, centre + spread)))
+
+
+def annual_extremum_month_sets(
+    frame: pd.DataFrame,
+    *,
+    kind: Literal["min", "max"],
+    tolerance_pct: float = 0.5,
+    min_months_per_year: int = 9,
+) -> dict[int, tuple[int, ...]]:
+    """Equivalent extremum month sets grouped by year."""
+    out: dict[int, tuple[int, ...]] = {}
+    for year, group in frame.groupby(frame.index.year):
+        usable = (
+            group.loc[group["candidate_usable"], "extent_pct"]
+            if "candidate_usable" in group.columns
+            else group["extent_pct"]
+        )
+        if len(usable) >= min_months_per_year:
+            months = equivalent_extremum_months(usable, kind=kind, tolerance=tolerance_pct)
+            if months:
+                out[int(year)] = months
+    return out
+
+
+@dataclass(frozen=True)
+class _YearEvaluation:
+    year: int
+    evaluable: bool
+    resolved: bool
+    selected_month: int | None
+    error_months: float | None
+
+
+def evaluate_year(
+    extent: pd.DataFrame,
+    *,
+    year: int,
+    month_sets: Mapping[int, Sequence[int]],
+    config: RobustBoundaryConfig,
+    search_radius_months: int = 3,
+    min_usable_months: int = 9,
+) -> _YearEvaluation:
+    """Leave-one-out cross-validation of boundary placement in one year."""
+    train_sets = {k: v for k, v in month_sets.items() if k != year}
+    if len(train_sets) < 2:
+        return _YearEvaluation(year=year, evaluable=False, resolved=False, selected_month=None, error_months=None)
+    summary = summarise_annual_timing(train_sets)
+    if summary.dominant_month is None or summary.concentration is None:
+        return _YearEvaluation(year=year, evaluable=False, resolved=False, selected_month=None, error_months=None)
+
+    expected_month = int(summary.dominant_month)
+    expected_stamp = pd.Timestamp(year=year, month=expected_month, day=1)
+    expected_count = 2 * search_radius_months + 1
+    window_start = expected_stamp - pd.DateOffset(months=search_radius_months)
+    window_end = expected_stamp + pd.DateOffset(months=search_radius_months)
+    window = extent.loc[(extent.index >= window_start) & (extent.index <= window_end)]
+
+    usable_count = int(window["candidate_usable"].sum()) if "candidate_usable" in window.columns else len(window)
+    if usable_count < config.min_usable_candidates:
+        return _YearEvaluation(year=year, evaluable=False, resolved=False, selected_month=None, error_months=None)
+
+    amplitude_pp, noise_pp = robust_scale(extent)
+    selection = select_window_minimum(
+        window,
+        expected=expected_stamp,
+        expected_count=expected_count,
+        noise_pp=noise_pp,
+        amplitude_pp=amplitude_pp,
+        config=config,
+    )
+    if selection.selected_month is None:
+        return _YearEvaluation(year=year, evaluable=True, resolved=False, selected_month=None, error_months=None)
+
+    obs_months = month_sets.get(year, ())
+    if not obs_months:
+        return _YearEvaluation(year=year, evaluable=True, resolved=False, selected_month=None, error_months=None)
+
+    det_month = int(selection.selected_month.month)
+    min_err = min(
+        min(abs(det_month - m), 12 - abs(det_month - m))
+        for m in obs_months
+    )
+    return _YearEvaluation(year=year, evaluable=True, resolved=True, selected_month=det_month, error_months=float(min_err))
+
+
+def annual_cycle_evidence(
+    *,
+    seasonal_cv_skill: float,
+    periodicity_p: float,
+    amplitude_noise_ratio: float,
+    peak_n_modes: int,
+    trough_n_modes: int,
+    n_evaluable_years: int,
+    at_or_below_floor: bool,
+    timing: AnnualTimingSummary,
+    drift_status: str,
+    thresholds: EvidenceThresholds,
+) -> str:
+    """Classify annual cycle evidence state."""
+    if n_evaluable_years < thresholds.min_timing_years:
+        return "insufficient"
+    if at_or_below_floor:
+        return "unsupported"
+    if (
+        seasonal_cv_skill >= thresholds.seasonal_cv_skill
+        and periodicity_p <= thresholds.periodicity_alpha
+        and amplitude_noise_ratio >= thresholds.amplitude_noise_ratio
+        and peak_n_modes <= 1
+        and trough_n_modes <= 1
+    ):
+        if (
+            timing.concentration is not None
+            and timing.concentration >= thresholds.strong_timing_concentration
+        ):
+            return "strong"
+        if (
+            timing.concentration is not None
+            and timing.concentration >= thresholds.weak_timing_concentration
+        ):
+            return "weak"
+    return "unsupported"
+
+
+@dataclass(frozen=True)
+class _RecoverabilityResult:
+    state: str
+    reason: str
+    within_1_month_wilson_low: float
+
+
+def _classify_boundary_recoverability(
+    *,
+    n: int,
+    resolved_count: int,
+    within_1_count: int,
+    p90_error_months: float,
+    evidence: str,
+    thresholds: RecoverabilityThresholds,
+    drift_status: str,
+    n_trough_modes: int,
+) -> _RecoverabilityResult:
+    """Classify boundary recoverability."""
+    if n < thresholds.min_years:
+        return _RecoverabilityResult("insufficient", f"fewer than {thresholds.min_years} evaluable years", 0.0)
+    low, _ = wilson_interval(within_1_count, n) if n else (0.0, 1.0)
+    coverage = resolved_count / n if n else 0.0
+    within_rate = within_1_count / n if n else 0.0
+    if (
+        evidence in {"strong", "weak"}
+        and coverage >= thresholds.min_coverage
+        and within_rate >= thresholds.min_within_1_month
+        and low >= thresholds.within_1_month_wilson_floor
+        and p90_error_months <= thresholds.max_p90_error_months
+        and n_trough_modes <= 1
+    ):
+        if not thresholds.admit_insufficient_drift and drift_status == "insufficient_for_drift":
+            return _RecoverabilityResult("provisional", "insufficient record for drift check", low)
+        return _RecoverabilityResult("supported", "boundary timing is cross-validated", low)
+    return _RecoverabilityResult("unsupported", "recoverability criteria not met", low)
 
 METRIC_GROUPS = {
     "challenger_decision": ["evidence", "recoverability"],
@@ -1574,15 +1758,27 @@ def fingerprint(
     hasher.update(json.dumps(deps, sort_keys=True).encode("utf-8"))
 
     selected = {
-        "evidence": asdict(evidence_defaults or defaults.EVIDENCE_DEFAULTS),
+        "evidence": asdict(
+            evidence_defaults
+            or getattr(defaults, "EVIDENCE_DEFAULTS", EvidenceThresholds())
+        ),
         "recoverability": asdict(
-            recoverability_defaults or defaults.RECOVERABILITY_DEFAULTS
+            recoverability_defaults
+            or getattr(defaults, "RECOVERABILITY_DEFAULTS", RecoverabilityThresholds())
         ),
         "phase": asdict(phase_defaults or defaults.PHASE_DEFAULTS),
         "authority_scope": {
-            "evidence": getattr(defaults, "EVIDENCE_AUTHORITY_SCOPE", AUTHORITY_SCOPE["evidence"]),
-            "recoverability": getattr(defaults, "RECOVERABILITY_AUTHORITY_SCOPE", AUTHORITY_SCOPE["recoverability"]),
-            "phase": getattr(defaults, "PHASE_AUTHORITY_SCOPE", AUTHORITY_SCOPE["phase"]),
+            "evidence": getattr(
+                defaults, "EVIDENCE_AUTHORITY_SCOPE", AUTHORITY_SCOPE["evidence"]
+            ),
+            "recoverability": getattr(
+                defaults,
+                "RECOVERABILITY_AUTHORITY_SCOPE",
+                AUTHORITY_SCOPE["recoverability"],
+            ),
+            "phase": getattr(
+                defaults, "PHASE_AUTHORITY_SCOPE", AUTHORITY_SCOPE["phase"]
+            ),
         },
     }
     hasher.update(json.dumps(selected, sort_keys=True).encode("utf-8"))

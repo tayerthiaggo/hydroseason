@@ -613,33 +613,8 @@ def test_two_phase_is_the_default_phase_scheme():
 
 
 def test_explicit_phase_schemes_are_stored():
-    four = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="four_phase")
-    none = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="none")
-    assert four.phase_scheme == "four_phase"
-    assert none.phase_scheme == "none"
-
-
-@pytest.mark.parametrize(
-    "legacy, canonical",
-    [("cycle_relative", "four_phase"), ("rule_based", "four_phase"), ("none", "none")],
-)
-def test_legacy_phase_models_map_with_deprecation_and_clear_model(legacy, canonical):
-    with pytest.warns(DeprecationWarning, match="phase_model"):
-        config = DynamicHydroYearConfig(expected_trough_month=9, phase_model=legacy)
-    assert config.phase_scheme == canonical
-    assert config.phase_model is None
-
-
-def test_supplying_both_phase_scheme_and_model_raises():
-    with pytest.raises(ValueError, match="phase_scheme and phase_model"):
-        DynamicHydroYearConfig(
-            expected_trough_month=9, phase_scheme="two_phase", phase_model="cycle_relative"
-        )
-
-
-def test_unknown_phase_scheme_is_rejected():
-    with pytest.raises(ValueError, match="phase_scheme"):
-        DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="semi_markov")
+    two = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="two_phase")
+    assert two.phase_scheme == "two_phase"
 
 
 @pytest.mark.parametrize(

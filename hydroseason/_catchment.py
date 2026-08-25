@@ -13,13 +13,11 @@ from dataclasses import dataclass, field, replace
 
 import pandas as pd
 
-from ._boundary import RobustBoundaryConfig, robust_scale
-from ._boundary_recoverability import RecoverabilityThresholds
-from ._challenger import ChallengerAssessment
+from ._boundary import robust_scale
+from ._condition import classify_annual_surface_water_condition
 from ._decision_policy import ESTABLISHED_POLICY, DecisionPolicy, Route
 from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
-from ._evidence import EvidenceThresholds
 from ._phase import assign_monthly_phases
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
@@ -54,7 +52,6 @@ class CatchmentAnalysis:
     quality_policy: QualityPolicy = "flag"
     max_invalid_pct: float = 20.0
     decision_policy: DecisionPolicy = ESTABLISHED_POLICY
-    challenger: ChallengerAssessment | None = None
 
     @property
     def public_route(self) -> Route:
@@ -62,7 +59,7 @@ class CatchmentAnalysis:
 
     def summary_row(self, *, name: str) -> dict:
         """Flat one-row-per-catchment record for a cross-catchment table."""
-        row = {
+        return {
             "catchment": name,
             "decision_policy": self.decision_policy,
             "regime": self.regime.regime,
@@ -107,15 +104,6 @@ class CatchmentAnalysis:
             "median_recurrence_months": self.events.summary["median_recurrence_months"],
             "years_without_wet_event": self.regime.years_without_wet_event,
         }
-        if self.challenger is not None:
-            row.update({
-                "challenger_route": self.challenger.proposed_route,
-                "challenger_regime": self.challenger.proposed_regime,
-                "challenger_annual_cycle_evidence": self.challenger.annual_cycle_evidence,
-                "challenger_boundary_recoverability": self.challenger.boundary_recoverability,
-                "challenger_seasonal_cv_skill": _rounded(self.challenger.seasonal_cv_skill, 3),
-            })
-        return row
 
 
 def _rounded(value: float | None, decimals: int) -> float | None:
@@ -209,10 +197,6 @@ def analyze_catchment(
     phase_model: LegacyPhaseModel | None = None,
     n_bootstrap: int = 200,
     random_state: int = 0,
-    evidence_thresholds: EvidenceThresholds | None = None,
-    recoverability_thresholds: RecoverabilityThresholds | None = None,
-    robust_boundary_config: RobustBoundaryConfig | None = None,
-    trough_search_radius_months: int = 3,
 ) -> CatchmentAnalysis:
     """Assess regime, then run the analysis that regime supports.
 
@@ -235,10 +219,6 @@ def analyze_catchment(
         quality_policy=quality_policy,
         n_bootstrap=n_bootstrap,
         random_state=random_state,
-        evidence_thresholds=evidence_thresholds,
-        recoverability_thresholds=recoverability_thresholds,
-        robust_boundary_config=robust_boundary_config,
-        trough_search_radius_months=trough_search_radius_months,
     )
     events = extract_water_events(
         extent,
@@ -267,7 +247,6 @@ def analyze_catchment(
             quality_policy=quality_policy,
             max_invalid_pct=max_invalid_pct,
             decision_policy=regime.decision_policy,
-            challenger=regime.challenger,
         )
 
     if regime.supports_per_year_boundaries:
@@ -279,7 +258,6 @@ def analyze_catchment(
                 quality_policy=quality_policy,
                 detector="robust_extrema",
                 phase_scheme=canonical_scheme,
-                trough_search_radius_months=trough_search_radius_months,
             )
             state_extent = prepare_monthly_extent(
                 extent,
@@ -312,7 +290,6 @@ def analyze_catchment(
                 quality_policy=quality_policy,
                 max_invalid_pct=max_invalid_pct,
                 decision_policy=regime.decision_policy,
-                challenger=regime.challenger,
             )
         years = state.hydro_years.copy()
         if years.empty:
@@ -330,7 +307,6 @@ def analyze_catchment(
                 quality_policy=quality_policy,
                 max_invalid_pct=max_invalid_pct,
                 decision_policy=regime.decision_policy,
-                challenger=regime.challenger,
             )
         years["boundary_basis"] = "detected_per_year"
         state = replace(state, hydro_years=years)
@@ -353,7 +329,6 @@ def analyze_catchment(
             quality_policy=quality_policy,
             max_invalid_pct=max_invalid_pct,
             decision_policy=regime.decision_policy,
-            challenger=regime.challenger,
         )
 
     if not regime.supports_fixed_window:
@@ -375,7 +350,6 @@ def analyze_catchment(
             quality_policy=quality_policy,
             max_invalid_pct=max_invalid_pct,
             decision_policy=regime.decision_policy,
-            challenger=regime.challenger,
         )
 
     # Imposed fixed climatological window route
@@ -403,7 +377,6 @@ def analyze_catchment(
             quality_policy=quality_policy,
             max_invalid_pct=max_invalid_pct,
             decision_policy=regime.decision_policy,
-            challenger=regime.challenger,
         )
 
     route = "fixed_climatological_window"
@@ -424,15 +397,22 @@ def analyze_catchment(
             max_invalid_pct=max_invalid_pct,
             quality_policy=quality_policy,
         )
+        phase_input = prepare_monthly_extent(
+            extent,
+            value_col=value_col,
+            date_col=date_col,
+            max_invalid_pct=max_invalid_pct,
+            quality_policy=quality_policy,
+        )
+        _, noise_pp = robust_scale(phase_input)
+        years = classify_annual_surface_water_condition(
+            years,
+            reference="full_record",
+            low_percentile=20.0,
+            high_percentile=80.0,
+            noise_pp=noise_pp,
+        )
         if canonical_scheme != "none":
-            phase_input = prepare_monthly_extent(
-                extent,
-                value_col=value_col,
-                date_col=date_col,
-                max_invalid_pct=max_invalid_pct,
-                quality_policy=quality_policy,
-            )
-            _, noise_pp = robust_scale(phase_input)
             dyn_cfg = DynamicHydroYearConfig(
                 expected_trough_month=int(regime.climatological_trough_month or 1),
                 expected_peak_month=int(regime.climatological_peak_month or 7),
@@ -461,5 +441,4 @@ def analyze_catchment(
         quality_policy=quality_policy,
         max_invalid_pct=max_invalid_pct,
         decision_policy=regime.decision_policy,
-        challenger=regime.challenger,
     )

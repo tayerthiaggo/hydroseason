@@ -5,9 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._catchment import analyze_catchment
-from hydroseason._evidence import EvidenceThresholds
 from hydroseason._report_export import build_monthly_export
 from hydroseason._report_plotly import (
     event_duration_figure,
@@ -16,25 +14,6 @@ from hydroseason._report_plotly import (
     rainfall_context_figure,
     secondary_figure,
     timeline_figure,
-)
-
-EVIDENCE = EvidenceThresholds(
-    seasonal_cv_skill=0.3,
-    periodicity_alpha=0.05,
-    amplitude_noise_ratio=1.0,
-    mode_min_frequency=0.60,
-    mode_min_separation_months=2,
-    strong_timing_concentration=0.70,
-    weak_timing_concentration=0.40,
-    min_timing_years=5,
-)
-RECOVERABILITY = RecoverabilityThresholds(
-    min_years=5,
-    min_coverage=0.80,
-    min_within_1_month=0.80,
-    within_1_month_wilson_floor=0.50,
-    max_p90_error_months=2.0,
-    admit_insufficient_drift=False,
 )
 
 _CLIMATOLOGY_TRACE = "Long-term monthly water extent (+/-1 std)"
@@ -78,10 +57,8 @@ def aseasonal_with_events_data():
     )
     analysis = analyze_catchment(
         extent,
-        phase_model="rule_based",
+        phase_scheme="two_phase",
         n_bootstrap=20,
-        evidence_thresholds=EVIDENCE,
-        recoverability_thresholds=RECOVERABILITY,
     )
     assert not analysis.events.events.empty
     return build_monthly_export(extent, analysis=analysis), analysis
@@ -94,10 +71,8 @@ def seasonal_data():
     df = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
     analysis = analyze_catchment(
         df,
-        phase_model="rule_based",
+        phase_scheme="two_phase",
         n_bootstrap=40,
-        evidence_thresholds=EVIDENCE,
-        recoverability_thresholds=RECOVERABILITY,
     )
     monthly = build_monthly_export(df, analysis=analysis)
     return monthly, analysis
@@ -112,10 +87,8 @@ def seasonal_data_with_rainfall():
     rain_df = pd.DataFrame({"rainfall_mm": rain}, index=dates)
     analysis = analyze_catchment(
         df,
-        phase_model="rule_based",
+        phase_scheme="two_phase",
         n_bootstrap=40,
-        evidence_thresholds=EVIDENCE,
-        recoverability_thresholds=RECOVERABILITY,
     )
     monthly = build_monthly_export(df, analysis=analysis, rainfall=rain_df)
     return monthly, analysis
@@ -141,14 +114,15 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
     phase_shapes = [shape for shape in figure["layout"]["shapes"] if shape.get("name", "").startswith("phase:")]
 
     assert "Water Extent (%)" in names
+    assert "3-Month Rolling Avg" in names
     assert "Reference Median" in names
     assert "Median Baseline" in names
     assert "Invalid Coverage (%)" not in names
     primary_names = [
         trace["name"] for trace in figure["data"] if not trace.get("meta", {}).get("phase_legend")
     ]
-    assert primary_names[:6] == [
-        "Water Extent (%)", "Reference Median", "Median Baseline",
+    assert primary_names[:7] == [
+        "Water Extent (%)", "3-Month Rolling Avg", "Reference Median", "Median Baseline",
         "HY Peak", "HY Mid Dry", "HY End Dry",
     ]
     assert next(trace for trace in figure["data"] if trace["name"] == "Reference Median")["visible"] == "legendonly"
@@ -157,13 +131,13 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
         trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
     assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
-    assert {"phase:wet", "phase:recession", "phase:dry"} <= {
+    assert {"phase:recovery", "phase:recession"} <= {
         shape["name"] for shape in phase_shapes
     }
     phase_legend_names = {
         trace["name"] for trace in figure["data"] if trace.get("meta", {}).get("phase_legend")
     }
-    assert phase_legend_names == {"Recovery", "Wet", "Recession", "Dry"}
+    assert phase_legend_names == {"Rising", "Receding"}
     assert figure["layout"]["yaxis"]["type"] == "linear"
     assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is False
     assert figure["layout"]["dragmode"] == "pan"
@@ -575,3 +549,51 @@ def test_every_axis_carries_a_unit(
                 continue
             unit_bearing = any(marker in text for marker in ("%", "mm", "month"))
             assert unit_bearing, f"{axis_key} title {text!r} on {trace_names} does not state a unit"
+
+
+def test_timeline_dynamic_phase_legends_and_non_overlapping_shapes(seasonal_data):
+    monthly, analysis = seasonal_data
+    fig = timeline_figure(monthly, analysis)
+    legend = {
+        trace["name"] for trace in fig["data"] if trace.get("meta", {}).get("phase_legend")
+    }
+    assert legend == {"Rising", "Receding"}
+
+    # Phase shapes non-overlapping check & trough->peak/peak->trough bounds
+    phase_shapes = [
+        shape for shape in fig["layout"]["shapes"] if shape.get("name", "").startswith("phase:")
+    ]
+    for i in range(len(phase_shapes) - 1):
+        # The next phase rectangle start must equal previous phase rectangle end
+        assert phase_shapes[i]["x1"] == phase_shapes[i + 1]["x0"]
+
+    # In 2-phase mode, rising (recovery) rectangles strictly precede receding rectangles
+    recovery_shapes = [s for s in phase_shapes if s["name"] == "phase:recovery"]
+    recession_shapes = [s for s in phase_shapes if s["name"] == "phase:recession"]
+    assert len(recovery_shapes) > 0
+    assert len(recession_shapes) > 0
+
+
+def test_timeline_3_row_legend_and_dashed_3month_line(seasonal_data):
+    monthly, analysis = seasonal_data
+    fig = timeline_figure(monthly, analysis)
+
+    # Check 3-month smoothed line is dashed and off by default (legendonly)
+    smoothed_trace = next(t for t in fig["data"] if t.get("name") == "3-Month Rolling Avg")
+    assert smoothed_trace["line"].get("dash") == "dash"
+    assert smoothed_trace.get("legend") == "legend2"
+    assert smoothed_trace.get("visible") == "legendonly"
+
+    # Row 1: Points (HY Peak, HY Mid Dry, HY End Dry)
+    row1_traces = [t["name"] for t in fig["data"] if t.get("legend") in (None, "legend") and t.get("mode") == "markers"]
+    assert set(row1_traces) == {"HY Peak", "HY Mid Dry", "HY End Dry"}
+
+    # Row 2: Lines (Water Extent, 3-month, Reference Median, Median Baseline)
+    row2_traces = [t["name"] for t in fig["data"] if t.get("legend") == "legend2"]
+    assert set(row2_traces) >= {"Water Extent (%)", "3-Month Rolling Avg", "Reference Median", "Median Baseline"}
+
+    # Row 3: Polygons / Phases (Rising, Receding)
+    row3_traces = [t["name"] for t in fig["data"] if t.get("legend") == "legend3"]
+    assert set(row3_traces) == {"Rising", "Receding"}
+
+

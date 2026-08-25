@@ -39,10 +39,6 @@ months.
 
 Public regime assessment and routing operate under the `established_0_1_1` decision policy using exact empirical monthly extrema and circular timing statistics. Extent is observed surface-water availability, not rainfall, discharge, storage volume, a climate variable, or natural-condition hydrology.
 
-### Experimental challenger diagnostics
-
-HydroSeason 0.2.0 also evaluates an experimental challenger model (harmonic regression order selection, rotation-null periodicity test, multi-frequency mode counts, timing drift, and cross-validated boundary recoverability). The challenger provides research diagnostics and does not control public regime, routing, extrema, or hydrological-year boundaries.
-
 ::: hydroseason._regime
     options:
       members:

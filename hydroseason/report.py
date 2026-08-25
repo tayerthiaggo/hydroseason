@@ -65,12 +65,28 @@ class CatchmentReportPaths:
 
 def _write_text_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w", dir=path.parent, delete=False, suffix=".tmp", encoding="utf-8"
-    ) as tmp:
-        tmp.write(text)
-        tmp_name = tmp.name
-    Path(tmp_name).replace(path)
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=path.parent, delete=False, suffix=".tmp", encoding="utf-8"
+        ) as tmp:
+            tmp.write(text)
+            tmp_name = tmp.name
+        Path(tmp_name).replace(path)
+    except PermissionError:
+        if tmp_name is not None:
+            try:
+                Path(tmp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+        path.write_text(text, encoding="utf-8")
+    except Exception:
+        if tmp_name is not None:
+            try:
+                Path(tmp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+        raise
 
 
 def _validate_analysis_for_extent(extent: Any, analysis: CatchmentAnalysis) -> None:

@@ -148,18 +148,3 @@ def test_checked_main_summary_has_all_protected_outcomes():
         if peak is not None:
             assert row["water_extent_peak_month"] == peak
             assert row["climatological_trough_month"] == trough
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "docs/api/analysis.md",
-        "docs/api/report.md",
-        "docs/hydrological-state.md",
-        "docs/case-studies/main-workflow.md",
-    ],
-)
-def test_public_model_docs_label_challenger_non_authoritative(path):
-    text = Path(path).read_text(encoding="utf-8").casefold()
-    assert "experimental challenger" in text
-    assert "does not control public" in text

@@ -39,13 +39,13 @@ def test_consecutive_counts_only_follow_joint_extremes():
 
 
 def test_provisional_boundary_excluded_from_baseline_blocks_activation():
-    # Ten otherwise-complete cycles, but one carries a provisional trough
+    # Five otherwise-complete cycles, but one carries a provisional trough
     # boundary. Because a provisional boundary may not anchor the baseline, only
-    # nine cycles remain eligible -- below min_baseline_cycles (10) -- so the
+    # four cycles remain eligible -- below min_baseline_cycles (5) -- so the
     # public condition must stay insufficient_baseline rather than activating.
-    annual = _annual().iloc[:10].copy()
+    annual = _annual().iloc[:5].copy()
     annual["boundary_status"] = "confirmed"
-    annual.loc[annual["hy_year"] == 2005, "boundary_status"] = "provisional"
+    annual.loc[annual["hy_year"] == 2002, "boundary_status"] = "provisional"
     result = classify_annual_surface_water_condition(annual)
     assert set(result["annual_condition"]) == {"insufficient_baseline"}
     assert set(result["recharge_condition"]) == {"insufficient_baseline"}
@@ -53,10 +53,10 @@ def test_provisional_boundary_excluded_from_baseline_blocks_activation():
 
 
 def test_all_confirmed_boundaries_activate_baseline():
-    # Sanity counterpart: the same ten cycles with every boundary confirmed do
+    # Sanity counterpart: the same five cycles with every boundary confirmed do
     # reach the baseline threshold and produce real (non-insufficient) labels,
     # proving the gate above blocks specifically on the provisional boundary.
-    annual = _annual().iloc[:10].copy()
+    annual = _annual().iloc[:5].copy()
     annual["boundary_status"] = "confirmed"
     result = classify_annual_surface_water_condition(annual)
     assert (result["annual_condition"] != "insufficient_baseline").any()

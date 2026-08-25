@@ -2,9 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._boundary_recoverability import RecoverabilityThresholds
 from hydroseason._catchment import analyze_catchment
-from hydroseason._evidence import EvidenceThresholds
 from hydroseason._report_export import (
     build_events_export,
     build_hydro_years_export,
@@ -15,25 +13,6 @@ from hydroseason._report_export import (
     build_user_monthly_export,
     safe_stem,
     write_report_csvs,
-)
-
-EVIDENCE = EvidenceThresholds(
-    seasonal_cv_skill=0.3,
-    periodicity_alpha=0.05,
-    amplitude_noise_ratio=1.0,
-    mode_min_frequency=0.60,
-    mode_min_separation_months=2,
-    strong_timing_concentration=0.70,
-    weak_timing_concentration=0.40,
-    min_timing_years=5,
-)
-RECOVERABILITY = RecoverabilityThresholds(
-    min_years=5,
-    min_coverage=0.80,
-    min_within_1_month=0.80,
-    within_1_month_wilson_floor=0.50,
-    max_p90_error_months=2.0,
-    admit_insufficient_drift=False,
 )
 
 
@@ -130,10 +109,8 @@ def test_monthly_export_aligns_optional_rainfall_by_month(seasonal_extent, rainf
 def test_build_hydro_years_export_and_summary(seasonal_extent):
     analysis = analyze_catchment(
         seasonal_extent,
-        phase_model="rule_based",
+        phase_scheme="two_phase",
         n_bootstrap=40,
-        evidence_thresholds=EVIDENCE,
-        recoverability_thresholds=RECOVERABILITY,
     )
     years = build_hydro_years_export(analysis, name="Test Catchment")
     assert not years.empty
@@ -171,11 +148,6 @@ def test_build_hydro_years_export_and_summary(seasonal_extent):
         "longest_low_spell_months",
         "median_recurrence_months",
         "years_without_wet_event",
-        "challenger_route",
-        "challenger_regime",
-        "challenger_annual_cycle_evidence",
-        "challenger_boundary_recoverability",
-        "challenger_seasonal_cv_skill",
         "verdict",
     ]
     assert summary.loc[0].drop("verdict").to_dict() == analysis.summary_row(
@@ -226,3 +198,22 @@ def test_write_report_csvs(tmp_path, seasonal_extent):
     assert paths["wet_event"].name == "test-catchment_wet_event.csv"
     for p in paths.values():
         assert p.exists()
+
+
+def test_monthly_and_hydro_years_user_export_fields(seasonal_extent):
+    from hydroseason._report_export import build_user_hydro_years_export
+
+    analysis = analyze_catchment(seasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
+    monthly = build_monthly_export(seasonal_extent, analysis=analysis)
+    user_monthly = build_user_monthly_export(monthly, analysis=analysis, hydro_years=analysis.hydro_years)
+
+    assert "confidence" in user_monthly.columns
+    assert user_monthly["confidence"].dropna().isin({"high", "medium", "low"}).all()
+
+    user_hy = build_user_hydro_years_export(analysis.hydro_years)
+    assert "mid_dry_invalid_pct" in user_hy.columns
+    assert user_hy["mid_dry_invalid_pct"].notna().all()
+    assert (user_hy["mid_dry_invalid_pct"] == 0.0).all()
+    assert "annual_condition" in user_hy.columns
+    assert user_hy["annual_condition"].notna().all()
+
