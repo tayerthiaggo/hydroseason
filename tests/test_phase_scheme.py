@@ -9,7 +9,7 @@ def test_omitted_scheme_defaults_to_two_phase():
 
 @pytest.mark.parametrize(
     ("legacy", "canonical"),
-    [("cycle_relative", "four_phase"), ("rule_based", "four_phase"), ("none", "none")],
+    [("cycle_relative", "two_phase"), ("rule_based", "two_phase"), ("none", "none")],
 )
 def test_legacy_models_map_with_deprecation(legacy, canonical):
     with pytest.warns(DeprecationWarning, match="phase_model"):

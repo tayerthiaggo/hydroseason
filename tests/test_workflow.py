@@ -5,6 +5,9 @@ import pandas as pd
 import pytest
 
 from hydroseason._aoi_context import AOIContext
+from hydroseason._io_preflight_stats import AnnualStatisticsUnavailable
+from hydroseason._preflight_feasibility import FeasibilityResult
+from hydroseason._workflow_input import ResolvedWaterInput
 from hydroseason.workflow import _in_notebook_kernel, run_hydroseason
 
 
@@ -54,6 +57,160 @@ def test_water_only_workflow_writes_bundle(tmp_path):
     assert result.artifacts.html.exists()
     monthly = pd.read_csv(result.artifacts.monthly_csv)
     assert "rainfall_mm" not in monthly
+
+
+def _feasibility_result(feasible: bool) -> FeasibilityResult:
+    return FeasibilityResult(
+        feasible=feasible,
+        resolution=30.0,
+        core_pixel_count=4 if feasible else 1,
+        cluster_count=1,
+        largest_cluster_pixels=4 if feasible else 1,
+        minimum_cluster_pixels=4,
+        reason="recurrent_water_present" if feasible else "recurrent_water_below_minimum_cluster",
+    )
+
+
+def test_dea_workflow_runs_preflight_before_monthly_acquisition(
+    monkeypatch, tmp_path
+):
+    events = []
+    loaded_aoi = object()
+    extent = _seasonal_extent()
+
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: loaded_aoi)
+    monkeypatch.setattr("hydroseason.workflow.build_aoi_context", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "hydroseason.workflow.run_preflight",
+        lambda *_a, **_k: events.append("preflight") or _feasibility_result(True),
+    )
+
+    def fake_resolve(_source, **kwargs):
+        assert kwargs["aoi"] is loaded_aoi
+        events.append("acquire")
+        return ResolvedWaterInput(extent, "dea_wofs")
+
+    monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
+    monkeypatch.setattr(
+        "hydroseason.workflow.generate_catchment_report",
+        lambda *_a, **_k: events.append("report") or _report_paths(tmp_path),
+    )
+
+    result = run_hydroseason(
+        None,
+        output_dir=tmp_path,
+        aoi="aoi.geojson",
+        start_date="2010-01-01",
+        end_date="2017-12-31",
+        show_map=False,
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert events == ["preflight", "acquire", "report"]
+    assert result.preflight_result == _feasibility_result(True)
+
+
+def test_dea_workflow_forwards_the_preflight_max_water_mask(
+    monkeypatch, tmp_path
+):
+    from hydroseason.preflight import RegularWorkflowPreflight
+
+    marker = object()
+    loaded_aoi = object()
+    captured = {}
+
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: loaded_aoi)
+    monkeypatch.setattr("hydroseason.workflow.build_aoi_context", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "hydroseason.workflow.run_preflight",
+        lambda *_a, **_k: RegularWorkflowPreflight(_feasibility_result(True), marker),
+    )
+
+    def fake_resolve(_source, **kwargs):
+        captured["historical_water_mask"] = kwargs["historical_water_mask"]
+        return ResolvedWaterInput(_seasonal_extent(), "dea_wofs")
+
+    monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
+    monkeypatch.setattr(
+        "hydroseason.workflow.generate_catchment_report",
+        lambda *_a, **_k: _report_paths(tmp_path),
+    )
+
+    result = run_hydroseason(
+        None,
+        output_dir=tmp_path,
+        aoi="aoi.geojson",
+        start_date="2010-01-01",
+        end_date="2017-12-31",
+        show_map=False,
+        analysis_options=ANALYSIS_OPTIONS,
+    )
+
+    assert captured["historical_water_mask"] is marker
+    assert result.preflight_result == _feasibility_result(True)
+
+
+def test_dea_workflow_stops_before_monthly_acquisition_when_preflight_rejects(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
+    monkeypatch.setattr("hydroseason.workflow.build_aoi_context", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "hydroseason.workflow.run_preflight",
+        lambda *_a, **_k: _feasibility_result(False),
+    )
+    monkeypatch.setattr(
+        "hydroseason.workflow.resolve_water_input",
+        lambda *_a, **_k: pytest.fail("monthly acquisition must not run after rejection"),
+    )
+
+    from hydroseason.workflow import HydroSeasonPreflightError
+
+    with pytest.raises(HydroSeasonPreflightError, match="preflight rejected") as caught:
+        run_hydroseason(
+            None,
+            output_dir=tmp_path,
+            aoi="aoi.geojson",
+            start_date="2010-01-01",
+            end_date="2017-12-31",
+            show_map=False,
+            analysis_options=ANALYSIS_OPTIONS,
+        )
+    assert caught.value.result.reason == "recurrent_water_below_minimum_cluster"
+
+
+def test_dea_workflow_fails_open_when_statistics_preflight_is_unavailable(
+    monkeypatch, tmp_path
+):
+    extent = _seasonal_extent()
+    monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
+    monkeypatch.setattr("hydroseason.workflow.build_aoi_context", lambda *_a, **_k: None)
+
+    def unavailable(*_args, **_kwargs):
+        raise AnnualStatisticsUnavailable("STAC unavailable")
+
+    monkeypatch.setattr("hydroseason.workflow.run_preflight", unavailable)
+    monkeypatch.setattr(
+        "hydroseason.workflow.resolve_water_input",
+        lambda *_a, **_k: ResolvedWaterInput(extent, "dea_wofs"),
+    )
+    monkeypatch.setattr(
+        "hydroseason.workflow.generate_catchment_report",
+        lambda *_a, **_k: _report_paths(tmp_path),
+    )
+
+    with pytest.warns(UserWarning, match="preflight unavailable"):
+        result = run_hydroseason(
+            None,
+            output_dir=tmp_path,
+            aoi="aoi.geojson",
+            start_date="2010-01-01",
+            end_date="2017-12-31",
+            show_map=False,
+            analysis_options=ANALYSIS_OPTIONS,
+        )
+    assert result.preflight_result is None
+    assert any("preflight unavailable" in message for message in result.warnings)
 
 
 def test_supplied_csv_takes_precedence_and_enriches_monthly_csv(
@@ -471,6 +628,10 @@ def test_run_hydroseason_propagates_one_stac_url_through_the_full_input_seam(
         "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
     )
     monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
+    monkeypatch.setattr(
+        "hydroseason.workflow.run_preflight",
+        lambda *_a, **_k: _feasibility_result(True),
+    )
     run_hydroseason(
         None,
         output_dir=tmp_path,
@@ -502,7 +663,11 @@ def _fake_wo_statistics_dataset(*, time_span: str, size: int = 4, resolution: fl
     from hydroseason._historical_water_mask import HISTORICAL_MASK_SOURCE_PRODUCT
 
     grid = np.zeros((size, size), dtype=np.int32)
-    grid[0, 0] = 1
+    # The regular workflow now applies the real 30 m feasibility gate before
+    # building the historical mask: its approved minimum is four contiguous
+    # pixels. Keep this fixture a small, valid recurrent-water AOI so this
+    # test remains focused on mask coverage propagation.
+    grid[:2, :2] = 1
     count_wet = xr.DataArray(
         da.from_array(grid, chunks=(size, size)), dims=("y", "x"),
         coords={
@@ -710,6 +875,10 @@ def test_progress_enables_the_per_year_bar_only_for_the_builtin_renderer(
 
     monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
     monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
+    monkeypatch.setattr(
+        "hydroseason.workflow.run_preflight",
+        lambda *_a, **_k: _feasibility_result(True),
+    )
 
     run_hydroseason(
         None, output_dir=tmp_path / "a", aoi="aoi.geojson",
@@ -782,6 +951,10 @@ def test_run_hydroseason_surfaces_resolved_water_warnings(monkeypatch, tmp_path)
 
     monkeypatch.setattr("hydroseason.workflow.resolve_water_input", fake_resolve)
     monkeypatch.setattr("hydroseason.workflow.load_aoi", lambda value: object())
+    monkeypatch.setattr(
+        "hydroseason.workflow.run_preflight",
+        lambda *_a, **_k: _feasibility_result(True),
+    )
 
     result = run_hydroseason(
         None,

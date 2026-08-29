@@ -5,6 +5,17 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
+- Restored conservative dynamic-year defaults (`trough_search_radius_months=3`,
+  `min_usable_months_per_cycle=8`) and added an anchored adaptive retry for
+  short interior cycles, so isolated six-month years can be classified without
+  widening neighbouring years or crossing data gaps.
+- Uncached untiled DEA extent reads now overlap independent calendar years with
+  two workers by default; `year_workers=1` retains serial execution.
+- Regular DEA runs now apply the existing WOfS feasibility preflight before
+  monthly acquisition. It screens recurrent water at `>=10%` frequency with
+  the established contiguous-cluster rule, and fails open if statistics are
+  unavailable rather than converting an outage into a no-water result.
+
 ## [0.2.0] - 2026-08-21
 
 ### Added
@@ -17,6 +28,10 @@ All notable changes to HydroSeason are documented here. This project follows
 - `DynamicHydroYearConfig` and `assess_water_regime` now use calibrated `EVIDENCE_DEFAULTS`, `RECOVERABILITY_DEFAULTS`, and `PHASE_DEFAULTS` by default.
 - Removed legacy uncalibrated bridge and fallback classifications.
 - Clarified four distinct uncertainty concepts across documentation, stating that `seasonal_cv_skill` is post-selection cross-validation skill and distinguishing empirical benchmark error bounds from real-world field validation.
+
+### Removed
+- Removed the internal-only semi-Markov boundary challenger and promotion-gate
+  harness. `robust_extrema` is the only released boundary detector.
 
 ## [0.1.1] - 2026-08-20
 
@@ -120,14 +135,10 @@ First public release: the remote-sensing-first rewrite of HydroSeason.
   `phase_shift_months`. `selection_support` is a 0-1 quality grade, not yet a
   calibrated probability.
 - Experimental, internal-only semi-Markov boundary challenger (a four-state
-  hidden semi-Markov model), reachable only through the underscore-prefixed
-  `_detect_dynamic_hydrological_years_experimental` dispatcher used by the
-  experimental promotion-gate comparison harness
-  (`tests/test_detector_comparison.py::test_semi_markov_promotion_gate`). It
-  is **not** selectable through the public `DynamicHydroYearConfig.detector`
-  field (which accepts only `"robust_extrema"` and rejects anything else at
-  construction), is **not** promoted to default, and is not part of the
-  released public API.
+  hidden semi-Markov model) was included for research comparison only. It was
+  **not** selectable through the public `DynamicHydroYearConfig.detector`
+  field (which accepted only `"robust_extrema"`), was **not** promoted to
+  default, and was not part of the released public API.
 - Robust-anchored monthly phases, `phase_model="rule_based"`, **the default**
   (pass `phase_model="none"` to disable). The labels are descriptive
   (`recovery`, `wet`, `recession`, `dry`), use the existing robust extrema

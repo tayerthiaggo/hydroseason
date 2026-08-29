@@ -202,51 +202,82 @@ def get_monthly_silo_rainfall(
     bounds = tuple(aoi.total_bounds)
 
     fs = s3fs.S3FileSystem(anon=True)
-    rows = []
-    for year in range(start_year, end_year + 1):
-        key = f"{bucket}/{prefix}/{year}.monthly_rain.nc"
-        try:
-            handle = fs.open(key, "rb")
-        except FileNotFoundError:
-            continue
-        with handle:
-            with xr.open_dataset(handle, engine="h5netcdf") as dataset:
-                var = _silo_rain_var_name(dataset)
-                lat_name = "lat" if "lat" in dataset.coords else "latitude"
-                lon_name = "lon" if "lon" in dataset.coords else "longitude"
-                lat_values = dataset[lat_name].values
-                lon_values = dataset[lon_name].values
-                indexer = _lat_lon_slice(lat_values, lon_values, bounds)
-                clipped = dataset[var].sel({lat_name: indexer["lat"], lon_name: indexer["lon"]})
-                if clipped.sizes.get(lat_name, 0) == 0 or clipped.sizes.get(lon_name, 0) == 0:
-                    raise ValueError(
-                        f"AOI bounds {bounds} do not overlap the SILO grid for {year}; "
-                        "check the boundary's CRS and extent."
-                    )
-                transform = _affine_from_coords(
-                    clipped[lon_name].values, clipped[lat_name].values
+    years = list(range(start_year, end_year + 1))
+    max_workers = min(8, len(years)) if len(years) > 1 else 1
+    rows: list[dict[str, Any]] = []
+
+    if max_workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    _fetch_silo_year_rows, fs, yr, bucket, prefix, aoi, bounds
                 )
-                mask = geometry_mask(
-                    list(aoi.geometry),
-                    out_shape=(clipped.sizes[lat_name], clipped.sizes[lon_name]),
-                    transform=transform,
-                    invert=True,
-                    all_touched=True,
-                )
-                masked = clipped.where(xr.DataArray(mask, dims=(lat_name, lon_name)))
-                monthly_mean = masked.mean(dim=(lat_name, lon_name), skipna=True)
-                values = monthly_mean.values
-                times = (
-                    pd.to_datetime(clipped["time"].values)
-                    if "time" in clipped.coords
-                    else pd.date_range(f"{year}-01-01", periods=len(values), freq="MS")
-                )
-                for stamp, value in zip(times, values):
-                    rows.append({"date": pd.Timestamp(stamp), "rainfall_mm": float(value)})
+                for yr in years
+            ]
+            for future in futures:
+                rows.extend(future.result())
+    else:
+        for yr in years:
+            rows.extend(_fetch_silo_year_rows(fs, yr, bucket, prefix, aoi, bounds))
 
     if not rows:
         return pd.DataFrame(columns=["date", "rainfall_mm"])
     return pd.DataFrame(rows).sort_values("date").reset_index(drop=True)
+
+
+def _fetch_silo_year_rows(
+    fs: Any,
+    year: int,
+    bucket: str,
+    prefix: str,
+    aoi: Any,
+    bounds: tuple[float, float, float, float],
+) -> list[dict[str, Any]]:
+    import xarray as xr
+    from rasterio.features import geometry_mask
+
+    key = f"{bucket}/{prefix}/{year}.monthly_rain.nc"
+    try:
+        handle = fs.open(key, "rb")
+    except FileNotFoundError:
+        return []
+    with handle:
+        with xr.open_dataset(handle, engine="h5netcdf") as dataset:
+            var = _silo_rain_var_name(dataset)
+            lat_name = "lat" if "lat" in dataset.coords else "latitude"
+            lon_name = "lon" if "lon" in dataset.coords else "longitude"
+            lat_values = dataset[lat_name].values
+            lon_values = dataset[lon_name].values
+            indexer = _lat_lon_slice(lat_values, lon_values, bounds)
+            clipped = dataset[var].sel({lat_name: indexer["lat"], lon_name: indexer["lon"]})
+            if clipped.sizes.get(lat_name, 0) == 0 or clipped.sizes.get(lon_name, 0) == 0:
+                raise ValueError(
+                    f"AOI bounds {bounds} do not overlap the SILO grid for {year}; "
+                    "check the boundary's CRS and extent."
+                )
+            transform = _affine_from_coords(
+                clipped[lon_name].values, clipped[lat_name].values
+            )
+            mask = geometry_mask(
+                list(aoi.geometry),
+                out_shape=(clipped.sizes[lat_name], clipped.sizes[lon_name]),
+                transform=transform,
+                invert=True,
+                all_touched=True,
+            )
+            masked = clipped.where(xr.DataArray(mask, dims=(lat_name, lon_name)))
+            monthly_mean = masked.mean(dim=(lat_name, lon_name), skipna=True)
+            values = monthly_mean.values
+            times = (
+                pd.to_datetime(clipped["time"].values)
+                if "time" in clipped.coords
+                else pd.date_range(f"{year}-01-01", periods=len(values), freq="MS")
+            )
+            return [
+                {"date": pd.Timestamp(stamp), "rainfall_mm": float(value)}
+                for stamp, value in zip(times, values)
+            ]
 
 
 def _affine_from_coords(lon_values: np.ndarray, lat_values: np.ndarray):

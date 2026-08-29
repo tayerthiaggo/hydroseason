@@ -113,42 +113,74 @@ def _select_window_extreme(
     """
     sign = 1.0 if kind == "min" else -1.0
     value_present = window["extent_pct"].notna() & window["invalid_pct"].lt(100.0)
-    usable = window.loc[value_present].copy()
-    n_usable = int(window.loc[window["candidate_usable"], "extent_pct"].notna().sum())
-    if len(usable) < config.min_usable_candidates:
+    all_obs = window.loc[value_present].copy()
+    n_usable = int(window.loc[window["candidate_usable"], "extent_pct"].notna().sum()) if "candidate_usable" in window.columns else int(len(all_obs))
+    if len(all_obs) < config.min_usable_candidates:
         return BoundarySelection(None, np.nan, None, np.nan, None, None,
                                  "internal_gap", "unresolved", 0.0,
                                  expected_count, n_usable, None)
-    comparison = usable["extent_pct"] * sign
-    raw_month = pd.Timestamp(comparison.idxmin())
-    raw_comparison = float(comparison.loc[raw_month])
-    epsilon = _epsilon_pp(usable.loc[raw_month], noise_pp=noise_pp, amplitude_pp=amplitude_pp)
+    comparison_all = all_obs["extent_pct"] * sign
+    raw_month = pd.Timestamp(comparison_all.idxmin())
+    raw_extent = float(all_obs.loc[raw_month, "extent_pct"])
+    raw_comparison = float(comparison_all.loc[raw_month])
+
+    # Screen for usable candidates with acceptable quality
+    if "quality_state" in window.columns:
+        usable_obs = window.loc[window["quality_state"].isin(["usable", "unknown"]) & window["extent_pct"].notna()].copy()
+    elif "candidate_usable" in window.columns:
+        if "invalid_pct" in window.columns:
+            usable_obs = window.loc[window["candidate_usable"] & window["invalid_pct"].le(20.0) & window["extent_pct"].notna()].copy()
+        else:
+            usable_obs = window.loc[window["candidate_usable"] & window["extent_pct"].notna()].copy()
+    else:
+        usable_obs = window.loc[window["invalid_pct"].le(20.0) & window["extent_pct"].notna()].copy()
+
+    raw_is_usable = bool(raw_month in usable_obs.index)
+
+    if kind == "max":
+        # For peak selection: raw observed maximum is authoritative; if low quality, flag as low_quality
+        selected_month = raw_month
+        selected_extent_pct = raw_extent
+        if not raw_is_usable:
+            ambiguous = False
+            selection_status: SelectionStatus = "low_quality"
+        else:
+            local = comparison_all.rolling(3, center=True, min_periods=2).median()
+            residual = float(local.loc[selected_month] - (selected_extent_pct * sign)) if selected_month in local.index else 0.0
+            ambiguous = noise_pp > 0 and residual > config.anomaly_noise_scales * noise_pp
+            selection_status = "ambiguous" if ambiguous else "raw"
+    else:
+        # For trough selection: screen out cloud-corrupted low-quality months in favor of clear-sky usable minimum
+        if len(usable_obs) > 0:
+            comparison_usable = usable_obs["extent_pct"] * sign
+            selected_month = pd.Timestamp(comparison_usable.idxmin())
+            selected_extent_pct = float(usable_obs.loc[selected_month, "extent_pct"])
+            local = comparison_all.rolling(3, center=True, min_periods=2).median()
+            residual = float(local.loc[selected_month] - (selected_extent_pct * sign)) if selected_month in local.index else 0.0
+            ambiguous = noise_pp > 0 and residual > config.anomaly_noise_scales * noise_pp
+            if selected_month != raw_month:
+                selection_status: SelectionStatus = "quality_adjusted"
+            elif ambiguous:
+                selection_status = "ambiguous"
+            else:
+                selection_status = "raw"
+        else:
+            selected_month = raw_month
+            selected_extent_pct = raw_extent
+            ambiguous = False
+            selection_status = "low_quality"
+
+    # Equivalent run around the selected extremum
+    sel_comparison = selected_extent_pct * sign
+    sel_epsilon = _epsilon_pp(window.loc[selected_month], noise_pp=noise_pp, amplitude_pp=amplitude_pp)
     equivalent = (
         value_present
-        & (window["extent_pct"] * sign).le(raw_comparison + epsilon)
+        & (window["extent_pct"] * sign).le(sel_comparison + sel_epsilon)
     )
     groups = equivalent.ne(equivalent.shift(fill_value=False)).cumsum()
-    raw_group = groups.loc[raw_month]
-    run = window.loc[equivalent & groups.eq(raw_group)]
-    local = comparison.rolling(3, center=True, min_periods=2).median()
-    residual = float(local.loc[raw_month] - raw_comparison)
-    raw_extent = float(usable.loc[raw_month, "extent_pct"])
-    ambiguous = noise_pp > 0 and residual > config.anomaly_noise_scales * noise_pp
-    raw_row = window.loc[raw_month]
-    raw_quality_state = raw_row.get("quality_state")
-    raw_is_low_quality = (
-        (raw_quality_state is not None and str(raw_quality_state) != "usable")
-        or (
-            "candidate_usable" in window.columns
-            and not bool(raw_row["candidate_usable"])
-        )
-    )
-    if raw_is_low_quality:
-        selection_status: SelectionStatus = "low_quality"
-    elif ambiguous:
-        selection_status = "ambiguous"
-    else:
-        selection_status = "raw"
+    sel_group = groups.loc[selected_month]
+    run = window.loc[equivalent & groups.eq(sel_group)]
+
     full_start = expected - pd.DateOffset(months=(expected_count - 1) // 2)
     full_end = expected + pd.DateOffset(months=(expected_count - 1) // 2)
     if window.index.min() > full_start:
@@ -165,11 +197,11 @@ def _select_window_extreme(
     if window_status != "full":
         support *= 0.75
     return BoundarySelection(
-        raw_month, raw_extent, raw_month, raw_extent,
+        raw_month, raw_extent, selected_month, selected_extent_pct,
         pd.Timestamp(run.index[0]), pd.Timestamp(run.index[-1]),
         window_status, selection_status, support,
         expected_count, n_usable,
-        (raw_month.year - expected.year) * 12 + raw_month.month - expected.month,
+        (selected_month.year - expected.year) * 12 + selected_month.month - expected.month,
     )
 
 

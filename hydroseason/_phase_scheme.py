@@ -25,14 +25,21 @@ def resolve_phase_scheme(
         if phase_model not in {"cycle_relative", "rule_based", "none"}:
             raise ValueError("phase_model must be 'cycle_relative', 'rule_based', or 'none'")
         warnings.warn(
-            "phase_model is deprecated; use phase_scheme='four_phase' or 'none'",
+            "phase_model is deprecated; use phase_scheme='two_phase' or 'none'",
             DeprecationWarning,
             stacklevel=3,
         )
-        return "none" if phase_model == "none" else "four_phase"
+        return "none" if phase_model == "none" else "two_phase"
     selected = "two_phase" if phase_scheme is PHASE_SCHEME_UNSET else phase_scheme
-    if selected not in {"two_phase", "four_phase", "none"}:
-        raise ValueError("phase_scheme must be 'two_phase', 'four_phase', or 'none'")
+    if selected == "four_phase":
+        warnings.warn(
+            "phase_scheme='four_phase' is deprecated; using two rising/receding phases",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return "two_phase"
+    if selected not in {"two_phase", "none"}:
+        raise ValueError("phase_scheme must be 'two_phase' or 'none'")
     return cast(PhaseScheme, selected)
 
 

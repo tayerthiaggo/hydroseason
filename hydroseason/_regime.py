@@ -109,10 +109,8 @@ _ACTIONS: dict[Regime, str] = {
         "reproducible year to year."
     ),
     "marginal": (
-        "Do not report per-year peak/trough: individual years disagree on "
-        "timing. A single fixed climatological window may be applied as an "
-        "explicit average-behaviour frame, recorded as an imposed assumption "
-        "rather than a detected boundary. Report event descriptors alongside it."
+        "Run dynamic local extrema detection per hydrological year alongside "
+        "event descriptors. Peak and trough months vary interannually."
     ),
     "aseasonal": (
         "Do not define a hydrological year. No reproducible annual cycle is "
@@ -235,9 +233,8 @@ def assess_water_regime(
         )
     if decision.regime == "marginal":
         caveats.append(
-            "peak-timing concentration does not provide strong enough evidence "
-            "for per-year boundaries, so the climatological peak describes "
-            "average behaviour only"
+            "marginal seasonality: peak and trough timings exhibit interannual variability, "
+            "so per-year boundaries are detected dynamically from local extrema"
         )
     if decision.regime == "aseasonal":
         caveats.append(
@@ -285,7 +282,7 @@ PublicRoute = Literal[
 
 def public_route(regime: Regime) -> PublicRoute:
     """Map regime to public route under established policy."""
-    if regime == "seasonal":
+    if regime in ("seasonal", "marginal"):
         return "per_year_detection"
     if regime == "insufficient_record":
         return "insufficient_record"

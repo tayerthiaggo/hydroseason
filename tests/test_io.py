@@ -1332,6 +1332,35 @@ def test_stac_wrapper_queries_once_and_loads_the_returned_items(monkeypatch):
     assert result is loaded
 
 
+def test_stac_wrapper_forwards_historical_mask_to_the_single_clip(monkeypatch):
+    """The direct loader must apply the exact mask during its existing AOI clip."""
+    from unittest.mock import Mock
+
+    pytest.importorskip("xarray")
+    pytest.importorskip("dask")
+    pytest.importorskip("pystac_client")
+    pytest.importorskip("odc.stac")
+    pytest.importorskip("rioxarray")
+    import hydroseason._io_geo as geo
+
+    items = [object()]
+    query = Mock(return_value=(items, _aoi()))
+    loaded = object()
+    load_items = Mock(return_value=loaded)
+    monkeypatch.setattr(geo, "_query_wofs_items", query)
+    monkeypatch.setattr(geo, "_load_wofs_items", load_items)
+    historical_mask = object()
+
+    result = geo.load_wofs_from_stac(
+        "https://example.invalid/stac", "wofs", _aoi(),
+        "2020-01-01", "2020-02-29", crs=3577, resolution=30,
+        historical_water_mask=historical_mask,
+    )
+
+    assert result is loaded
+    assert load_items.call_args.kwargs["historical_water_mask"] is historical_mask
+
+
 def test_tile_slices_cover_parent_once_without_overlap():
     from hydroseason.io import _tile_slices
 

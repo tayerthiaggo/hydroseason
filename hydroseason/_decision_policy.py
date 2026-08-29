@@ -55,27 +55,12 @@ def decide_established(
     else:
         regime = "marginal"
 
-    per_year = regime == "seasonal" and trough_timing.ci_low is not None and trough_timing.ci_low >= t["strong_timing_concentration"]
-    timing = (
-        peak_timing.uniformity_p,
-        trough_timing.uniformity_p,
-        peak_timing.concentration,
-        trough_timing.concentration,
-    )
-    fixed = regime == "seasonal" or (
-        regime == "marginal"
-        and all(value is not None for value in timing)
-        and peak_timing.uniformity_p < t["circular_uniformity_alpha"]
-        and trough_timing.uniformity_p < t["circular_uniformity_alpha"]
-        and peak_timing.concentration >= t["weak_timing_concentration"]
-        and trough_timing.concentration >= t["weak_timing_concentration"]
-    )
+    per_year = regime in {"seasonal", "marginal"}
+    fixed = False
     if regime == "insufficient_record":
         route: Route = "insufficient_record"
     elif per_year:
         route = "per_year_detection"
-    elif fixed:
-        route = "fixed_climatological_window"
     else:
         route = "event_characterisation"
     reason = f"{ESTABLISHED_POLICY}: regime={regime}; route={route}; amplitude_snr={amplitude_snr:.3f}"

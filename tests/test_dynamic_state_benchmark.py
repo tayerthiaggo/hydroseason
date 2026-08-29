@@ -52,9 +52,8 @@ def test_mock_benchmark_meets_scientific_acceptance_gates():
     # _condition.py only anchors on completed cycles, so their high recharge
     # peaks no longer enter the baseline. That is intended behaviour: the sole
     # consequence is that borderline 1995 is no longer distinguishable as a
-    # recharge-low extreme (a recall miss, never a wrong extreme label). No other
-    # extreme year may change, and no extreme may be mislabelled. Task 8
-    # reconciles baseline activation with provisional cycles.
+    # recharge-low extreme (a recall miss, never a wrong extreme label). No
+    # other extreme year may change, and no extreme may be mislabelled.
     assert list(mismatch["hy_year"]) == [1995]
     assert (mismatch["annual_condition_actual"] == "typical_or_mixed").all()
 

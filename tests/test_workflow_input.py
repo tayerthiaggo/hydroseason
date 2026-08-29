@@ -101,6 +101,31 @@ def test_one_configured_stac_url_reaches_both_searches(monkeypatch):
     assert calls["statistics_stac_url"] == "https://example.test/stac"
 
 
+def test_supplied_historical_mask_reaches_monthly_loader_without_extra_stats_read(
+    monkeypatch,
+):
+    marker = object()
+    calls = {}
+
+    def fake_loader(stac_url, collection, aoi, start_date, end_date, **kwargs):
+        calls["historical_water_mask"] = kwargs["historical_water_mask"]
+        return _extent_frame()
+
+    monkeypatch.setattr(
+        "hydroseason._workflow_input.load_wofs_monthly_extent", fake_loader
+    )
+
+    resolve_water_input(
+        None,
+        aoi="aoi.geojson",
+        start_date="2020-01-01",
+        end_date="2020-03-01",
+        historical_water_mask=marker,
+    )
+
+    assert calls["historical_water_mask"] is marker
+
+
 def test_explicit_statistics_stac_url_is_not_overridden(monkeypatch):
     calls = {}
 

@@ -291,7 +291,13 @@ def build_historical_water_mask(
 
     aoi_gdf = load_aoi(aoi)
     crs = count_wet.rio.crs
-    aoi_on_grid = aoi_gdf.to_crs(crs) if crs is not None else aoi_gdf
+    # Use the exact serialized CRS that is stored on the mask. Passing the
+    # rasterio CRS object directly can select a different equivalent
+    # coordinate operation than the later validator, which receives the
+    # stored string (notably for live DEA EPSG:3577 rasters).
+    mask_crs = str(crs) if crs is not None else None
+    aoi_on_grid = aoi_gdf.to_crs(mask_crs) if mask_crs is not None else aoi_gdf
+    aoi_sha256 = _aoi_digest(aoi_on_grid)
     inside_aoi = _inside_aoi_mask_like(wet, aoi_on_grid)
 
     exact = wet & inside_aoi
@@ -309,7 +315,6 @@ def build_historical_water_mask(
     resolution = (abs(float(transform[0])), abs(float(transform[4])))
     shape = (int(exact_values.shape[0]), int(exact_values.shape[1]))
 
-    aoi_sha256 = _aoi_digest(aoi_on_grid)
     mask_sha256 = _mask_digest(
         exact_values, crs=str(crs), transform=transform, shape=shape,
         resolution=resolution,
@@ -351,7 +356,20 @@ def _aoi_digest(aoi_gdf) -> str:
     )
     geometry = shapely.set_precision(geometry, grid_size=0.001)
     hasher = hashlib.sha256()
-    hasher.update(str(aoi_gdf.crs).encode("utf-8"))
+    # Rasterio commonly exposes the same CRS as a full WKT while callers and
+    # GeoPandas commonly use an EPSG authority string. Hash the semantic CRS,
+    # not whichever equivalent spelling happened to cross this seam; the
+    # regular preflight builds a mask from raster metadata and the monthly
+    # validator receives the requested grid CRS.
+    try:
+        import pyproj
+
+        crs_text = pyproj.CRS.from_user_input(aoi_gdf.crs).to_wkt(
+            version="WKT2_2019", pretty=False
+        )
+    except Exception:
+        crs_text = str(aoi_gdf.crs)
+    hasher.update(crs_text.encode("utf-8"))
     hasher.update(wkb.dumps(geometry))
     return hasher.hexdigest()
 

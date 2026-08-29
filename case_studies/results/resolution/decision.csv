@@ -1,4 +1,4 @@
 candidate_resolution_m,route_agreement_count,median_correlation,median_normalized_mae,median_peak_within_one_month,median_trough_within_one_month,max_abs_event_count_delta,max_abs_longest_low_spell_delta,recommended,decision_reason
 60,5/5,0.9997,0.003,1.0,1.0,1,3,False,Fails fidelity/route criteria: max low spell delta 3 > 2
 90,5/5,0.9991,0.0058,1.0,1.0,1,4,False,Fails fidelity/route criteria: max low spell delta 4 > 2
-300,3/5,0.9907,0.0198,1.0,0.905,3,6,False,Fails fidelity/route criteria: route agreement 3/5; median correlation 0.9907 < 0.995; max event delta 3 > 1; max low spell delta 6 > 2
+300,5/5,0.9907,0.0198,0.952,0.905,3,6,False,Fails fidelity/route criteria: median correlation 0.9907 < 0.995; max event delta 3 > 1; max low spell delta 6 > 2

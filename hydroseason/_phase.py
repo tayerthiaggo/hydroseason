@@ -15,10 +15,10 @@ from ._cycle_phase import label_cycle, normalise_cycle, phase_stability
 if TYPE_CHECKING:
     from ._dynamic_year import DynamicHydroYearConfig
 
-PHASES = ("recovery", "wet", "recession", "dry")
+PHASES = ("rising", "receding")
 PHASE_COLUMNS = [
     "hy_year", "phase", "phase_status", "phase_confidence", "phase_method",
-    "boundary_basis", "p_wet", "p_recession", "p_dry", "p_recovery",
+    "boundary_basis", "p_rising", "p_receding",
     "extent_pct", "candidate_usable", "phase_stability",
 ]
 
@@ -37,10 +37,8 @@ def empty_monthly_phase(prepared: pd.DataFrame, *, method: str = "none", boundar
     frame["phase_confidence"] = np.nan
     frame["phase_method"] = method
     frame["boundary_basis"] = boundary_basis
-    frame["p_wet"] = np.nan
-    frame["p_recession"] = np.nan
-    frame["p_dry"] = np.nan
-    frame["p_recovery"] = np.nan
+    frame["p_rising"] = np.nan
+    frame["p_receding"] = np.nan
     frame["extent_pct"] = prepared["extent_pct"].to_numpy(dtype=float)
     frame["candidate_usable"] = prepared["candidate_usable"].to_numpy(dtype=bool)
     frame["phase_stability"] = np.nan
@@ -166,12 +164,11 @@ def assign_rule_based_phases(
     noise_pp: float,
     boundary_basis: str = "robust_extrema",
 ) -> pd.DataFrame:
-    """Assign baseline-relative descriptive phases to robust annual cycles.
+    """Assign the public rising/receding phases to robust annual cycles.
 
-    The month-specific reference median is the baseline. Recovery ends when
-    extent crosses that baseline while rising; wet/high-water continues through
-    the peak until half the peak anomaly is lost; recession continues until the
-    extent falls back through baseline; and dry continues to the trough.
+    The month-specific reference median and half-loss calculations remain in
+    place for legacy boundary semantics, but adjacent intervals are merged into
+    the two canonical labels.
     """
     out = empty_monthly_phase(prepared, method="rule_based", boundary_basis=boundary_basis)
     out["phase_status"] = "outside_cycle"
@@ -233,10 +230,10 @@ def assign_rule_based_phases(
         has_half_loss = half_crossing is not None
 
         assignments = [
-            (start, wet_start - pd.DateOffset(months=1), "recovery"),
-            (wet_start, half_start - pd.DateOffset(months=1), "wet"),
-            (half_start, dry_start - pd.DateOffset(months=1), "recession"),
-            (dry_start, end, "dry"),
+            (start, wet_start - pd.DateOffset(months=1), "rising"),
+            (wet_start, half_start - pd.DateOffset(months=1), "rising"),
+            (half_start, dry_start - pd.DateOffset(months=1), "receding"),
+            (dry_start, end, "receding"),
         ]
 
         for phase_start, phase_end, phase in assignments:
@@ -246,8 +243,8 @@ def assign_rule_based_phases(
             out.loc[months, "hy_year"] = int(row["hy_year"])
             out.loc[months, "phase"] = phase
 
-        out.loc[peak, "phase"] = "wet"
-        out.loc[end, "phase"] = "dry"
+        out.loc[peak, "phase"] = "rising"
+        out.loc[end, "phase"] = "receding"
         cycle_months = _months_in(prepared, start, end)
         usable = out.loc[cycle_months, "candidate_usable"].astype(bool)
         phase_status = "ok" if row.get("status") == "complete" else "provisional"
@@ -284,8 +281,8 @@ def assign_two_phase_phases(
         recovery = _months_in(prepared, start, peak)
         recession = _months_in(prepared, peak + pd.DateOffset(months=1), end)
         out.loc[cycle_months, "hy_year"] = int(row["hy_year"])
-        out.loc[recovery, "phase"] = "recovery"
-        out.loc[recession, "phase"] = "recession"
+        out.loc[recovery, "phase"] = "rising"
+        out.loc[recession, "phase"] = "receding"
         usable = out.loc[cycle_months, "candidate_usable"].astype(bool)
         base_status = "ok" if row.get("status") == "complete" else "provisional"
         out.loc[cycle_months, "phase_status"] = np.where(usable, base_status, "unusable")
@@ -312,7 +309,7 @@ def assign_cycle_relative_phases(
     """
     out = empty_monthly_phase(
         prepared,
-        method="four_phase",
+        method="two_phase",
         boundary_basis=boundary_basis,
     )
     out["phase_status"] = "outside_cycle"
@@ -401,7 +398,9 @@ def assign_cycle_relative_phases(
             high_fraction=config.phase_high_fraction,
             min_duration_months=config.phase_min_duration_months,
         )
-        out.loc[cycle_months, "phase"] = labels.to_numpy()
+        out.loc[cycle_months, "phase"] = labels.replace(
+            {"dry": "receding", "recovery": "rising", "wet": "rising", "recession": "receding"}
+        ).to_numpy()
 
         usable = out.loc[cycle_months, "candidate_usable"].astype(bool)
         base_status = "ok" if row.get("status") == "complete" else "provisional"
@@ -420,10 +419,14 @@ def assign_cycle_relative_phases(
             noise_pp=noise_pp,
             noise_residuals=noise_residuals,
         )
-        for name in PHASES:
-            out.loc[cycle_months, f"p_{name}"] = stability_df[f"p_{name}"].to_numpy()
-        out.loc[cycle_months, "phase_stability"] = stability_df["phase_stability"].to_numpy()
-        out.loc[cycle_months, "phase_confidence"] = stability_df["phase_stability"].to_numpy()
+        rising_probability = stability_df[["p_recovery", "p_wet"]].sum(axis=1)
+        receding_probability = stability_df[["p_recession", "p_dry"]].sum(axis=1)
+        out.loc[cycle_months, "p_rising"] = rising_probability.to_numpy()
+        out.loc[cycle_months, "p_receding"] = receding_probability.to_numpy()
+        out.loc[cycle_months, "phase_stability"] = pd.concat(
+            [rising_probability, receding_probability], axis=1
+        ).max(axis=1).to_numpy()
+        out.loc[cycle_months, "phase_confidence"] = out.loc[cycle_months, "phase_stability"]
 
 
     return out.loc[:, PHASE_COLUMNS]
@@ -449,14 +452,6 @@ def assign_monthly_phases(
         return empty_monthly_phase(prepared, boundary_basis=basis)
     if config.phase_scheme == "two_phase":
         return assign_two_phase_phases(prepared, hydro_years, boundary_basis=basis)
-    if config.phase_scheme == "four_phase":
-        return assign_cycle_relative_phases(
-            prepared,
-            hydro_years,
-            config,
-            noise_pp=noise_pp,
-            boundary_basis=basis,
-        )
     raise ValueError(f"unknown phase_scheme {config.phase_scheme!r}")
 
 

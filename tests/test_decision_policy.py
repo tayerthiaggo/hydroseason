@@ -16,14 +16,14 @@ def test_seasonal_and_reproducible_trough_routes_per_year():
     assert (result.regime, result.route) == ("seasonal", "per_year_detection")
 
 
-def test_seasonal_with_weak_trough_routes_fixed_window():
+def test_seasonal_with_variable_trough_routes_per_year_detection():
     result = decide_established(
         n_usable_years=20,
         amplitude_snr=2.0,
         peak_timing=timing(ci_low=0.70),
         trough_timing=timing(ci_low=0.69),
     )
-    assert (result.regime, result.route) == ("seasonal", "fixed_climatological_window")
+    assert (result.regime, result.route) == ("seasonal", "per_year_detection")
 
 
 def test_low_snr_precedes_uniformity_and_routes_events():
@@ -50,24 +50,20 @@ def test_uniform_peak_timing_is_aseasonal_only_at_ten_timings():
         trough_timing=timing(n=10),
     )
     assert nine.regime == "marginal"
+    assert nine.route == "per_year_detection"
     assert ten.regime == "aseasonal"
+    assert ten.route == "event_characterisation"
 
 
-def test_marginal_fixed_window_requires_both_concentrated_nonuniform_timings():
-    allowed = decide_established(
+def test_marginal_routes_per_year_detection():
+    result = decide_established(
         n_usable_years=20,
         amplitude_snr=1.0,
         peak_timing=timing(concentration=0.30, ci_low=0.2, p=0.099),
         trough_timing=timing(concentration=0.30, ci_low=0.2, p=0.099),
     )
-    refused = decide_established(
-        n_usable_years=20,
-        amplitude_snr=1.0,
-        peak_timing=timing(concentration=0.29, ci_low=0.2, p=0.099),
-        trough_timing=timing(concentration=0.30, ci_low=0.2, p=0.099),
-    )
-    assert allowed.route == "fixed_climatological_window"
-    assert refused.route == "event_characterisation"
+    assert (result.regime, result.route) == ("marginal", "per_year_detection")
+    assert result.supports_per_year_boundaries is True
 
 
 def test_four_usable_years_is_insufficient():

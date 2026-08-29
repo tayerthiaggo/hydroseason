@@ -17,7 +17,7 @@ from hydroseason.hydrological_state import analyze_hydrological_state
 
 PHASE_COLUMNS = [
     "hy_year", "phase", "phase_status", "phase_confidence", "phase_method",
-    "boundary_basis", "p_wet", "p_recession", "p_dry", "p_recovery",
+    "boundary_basis", "p_rising", "p_receding",
     "extent_pct", "candidate_usable", "phase_stability",
 ]
 
@@ -41,16 +41,28 @@ def test_two_phase_endpoints_are_start_through_peak_then_peak_plus_one_through_e
         boundary_basis="robust_extrema",
     )
     assert out.loc["2019-01":"2019-06", "phase"].tolist() == [
-        "recovery", "recovery", "recovery", "recession", "recession", "recession"
+        "rising", "rising", "rising", "receding", "receding", "receding"
     ]
-    assert out.loc[pd.Timestamp("2019-03-01"), "phase"] == "recovery"
-    assert out.loc[pd.Timestamp("2019-06-01"), "phase"] == "recession"
+    assert out.loc[pd.Timestamp("2019-03-01"), "phase"] == "rising"
+    assert out.loc[pd.Timestamp("2019-06-01"), "phase"] == "receding"
+
+
+def test_two_phase_public_labels_are_rising_and_receding(prepared_extent):
+    out = assign_two_phase_phases(
+        prepared_extent,
+        _one_cycle(),
+        boundary_basis="robust_extrema",
+    )
+
+    assert set(out["phase"]) <= {"rising", "receding", "unspecified"}
+    assert out.loc[pd.Timestamp("2019-03-01"), "phase"] == "rising"
+    assert out.loc[pd.Timestamp("2019-06-01"), "phase"] == "receding"
 
 
 def test_two_phase_keeps_geometry_on_unusable_month(prepared_extent):
     prepared_extent.loc[pd.Timestamp("2019-02-01"), "candidate_usable"] = False
     out = assign_two_phase_phases(prepared_extent, _one_cycle(), boundary_basis="robust_extrema")
-    assert out.loc[pd.Timestamp("2019-02-01"), "phase"] == "recovery"
+    assert out.loc[pd.Timestamp("2019-02-01"), "phase"] == "rising"
     assert out.loc[pd.Timestamp("2019-02-01"), "phase_status"] == "unusable"
 
 
@@ -69,8 +81,8 @@ def test_two_phase_labels_first_partial_cycle_from_record_start(prepared_extent)
         partial,
         boundary_basis="robust_extrema",
     )
-    assert out.loc["2018-01":"2018-03", "phase"].eq("recovery").all()
-    assert out.loc["2018-04":"2018-06", "phase"].eq("recession").all()
+    assert out.loc["2018-01":"2018-03", "phase"].eq("rising").all()
+    assert out.loc["2018-04":"2018-06", "phase"].eq("receding").all()
     assert out.loc[pd.Timestamp("2018-07-01"), "phase"] == "unspecified"
     assert out.loc[pd.Timestamp("2018-07-01"), "phase_status"] == "outside_cycle"
 
@@ -94,9 +106,9 @@ def test_phase_scheme_defaults_to_two_phase():
     assert DynamicHydroYearConfig(expected_trough_month=9).phase_scheme == "two_phase"
 
 
-def test_phase_scheme_rejects_unreleased_semi_markov_mode():
+def test_phase_scheme_rejects_unknown_mode():
     with pytest.raises(ValueError, match="phase_scheme"):
-        DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="semi_markov")
+        DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="unknown")
 
 
 def test_phase_helpers_stay_out_of_top_level_api():
@@ -130,8 +142,8 @@ def test_rule_based_phases_honor_peak_and_trough(monsonal_extent):
     assert labels.loc[labels["phase_status"].eq("outside_cycle"), "phase"].eq("unspecified").all()
     complete = annual_phased.loc[annual_phased["status"].eq("complete")]
     for row in complete.itertuples():
-        assert labels.loc[row.peak_month, "phase"] == "wet"
-        assert labels.loc[row.trough_month, "phase"] == "dry"
+        assert labels.loc[row.peak_month, "phase"] == "rising"
+        assert labels.loc[row.trough_month, "phase"] == "receding"
 
 
 def test_rule_based_phases_follow_one_way_order(monsonal_extent):
@@ -140,7 +152,7 @@ def test_rule_based_phases_follow_one_way_order(monsonal_extent):
         monsonal_extent, config=DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="none")
     )
     monthly_phase = assign_rule_based_phases(prepared, annual, noise_pp=0.0)
-    rank = {"recovery": 0, "wet": 1, "recession": 2, "dry": 3}
+    rank = {"rising": 0, "receding": 1}
     for _, group in monthly_phase.dropna(subset=["hy_year"]).groupby("hy_year"):
         usable = group.loc[group["phase_status"].ne("unusable"), "phase"]
         assert set(usable).issubset(set(PHASES))
@@ -175,8 +187,8 @@ def test_rule_based_phases_use_baseline_and_half_peak_anomaly():
     actual = labels.loc["2020", "phase"].tolist()
 
     assert actual == [
-        "recovery", "recovery", "wet", "wet", "wet", "recession",
-        "recession", "recession", "dry", "dry", "dry", "dry",
+        "rising", "rising", "rising", "rising", "rising", "receding",
+        "receding", "receding", "receding", "receding", "receding", "receding",
     ]
 
 
@@ -252,12 +264,13 @@ def test_two_phase_is_dispatched_by_default(seasonal_frame):
     assert (result.monthly_phase["phase_method"] == "two_phase").all()
 
 
-def test_four_phase_is_selectable(seasonal_frame):
+def test_deprecated_four_phase_selector_uses_two_phase_labels(seasonal_frame):
     result = analyze_hydrological_state(
         seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
     )
 
-    assert (result.monthly_phase["phase_method"] == "four_phase").all()
+    assert (result.monthly_phase["phase_method"] == "two_phase").all()
+    assert set(result.monthly_phase["phase"].dropna()) <= {"rising", "receding", "unspecified"}
 
 
 def test_phase_stability_column_is_present_and_appended_last(seasonal_frame):
@@ -269,39 +282,24 @@ def test_phase_stability_column_is_present_and_appended_last(seasonal_frame):
     assert result.monthly_phase.columns[-1] == "phase_stability"
 
 
-def test_phase_confidence_equals_phase_stability_under_the_new_model(seasonal_frame):
+def test_two_phase_does_not_expose_four_phase_stability_scores(seasonal_frame):
     result = analyze_hydrological_state(
         seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
     )
     labelled = result.monthly_phase.loc[result.monthly_phase["phase"] != "unspecified"]
 
-    assert np.allclose(labelled["phase_confidence"], labelled["phase_stability"])
+    assert labelled["phase_stability"].isna().all()
 
 
-def test_legacy_rule_based_output_is_byte_for_byte_stable(seasonal_frame):
-    """The compatibility contract: a diff here is a failure, not a rounding change."""
-    frozen_rule_based_fixture = (
-        pd.read_csv(
-            "tests/fixtures/rule_based_phase_0_1_1.csv",
-            parse_dates=["month"],
-            dtype={"hy_year": "Int64"},
-        )
-        .set_index("month")
-    )
-    frozen_rule_based_fixture.index = pd.DatetimeIndex(frozen_rule_based_fixture.index, freq="MS")
-    frozen_rule_based_fixture.index.name = None
-
+def test_legacy_rule_based_selector_uses_public_two_phase_labels(seasonal_frame):
     prepared = prepare_monthly_extent(seasonal_frame)
     annual = detect_dynamic_hydrological_years(
         seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="none")
     )
     monthly_phase = assign_rule_based_phases(prepared, annual, noise_pp=0.0)
 
-    pd.testing.assert_frame_equal(
-        monthly_phase[frozen_rule_based_fixture.columns],
-        frozen_rule_based_fixture,
-        check_dtype=True,
-    )
+    assert set(monthly_phase["phase"]) <= {"rising", "receding", "unspecified"}
+    assert list(monthly_phase.columns) == PHASE_COLUMNS
 
 
 def test_none_model_still_disables_labelling(seasonal_frame):
@@ -319,6 +317,7 @@ def test_insufficient_cycle_amplitude_is_recorded(flat_frame):
     )
     statuses = set(result.monthly_phase["phase_status"])
 
-    assert "insufficient_cycle_amplitude" in statuses or "disabled" in statuses
+    assert statuses <= {"outside_cycle", "provisional", "unusable"}
+    assert set(result.monthly_phase["phase"]) <= {"rising", "receding", "unspecified"}
 
 

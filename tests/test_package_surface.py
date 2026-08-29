@@ -26,6 +26,8 @@ def test_package_import_exposes_only_migration_safe_surface():
         "Regime", "WaterRegimeAssessment", "assess_water_regime",
         "WaterEventResult", "extract_water_events",
         "CatchmentAnalysis", "analyze_catchment",
+        "PreflightResult", "PreflightThresholds", "FeasibilityResult", "preflight",
+        "HydroSeasonPreflightError",
         "HydroSeasonRunResult", "run_hydroseason",
         "HydroSeasonAOIOutcome", "HydroSeasonBatchError", "HydroSeasonBatchResult",
         "run_hydroseason_many",
@@ -61,8 +63,11 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert callable(hydroseason.assess_water_regime)
     assert callable(hydroseason.extract_water_events)
     assert callable(hydroseason.analyze_catchment)
+    assert callable(hydroseason.preflight)
+    assert hydroseason.FeasibilityResult.__name__ == "FeasibilityResult"
     assert callable(hydroseason.generate_catchment_report)
     assert callable(hydroseason.run_hydroseason)
+    assert hydroseason.HydroSeasonPreflightError.__name__ == "HydroSeasonPreflightError"
     assert hydroseason.HydroSeasonRunResult.__name__ == "HydroSeasonRunResult"
     assert hydroseason.HydroSeasonAOIOutcome.__name__ == "HydroSeasonAOIOutcome"
     assert hydroseason.HydroSeasonBatchError.__name__ == "HydroSeasonBatchError"
@@ -101,29 +106,15 @@ def test_invalid_conda_recipe_is_not_shipped():
     assert not Path("conda/meta.yaml").exists()
 
 
-def test_robust_extrema_and_semi_markov_internals_stay_unexported():
-    # Tasks 3-10 added the robust-extrema default detector, its diagnostic
-    # columns, and the opt-in semi-Markov challenger entirely behind
-    # underscore-prefixed internal modules (_boundary, _boundary_validation,
-    # _semi_markov). None of that should have widened the top-level surface:
-    # their public symbols must not appear in __all__ or be importable as
-    # `hydroseason.<symbol>`. (The submodules themselves become accessible as
-    # `hydroseason._boundary` etc. purely as a side effect of Python import
-    # machinery once anything imports from them internally -- that is true of
-    # every underscore-prefixed module and is not a re-export, so it is not
-    # asserted against here.) detect_dynamic_hydrological_years and
-    # DynamicHydroYearConfig (already asserted above) remain the only public
-    # entry points for this behavior.
+def test_robust_extrema_internals_stay_unexported():
+    # Robust-extrema implementation details stay behind underscore-prefixed
+    # internal modules. They must not widen the top-level package surface.
     hydroseason = importlib.import_module("hydroseason")
 
     internal_names = {
         "RobustBoundaryConfig", "BoundarySelection", "select_window_minimum",
         "select_cycle_peak", "select_boundary_sequence", "robust_scale",
-        "SemiMarkovConfig", "fit_semi_markov_boundaries",
         "WindowStatus", "SelectionStatus",
-        # Task 6 review: experimental detector entry points stay internal.
-        "_detect_dynamic_hydrological_years_experimental",
-        "_find_semi_markov_trough_opportunities",
     }
     assert internal_names.isdisjoint(vars(hydroseason))
     assert internal_names.isdisjoint(hydroseason.__all__)

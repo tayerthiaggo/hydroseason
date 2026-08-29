@@ -609,7 +609,7 @@ def load_wofs_from_stac(
     stac_url: str, collection: str, aoi, start_date: str, end_date: str, *, crs: int | str | None = 3577,
     chunk_x: int = 512, chunk_y: int = 512, time_chunk: int = 24, majority: bool = True,
     duplicate_month_policy: Literal["raise", "warn"] = "raise", resolution: float | None = None,
-    groupby: str = "solar_day",
+    groupby: str = "solar_day", historical_water_mask=None,
 ):
     """Load WOfS observations in annual batches, compose monthly, and clip to the AOI.
 
@@ -618,6 +618,8 @@ def load_wofs_from_stac(
     graph/setup overhead of one loader call per month while retaining the same
     monthly result. ``groupby`` (default ``"solar_day"``) controls same-day
     scene mosaicking before compositing -- see :func:`_load_wofs_items`.
+    ``historical_water_mask``, when supplied, is applied during that loader's
+    single AOI clip so callers do not need a second full-cube masking pass.
     """
     if aoi is None:
         raise ValueError("AOI is required for WOfS/STAC loading.")
@@ -638,21 +640,27 @@ def load_wofs_from_stac(
     except Exception as exc:
         raise AOIRasterizationError("STAC AOI query failed; refusing to load an unclipped raster.") from exc
 
+    load_kwargs = {
+        "crs": crs,
+        "resolution": resolution,
+        "geobox": None,
+        "chunk_x": chunk_x,
+        "chunk_y": chunk_y,
+        "time_chunk": time_chunk,
+        "majority": majority,
+        "duplicate_month_policy": duplicate_month_policy,
+        "groupby": groupby,
+        "resampling": ("mode" if resolution is not None else None),
+    }
+    if historical_water_mask is not None:
+        load_kwargs["historical_water_mask"] = historical_water_mask
+
     return _load_wofs_items(
         items,
         aoi_gdf,
         start_date,
         end_date,
-        crs=crs,
-        resolution=resolution,
-        geobox=None,
-        chunk_x=chunk_x,
-        chunk_y=chunk_y,
-        time_chunk=time_chunk,
-        majority=majority,
-        duplicate_month_policy=duplicate_month_policy,
-        groupby=groupby,
-        resampling=("mode" if resolution is not None else None),
+        **load_kwargs,
     )
 
 

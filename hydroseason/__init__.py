@@ -2,6 +2,8 @@
 
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import WaterEventResult, extract_water_events
+from ._preflight_feasibility import FeasibilityResult
+from ._preflight_types import PreflightResult, PreflightThresholds
 from ._regime import Regime, WaterRegimeAssessment, assess_water_regime
 from .batch import (
     HydroSeasonAOIOutcome,
@@ -50,7 +52,8 @@ from .io import (
     verify_cache_footprints,
 )
 from .report import CatchmentReportPaths, generate_catchment_report, generate_html_report
-from .workflow import HydroSeasonRunResult, run_hydroseason
+from .preflight import preflight
+from .workflow import HydroSeasonPreflightError, HydroSeasonRunResult, run_hydroseason
 
 __version__ = "0.2.0"
 
@@ -100,6 +103,11 @@ __all__ = [
     "extract_water_events",
     "CatchmentAnalysis",
     "analyze_catchment",
+    "PreflightResult",
+    "PreflightThresholds",
+    "FeasibilityResult",
+    "preflight",
+    "HydroSeasonPreflightError",
     "HydroSeasonRunResult",
     "run_hydroseason",
     "HydroSeasonAOIOutcome",

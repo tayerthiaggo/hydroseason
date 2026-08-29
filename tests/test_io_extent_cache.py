@@ -359,6 +359,7 @@ def test_uncached_load_pins_resolution_to_historical_mask_grid(monkeypatch):
     )
 
     assert load.call_args.kwargs["resolution"] == pytest.approx(mask.resolution[0])
+    assert load.call_args.kwargs["historical_water_mask"] is mask
 
 
 def test_invalid_supplied_historical_mask_fails_before_acquisition(monkeypatch, tmp_path):
@@ -1000,6 +1001,42 @@ def test_year_without_stac_items_becomes_unusable_months(monkeypatch):
     assert (extent.loc["2020", "n_valid"] == 0).all()
     assert extent.loc["2020", "extent_pct"].isna().all()
     assert (extent.loc["2021", "n_valid"] == 4).all()
+
+
+def test_uncached_first_pass_overlaps_independent_years(monkeypatch):
+    pytest.importorskip("dask")
+    import threading
+
+    import hydroseason.io as hio
+
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    active = 0
+    maximum_active = 0
+
+    def fake_load(_url, _collection, _aoi, start, end, **kwargs):
+        nonlocal active, maximum_active
+        with lock:
+            active += 1
+            maximum_active = max(maximum_active, active)
+        try:
+            barrier.wait(timeout=5)
+            return _fake_monthly_cube(start, end)
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(hio, "load_wofs_from_stac", fake_load)
+
+    extent = hio.load_wofs_monthly_extent(
+        "https://example.invalid/stac", "wofs", object(),
+        "2020-01-01", "2021-12-31", resolution=100,
+        use_historical_water_mask=False,
+    )
+
+    assert maximum_active == 2
+    assert len(extent) == 24
+    assert extent.index.is_monotonic_increasing
 
 
 def test_tile_extent_aggregation_sums_counts_then_recomputes_percentages():
@@ -1782,16 +1819,10 @@ def _refresh_built_mask(*, seed_cells, n=16, time_span):
 
 def _refresh_request_aoi_sha256():
     """The AOI digest exactly as ``load_or_build_historical_water_mask``
-    computes it internally: ``load_aoi(aoi).to_crs("EPSG:3577")`` (the
-    string form of the CRS, as passed via its own ``crs`` parameter) --
-    NOT ``count_wet.rio.crs`` (a full WKT string with a different
-    ``str()`` form), which is what ``build_historical_water_mask`` uses
-    when building straight from a synthetic stats dataset. The two differ
-    only in CRS string representation, but ``_aoi_digest`` hashes that
-    string, so a mask built directly from ``_refresh_stats_dataset`` has a
-    different ``aoi_sha256`` than what a real cache lookup will compute --
-    matching ``test_load_or_build_warm_cache_makes_zero_statistics_calls``'s
-    same workaround in tests/test_io_dea_stats.py.
+    computes it internally: ``load_aoi(aoi).to_crs("EPSG:3577")``. CRS
+    spellings from GeoPandas and rasterio are canonicalized by
+    ``_aoi_digest``, so masks built directly from a synthetic statistics
+    dataset and masks resolved through the cache share the same identity.
     """
     from hydroseason._historical_water_mask import _aoi_digest
 

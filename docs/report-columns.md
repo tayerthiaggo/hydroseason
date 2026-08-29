@@ -37,7 +37,7 @@ month; percentages are 0--100.
 | `quality_state` | Quality label for the month (`usable`, `low`, `missing`, or `unknown`). |
 | `hy_year` | Hydrological-year identifier, blank when the selected route does not define years. |
 | `confidence` | Hydrological-year confidence level (`high`, `medium`, `low`), blank when outside a resolved hydrological year. |
-| `phase` | Phase label according to the selected `phase_scheme` (`two_phase` [default]: `wet`/`dry`; `four_phase`: `recovery`/`wet`/`recession`/`dry`; `none`: `unspecified`). |
+| `phase` | Phase label according to the selected `phase_scheme` (`two_phase` [default]: `rising`/`receding`; deprecated `four_phase` maps to the same labels; `none`: `unspecified`). |
 | `phase_status` | Phase provenance (`ok`, `provisional`, `unresolved_cycle`, `outside_cycle`, `unusable`, or `disabled`). |
 | `is_hy_peak` | `True` for the detected annual maximum month. |
 | `is_hy_mid_dry` | `True` for the temporal mid-dry marker. |

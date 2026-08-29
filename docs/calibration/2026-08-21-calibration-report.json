@@ -1,6 +1,6 @@
 {
   "calibration_version": "0.2.0-audit.1",
-  "fingerprint": "910f16b59091d79d909ca7d6608134a468a19194e51109e504d3c8f8852cfb48",
+  "fingerprint": "8d32bc8cd7b4757b129eedb082d30c029dcbe59c66957f3c86d1ba96aa4ee3db",
   "authority_scope": {
     "evidence": "experimental_challenger",
     "recoverability": "experimental_challenger",

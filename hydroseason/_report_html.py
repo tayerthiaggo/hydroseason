@@ -323,13 +323,20 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             "rising": "Rising",
             "recession": "Receding",
             "receding": "Receding",
-            "wet": "Wet",
-            "dry": "Dry",
+            "wet": "Rising",
+            "dry": "Receding",
         }
         for date, month in segment.iterrows():
             phase = str(month.get("phase", "unspecified") or "unspecified").lower()
             phase_label = phase_display_map.get(phase, "Unassigned" if phase == "unspecified" else phase.title())
-            phase_class = phase if phase in {"recovery", "rising", "wet", "recession", "receding", "dry"} else "unassigned"
+            phase_class = {
+                "recovery": "rising",
+                "rising": "rising",
+                "wet": "rising",
+                "recession": "receding",
+                "receding": "receding",
+                "dry": "receding",
+            }.get(phase, "unassigned")
             event = ""
             if _safe_date(peak_date) == date:
                 event = '<span class="cell-marker marker-wet">Wet Peak</span>'
@@ -691,7 +698,7 @@ def render_report_html(
       <p>Filter and explore the monthly extent data directly.</p>
       <div class="filters-row">
         <div class="filter-item"><label for="raw-year-filter">Filter by Year</label><select id="raw-year-filter"><option value="all">All Years</option></select></div>
-        <div class="filter-item"><label for="raw-phase-filter">Filter by Phase</label><select id="raw-phase-filter"><option value="all">All Phases</option><option value="recovery">Rising</option><option value="recession">Receding</option></select></div>
+        <div class="filter-item"><label for="raw-phase-filter">Filter by Phase</label><select id="raw-phase-filter"><option value="all">All Phases</option><option value="rising">Rising</option><option value="receding">Receding</option></select></div>
         <div class="filter-item"><label for="raw-quality-filter">Data quality (threshold {quality_threshold:.1f}% invalid)</label><select id="raw-quality-filter"><option value="all">All Records</option><option value="good">Good</option><option value="flagged">Flagged</option><option value="missing">Missing/unknown</option></select></div>
         <div class="filter-item"><label for="raw-event-filter">Wet events</label><select id="raw-event-filter"><option value="all">All Records</option><option value="yes">In wet event</option><option value="no">Outside wet event</option></select></div>
         <div class="filter-item"><label for="raw-spell-filter">Low-extent spells</label><select id="raw-spell-filter"><option value="all">All Records</option><option value="yes">In low-extent spell</option><option value="no">Outside low-extent spell</option></select></div>
@@ -757,7 +764,7 @@ def render_report_html(
         (eventFilter.value === "all" || String(row.wet_event || "No").toLowerCase() === eventFilter.value) &&
         (spellFilter.value === "all" || String(row.low_extent_spell || "No").toLowerCase() === spellFilter.value)
       );
-      const phaseMap = {{ recovery: "Rising", rising: "Rising", recession: "Receding", receding: "Receding", wet: "Wet", dry: "Dry" }};
+      const phaseMap = {{ recovery: "Rising", rising: "Rising", wet: "Rising", recession: "Receding", receding: "Receding", dry: "Receding" }};
       body.innerHTML = rows.map(row => {{
         const phase = String(row.phase || "unspecified");
         const phaseLabel = phaseMap[phase] || (phase === "unspecified" ? "Unassigned" : phase.charAt(0).toUpperCase() + phase.slice(1));

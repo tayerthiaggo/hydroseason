@@ -29,7 +29,7 @@ def test_flagged_daly_2011_keeps_observed_cycle_and_marks_low_confidence():
     row = actual.loc[2011]
     assert row["peak_month"] == pd.Timestamp("2011-03-01")
     assert row["peak_invalid_pct"] > 80.0
-    assert row["n_usable_months"] == 14
+    assert row["n_usable_months"] == 10
     assert row["peak_selection_status"] == "low_quality"
     assert row["boundary_status"] == "provisional"
     assert row["status"] == "partial"

@@ -37,7 +37,7 @@ def _marginal_frames():
         n_bootstrap=20,
     )
     assert analysis.regime.regime == "marginal"
-    assert analysis.route == "event_characterisation"
+    assert analysis.route == "per_year_detection"
     return build_monthly_export(extent, analysis=analysis), analysis
 
 
@@ -131,7 +131,7 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
         trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
     assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
-    assert {"phase:recovery", "phase:recession"} <= {
+    assert {"phase:rising", "phase:receding"} <= {
         shape["name"] for shape in phase_shapes
     }
     phase_legend_names = {
@@ -145,6 +145,34 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
         shape.get("name", "").startswith("low confidence:")
         for shape in figure["layout"]["shapes"]
     )
+
+
+def test_timeline_hover_has_requested_point_fields_and_two_decimal_extent(seasonal_data):
+    monthly, analysis = seasonal_data
+    figure = timeline_figure(monthly, analysis)
+    extent = next(trace for trace in figure["data"] if trace.get("name") == "Water Extent (%)")
+
+    expected = (
+        "HY %{customdata[0]}<br>Date: %{customdata[1]}<br>"
+        "Extent: %{customdata[2]:.2f}%<br>Invalid: %{customdata[3]:.2f}%<br>"
+        "Confidence: %{customdata[4]}<br>Status: %{customdata[5]}<extra></extra>"
+    )
+    assert extent["hovertemplate"] == expected
+
+    peak_position = monthly.index[monthly["is_hy_peak"]][0]
+    payload = extent["customdata"][int(peak_position)]
+    assert payload[0] == int(monthly.loc[peak_position, "hy_year"])
+    assert payload[1] == monthly.loc[peak_position, "date"].strftime("%Y-%m-%d")
+    assert payload[2] == pytest.approx(float(monthly.loc[peak_position, "extent_pct"]))
+    assert payload[3] == pytest.approx(float(monthly.loc[peak_position, "invalid_pct"]))
+    assert payload[4] in {"high", "medium", "low"}
+    assert payload[5] == "peak"
+    peak_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Peak")
+    assert peak_trace["hovertemplate"] == expected
+    assert peak_trace["customdata"][0][0] == payload[0]
+    assert peak_trace["customdata"][0][1] == payload[1]
+    assert peak_trace["customdata"][0][2] == payload[2]
+    assert peak_trace["customdata"][0][5] == "peak"
     assert figure["config"]["scrollZoom"] is True
 
     assert all(
@@ -220,8 +248,8 @@ def test_extent_trace_preserves_non_positive_values_for_log_mode_hover(seasonal_
 
     assert extent["meta"]["log_safe_y"][:2] == [0.02, 0.02]
     assert extent["meta"]["original_y"][:2] == [0.0, -1.0]
-    assert [row[0] for row in extent["customdata"][:2]] == [0.0, -1.0]
-    assert "%{customdata[0]}" in extent["hovertemplate"]
+    assert [row[2] for row in extent["customdata"][:2]] == [0.0, -1.0]
+    assert "%{customdata[2]:.2f}" in extent["hovertemplate"]
 
 
 def test_timeline_draws_one_line_at_the_shared_trough_boundary():
@@ -239,7 +267,7 @@ def test_timeline_draws_one_line_at_the_shared_trough_boundary():
             ),
             "extent_pct": [0.05, 0.03, 0.07, 0.26],
             "invalid_pct": [1.0, 1.0, 1.0, 1.0],
-            "phase": ["recession", "dry", "wet", "wet"],
+            "phase": ["receding", "receding", "rising", "rising"],
             "hy_year": [2024, 2024, 2025, 2025],
         }
     )
@@ -277,7 +305,7 @@ def test_timeline_does_not_duplicate_a_shared_cycle_boundary():
             "date": pd.to_datetime(["2024-10-01", "2024-11-01", "2024-12-01"]),
             "extent_pct": [0.05, 0.03, 0.07],
             "invalid_pct": [1.0, 1.0, 1.0],
-            "phase": ["recession", "dry", "wet"],
+            "phase": ["receding", "receding", "rising"],
             "hy_year": [2024, 2024, 2025],
         }
     )
@@ -315,7 +343,7 @@ def test_timeline_draws_start_line_when_no_previous_trough_anchors_it():
             "date": pd.to_datetime(["2024-10-01", "2024-11-01", "2024-12-01"]),
             "extent_pct": [0.05, 0.03, 0.07],
             "invalid_pct": [1.0, 1.0, 1.0],
-            "phase": ["recession", "dry", "wet"],
+            "phase": ["receding", "receding", "rising"],
             "hy_year": [2024, 2024, 2025],
         }
     )
@@ -350,7 +378,7 @@ def test_timeline_extent_hover_has_month_context_with_and_without_markers():
             "extent_pct": [0.0, 12.5, 30.0, 4.0],
             "reference_median_pct": [-2.0, 10.0, 20.0, 6.0],
             "invalid_pct": [4.0, 5.0, 6.0, 7.0],
-            "phase": ["recovery", "wet", "recession", "dry"],
+            "phase": ["rising", "rising", "receding", "receding"],
             "hy_year": [2020, 2020, 2020, 2020],
         }
     )
@@ -370,13 +398,12 @@ def test_timeline_extent_hover_has_month_context_with_and_without_markers():
     figure = timeline_figure(monthly, analysis)
     extent = next(trace for trace in figure["data"] if trace.get("name") == "Water Extent (%)")
 
-    assert extent["customdata"][0] == [0.0, -2.0, "recovery", 2020, "HY Peak"]
-    assert extent["customdata"][1] == [12.5, 10.0, "wet", 2020, "None"]
+    assert extent["customdata"][0] == [2020, "2020-01-01", 0.0, 4.0, None, "peak"]
+    assert extent["customdata"][1] == [2020, "2020-02-01", 12.5, 5.0, None, "rising"]
     assert extent["hovertemplate"] == (
-        "Date: %{x}<br>Water Extent: %{customdata[0]}%<br>"
-        "Reference Median: %{customdata[1]}%<br>"
-        "Phase: %{customdata[2]}<br>"
-        "HY Year: %{customdata[3]}<br>Marker Status: %{customdata[4]}<extra></extra>"
+        "HY %{customdata[0]}<br>Date: %{customdata[1]}<br>"
+        "Extent: %{customdata[2]:.2f}%<br>Invalid: %{customdata[3]:.2f}%<br>"
+        "Confidence: %{customdata[4]}<br>Status: %{customdata[5]}<extra></extra>"
     )
     assert extent["meta"]["original_y"] == [0.0, 12.5, 30.0, 4.0]
 
@@ -567,11 +594,11 @@ def test_timeline_dynamic_phase_legends_and_non_overlapping_shapes(seasonal_data
         # The next phase rectangle start must equal previous phase rectangle end
         assert phase_shapes[i]["x1"] == phase_shapes[i + 1]["x0"]
 
-    # In 2-phase mode, rising (recovery) rectangles strictly precede receding rectangles
-    recovery_shapes = [s for s in phase_shapes if s["name"] == "phase:recovery"]
-    recession_shapes = [s for s in phase_shapes if s["name"] == "phase:recession"]
-    assert len(recovery_shapes) > 0
-    assert len(recession_shapes) > 0
+    # In 2-phase mode, rising rectangles strictly precede receding rectangles
+    rising_shapes = [s for s in phase_shapes if s["name"] == "phase:rising"]
+    receding_shapes = [s for s in phase_shapes if s["name"] == "phase:receding"]
+    assert len(rising_shapes) > 0
+    assert len(receding_shapes) > 0
 
 
 def test_timeline_3_row_legend_and_dashed_3month_line(seasonal_data):

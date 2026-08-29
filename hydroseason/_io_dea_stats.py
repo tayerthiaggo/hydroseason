@@ -207,6 +207,47 @@ def _load_count_wet(stac_url: str, collection: str, year: int | None, geobox):
     return dataset[COUNT_WET_BAND].max("time") if "time" in dataset.dims else dataset[COUNT_WET_BAND]
 
 
+def _load_count_wet_and_clear(stac_url: str, collection: str, year: int | None, geobox):
+    """Load raw wet/clear counts for a frequency-based planning mask."""
+    import odc.stac
+    import pystac_client
+    import rioxarray  # noqa: F401
+
+    from hydroseason._io_geo import _configure_cog_read_env
+
+    _configure_cog_read_env()
+    search_kwargs = {
+        "collections": [collection],
+        "bbox": list(geobox.extent.to_crs("EPSG:4326").boundingbox),
+        "limit": 1000,
+    }
+    if year is not None:
+        search_kwargs["datetime"] = f"{year}-01-01/{year}-12-31"
+    odc.stac.configure_rio(cloud_defaults=True, aws={"aws_unsigned": True})
+    client = pystac_client.Client.open(
+        stac_url,
+        timeout=(STAC_CONNECT_TIMEOUT_S, STAC_READ_TIMEOUT_S),
+    )
+    items = list(client.search(**search_kwargs).items())
+    if not items:
+        raise DEAStatsUnavailable(
+            f"no {collection} items for {'all time' if year is None else year}"
+        )
+    dataset = odc.stac.stac_load(
+        items,
+        bands=[COUNT_WET_BAND, COUNT_CLEAR_BAND],
+        geobox=geobox,
+        chunks={"x": 2048, "y": 2048},
+        resampling="nearest",
+    )
+    if "time" in dataset.dims:
+        return (
+            dataset[COUNT_WET_BAND].max("time"),
+            dataset[COUNT_CLEAR_BAND].max("time"),
+        )
+    return dataset[COUNT_WET_BAND], dataset[COUNT_CLEAR_BAND]
+
+
 def _search_wo_statistics_items(
     bbox: "Sequence[float]", *, product: str, stac_url: str,
 ) -> "tuple[list, str | None]":
@@ -857,12 +898,16 @@ def fetch_dea_stats_wet_aoi(
     close_m: float = 0.0,
     buffer_m: float = 0.0,
     cache_root: str | Path | None = None,
+    min_frequency_fraction: float | None = None,
+    require_year_union: bool = True,
     _loader=None,
+    _frequency_loader=None,
 ):
     """Build an ever-wet polygon for ``aoi_gdf`` over ``years``.
 
     Unions ``count_wet > 0`` from the all-time summary with each requested
-    year's annual summary, then vectorizes the result via
+    year's annual summary (unless ``require_year_union=False``), then
+    vectorizes the result via
     :func:`hydroseason._wet_aoi.wet_aoi_polygon` (the same vectoriser the
     local-counts path uses, so both wet-AOI sources produce identically
     shaped geometry).
@@ -900,6 +945,9 @@ def fetch_dea_stats_wet_aoi(
     if not years:
         raise DEAStatsUnavailable("no years requested")
 
+    if min_frequency_fraction is not None and not 0.0 <= min_frequency_fraction <= 1.0:
+        raise ValueError("min_frequency_fraction must be between 0 and 1.")
+
     crs_value = _crs_value(crs)
     target = aoi_gdf.to_crs(crs_value) if crs_value is not None else aoi_gdf
     # Vectorized at a coarser resolution than the caller's extraction
@@ -918,12 +966,15 @@ def fetch_dea_stats_wet_aoi(
     loader = _loader if _loader is not None else (
         lambda collection, year, gb: _load_count_wet(stac_url, collection, year, gb)
     )
+    frequency_loader = _frequency_loader if _frequency_loader is not None else (
+        lambda collection, year, gb: _load_count_wet_and_clear(stac_url, collection, year, gb)
+    )
 
     sources = [(DEA_STATS_ALLTIME_COLLECTION, None)]
-    sources.extend((DEA_STATS_ANNUAL_COLLECTION, year) for year in sorted(set(years)))
+    if require_year_union:
+        sources.extend((DEA_STATS_ANNUAL_COLLECTION, year) for year in sorted(set(years)))
 
     def _load_and_materialize(collection, year):
-        count_wet = loader(collection, year, geobox)
         # A source that resolves but is entirely zero contributes nothing;
         # that is fine as long as SOME source contributes. Computed eagerly,
         # inside the timeout, so a slow tile fetch on a large catchment is
@@ -932,7 +983,13 @@ def fetch_dea_stats_wet_aoi(
         # The comparison drops rioxarray's CRS/transform, which wet_aoi_polygon
         # needs downstream -- restore them from the source, exactly as the
         # local-counts path does in compute_ever_wet_from_counts.
-        wet = _preserve_georef(count_wet > 0, count_wet)
+        if min_frequency_fraction is None:
+            count_wet = loader(collection, year, geobox)
+            wet = _preserve_georef(count_wet > 0, count_wet)
+        else:
+            count_wet, count_clear = frequency_loader(collection, year, geobox)
+            frequency = count_wet / count_clear.where(count_clear > 0)
+            wet = _preserve_georef(frequency >= min_frequency_fraction, count_wet)
         return wet.load()
 
     union = None

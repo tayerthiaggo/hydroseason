@@ -330,13 +330,13 @@ def test_seasonal_regime_permits_per_year_boundaries():
     assert result.supports_fixed_window is True
 
 
-def test_seasonal_record_with_unstable_trough_does_not_permit_per_year_boundaries():
+def test_seasonal_record_with_unstable_trough_permits_per_year_boundaries():
     result = _calibrated_assessment(_stable_peak_unstable_trough_record())
-    assert result.supports_per_year_boundaries is False
-    assert result.supports_fixed_window is True
+    assert result.supports_per_year_boundaries is True
+    assert result.public_route == "per_year_detection"
 
 
-def test_marginal_regime_with_supported_boundaries_permits_fixed_window():
+def test_marginal_regime_with_supported_boundaries_permits_per_year_boundaries():
     dates = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
     vals = np.tile(cycle, 6)
@@ -346,9 +346,8 @@ def test_marginal_regime_with_supported_boundaries_permits_fixed_window():
     frame = pd.DataFrame({"extent_pct": vals, "invalid_pct": 0.0}, index=dates)
     result = assess_water_regime(frame, quality_policy="flag", n_bootstrap=100)
     assert result.regime == "seasonal"
-    assert result.supports_fixed_window is True
-    assert result.supports_per_year_boundaries is False
-    assert result.public_route == "fixed_climatological_window"
+    assert result.supports_per_year_boundaries is True
+    assert result.public_route == "per_year_detection"
 
 
 def test_aseasonal_regime_permits_neither():
@@ -445,27 +444,27 @@ def test_constant_nonzero_record_is_also_aseasonal():
     assert assessment.regime == "aseasonal"
 
 
-def test_stable_peak_with_unstable_trough_is_not_seasonal():
-    """Dynamic years anchor on troughs, so a stable peak alone is not enough."""
+def test_stable_peak_with_unstable_trough_permits_per_year_detection():
+    """Both seasonal and marginal records use dynamic per-year extrema detection."""
     assessment = _calibrated_assessment(_stable_peak_unstable_trough_record())
-
-    assert (
-        assessment.regime != "seasonal"
-        or not assessment.supports_per_year_boundaries
-    )
+    assert assessment.supports_per_year_boundaries is True
+    assert assessment.public_route == "per_year_detection"
 
 
 def test_clean_seasonal_record_is_seasonal():
     index = pd.date_range("2000-01-01", periods=12 * 15, freq="MS")
     angle = 2.0 * np.pi * (index.month - 1) / 12.0
     frame = pd.DataFrame(
-        {"extent_pct": 50.0 + 25.0 * np.cos(angle), "invalid_pct": 0.0},
+        {
+            "extent_pct": 10.0 + 5.0 * np.cos(angle),
+            "invalid_pct": 0.0,
+        },
         index=index,
     )
 
     assessment = _calibrated_assessment(frame)
-
     assert assessment.regime == "seasonal"
+    assert assessment.supports_per_year_boundaries is True
 
 
 def test_short_record_is_insufficient_under_calibrated_thresholds():
@@ -481,8 +480,8 @@ def test_short_record_is_insufficient_under_calibrated_thresholds():
     assert assessment.regime == "insufficient_record"
 
 
-def test_every_public_field_is_finite_or_none():
-    index = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+def test_zero_water_series_handles_zero_division_safely():
+    index = pd.date_range("2000-01-01", periods=12 * 15, freq="MS")
     frame = pd.DataFrame({"extent_pct": 0.0, "invalid_pct": 0.0}, index=index)
 
     assessment = _calibrated_assessment(frame)
@@ -497,7 +496,7 @@ def test_every_public_field_is_finite_or_none():
     "regime, expected",
     [
         ("seasonal", "per_year_detection"),
-        ("marginal", "event_characterisation"),
+        ("marginal", "per_year_detection"),
         ("aseasonal", "event_characterisation"),
         ("insufficient_record", "insufficient_record"),
     ],

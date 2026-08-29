@@ -188,26 +188,26 @@ def test_seasonal_routes_to_per_year_detection():
     assert "reproducible" in result.route_reason.lower()
 
 
-def test_seasonal_record_with_unstable_trough_routes_to_fixed_window():
+def test_seasonal_record_with_unstable_trough_routes_to_per_year_detection():
     result = _calibrated(_timing_route_record("unstable_trough"), n_bootstrap=40)
 
-    assert result.regime.supports_per_year_boundaries is False
-    assert result.regime.supports_fixed_window is True
-    assert result.route == "fixed_climatological_window"
-    assert (result.hydro_years["boundary_basis"] == "imposed_fixed_window").all()
+    assert result.regime.supports_per_year_boundaries is True
+    assert result.route == "per_year_detection"
+    assert (result.hydro_years["boundary_basis"] == "detected_per_year").all()
 
 
-def test_concentrated_nonuniform_marginal_routes_to_fixed_window():
+def test_concentrated_nonuniform_marginal_routes_to_per_year_detection():
     result = _calibrated(_timing_route_record("concentrated_nonuniform"), n_bootstrap=40)
 
-    assert result.route == "fixed_climatological_window"
-    assert (result.hydro_years["boundary_basis"] == "imposed_fixed_window").all()
+    assert result.route == "per_year_detection"
+    assert (result.hydro_years["boundary_basis"] == "detected_per_year").all()
 
 
-def test_diffuse_uniform_marginal_uses_event_characterisation():
+def test_diffuse_uniform_marginal_uses_per_year_detection():
     result = _calibrated(_diffuse_uniform_marginal_record(), n_bootstrap=40)
 
-    assert result.route == "event_characterisation"
+    assert result.route == "per_year_detection"
+    assert not result.hydro_years.empty
 
 
 def test_per_year_boundary_failure_falls_back_to_event_characterisation(monkeypatch):
@@ -248,7 +248,12 @@ def test_catchment_threads_existing_bootstrap_controls_to_regime_assessment():
     assert routed.regime.peak_timing_uniformity_p == direct.peak_timing_uniformity_p
 
 
-def test_marginal_routes_to_events_without_recoverable_boundaries():
+def test_marginal_routes_to_events_without_recoverable_boundaries(monkeypatch):
+    def fail(*args, **kwargs):
+        raise ValueError("dynamic detector rejected the record")
+
+    monkeypatch.setattr("hydroseason._catchment.analyze_hydrological_state", fail)
+
     result = _calibrated(_diffuse_uniform_marginal_record())
     assert result.route == "event_characterisation"
     assert result.hydro_years.empty

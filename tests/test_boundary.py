@@ -26,13 +26,27 @@ def test_peak_selector_flags_isolated_high_without_hiding_raw_maximum():
     assert peak.selection_status == "ambiguous"
 
 
-def test_peak_selector_keeps_high_invalid_observed_maximum_as_low_quality():
+def test_peak_selector_flags_low_quality_peak_without_inventing_date():
     index = pd.date_range("2020-01-01", periods=8, freq="MS")
     cycle = pd.DataFrame({
         "extent_pct": [2, 90, 10, 8, 6, 4, 3, 2],
         "invalid_pct": [0, 60, 0, 0, 0, 0, 0, 0],
         "candidate_usable": [True, False, True, True, True, True, True, True],
         "quality_state": ["usable", "low", "usable", "usable", "usable", "usable", "usable", "usable"],
+    }, index=index)
+    peak = select_cycle_peak(cycle, start=index[0], end=index[-1], noise_pp=1, amplitude_pp=87)
+    assert peak.raw_month == pd.Timestamp("2020-02-01")
+    assert peak.selected_month == peak.raw_month
+    assert peak.selection_status == "low_quality"
+
+
+def test_peak_selector_falls_back_to_low_quality_when_no_usable_candidates():
+    index = pd.date_range("2020-01-01", periods=8, freq="MS")
+    cycle = pd.DataFrame({
+        "extent_pct": [2, 90, 10, 8, 6, 4, 3, 2],
+        "invalid_pct": [60, 60, 60, 60, 60, 60, 60, 60],
+        "candidate_usable": [False] * 8,
+        "quality_state": ["low"] * 8,
     }, index=index)
     peak = select_cycle_peak(cycle, start=index[0], end=index[-1], noise_pp=1, amplitude_pp=87)
     assert peak.raw_month == pd.Timestamp("2020-02-01")

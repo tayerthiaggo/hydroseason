@@ -41,8 +41,8 @@ def _assert_rule_based_fixture(monthly: pd.DataFrame, config: DynamicHydroYearCo
         # month when it is still the genuine seasonal extreme (see
         # _boundary.py's candidacy rule), so phase_status may legitimately be
         # "unusable" at the anchor itself.
-        assert labels.loc[row.peak_month, "phase"] == "wet"
-        assert labels.loc[row.trough_month, "phase"] == "dry"
+        assert labels.loc[row.peak_month, "phase"] == "rising"
+        assert labels.loc[row.trough_month, "phase"] == "receding"
 
     partial = annual_phased.loc[
         annual_phased["status"].eq("partial")

@@ -310,14 +310,20 @@ def analyze_catchment(
             )
         years["boundary_basis"] = "detected_per_year"
         state = replace(state, hydro_years=years)
+        if regime.regime == "seasonal":
+            route_reason = (
+                f"seasonal record (SNR {regime.amplitude_snr:.2f}): "
+                "per-year dynamic boundaries are reproducible"
+            )
+        else:
+            route_reason = (
+                f"marginal record (SNR {regime.amplitude_snr:.2f}): "
+                "dynamic local extrema detected per year"
+            )
         return CatchmentAnalysis(
             regime=regime,
             route="per_year_detection",
-            route_reason=(
-                f"seasonal record (SNR {regime.amplitude_snr:.2f}, trough timing "
-                f"CI lower bound {regime.trough_timing_concentration_ci_low:.2f}): "
-                "per-year boundaries are reproducible"
-            ),
+            route_reason=route_reason,
             hydro_years=years,
             events=events,
             monthly=pd.DataFrame(),

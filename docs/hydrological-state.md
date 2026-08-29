@@ -32,17 +32,15 @@ Monthly phases are descriptive labels attached after annual cycle detection.
 They never alter `hydro_years`, annual condition baselines, peaks, troughs, or
 cycle boundaries. HydroSeason 0.2.0 provides three canonical phase schemes via `phase_scheme`:
 
-- `phase_scheme="two_phase"` (default): labels months inside complete cycles as `wet` or `dry`.
-- `phase_scheme="four_phase"` (opt-in): labels months inside complete cycles as `dry`, `recovery`, `wet`, and `recession`.
+- `phase_scheme="two_phase"` (default): labels months inside detected cycles as `rising` or `receding`.
+- `phase_scheme="four_phase"` is deprecated and maps to the same two-label output for compatibility.
 - `phase_scheme="none"`: disables phase labelling and returns `phase="unspecified"` with `phase_status="disabled"`.
 
 The four-phase scheme uses the month-specific Reference Median baseline, computed
 as the median of usable observations for each calendar month:
 
-- `recovery`: detected trough until the extent crosses the baseline while rising;
-- `wet`: baseline crossing through the peak until half the peak anomaly is lost;
-- `recession`: half-anomaly crossing until the extent falls back through baseline;
-- `dry`: below-baseline extent until the detected trough.
+- `rising`: the cycle start through the observed peak;
+- `receding`: the month after the peak through the observed trough.
 
 The half-anomaly threshold is `baseline(t) + 0.5 * (peak - baseline(peak))`;
 it is deliberately not half of the raw peak extent. The annual
@@ -57,13 +55,13 @@ positional phase label for continuity, but use `phase_status="unusable"` with
 lower confidence.
 
 The stable columns are `hy_year`, `phase`, `phase_status`,
-`phase_confidence`, `phase_method`, `boundary_basis`, `p_wet`,
-`p_recession`, `p_dry`, `p_recovery`, `extent_pct`, and
+`phase_confidence`, `phase_method`, `boundary_basis`, `p_rising`,
+`p_receding`, `extent_pct`, and
 `candidate_usable`. `monthly_condition` and `monthly_phase` are separate products:
 condition ranks historical wet/dry extremeness, while phase describes within
 cycle timing.
 
-Legacy parameter `phase_model` maps to `phase_scheme` with a deprecation warning (`rule_based` -> `two_phase`, `semi_markov` -> `four_phase`, `none` -> `none`). Legacy `phase_model` aliases are targeted for removal in 0.3.0. Phase selection cannot change regime, route, extrema, boundaries, events, or low spells.
+Legacy parameter `phase_model` maps to `phase_scheme` with a deprecation warning (`rule_based` and `cycle_relative` -> `two_phase`, `none` -> `none`). Legacy aliases are targeted for removal in 0.3.0. Phase selection cannot change regime, route, extrema, boundaries, events, or low spells.
 
 HydroSeason 0.2.0 also evaluates an experimental challenger model for harmonic evidence and boundary recoverability; this experimental challenger does not control public regime, route, extrema, or hydrological-year boundaries.
 
@@ -91,12 +89,6 @@ equivalent run so consecutive years' cycle lengths stay coherent. The released
 detector never shifts onto a materially higher month; any exact-tie shift is
 labelled `coherence_adjusted`, while the raw observed minimum remains
 separately auditable.
-
-A second, internal-only experimental engine (a four-state hidden semi-Markov
-model) exists purely as an unreleased research comparison for the
-promotion-gate harness (`tests/test_detector_comparison.py`); it is not
-selectable through `DynamicHydroYearConfig` or any public API and produces no
-released output.
 
 Rewetting pulses are still counted: `n_rewetting_pulses` records rises,
 adjacent in whole months after the peak, that later recede. Pulse counting no
@@ -141,11 +133,8 @@ Each year's trough opportunity carries diagnostics that separate what was
   retained, but forces the annual row to `status="partial"` and
   `boundary_status="provisional"`.
 - `detector` (a `DynamicHydroYearConfig` field, not an annual output column):
-  `"robust_extrema"` is the only publicly supported value, gated on real
-  Fitzroy and Gilbert River evidence; any other value is rejected at
-  construction. An internal-only semi-Markov challenger exists solely for the
-  experimental promotion-gate comparison harness and is never reachable
-  through this public field.
+  `"robust_extrema"` is the only supported value, gated on real Fitzroy and
+  Gilbert River evidence; any other value is rejected at construction.
 
 ```python
 config = DynamicHydroYearConfig(

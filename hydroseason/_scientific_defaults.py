@@ -6,7 +6,7 @@ from hydroseason._calibration import EvidenceThresholds, RecoverabilityThreshold
 from hydroseason._cycle_phase import PhaseThresholds
 
 CALIBRATION_VERSION = "0.2.0-audit.1"
-CALIBRATION_FINGERPRINT = "910f16b59091d79d909ca7d6608134a468a19194e51109e504d3c8f8852cfb48"
+CALIBRATION_FINGERPRINT = "8d32bc8cd7b4757b129eedb082d30c029dcbe59c66957f3c86d1ba96aa4ee3db"
 
 EVIDENCE_AUTHORITY_SCOPE = "experimental_challenger"
 RECOVERABILITY_AUTHORITY_SCOPE = "experimental_challenger"
