@@ -44,12 +44,19 @@ _RASTER_MODULES = {
     "h5netcdf": "raster",
     "h5py": "raster",
     "s3fs": "raster",
+    # Connected-component labelling for the recurrent-water screen: scipy on
+    # the in-memory path, dask_image on the dask path. Missing either one
+    # fails a real run, so probe both rather than reporting all-green.
+    "scipy": "raster",
+    "dask_image": "raster",
 }
 _STAC_MODULES = {
     "pystac": "stac",
     "pystac_client": "stac",
     "odc.stac": "stac",
     "tqdm": "stac",
+    # The batch scheduler's memory admission reads available RAM through it.
+    "psutil": "stac",
 }
 
 # What get_monthly_silo_rainfall actually needs: it imports s3fs and opens

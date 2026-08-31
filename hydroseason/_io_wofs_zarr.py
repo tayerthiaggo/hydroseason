@@ -1956,9 +1956,11 @@ def record_cache_analysis_mask(handle: WOfSCacheHandle, historical_mask) -> Cach
     import numpy as _np
     import zarr
 
-    from hydroseason._historical_water_mask import _long_path as _hwm_long_path
-    from hydroseason._historical_water_mask import _write_json_atomic as _hwm_write_json_atomic
-    from hydroseason._historical_water_mask import _zarr_store as _hwm_zarr_store
+    from hydroseason._historical_water_mask import (
+        _long_path as _hwm_long_path,
+        _write_json_atomic as _hwm_write_json_atomic,
+        _zarr_store as _hwm_zarr_store,
+    )
 
     store_path = Path(handle.path)
     final_dir = _analysis_mask_dir(store_path)
@@ -2019,8 +2021,10 @@ def _verify_analysis_mask_dir(artifact_dir: Path, *, expected_manifest: dict, ma
     import numpy as _np
     import zarr
 
-    from hydroseason._historical_water_mask import _mask_digest as _hwm_mask_digest
-    from hydroseason._historical_water_mask import _zarr_store as _hwm_zarr_store
+    from hydroseason._historical_water_mask import (
+        _mask_digest as _hwm_mask_digest,
+        _zarr_store as _hwm_zarr_store,
+    )
 
     expected_content_digest = expected_manifest.get("content_digest")
     if expected_content_digest is not None:

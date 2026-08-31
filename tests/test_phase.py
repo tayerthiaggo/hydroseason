@@ -17,8 +17,7 @@ from hydroseason.hydrological_state import analyze_hydrological_state
 
 PHASE_COLUMNS = [
     "hy_year", "phase", "phase_status", "phase_confidence", "phase_method",
-    "boundary_basis", "p_rising", "p_receding",
-    "extent_pct", "candidate_usable", "phase_stability",
+    "boundary_basis", "extent_pct", "candidate_usable",
 ]
 
 
@@ -273,22 +272,21 @@ def test_deprecated_four_phase_selector_uses_two_phase_labels(seasonal_frame):
     assert set(result.monthly_phase["phase"].dropna()) <= {"rising", "receding", "unspecified"}
 
 
-def test_phase_stability_column_is_present_and_appended_last(seasonal_frame):
+def test_no_four_phase_scores_are_exposed(seasonal_frame):
+    """Four-phase products are gone from the schema, not merely left empty.
+
+    `p_rising`/`p_receding`/`phase_stability` were only ever populated by the
+    cycle-relative labeller, which nothing dispatched to. They were declared,
+    always NaN, and silently dropped from every export. Asserting absence
+    stops them being reintroduced as columns that promise a product the
+    release does not compute.
+    """
     result = analyze_hydrological_state(
         seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
     )
 
-    assert "phase_stability" in result.monthly_phase.columns
-    assert result.monthly_phase.columns[-1] == "phase_stability"
-
-
-def test_two_phase_does_not_expose_four_phase_stability_scores(seasonal_frame):
-    result = analyze_hydrological_state(
-        seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
-    )
-    labelled = result.monthly_phase.loc[result.monthly_phase["phase"] != "unspecified"]
-
-    assert labelled["phase_stability"].isna().all()
+    for column in ("p_rising", "p_receding", "phase_stability"):
+        assert column not in result.monthly_phase.columns
 
 
 def test_legacy_rule_based_selector_uses_public_two_phase_labels(seasonal_frame):

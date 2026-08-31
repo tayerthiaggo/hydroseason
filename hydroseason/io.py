@@ -26,7 +26,6 @@ from hydroseason._io_dea_stats import (  # noqa: F401
 )
 from hydroseason._io_extent import complete_monthly_axis, load_extent_csv  # noqa: F401
 from hydroseason._io_extent_cache import load_wofs_monthly_extent  # noqa: F401
-from hydroseason._io_preflight_stats import open_annual_wo_statistics  # noqa: F401
 from hydroseason._io_geo import (  # noqa: F401
     AOIRasterizationError,
     GeoreferencingError,
@@ -59,6 +58,7 @@ from hydroseason._io_geo import (  # noqa: F401
     load_wofs_from_stac,
     mark_in_aoi_nodata_as_invalid,
 )
+from hydroseason._io_preflight_stats import open_annual_wo_statistics  # noqa: F401
 from hydroseason._io_resolution import (  # noqa: F401
     _DEFAULT_CANDIDATE_RES_M,
     _DEFAULT_RETENTION_THRESHOLD,

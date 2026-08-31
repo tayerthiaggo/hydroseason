@@ -5,29 +5,161 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
-- Restored conservative dynamic-year defaults (`trough_search_radius_months=3`,
-  `min_usable_months_per_cycle=8`) and added an anchored adaptive retry for
-  short interior cycles, so isolated six-month years can be classified without
-  widening neighbouring years or crossing data gaps.
-- Uncached untiled DEA extent reads now overlap independent calendar years with
-  two workers by default; `year_workers=1` retains serial execution.
-- Regular DEA runs now apply the existing WOfS feasibility preflight before
-  monthly acquisition. It screens recurrent water at `>=10%` frequency with
-  the established contiguous-cluster rule, and fails open if statistics are
-  unavailable rather than converting an outage into a no-water result.
-
-## [0.2.0] - 2026-08-21
+## [0.2.0] - 2026-08-31
 
 ### Added
+- **Preflight**: `preflight`, `PreflightResult`, `PreflightThresholds`,
+  `FeasibilityResult`, `PreflightProfileUnavailable`, and
+  `HydroSeasonPreflightError` report whether an AOI's record can support the
+  analysis before any monthly acquisition is paid for. Regular DEA runs apply
+  the WOfS recurrent-water screen automatically (`>=10%` frequency with the
+  established contiguous-cluster rule), hand the same Statistics read on as
+  the reusable maximum-water mask, and raise `HydroSeasonPreflightError` for
+  an AOI with no recurrent water. A Statistics outage never becomes a
+  no-water result: `run_hydroseason` warns and continues, and the standalone
+  `feasibility_only=True` path re-raises instead. The broader
+  detection-support decisions (`candidate`, `monthly`, `timing`) are
+  available under `thresholds="diagnostic"` or a caller-supplied
+  `PreflightThresholds`; `thresholds="default"` raises
+  `PreflightProfileUnavailable` because the reviewed profile is not
+  calibrated yet. Documented in
+  [Preflight](https://tayerthiaggo.github.io/hydroseason/preflight/).
+- `HistoricalMaskRefreshedWarning` is now re-exported from the top-level
+  package alongside `HistoricalMaskCoverageWarning`, so both mask-provenance
+  warnings can be filtered without importing `hydroseason.io`.
+- `hydroseason doctor` now probes `scipy` and `dask_image` (both required by
+  the recurrent-water screen) and `psutil` (the batch scheduler's memory
+  admission), so an incomplete raster/STAC install is reported before a run
+  fails on the missing import rather than after.
 - **Calibrated Scientific Defaults**: Frozen defaults for `EvidenceThresholds`, `RecoverabilityThresholds`, and `PhaseThresholds` derived from lexicographic optimization across 190,080 evidence grid points and 144 phase grid points over 5,000 synthetic calibration seeds (`10000..14999`).
 - **Untouched Validation Report**: Independent validation across 5,000 validation seeds (`20000..24999`) under frozen constants, documenting evidence confusion matrices, false annualisation rates with Wilson score intervals, stratified length performance, boundary recoverability MAE and coverage, phase macro-accuracy, and sensitivity matrices (`docs/calibration/2026-08-21-validation-report.json`).
 - **Calibration Pipeline and Gating**: `scripts/run_calibration.py` with multi-worker ProcessPool execution, SHA-256 parameter and generator fingerprinting, and automated staleness assertion in `tests/test_release_metadata.py`.
 - **Distribution Packaging**: Calibration and validation JSON reports bundled into Python wheel (`share/hydroseason/calibration/`) and source distributions (`docs/calibration/`).
 
 ### Changed
+- Restored conservative dynamic-year defaults (`trough_search_radius_months=3`,
+  `min_usable_months_per_cycle=8`) and added an anchored adaptive retry for
+  short interior cycles, so isolated six-month years can be classified without
+  widening neighbouring years or crossing data gaps.
+- Uncached untiled DEA extent reads now overlap independent calendar years with
+  two workers by default; `year_workers=1` retains serial execution.
 - `DynamicHydroYearConfig` and `assess_water_regime` now use calibrated `EVIDENCE_DEFAULTS`, `RECOVERABILITY_DEFAULTS`, and `PHASE_DEFAULTS` by default.
 - Removed legacy uncalibrated bridge and fallback classifications.
 - Clarified four distinct uncertainty concepts across documentation, stating that `seasonal_cv_skill` is post-selection cross-validation skill and distinguishing empirical benchmark error bounds from real-world field validation.
+
+### Fixed
+- `uv.lock` now records `scipy` and `dask-image`. Both were already declared
+  in the `raster` extra, but an environment installed from the lockfile
+  omitted them, so the recurrent-water screen failed with
+  `ModuleNotFoundError` at run time.
+- `import hydroseason` no longer imports `xarray` eagerly. It is resolved on
+  first use by the raster-backed monthly inputs that need it, which is the
+  only path that ever did.
+- Regenerated the checked case-study results, the documentation example
+  reports, and `notebooks/01_quickstart.ipynb` against the current detection
+  defaults and two-phase (`rising`/`receding`) vocabulary. The example
+  reports and the quickstart notebook's stored output still showed the
+  superseded `recovery`/`recession` labels.
+- **Calibration constants re-derived (`0.2.0-audit.1` -> `0.2.0-audit.2`).**
+  `4036213` restructured the calibration objective -- folding `_evidence` and
+  `_boundary_recoverability` into `_calibration.py` -- without re-running the
+  search, so `audit.1`'s constants and every metric printed beside them
+  described a superseded implementation. The recorded fingerprint was edited
+  by hand in both directions (`4036213` and `7e65985`) rather than
+  regenerated, which kept the staleness test quiet. Re-running the 5,000-seed
+  calibration partition on the current source moves two evidence thresholds:
+  `seasonal_cv_skill` `0.8` -> `0.3` and `periodicity_alpha` `0.1` -> `0.025`.
+  Recoverability and phase constants are unchanged. Released behaviour is
+  unaffected: evidence and recoverability are scoped
+  `experimental_challenger` and do not drive routing, the authoritative
+  `PHASE_DEFAULTS` did not move, and every checked case-study result is
+  byte-identical across the change. The validation report was regenerated
+  against the new constants. Its headline figures move materially, but only
+  some of that is the recalibration, and the two causes should not be
+  conflated:
+
+  *Changed by the new constants.* Every figure that flows through the
+  publish decision. False annualisation falls to `0.0` (20 events -> 0,
+  Wilson high `0.0108` -> `0.0013`), correct abstention rises slightly, and
+  per-year route coverage falls at every record length -- to zero below ten
+  years, where `min_timing_years=10` makes the challenger abstain outright.
+  The challenger now commits less often and is not wrong when it does.
+
+  *Not changed by the new constants.* Boundary recoverability
+  (within-one-month `0.837` -> `0.586`, MAE `0.78` -> `1.29` months, p90 `2`
+  -> `3`) and phase accuracy (`0.732` -> `0.719`). These are computed from
+  ground-truth boundary errors with no threshold in the path, and are
+  byte-identical when the same cache is evaluated under the old and new
+  constants. They did not regress; they had simply never been measured
+  against this implementation before. The old figures described the
+  pre-`4036213` code, so the two sets were never comparable -- visible in
+  `boundary_metrics.n` moving `29936` -> `30928`, which a fixed truth set
+  with cached errors cannot do.
+
+  No documentation quoted any of these values. The result reproduces
+  byte-for-byte across independent runs, and the evidence cache is identical
+  on Python 3.12 and 3.14, across processes, and under both the serial and
+  parallel build paths.
+- **`min_timing_years` shipped as 5, overriding the search's own answer of 10.**
+  The 190,080-point search reproducibly selects 10: `correct_abstention`
+  (favours a higher floor) is pruned before `min_timing_years` is ever
+  reached as a tie-break, so a higher floor keeps winning on the search's
+  own stated priority order. But a per-record-length sweep shows the floor
+  is a hard cliff at its own value with no effect above it -- 10 buys zero
+  coverage on 7-30 year records and removes all challenger coverage on 5-9
+  year records, while negative-control false annualisation is identical
+  (`0.0`) at 5, 7, and 10. `hydroseason/_regime.py`'s released
+  `_MIN_USABLE_YEARS=5` answers the same question for the path users
+  actually run; a challenger floor of 10 made the experimental second
+  opinion stricter than the tool it exists to check, for a benefit that
+  does not measurably exist above the floor it would remove. The search and
+  its objective are unchanged -- `select_evidence_defaults` still reports
+  10, recorded verbatim as `evidence_searched` in the calibration report --
+  and `_apply_min_timing_years_override` applies a documented, tested
+  override on top, recorded as `evidence_override` alongside the reasoning
+  and the false-annualisation comparison at both values. This is a policy
+  call about acceptable risk, not a correction to the search.
+- **Removed the unreachable four-phase labeller and its calibration.**
+  `assign_cycle_relative_phases` (dry/recovery/wet/recession, collapsed to
+  rising/receding) had no caller: `assign_monthly_phases` only ever
+  dispatched to `"none"` or `"two_phase"`, and `"four_phase"` has mapped to
+  `"two_phase"` with a deprecation warning since before this release. Its
+  removal also drops three declared-but-dead export columns
+  (`p_rising`, `p_receding`, `phase_stability` -- always NaN, silently
+  dropped by every CSV writer) and the `PHASE_DEFAULTS`/`PhaseThresholds`
+  calibration: a 144-point grid search, phase evidence cache, and
+  `phase_accuracy`/`phase_stability_calibration` validation metrics scoring a
+  path nothing could reach. `PHASE_AUTHORITY_SCOPE` was the calibration's only
+  `authoritative` scope; both remaining groups (evidence, recoverability) are
+  `experimental_challenger`. Released phase labelling is unaffected: two-phase
+  `rising`/`receding`, split at the observed peak, is unchanged, and it never
+  depended on calibrated constants. Confirmed on a freshly generated report:
+  rising/receding remain in the chart traces, legend, table filter, CSV, and
+  embedded payload exactly as before.
+- **Calibration selector picked from the unpruned candidate set.**
+  `select_evidence_defaults` narrowed a `survivors` array through fifteen
+  lexicographic pruning stages, then took its answer by sorting
+  `candidate_indices` -- still the whole stage-1 set. Every pruning stage was
+  dead work, and the counts published as `selection_survivors` described a set
+  the selection never used. The stages are not equivalent to the sort:
+  `_retain_metric` retains points within `np.isclose` of each stage optimum,
+  so a candidate whose routing recall is worse only by float noise stays
+  eligible and can win on the next metric, whereas sorting the unpruned set
+  applies exact ordering and lets that noise decide the outcome. The pick now
+  comes from `survivors`, the surviving count is recorded as
+  `final_survivors` rather than asserted, and a regression test requires the
+  recorded stages to narrow monotonically. On the shipped cache the corrected
+  selector reproduces the same constants.
+- The calibration staleness fingerprint no longer hashes the interpreter and
+  NumPy/pandas versions. Doing so made it environment-specific, so
+  `test_fingerprint_is_current` and `test_calibration_report_is_not_stale`
+  could hold on at most one row of a CI matrix spanning Python 3.10-3.13 plus
+  the pinned minimum-dependency floor. Those versions are now recorded as
+  provenance instead -- `CALIBRATION_ENVIRONMENT` in the generated defaults
+  module and `environment` in the calibration report -- and the fingerprint
+  tracks only the generator, grids, objectives, seed manifest, and selected
+  constants. The shipped constants are unchanged; the recorded fingerprint
+  value changes because the scheme did.
 
 ### Removed
 - Removed the internal-only semi-Markov boundary challenger and promotion-gate

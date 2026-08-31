@@ -77,6 +77,12 @@ result = run_hydroseason(
 )
 ```
 
+Before any monthly data is fetched, one all-time WOfS Statistics read screens
+the AOI for recurrent surface water. An AOI with none raises
+`HydroSeasonPreflightError` rather than returning an empty analysis; a
+Statistics outage warns and continues instead of being read as "no water".
+See [Preflight](preflight.md).
+
 This resolves the fixed historical water mask and separate planning
 superset described in [Advanced: DEA acquisition internals](#advanced-dea-acquisition-internals)
 below. Regime, hydrological-year, phase, wet-event, and low-spell logic

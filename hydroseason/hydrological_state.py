@@ -1,3 +1,17 @@
+"""Dynamic hydrological state: data-driven years, phases, and conditions.
+
+The public face of the dynamic route. Where
+:mod:`hydroseason.hydro_year` fixes a calendar-anchored hydrological year,
+this module derives each cycle's boundaries from the observed extent record
+itself, then labels months by cycle-relative phase and classifies each year's
+surface-water condition against the record's own history.
+
+:func:`analyze_hydrological_state` is the one call that runs the whole chain
+(seasonality classification, dynamic year detection, phase assignment,
+condition classification); the individual steps are re-exported for callers
+that need only one of them. See the
+`Dynamic Hydrological State guide <https://tayerthiaggo.github.io/hydroseason/hydrological-state/>`_.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass

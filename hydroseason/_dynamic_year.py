@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from numbers import Integral
 from typing import Literal
 
 import numpy as np
@@ -22,7 +21,6 @@ from ._phase_scheme import (
     UnsetPhaseScheme,
     resolve_phase_scheme,
 )
-from ._scientific_defaults import PHASE_DEFAULTS
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
@@ -60,10 +58,6 @@ class DynamicHydroYearConfig:
     detector: Literal["robust_extrema"] = "robust_extrema"
     phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET
     phase_model: LegacyPhaseModel | None = None
-    phase_low_fraction: float = PHASE_DEFAULTS.phase_low_fraction
-    phase_high_fraction: float = PHASE_DEFAULTS.phase_high_fraction
-    phase_min_duration_months: int = PHASE_DEFAULTS.phase_min_duration_months
-    phase_smoothing_window: int = PHASE_DEFAULTS.phase_smoothing_window
 
     def __post_init__(self) -> None:
         canonical = resolve_phase_scheme(
@@ -93,28 +87,6 @@ class DynamicHydroYearConfig:
             raise ValueError("measurement_tolerance_pct must be non-negative.")
         if self.detector != "robust_extrema":
             raise ValueError("detector must be 'robust_extrema'.")
-        fractions = (self.phase_low_fraction, self.phase_high_fraction)
-        if not all(np.isfinite(value) for value in fractions) or not (
-            0.0 <= self.phase_low_fraction < self.phase_high_fraction <= 1.0
-        ):
-            raise ValueError(
-                "phase band fractions must satisfy 0 <= phase_low_fraction "
-                "< phase_high_fraction <= 1"
-            )
-        if (
-            isinstance(self.phase_min_duration_months, bool)
-            or not isinstance(self.phase_min_duration_months, Integral)
-            or self.phase_min_duration_months < 1
-        ):
-            raise ValueError("phase_min_duration_months must be at least 1")
-        if (
-            isinstance(self.phase_smoothing_window, bool)
-            or not isinstance(self.phase_smoothing_window, Integral)
-            or self.phase_smoothing_window < 1
-            or self.phase_smoothing_window % 2 == 0
-        ):
-            raise ValueError("phase_smoothing_window must be an odd positive integer")
-
         if self.sustained_rise_months is not None or self.pulse_rejection_window_months is not None:
             warnings.warn(
                 "recovery-window fields (sustained_rise_months, pulse_rejection_window_months) "

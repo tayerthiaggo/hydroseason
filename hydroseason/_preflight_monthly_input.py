@@ -23,10 +23,26 @@ from .io import (
     open_completed_mask_cache,
 )
 
-try:  # pragma: no cover - optional dependency boundary
-    import xarray as xr
-except ImportError:  # pragma: no cover - exercised in callers that skip raster tests
-    xr = None
+_XARRAY_UNRESOLVED = object()
+_xarray_module: Any = _XARRAY_UNRESOLVED
+
+
+def _xarray() -> Any:
+    """Return ``xarray``, or ``None`` when the raster extra is absent.
+
+    Imported on first use rather than at module import: ``xarray`` costs
+    roughly a quarter-second and reaches every ``import hydroseason``, while
+    only the raster-backed monthly inputs below ever need it.
+    """
+    global _xarray_module
+    if _xarray_module is _XARRAY_UNRESOLVED:
+        try:
+            import xarray
+        except ImportError:
+            _xarray_module = None
+        else:
+            _xarray_module = xarray
+    return _xarray_module
 
 try:  # pragma: no cover - optional dependency boundary
     from ._io_geo import _resolve_aoi_inside_mask, _resolve_raster_crs
@@ -132,11 +148,6 @@ def _inherit_dataset_georef(template, dataset):
     except Exception:
         pass
     return template
-
-
-def _prepare_extent_frame(frame: pd.DataFrame, months: pd.DatetimeIndex) -> pd.DataFrame:
-    normalized = _canonical_frame(frame, months)
-    return prepare_monthly_extent(normalized)
 
 
 def _fallback_inside_mask(template, aoi_gdf):
@@ -275,7 +286,7 @@ def _raw_count_to_record(dataset, *, aoi, start_date: str, end_date: str, store_
     missing = [name for name in _RAW_COUNT_VARIABLES if name not in dataset]
     if missing:
         raise ValueError(f"Raw-count monthly input requires variables {missing}.")
-    if xr is None or _resolve_aoi_inside_mask is None:
+    if _xarray() is None or _resolve_aoi_inside_mask is None:
         raise ImportError("Raw-count monthly inputs require the raster extra.")
     months = _month_window(start_date, end_date)
     raw = dataset[list(_RAW_COUNT_VARIABLES)].copy()
@@ -349,7 +360,7 @@ def _raw_count_to_record(dataset, *, aoi, start_date: str, end_date: str, store_
             for name in _RAW_COUNT_VARIABLES
         },
     }
-    if xr is None:
+    if _xarray() is None:
         raise ImportError("Raw-count monthly inputs require the raster extra.")
     detectable_mask = (clear_water > 0) & inside
     source_identity = {
@@ -431,6 +442,7 @@ def normalize_monthly_observations(
         path = Path(observations)
         if path.suffix.casefold() != ".zarr":
             raise ValueError("Monthly observation paths must currently point to a .zarr store.")
+        xr = _xarray()
         if xr is None:
             raise ImportError("Zarr monthly inputs require the raster extra.")
         opened = xr.open_zarr(path, chunks={}, mask_and_scale=False)
@@ -445,6 +457,7 @@ def normalize_monthly_observations(
         finally:
             opened.close()
 
+    xr = _xarray()
     if xr is None:
         raise TypeError("Monthly observations require pandas or the raster extra.")
 

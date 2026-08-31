@@ -20,13 +20,13 @@ from shapely.geometry import box  # noqa: E402
 from hydroseason._historical_water_mask import (  # noqa: E402
     HistoricalWaterMask,
     HistoricalWaterMaskRequest,
+    _aoi_digest as _historical_aoi_digest,  # noqa: E402
     _zarr_store,
     build_historical_water_mask,
     load_or_build_historical_water_mask,
     read_historical_water_mask,
     write_historical_water_mask,
 )
-from hydroseason._historical_water_mask import _aoi_digest as _historical_aoi_digest  # noqa: E402
 from hydroseason._io_dea_stats import (  # noqa: E402  # noqa: E402
     DEA_STATS_ALLTIME_COLLECTION,
     DEA_STATS_ANNUAL_COLLECTION,

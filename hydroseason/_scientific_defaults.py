@@ -3,24 +3,23 @@
 from __future__ import annotations
 
 from hydroseason._calibration import EvidenceThresholds, RecoverabilityThresholds
-from hydroseason._cycle_phase import PhaseThresholds
 
-CALIBRATION_VERSION = "0.2.0-audit.1"
-CALIBRATION_FINGERPRINT = "8d32bc8cd7b4757b129eedb082d30c029dcbe59c66957f3c86d1ba96aa4ee3db"
+CALIBRATION_VERSION = "0.2.0-audit.2"
+CALIBRATION_FINGERPRINT = "d98a4e55bb549836a3b3d1e6896362342b99583eed61e928926c40b4957bebb2"
+CALIBRATION_ENVIRONMENT = {'python': '3.12.13', 'numpy': '2.4.6', 'pandas': '3.0.3'}
 
 EVIDENCE_AUTHORITY_SCOPE = "experimental_challenger"
 RECOVERABILITY_AUTHORITY_SCOPE = "experimental_challenger"
-PHASE_AUTHORITY_SCOPE = "authoritative_for_four_phase_labels_only"
 
 EVIDENCE_DEFAULTS = EvidenceThresholds(
-    seasonal_cv_skill=0.8,
-    periodicity_alpha=0.1,
+    seasonal_cv_skill=0.3,
+    periodicity_alpha=0.025,
     amplitude_noise_ratio=2.0,
     mode_min_frequency=0.5,
     mode_min_separation_months=2,
     strong_timing_concentration=0.8,
     weak_timing_concentration=0.5,
-    min_timing_years=10,
+    min_timing_years=5,
 )
 
 RECOVERABILITY_DEFAULTS = RecoverabilityThresholds(
@@ -30,11 +29,4 @@ RECOVERABILITY_DEFAULTS = RecoverabilityThresholds(
     within_1_month_wilson_floor=0.3,
     max_p90_error_months=2.0,
     admit_insufficient_drift=True,
-)
-
-PHASE_DEFAULTS = PhaseThresholds(
-    phase_low_fraction=0.25,
-    phase_high_fraction=0.8,
-    phase_min_duration_months=1,
-    phase_smoothing_window=3,
 )

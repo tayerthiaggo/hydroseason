@@ -30,22 +30,20 @@ Pass `DynamicHydroYearConfig(expected_trough_month=...)` when local knowledge sh
 
 Monthly phases are descriptive labels attached after annual cycle detection.
 They never alter `hydro_years`, annual condition baselines, peaks, troughs, or
-cycle boundaries. HydroSeason 0.2.0 provides three canonical phase schemes via `phase_scheme`:
+cycle boundaries. HydroSeason 0.2.0 provides two phase schemes via `phase_scheme`:
 
 - `phase_scheme="two_phase"` (default): labels months inside detected cycles as `rising` or `receding`.
-- `phase_scheme="four_phase"` is deprecated and maps to the same two-label output for compatibility.
 - `phase_scheme="none"`: disables phase labelling and returns `phase="unspecified"` with `phase_status="disabled"`.
+- `phase_scheme="four_phase"` is a deprecated alias accepted for compatibility; it produces the same two labels.
 
-The four-phase scheme uses the month-specific Reference Median baseline, computed
-as the median of usable observations for each calendar month:
+Each detected cycle is split at its observed peak:
 
 - `rising`: the cycle start through the observed peak;
 - `receding`: the month after the peak through the observed trough.
 
-The half-anomaly threshold is `baseline(t) + 0.5 * (peak - baseline(peak))`;
-it is deliberately not half of the raw peak extent. The annual
-`half_loss_month` field remains the separate peak-to-trough diagnostic. These
-are descriptive surface-water phases, not discharge or baseflow separation.
+The annual `half_loss_month` field remains the separate peak-to-trough
+diagnostic. These are descriptive surface-water phases, not discharge or
+baseflow separation.
 
 Labels are anchored to the selected robust trough boundaries and `peak_month`;
 months outside complete cycles remain
@@ -55,8 +53,7 @@ positional phase label for continuity, but use `phase_status="unusable"` with
 lower confidence.
 
 The stable columns are `hy_year`, `phase`, `phase_status`,
-`phase_confidence`, `phase_method`, `boundary_basis`, `p_rising`,
-`p_receding`, `extent_pct`, and
+`phase_confidence`, `phase_method`, `boundary_basis`, `extent_pct`, and
 `candidate_usable`. `monthly_condition` and `monthly_phase` are separate products:
 condition ranks historical wet/dry extremeness, while phase describes within
 cycle timing.

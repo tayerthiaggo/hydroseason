@@ -1,9 +1,35 @@
+"""Decide whether an AOI's satellite record can support the analysis at all.
+
+Two questions live here, deliberately kept apart because they have different
+answer shapes and different maturity:
+
+**Is there any recurrent surface water?** :func:`run_regular_preflight` (and
+:func:`preflight` with ``feasibility_only=True``) answers this from one
+all-time DEA WOfS Statistics read using fixed constants -- recurrent water at
+``>=10%`` frequency, subject to a contiguous-cluster rule -- and returns a
+:class:`~hydroseason._preflight_feasibility.FeasibilityResult`. This is the
+screen ``run_hydroseason`` applies automatically before monthly acquisition;
+a rejection surfaces as :class:`~hydroseason.workflow.HydroSeasonPreflightError`.
+A Statistics outage never converts into a "no water" answer: the workflow
+warns and continues, and the standalone feasibility path re-raises.
+
+**Is the record dense and long enough for per-year detection?**
+:func:`preflight` answers this and returns a
+:class:`~hydroseason._preflight_types.PreflightResult` carrying separate
+candidate, monthly, and timing decisions. Its threshold profile is *not yet
+calibrated*: ``thresholds="default"`` raises
+:class:`PreflightProfileUnavailable` rather than guessing. Until that profile
+is frozen, use ``thresholds="diagnostic"`` to obtain the measured metrics
+without any pass/fail gating, or supply your own
+:class:`~hydroseason._preflight_types.PreflightThresholds`.
+"""
 from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
 from typing import Any, Mapping
 
+from ._historical_water_mask import HistoricalWaterMask
 from ._io_dea_stats import (
     COUNT_CLEAR_BAND,
     COUNT_WET_BAND,
@@ -11,7 +37,6 @@ from ._io_dea_stats import (
     DEFAULT_WO_STATISTICS_PRODUCT,
     DEFAULT_WO_STATISTICS_STAC_URL,
 )
-from ._historical_water_mask import HistoricalWaterMask
 from ._io_preflight_stats import AnnualStatisticsUnavailable, open_annual_wo_statistics
 from ._preflight_candidate import compute_candidate_raw_metrics, evaluate_candidate
 from ._preflight_feasibility import FeasibilityResult, assess_feasibility
@@ -247,6 +272,90 @@ def preflight(
     quality_policy: QualityPolicy = "flag",
     allow_unknown_quality: bool = False,
 ) -> PreflightResult | FeasibilityResult:
+    """Report what an AOI's satellite record can support, before analysing it.
+
+    Reads DEA WOfS Statistics for ``aoi`` over ``start_date``..``end_date`` and
+    reports whether the record can support annual detection -- without running
+    the analysis and without ever answering "no water" from a data outage.
+
+    Parameters
+    ----------
+    aoi : str, pathlib.Path or geopandas.GeoDataFrame
+        Area of interest, in any CRS; reprojected to ``crs`` internally.
+    start_date, end_date : str
+        Inclusive analysis window, ``"YYYY-MM-DD"``.
+    monthly_observations : optional
+        An already-resolved monthly record -- DataFrame, ``xarray``
+        DataArray/Dataset, ``WOfSCacheHandle``, or a ``.zarr`` path -- used for
+        the monthly and timing decisions. Without it those decisions are
+        ``"not_assessed"``; the candidate decision still runs.
+    thresholds : {"default", "diagnostic"} or PreflightThresholds, default "default"
+        Cut-off profile. ``"default"`` raises
+        :class:`PreflightProfileUnavailable` because the reviewed profile is
+        not installed yet; ``"diagnostic"`` measures every metric with all
+        cut-offs at zero, so nothing is gated and the numbers can be inspected
+        on their own; a :class:`~hydroseason._preflight_types.PreflightThresholds`
+        instance applies your own declared cut-offs.
+    feasibility_only : bool, default False
+        Run only the fixed-constant recurrent-water screen and return a
+        :class:`~hydroseason._preflight_feasibility.FeasibilityResult`. This
+        path ignores ``thresholds`` entirely, so it works today, and it
+        re-raises a Statistics outage rather than reporting no water.
+    stac_url, statistics_product, resolution, crs, chunks, cache_dir
+        DEA Statistics access: endpoint, collection, target resolution in
+        metres, working CRS, dask chunking, and an optional cache directory.
+    prune_to_wet_aoi, wet_aoi_min_frequency_fraction, wet_aoi_require_year_union
+        Restrict the read to the wet footprint. ``wet_aoi_require_year_union``
+        defaults to ``False`` here -- unlike monthly acquisition, which keeps
+        the per-year mask-union safety net -- because it costs the bulk of a
+        large catchment's preflight runtime and a preflight decision is not a
+        forensic record.
+    max_invalid_pct, quality_policy, allow_unknown_quality
+        How the monthly record's per-month quality is screened before the
+        monthly and timing decisions are taken.
+
+    Returns
+    -------
+    PreflightResult or FeasibilityResult
+        A :class:`~hydroseason._preflight_feasibility.FeasibilityResult` when
+        ``feasibility_only=True``, otherwise a
+        :class:`~hydroseason._preflight_types.PreflightResult`.
+
+    Raises
+    ------
+    PreflightProfileUnavailable
+        ``thresholds="default"`` was requested before the reviewed profile
+        was installed.
+    TypeError
+        ``thresholds`` was neither a recognised mode nor a
+        :class:`~hydroseason._preflight_types.PreflightThresholds`.
+
+    Notes
+    -----
+    Outside ``feasibility_only``, an unreachable or unusable Statistics source
+    never becomes a negative answer: the affected decisions become
+    ``"not_assessed"`` and the cause is recorded in ``result.warnings``.
+
+    Examples
+    --------
+    Screen an AOI for recurrent water before committing to acquisition::
+
+        from hydroseason import preflight
+
+        feasibility = preflight(
+            "catchment.geojson", "2005-01-01", "2025-12-01",
+            feasibility_only=True,
+        )
+        print(feasibility.feasible, feasibility.reason)
+
+    Measure detection support without gating it::
+
+        result = preflight(
+            "catchment.geojson", "2005-01-01", "2025-12-01",
+            thresholds="diagnostic",
+        )
+        print(result.summary())
+    """
     # feasibility_only never reads resolved_thresholds/diagnostic_mode: it runs
     # only the fixed-constant recurrent-water filter and skips candidate/
     # monthly evaluation entirely, so resolving (and possibly rejecting) a
@@ -442,4 +551,9 @@ def preflight(
     )
 
 
-__all__ = ["preflight", "run_regular_preflight", "RegularWorkflowPreflight"]
+__all__ = [
+    "preflight",
+    "run_regular_preflight",
+    "RegularWorkflowPreflight",
+    "PreflightProfileUnavailable",
+]

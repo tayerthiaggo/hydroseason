@@ -8,24 +8,18 @@ import pytest
 
 from hydroseason._calibration import (
     EVIDENCE_GRID,
-    PHASE_GRID,
+    MIN_TIMING_YEARS_OVERRIDE,
     EvidenceThresholds,
-    PhaseCycleStatistics,
     RecordStatistics,
     RecoverabilityThresholds,
+    _apply_min_timing_years_override,
     build_evidence_cache,
-    build_phase_cache,
-    build_validation_report,
-    compute_phase_statistics,
     compute_statistics,
     evaluate_evidence_cache,
     iter_evidence_points,
     score_evidence_grid_point,
-    score_phase_grid_point,
     select_evidence_defaults,
-    select_phase_defaults,
 )
-from hydroseason._cycle_phase import PhaseThresholds
 from hydroseason._synthetic import generate_record
 from scripts.run_calibration import _drift_axis_rates, run_calibration, run_validation
 
@@ -133,30 +127,8 @@ def test_flatline_record_reports_amplitude_at_or_below_floor():
     assert stats.amplitude_noise_ratio == 0.0
 
 
-def test_phase_cache_contains_geometry_residuals_boundaries_and_truth():
-    record = generate_record(10166, partition="calibration")
-    cycles = compute_phase_statistics(record)
-
-    assert cycles
-    assert all(isinstance(cycle, PhaseCycleStatistics) for cycle in cycles)
-    for cycle in cycles:
-        assert cycle.normalised_z.shape == cycle.true_phase.shape
-        assert len(cycle.noise_residuals) > 0
-        assert cycle.start_extent_candidates
-        assert cycle.end_extent_candidates
 
 
-def test_tied_low_phase_cache_preserves_multiple_boundary_choices():
-    record = generate_record(10012, partition="calibration")
-    assert record.family == "tied_low_plateau"
-
-    cycles = compute_phase_statistics(record)
-
-    assert any(
-        len(cycle.start_extent_candidates) > 1
-        or len(cycle.end_extent_candidates) > 1
-        for cycle in cycles
-    )
 
 
 def test_boundary_cache_requires_nine_candidate_usable_months():
@@ -171,42 +143,12 @@ def test_boundary_cache_requires_nine_candidate_usable_months():
     assert stats.n_evaluable_years == record.truth.n_years
 
 
-def test_phase_cache_excludes_records_without_phase_truth():
-    record = generate_record(10000, partition="calibration")
-    assert not record.truth.is_annual
-    assert compute_phase_statistics(record) == ()
 
 
-def test_phase_cache_uses_true_trough_to_trough_cycles():
-    record = generate_record(10166, partition="calibration")
-
-    cycles = compute_phase_statistics(record)
-
-    assert record.family == "unimodal_symmetric"
-    assert record.scenario.timing_jitter_months == 0
-    assert len(cycles) == record.truth.n_years - 1
-    assert cycles[0].cycle_frame.index[0] == pd.Timestamp("1990-09-01")
-    assert cycles[0].cycle_frame.index[-1] == pd.Timestamp("1991-08-01")
 
 
-def test_phase_cache_tracks_jittered_truth_boundaries():
-    record = generate_record(10047, partition="calibration")
-
-    cycles = compute_phase_statistics(record)
-    first_trough, second_trough = record.truth.trough_month_by_year[:2]
-
-    assert cycles[0].cycle_frame.index[0] == pd.Timestamp(
-        year=1990, month=first_trough, day=1
-    ) + pd.DateOffset(months=1)
-    assert cycles[0].cycle_frame.index[-1] == pd.Timestamp(
-        year=1991, month=second_trough, day=1
-    )
 
 
-def test_evidence_and_phase_cache_schemas_are_distinct(cal_evidence_cache_fast, cal_phase_cache_fast):
-    assert "seasonal_cv_skill" in cal_evidence_cache_fast.columns
-    assert cal_phase_cache_fast and isinstance(cal_phase_cache_fast[0], PhaseCycleStatistics)
-    assert not hasattr(cal_phase_cache_fast[0], "seasonal_cv_skill")
 
 
 def test_grid_matches_the_committed_specification():
@@ -221,11 +163,6 @@ def test_grid_matches_the_committed_specification():
     assert EVIDENCE_GRID["admit_insufficient_drift"] == [False, True]
 
 
-def test_phase_grid_matches_the_committed_specification():
-    assert PHASE_GRID["phase_low_fraction"] == pytest.approx([0.10, 0.20, 0.25, 0.30])
-    assert PHASE_GRID["phase_high_fraction"] == pytest.approx([0.60, 0.70, 0.75, 0.80])
-    assert PHASE_GRID["phase_min_duration_months"] == [1, 2, 3]
-    assert PHASE_GRID["phase_smoothing_window"] == [1, 3, 5]
 
 
 def test_valid_evidence_grid_has_exact_cardinality():
@@ -322,68 +259,6 @@ def test_calibration_drift_axis_rates_are_rerun_not_copied():
     assert rates == {"reject": 0.0, "admit": 1.0}
 
 
-def test_validation_report_metrics_are_derived_from_cache_values():
-    cache = _tiny_gate_cache()
-    evidence = EvidenceThresholds(
-        seasonal_cv_skill=0.3,
-        periodicity_alpha=0.05,
-        amplitude_noise_ratio=1.0,
-        mode_min_frequency=0.50,
-        mode_min_separation_months=2,
-        strong_timing_concentration=0.70,
-        weak_timing_concentration=0.40,
-        min_timing_years=7,
-    )
-    recoverability = RecoverabilityThresholds(
-        min_years=5,
-        min_coverage=0.80,
-        min_within_1_month=0.80,
-        within_1_month_wilson_floor=0.50,
-        max_p90_error_months=2.0,
-        admit_insufficient_drift=True,
-    )
-    runtime = {
-        "validation_wall_seconds": 12.5,
-        "peak_traced_memory_mb": 3.25,
-        "relative_to_0_1_1": {"runtime_ratio": 1.4, "memory_ratio": 1.1},
-    }
-
-    report = build_validation_report(
-        cache,
-        phase_cache=compute_phase_statistics(
-            generate_record(10166, partition="calibration")
-        )[:1],
-        seeds=[20000, 20001],
-        calibration_version="test",
-        calibration_fingerprint="abc",
-        evidence_thresholds=evidence,
-        recoverability_thresholds=recoverability,
-        phase_thresholds=PhaseThresholds(
-            phase_low_fraction=0.2,
-            phase_high_fraction=0.8,
-            phase_min_duration_months=1,
-            phase_smoothing_window=3,
-        ),
-        runtime_metrics=runtime,
-        quality_policy_sensitivity={"flag": 1.0, "drop": 0.5},
-        phase_stability_replicates=20,
-        phase_stability_max_cycles=1,
-    )
-
-    assert report["false_annualisation"]["rate"] == 1.0
-    assert report["drift_axis"] == {"reject": 0.0, "admit": 1.0}
-    assert report["boundary_metrics"]["n"] == 5
-    assert report["boundary_metrics"]["within_1_month"] == 0.6
-    assert report["boundary_metrics"]["bias"] == 0.0
-    assert report["boundary_metrics"]["mae"] == 1.2
-    assert report["boundary_metrics"]["p90"] == 2.0
-    assert report["runtime"] == runtime
-    assert report["phase_stability_calibration"]["n_cycles"] == 1
-    assert report["phase_stability_calibration"]["bins"]
-    assert report["sensitivity"]["quality_policy"] == {
-        "flag": 1.0,
-        "drop": 0.5,
-    }
 
 
 def test_run_validation_executes_report_builder_on_real_small_partition(tmp_path):
@@ -394,8 +269,6 @@ def test_run_validation_executes_report_builder_on_real_small_partition(tmp_path
         out_report=output,
         workers=1,
         sensitivity_limit=2,
-        phase_stability_replicates=20,
-        phase_stability_max_cycles=1,
     )
 
     payload = json.loads(output.read_text(encoding="utf-8"))
@@ -403,7 +276,6 @@ def test_run_validation_executes_report_builder_on_real_small_partition(tmp_path
     assert payload["runtime"]["validation_wall_seconds"] > 0.0
     assert payload["runtime"]["records"] == 2
     assert payload["runtime"]["relative_to_0_1_1"]["status"] == "not comparable"
-    assert payload["phase_stability_calibration"]["n_cycles"] <= 1
 
 
 def test_run_calibration_reports_measured_workflow_and_drift_axes(tmp_path):
@@ -465,9 +337,6 @@ def cal_evidence_cache_fast() -> pd.DataFrame:
     return build_evidence_cache(range(10000, 10020), partition="calibration")
 
 
-@pytest.fixture(scope="module")
-def cal_phase_cache_fast() -> tuple[PhaseCycleStatistics, ...]:
-    return build_phase_cache(range(10000, 10010), partition="calibration")
 
 
 @pytest.fixture(scope="module")
@@ -475,19 +344,93 @@ def cal_selected_evidence(cal_evidence_cache_fast):
     return select_evidence_defaults(cal_evidence_cache_fast)
 
 
-@pytest.fixture(scope="module")
-def cal_selected_phase(cal_phase_cache_fast):
-    return select_phase_defaults(cal_phase_cache_fast)
 
 
-def test_selection_is_deterministic(cal_evidence_cache_fast, cal_phase_cache_fast):
+def test_min_timing_years_override_ships_five_and_records_why(cal_evidence_cache_fast):
+    """The search's own answer (10) is recorded, not silently replaced.
+
+    `min_timing_years=10` reproducibly wins the search because
+    `correct_abstention` is pruned before this axis is ever consulted as a
+    tie-break -- but that floor removes challenger coverage on records
+    shorter than itself with no measurable false-annualisation benefit
+    above it, and it makes the challenger stricter than the released
+    `_MIN_USABLE_YEARS=5` floor it is meant to second-guess (see
+    `_apply_min_timing_years_override`'s docstring for the full argument).
+    Shipping 5 is a stated policy override on top of the search, not a
+    change to the search itself: both values must remain visible.
+    """
+    searched, _, _ = select_evidence_defaults(cal_evidence_cache_fast)
+
+    shipped, note = _apply_min_timing_years_override(searched, cal_evidence_cache_fast)
+
+    assert shipped.min_timing_years == MIN_TIMING_YEARS_OVERRIDE
+    assert note is not None
+    assert note["searched_value"] == searched.min_timing_years
+    assert note["shipped_value"] == MIN_TIMING_YEARS_OVERRIDE
+    # every other field is untouched by the override
+    assert replace(shipped, min_timing_years=searched.min_timing_years) == searched
+
+
+def test_min_timing_years_override_is_a_noop_if_search_ever_agrees(cal_evidence_cache_fast):
+    """If a future search independently selects 5, nothing is overridden."""
+    searched, _, _ = select_evidence_defaults(cal_evidence_cache_fast)
+    already_five = replace(searched, min_timing_years=MIN_TIMING_YEARS_OVERRIDE)
+
+    shipped, note = _apply_min_timing_years_override(already_five, cal_evidence_cache_fast)
+
+    assert shipped == already_five
+    assert note is None
+
+
+def test_selection_is_deterministic(cal_evidence_cache_fast):
     evidence_cache = cal_evidence_cache_fast
-    phase_cache = cal_phase_cache_fast
 
-    first = (select_evidence_defaults(evidence_cache), select_phase_defaults(phase_cache))
-    second = (select_evidence_defaults(evidence_cache), select_phase_defaults(phase_cache))
+    first = select_evidence_defaults(evidence_cache)
+    second = select_evidence_defaults(evidence_cache)
 
     assert first == second
+
+
+def test_selected_point_survives_every_pruning_stage(cal_selected_evidence):
+    """The pick must come from the pruned set, not the stage-1 candidate set.
+
+    Regression: the final sort ran over `candidate_indices` -- still the whole
+    stage-1 set -- while every `_retain_metric`/`_retain_axis` stage narrowed a
+    separate `survivors` array that nothing read. The staged pruning was dead
+    work, and the counts reported as `selection_survivors` described a set the
+    selection did not use. Guarded by shape rather than by value: each recorded
+    stage must be a subset of the one before it, and the last must be what the
+    selection actually chose from.
+    """
+    _, _, scores = cal_selected_evidence
+    counts = scores[0].selection_counts
+
+    stages = [
+        "grid",
+        "negative_control_wilson",
+        "routing_recall",
+        "correct_abstention",
+        "boundary_mae",
+        "seasonal_cv_skill_margin",
+        "periodicity_alpha_margin",
+        "amplitude_noise_ratio_margin",
+        "strong_timing_concentration_margin",
+        "wilson_floor_margin",
+        "min_timing_years_margin",
+        "reject_insufficient_drift_margin",
+        "mode_frequency_margin",
+        "weak_timing_concentration_margin",
+        "final_survivors",
+    ]
+    for name in stages:
+        assert name in counts, f"stage {name} not recorded"
+    recorded = [counts[name] for name in stages]
+    assert recorded == sorted(recorded, reverse=True), (
+        "pruning must be monotonically narrowing; a stage that grows means the "
+        f"counts describe a set the selection never used: {dict(zip(stages, recorded))}"
+    )
+    assert counts["final_survivors"] >= 1
+    assert counts["selected"] == 1
 
 
 def test_selected_point_respects_the_negative_control_bound(cal_selected_evidence):
@@ -511,30 +454,8 @@ def test_scoring_reports_false_annualisation_stratified_by_record_length(cal_sel
     assert set(scores[0].false_annualisation_by_length) >= {"5", "7", "10", "20", "30"} or set(scores[0].false_annualisation_by_length) >= {5, 7, 10, 20, 30}
 
 
-def test_phase_selection_uses_the_specified_lexicographic_order(cal_selected_phase):
-    selected, scores = cal_selected_phase
-    best = scores[0]
-
-    assert best.thresholds == selected
-    assert scores == sorted(
-        scores,
-        key=lambda item: (
-            -item.macro_accuracy,
-            item.transition_mae,
-            item.forced_complete_rate,
-            item.thresholds.phase_smoothing_window,
-            item.thresholds.phase_min_duration_months,
-        ),
-    )
 
 
-def test_complete_truth_cycle_is_not_counted_as_forced_completion():
-    cycle = build_phase_cache([10166], partition="calibration")[0]
-    assert set(cycle.true_phase) == {"dry", "recovery", "wet", "recession"}
-
-    score = score_phase_grid_point((cycle,), PhaseThresholds(0.2, 0.8, 1, 5))
-
-    assert score.forced_complete_rate == 0.0
 
 
 def test_validation_report_exists_and_is_from_frozen_constants():
@@ -566,8 +487,6 @@ def test_validation_report_carries_every_required_section():
         "false_annualisation_by_length",
         "route_coverage",
         "boundary_metrics",
-        "phase_accuracy",
-        "phase_stability_calibration",
         "sensitivity",
         "runtime",
     ):
@@ -594,19 +513,28 @@ def test_sensitivity_covers_every_fixed_recoverability_criterion():
 
 
 def test_calibration_report_scopes_each_generated_product():
+    """Every group the calibration reports on is a challenger.
+
+    The four-phase labeller `phase` scoped as authoritative was unreachable
+    from any public entry point and has been removed; nothing in the
+    calibration claims authority over released behaviour any more.
+    """
     payload = json.loads(Path("docs/calibration/2026-08-21-calibration-report.json").read_text(encoding="utf-8"))
     assert payload["authority_scope"] == {
         "evidence": "experimental_challenger",
         "recoverability": "experimental_challenger",
-        "phase": "authoritative_for_four_phase_labels_only",
     }
     assert payload["metric_groups"] == {
         "challenger_decision": ["evidence", "recoverability"],
-        "four_phase": ["phase"],
     }
+    assert "phase" not in payload
 
 
 def test_validation_report_uses_the_same_authority_scope():
     payload = json.loads(Path("docs/calibration/2026-08-21-validation-report.json").read_text(encoding="utf-8"))
-    assert payload["authority_scope"]["evidence"] == "experimental_challenger"
-    assert payload["authority_scope"]["phase"] == "authoritative_for_four_phase_labels_only"
+    assert payload["authority_scope"] == {
+        "evidence": "experimental_challenger",
+        "recoverability": "experimental_challenger",
+    }
+    assert "phase_accuracy" not in payload
+    assert "phase_stability_calibration" not in payload

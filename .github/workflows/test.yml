@@ -231,7 +231,7 @@ jobs:
           from hydroseason import analyze_catchment
           idx = pd.date_range('2020-01-01', periods=24, freq='MS')
           extent = pd.DataFrame({'extent_pct': [10.0 + (i % 12) for i in range(24)]}, index=idx)
-          analysis = analyze_catchment(extent, phase_model='rule_based')
+          analysis = analyze_catchment(extent, phase_scheme='two_phase')
           assert analysis is not None
           print('core smoke OK')
           "
@@ -272,7 +272,7 @@ jobs:
           from hydroseason import analyze_catchment
           idx = pd.date_range('2020-01-01', periods=24, freq='MS')
           extent = pd.DataFrame({'extent_pct': [10.0 + (i % 12) for i in range(24)]}, index=idx)
-          analysis = analyze_catchment(extent, phase_model='rule_based')
+          analysis = analyze_catchment(extent, phase_scheme='two_phase')
           assert analysis is not None
           print('sdist-rebuilt core smoke OK')
           "

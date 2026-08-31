@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -24,19 +25,35 @@ from hydroseason._calibration import (  # noqa: E402
     METRIC_GROUPS,
     EvidenceThresholds,
     RecoverabilityThresholds,
+    _apply_min_timing_years_override,
     _worker_evidence,
-    _worker_phase,
     build_evidence_cache,
-    build_phase_cache,
     build_validation_report,
+    calibration_environment,
     evaluate_evidence_cache,
     fingerprint,
     select_evidence_defaults,
-    select_phase_defaults,
 )
 from hydroseason._synthetic import CALIBRATION_SEEDS  # noqa: E402
 
-_CALIBRATION_VERSION = "0.2.0-audit.1"
+
+# audit.2 supersedes audit.1: the objective functions were restructured in
+# 4036213 without re-running the search, so audit.1's constants and every
+# metric reported beside them describe a superseded implementation. Bumped
+# rather than reused so a checkout of either commit is unambiguous about
+# which constants it carries.
+def _utc_timestamp() -> str:
+    """Now in UTC, ISO-8601 to the second.
+
+    The report filenames carry a fixed vintage label, so the run's real
+    instant is recorded in the payload instead. A full timestamp rather than a
+    bare date: UTC and the author's local calendar day do not always agree,
+    and a provenance field should not be ambiguous about which day it means.
+    """
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+
+_CALIBRATION_VERSION = "0.2.0-audit.2"
 
 
 def _rss_tree_mb() -> float:
@@ -106,32 +123,22 @@ def run_calibration(
     peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
     print(f"Evidence cache ready ({len(evidence_cache)} records).", flush=True)
 
-    print(f"Building phase cache using {worker_count} workers...", flush=True)
-    if worker_count == 1:
-        phase_cache = build_phase_cache(seeds, partition=partition)
-    else:
-        with ProcessPoolExecutor(max_workers=worker_count) as executor:
-            phase_results = list(executor.map(_worker_phase, arg_list, chunksize=25))
-            peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
-        phase_cache = tuple(cycle for result in phase_results for cycle in result)
-    peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
-    print(f"Phase cache ready ({len(phase_cache)} annual cycles).", flush=True)
-
     print("Selecting optimal evidence defaults across 190,080 grid points...", flush=True)
-    ev_defaults, rec_defaults, ev_scores = select_evidence_defaults(evidence_cache)
+    searched_ev_defaults, rec_defaults, ev_scores = select_evidence_defaults(evidence_cache)
     best_ev_score = ev_scores[0]
-    print(f"Selected evidence: {ev_defaults}", flush=True)
+    print(f"Selected evidence: {searched_ev_defaults}", flush=True)
     print(f"Selected recoverability: {rec_defaults}", flush=True)
 
-    print("Selecting optimal phase defaults across 144 grid points...", flush=True)
-    phase_defaults, phase_scores = select_phase_defaults(phase_cache)
-    best_phase_score = phase_scores[0]
-    print(f"Selected phase: {phase_defaults}", flush=True)
+    ev_defaults, override_note = _apply_min_timing_years_override(
+        searched_ev_defaults, evidence_cache
+    )
+    if override_note is not None:
+        print(f"Overriding min_timing_years: {override_note['reason']}", flush=True)
+        print(f"Shipped evidence: {ev_defaults}", flush=True)
 
     fp = fingerprint(
         evidence_defaults=ev_defaults,
         recoverability_defaults=rec_defaults,
-        phase_defaults=phase_defaults,
     )
     print(f"Calibration SHA-256 fingerprint: {fp}", flush=True)
 
@@ -146,11 +153,14 @@ def run_calibration(
     report_payload = {
         "calibration_version": _CALIBRATION_VERSION,
         "fingerprint": fp,
+        "environment": calibration_environment(),
+        "generated": _utc_timestamp(),
         "authority_scope": AUTHORITY_SCOPE,
         "metric_groups": METRIC_GROUPS,
         "evidence": asdict(ev_defaults),
+        "evidence_searched": asdict(searched_ev_defaults),
+        "evidence_override": override_note,
         "recoverability": asdict(rec_defaults),
-        "phase": asdict(phase_defaults),
         "false_annualisation_by_length": best_ev_score.false_annualisation_by_length,
         "selection_survivors": best_ev_score.selection_counts,
         "drift_axis": {
@@ -172,9 +182,6 @@ def run_calibration(
             "routing_recall": best_ev_score.routing_recall,
             "correct_abstention": best_ev_score.correct_abstention,
             "boundary_mae": best_ev_score.boundary_mae,
-            "phase_macro_accuracy": best_phase_score.macro_accuracy,
-            "phase_transition_mae": best_phase_score.transition_mae,
-            "phase_forced_complete_rate": best_phase_score.forced_complete_rate,
         },
         "runtime": {
             "records": int(len(seeds)),
@@ -194,14 +201,13 @@ def run_calibration(
 from __future__ import annotations
 
 from hydroseason._calibration import EvidenceThresholds, RecoverabilityThresholds
-from hydroseason._cycle_phase import PhaseThresholds
 
 CALIBRATION_VERSION = "{_CALIBRATION_VERSION}"
 CALIBRATION_FINGERPRINT = "{fp}"
+CALIBRATION_ENVIRONMENT = {calibration_environment()!r}
 
 EVIDENCE_AUTHORITY_SCOPE = "{AUTHORITY_SCOPE['evidence']}"
 RECOVERABILITY_AUTHORITY_SCOPE = "{AUTHORITY_SCOPE['recoverability']}"
-PHASE_AUTHORITY_SCOPE = "{AUTHORITY_SCOPE['phase']}"
 
 EVIDENCE_DEFAULTS = EvidenceThresholds(
     seasonal_cv_skill={ev_defaults.seasonal_cv_skill},
@@ -222,13 +228,6 @@ RECOVERABILITY_DEFAULTS = RecoverabilityThresholds(
     max_p90_error_months={rec_defaults.max_p90_error_months},
     admit_insufficient_drift={rec_defaults.admit_insufficient_drift},
 )
-
-PHASE_DEFAULTS = PhaseThresholds(
-    phase_low_fraction={phase_defaults.phase_low_fraction},
-    phase_high_fraction={phase_defaults.phase_high_fraction},
-    phase_min_duration_months={phase_defaults.phase_min_duration_months},
-    phase_smoothing_window={phase_defaults.phase_smoothing_window},
-)
 '''
     out_module.parent.mkdir(parents=True, exist_ok=True)
     out_module.write_text(module_code, encoding="utf-8")
@@ -241,14 +240,11 @@ def run_validation(
     *,
     workers: int | None = None,
     sensitivity_limit: int = 500,
-    phase_stability_replicates: int = 50,
-    phase_stability_max_cycles: int = 200,
 ) -> None:
     import hydroseason._scientific_defaults as defaults
     from hydroseason._scientific_defaults import (
         CALIBRATION_FINGERPRINT,
         CALIBRATION_VERSION,
-        PHASE_DEFAULTS,
     )
     evidence_defaults = getattr(defaults, "EVIDENCE_DEFAULTS", EvidenceThresholds())
     recoverability_defaults = getattr(defaults, "RECOVERABILITY_DEFAULTS", RecoverabilityThresholds())
@@ -259,7 +255,6 @@ def run_validation(
     arg_list = [(seed, "validation") for seed in seeds]
     if worker_count == 1:
         evidence_cache = build_evidence_cache(seeds, partition="validation")
-        phase_cache = build_phase_cache(seeds, partition="validation")
     else:
         with ProcessPoolExecutor(max_workers=worker_count) as executor:
             evidence_rows = list(
@@ -267,10 +262,6 @@ def run_validation(
             )
             peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
         evidence_cache = pd.DataFrame(evidence_rows)
-        with ProcessPoolExecutor(max_workers=worker_count) as executor:
-            phase_results = list(executor.map(_worker_phase, arg_list, chunksize=25))
-            peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())
-        phase_cache = tuple(cycle for result in phase_results for cycle in result)
 
     sensitivity_seeds = seeds[: max(0, int(sensitivity_limit))]
     flag_sample = evidence_cache.loc[evidence_cache["seed"].isin(sensitivity_seeds)]
@@ -322,17 +313,13 @@ def run_validation(
     }
     validation_payload = build_validation_report(
         evidence_cache,
-        phase_cache=phase_cache,
         seeds=seeds,
         calibration_version=CALIBRATION_VERSION,
         calibration_fingerprint=CALIBRATION_FINGERPRINT,
         evidence_thresholds=evidence_defaults,
         recoverability_thresholds=recoverability_defaults,
-        phase_thresholds=PHASE_DEFAULTS,
         runtime_metrics=runtime_metrics,
         quality_policy_sensitivity=policy_metrics,
-        phase_stability_replicates=phase_stability_replicates,
-        phase_stability_max_cycles=phase_stability_max_cycles,
     )
     elapsed = time.perf_counter() - started
     peak_rss_mb = max(peak_rss_mb, _rss_tree_mb())

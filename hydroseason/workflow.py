@@ -45,7 +45,6 @@ from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._diagnostics import missing_rainfall_dependencies
 from ._io_dea_stats import DEAStatsUnavailable
 from ._io_preflight_stats import AnnualStatisticsUnavailable
-from ._preflight_feasibility import FeasibilityResult
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
     LegacyPhaseModel,
@@ -53,6 +52,7 @@ from ._phase_scheme import (
     UnsetPhaseScheme,
     inject_phase_options,
 )
+from ._preflight_feasibility import FeasibilityResult
 from ._progress import ProgressEvent, WorkflowProgress, resolve_progress_reporter
 from ._rainfall import (
     align_monthly_rainfall,
@@ -61,10 +61,6 @@ from ._rainfall import (
     normalise_monthly_rainfall,
 )
 from ._regime_compare import RegimeComparison, compare_rainfall_to_extent_regime
-from .preflight import (
-    RegularWorkflowPreflight,
-    run_regular_preflight as run_preflight,
-)
 from ._workflow_input import (
     DEFAULT_STAC_COLLECTION,
     DEFAULT_STAC_URL,
@@ -72,6 +68,10 @@ from ._workflow_input import (
     resolve_water_input,
 )
 from .io import load_aoi
+from .preflight import (
+    RegularWorkflowPreflight,
+    run_regular_preflight as run_preflight,
+)
 from .report import CatchmentReportPaths, generate_catchment_report
 
 RainfallStatus = Literal[

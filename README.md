@@ -113,10 +113,11 @@ dependencies a given path needs. Full recipes:
 ## How it works
 
 1. **You give it monthly water-extent data** — a CSV you already have, a raster/NetCDF/Zarr cube, or nothing at all (it fetches Digital Earth Australia satellite data for you).
-2. **It checks whether the catchment has a reliable annual cycle** — a signal-to-noise ratio (SNR): how strong and repeatable the yearly wet/dry swing is compared to noise.
-3. **It picks the matching analysis automatically** — a strong, repeatable cycle gets per-year hydrological boundaries; an irregular or dryland catchment gets discrete flood-event and dry-spell characterization instead, rather than forcing a yearly pattern that isn't really there.
-4. **Optional rainfall adds context, never changes the answer** — rainfall can be fetched or supplied alongside the water data, but it only annotates the report; it can never alter the regime, route, boundaries, phases, events, or spells that were already decided from water alone.
-5. **It writes one self-contained HTML report and four CSVs** — open the HTML anywhere, no server needed; the CSVs are ready for your own analysis.
+2. **On a DEA fetch, it screens the AOI first** — one all-time WOfS Statistics read checks the catchment actually holds recurrent surface water before any monthly data is paid for; an AOI with none raises `HydroSeasonPreflightError` instead of returning an empty analysis. A Statistics outage never becomes a "no water" answer.
+3. **It checks whether the catchment has a reliable annual cycle** — a signal-to-noise ratio (SNR): how strong and repeatable the yearly wet/dry swing is compared to noise.
+4. **It picks the matching analysis automatically** — a strong, repeatable cycle gets per-year hydrological boundaries; an irregular or dryland catchment gets discrete flood-event and dry-spell characterization instead, rather than forcing a yearly pattern that isn't really there.
+5. **Optional rainfall adds context, never changes the answer** — rainfall can be fetched or supplied alongside the water data, but it only annotates the report; it can never alter the regime, route, boundaries, phases, events, or spells that were already decided from water alone.
+6. **It writes one self-contained HTML report and four CSVs** — open the HTML anywhere, no server needed; the CSVs are ready for your own analysis.
 
 ```
 CSV, raster, or DEA fetch  →  run_hydroseason  →  seasonal or aseasonal route  →  HTML report + 4 CSVs
@@ -177,6 +178,8 @@ Fitzroy, Gilbert, Lachlan, Moonie):
 | `analyze_catchment` | Assess regime, then run the analysis that regime supports (the routing authority) |
 | `generate_catchment_report` | Write the self-contained HTML report plus the 4-CSV bundle |
 | `load_wofs_monthly_extent` | Fetch DEA WOfS directly, without the full orchestrator |
+| `preflight` | Report what an AOI's record can support, before analysing it ([guide](https://tayerthiaggo.github.io/hydroseason/preflight/)) |
+| `HydroSeasonPreflightError` | Raised when the DEA screen finds no recurrent surface water; carries the measured counts |
 
 Full API reference, grouped by task: [Workflow, Loading Data, Analysis, Reporting](https://tayerthiaggo.github.io/hydroseason/api/).
 

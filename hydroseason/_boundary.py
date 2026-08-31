@@ -122,7 +122,6 @@ def _select_window_extreme(
     comparison_all = all_obs["extent_pct"] * sign
     raw_month = pd.Timestamp(comparison_all.idxmin())
     raw_extent = float(all_obs.loc[raw_month, "extent_pct"])
-    raw_comparison = float(comparison_all.loc[raw_month])
 
     # Screen for usable candidates with acceptable quality
     if "quality_state" in window.columns:

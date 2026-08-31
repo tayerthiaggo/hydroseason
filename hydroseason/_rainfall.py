@@ -20,6 +20,7 @@ each file lazily and only the AOI's slice of bytes is ever transferred.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -195,8 +196,6 @@ def get_monthly_silo_rainfall(
     AOI's slice (see module docstring), not the ~14 MB/year national file.
     """
     import s3fs
-    import xarray as xr
-    from rasterio.features import geometry_mask
 
     aoi = gdf.to_crs(4326) if gdf.crs is not None else gdf
     bounds = tuple(aoi.total_bounds)

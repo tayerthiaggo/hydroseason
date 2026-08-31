@@ -1,29 +1,48 @@
 {
-  "calibration_version": "0.2.0-audit.1",
-  "fingerprint": "8d32bc8cd7b4757b129eedb082d30c029dcbe59c66957f3c86d1ba96aa4ee3db",
+  "calibration_version": "0.2.0-audit.2",
+  "fingerprint": "d98a4e55bb549836a3b3d1e6896362342b99583eed61e928926c40b4957bebb2",
+  "environment": {
+    "python": "3.12.13",
+    "numpy": "2.4.6",
+    "pandas": "3.0.3"
+  },
+  "generated": "2026-08-31T05:16:24+00:00",
   "authority_scope": {
     "evidence": "experimental_challenger",
-    "recoverability": "experimental_challenger",
-    "phase": "authoritative_for_four_phase_labels_only"
+    "recoverability": "experimental_challenger"
   },
   "metric_groups": {
     "challenger_decision": [
       "evidence",
       "recoverability"
-    ],
-    "four_phase": [
-      "phase"
     ]
   },
   "evidence": {
-    "seasonal_cv_skill": 0.8,
-    "periodicity_alpha": 0.1,
+    "seasonal_cv_skill": 0.3,
+    "periodicity_alpha": 0.025,
+    "amplitude_noise_ratio": 2.0,
+    "mode_min_frequency": 0.5,
+    "mode_min_separation_months": 2,
+    "strong_timing_concentration": 0.8,
+    "weak_timing_concentration": 0.5,
+    "min_timing_years": 5
+  },
+  "evidence_searched": {
+    "seasonal_cv_skill": 0.3,
+    "periodicity_alpha": 0.025,
     "amplitude_noise_ratio": 2.0,
     "mode_min_frequency": 0.5,
     "mode_min_separation_months": 2,
     "strong_timing_concentration": 0.8,
     "weak_timing_concentration": 0.5,
     "min_timing_years": 10
+  },
+  "evidence_override": {
+    "searched_value": 10,
+    "shipped_value": 5,
+    "false_annualisation_wilson_high_at_searched": 0.0013040276859406998,
+    "false_annualisation_wilson_high_at_shipped": 0.0013040276859406998,
+    "reason": "Search selected min_timing_years=10; shipping 5 to match the released _MIN_USABLE_YEARS floor (hydroseason/_regime.py). False annualisation is unaffected at every tested value; the floor only removes challenger coverage on records shorter than itself, with no measurable benefit to records above it."
   },
   "recoverability": {
     "min_years": 5,
@@ -33,15 +52,9 @@
     "max_p90_error_months": 2.0,
     "admit_insufficient_drift": true
   },
-  "phase": {
-    "phase_low_fraction": 0.25,
-    "phase_high_fraction": 0.8,
-    "phase_min_duration_months": 1,
-    "phase_smoothing_window": 3
-  },
   "false_annualisation_by_length": {
-    "5": 0.0016778523489932886,
-    "7": 0.0035026269702276708,
+    "5": 0.0,
+    "7": 0.0,
     "10": 0.0,
     "20": 0.0,
     "30": 0.0
@@ -49,9 +62,9 @@
   "selection_survivors": {
     "grid": 190080,
     "negative_control_wilson": 190080,
-    "routing_recall": 2970,
-    "correct_abstention": 2970,
-    "boundary_mae": 2970,
+    "routing_recall": 3465,
+    "correct_abstention": 165,
+    "boundary_mae": 165,
     "seasonal_cv_skill_margin": 165,
     "periodicity_alpha_margin": 165,
     "amplitude_noise_ratio_margin": 33,
@@ -61,31 +74,29 @@
     "reject_insufficient_drift_margin": 3,
     "mode_frequency_margin": 3,
     "weak_timing_concentration_margin": 1,
+    "final_survivors": 1,
     "selected": 1
   },
   "drift_axis": {
-    "admit": 0.0010197144799456153,
+    "admit": 0.0,
     "reject": 0.0
   },
   "periodicity_null": {
-    "selected_alpha": 0.1,
+    "selected_alpha": 0.025,
     "bias_note": "The rotation null exhibits anti-conservative bias because rotating calendar months introduces artificial boundaries between December and January. To counteract this anti-conservative tendency and preserve strict false positive guarantees, the calibration objective selects a conservative alpha threshold."
   },
   "metrics": {
-    "false_annualisation_rate": 0.0010197144799456153,
-    "false_annualisation_wilson_high": 0.0029939429836186348,
-    "routing_recall": 0.6683673469387755,
-    "correct_abstention": 0.9558573853989814,
-    "boundary_mae": 0.05132801440001395,
-    "phase_macro_accuracy": 0.7358782080051632,
-    "phase_transition_mae": 1.0036404168072726,
-    "phase_forced_complete_rate": 0.01291787655424019
+    "false_annualisation_rate": 0.0,
+    "false_annualisation_wilson_high": 0.0013040276859406998,
+    "routing_recall": 0.20748299319727892,
+    "correct_abstention": 0.9541595925297114,
+    "boundary_mae": 0.17349726775956284
   },
   "runtime": {
     "records": 5000,
-    "calibration_wall_seconds": 1598.2142113998998,
-    "records_per_second": 3.128491765581552,
-    "peak_sampled_rss_mb": 2247.34765625,
+    "calibration_wall_seconds": 2702.3058023001067,
+    "records_per_second": 1.8502717182282544,
+    "peak_sampled_rss_mb": 1255.80078125,
     "workers": 16
   }
 }

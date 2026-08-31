@@ -94,6 +94,18 @@ def _reason_text(code: str) -> str:
 
 @dataclass(frozen=True)
 class PreflightThresholds:
+    """One named, versioned cut-off profile applied by :func:`hydroseason.preflight`.
+
+    ``profile_status`` states how far the profile has been taken:
+    ``"testing"`` (fixtures only), ``"provisional"`` (usable, not frozen), or
+    ``"frozen"`` (reviewed and immutable). The reviewed ``"default"`` profile
+    is **not installed yet** -- see
+    :class:`hydroseason.preflight.PreflightProfileUnavailable`. Until it is,
+    pass ``thresholds="diagnostic"`` for ungated measurement, or construct
+    this class directly to declare your own cut-offs, stating a
+    ``profile_name``/``profile_version`` so results stay attributable.
+    """
+
     profile_name: str
     profile_version: str
     profile_status: Literal["testing", "provisional", "frozen"]
@@ -266,6 +278,30 @@ class MonthlyMetrics:
 
 @dataclass(frozen=True)
 class PreflightResult:
+    """What an AOI's record can and cannot support, decided in three parts.
+
+    Each part answers a different question and carries its own decision --
+    ``"pass"``, ``"fail"``, ``"indeterminate"``, or ``"not_assessed"``:
+
+    ``candidate_decision``
+        Does the all-time Statistics grid show enough reliably-observed,
+        recurrently-wet pixels for this AOI to be a candidate at all?
+    ``monthly_decision``
+        Is the monthly record dense enough -- usable months, months per year,
+        supported years -- for per-year detection?
+    ``timing_decision``
+        Is calendar-month coverage even enough to trust seasonal timing?
+
+    ``candidate_eligible``/``monthly_eligible``/``timing_eligible`` reduce each
+    decision to ``True``/``False``/``None``, where ``None`` means the question
+    was not answered rather than answered negatively. ``reasons`` merges the
+    three reason-code tuples in order, ``summary()`` renders them as one line,
+    and ``to_dict()`` returns a JSON-ready payload (``flat=False`` for the
+    nested form). ``provenance`` records the Statistics request and monthly
+    source identity behind the decisions; ``warnings`` records anything
+    degraded -- a Statistics outage included -- that did not stop the run.
+    """
+
     thresholds: PreflightThresholds
     capabilities: PreflightCapabilities
     candidate_metrics: CandidateMetrics

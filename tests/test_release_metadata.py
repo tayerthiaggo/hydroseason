@@ -126,18 +126,6 @@ def test_package_ships_the_calibration_report():
     assert Path("docs/calibration/2026-08-21-calibration-report.json").is_file()
 
 
-def test_config_defaults_are_the_generated_phase_defaults():
-    from hydroseason import _scientific_defaults as defaults
-    from hydroseason._dynamic_year import DynamicHydroYearConfig
-
-    config = DynamicHydroYearConfig(expected_trough_month=7)
-    for name in (
-        "phase_low_fraction",
-        "phase_high_fraction",
-        "phase_min_duration_months",
-        "phase_smoothing_window",
-    ):
-        assert getattr(config, name) == getattr(defaults.PHASE_DEFAULTS, name)
 
 
 def test_release_runtime_has_no_uncalibrated_bridge():

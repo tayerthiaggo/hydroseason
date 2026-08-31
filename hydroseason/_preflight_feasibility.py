@@ -72,6 +72,21 @@ def minimum_cluster_pixels(resolution: float) -> int:
 
 @dataclass(frozen=True)
 class FeasibilityResult:
+    """Whether an AOI holds any recurrent surface water worth analysing.
+
+    The cheap screen that guards regular DEA acquisition. ``feasible`` is
+    ``True`` when pixels wet at or above the fixed recurrence frequency form a
+    contiguous cluster of at least ``minimum_cluster_pixels`` at the run's
+    ``resolution``; ``reason`` states in words which condition decided it.
+    ``core_pixel_count``, ``cluster_count`` and ``largest_cluster_pixels`` are
+    the measured quantities behind that call, so a rejection can be audited
+    rather than taken on trust. ``to_dict()`` returns a JSON-ready payload.
+
+    A rejection reached through :func:`hydroseason.run_hydroseason` is raised
+    as :class:`hydroseason.workflow.HydroSeasonPreflightError`, which carries
+    this object as ``.result``.
+    """
+
     feasible: bool
     resolution: float
     core_pixel_count: int

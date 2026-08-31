@@ -48,8 +48,16 @@ def test_case_study_reports_surface_circular_timing_and_daly_trough_route():
     assert daly["amplitude_snr"] == pytest.approx(2.459)
     assert daly["regime"] == daly_rain["regime"] == "seasonal"
     assert daly["route"] == daly_rain["route"] == "per_year_detection"
-    assert "trough timing CI lower bound" in daly["route_reason"]
-    assert "trough timing CI lower bound" in daly_rain["route_reason"]
+    # route_reason names the regime it actually routed on; the circular-timing
+    # evidence it used to restate in prose is carried as its own column, and
+    # the rendered reports surface it in full (see the next test).
+    assert daly["route_reason"].startswith("seasonal record (SNR 2.46)")
+    assert daly["route_reason"] == daly_rain["route_reason"]
+    assert daly["trough_timing_concentration_ci_low"] == pytest.approx(0.703)
+    assert (
+        daly_rain["trough_timing_concentration_ci_low"]
+        == daly["trough_timing_concentration_ci_low"]
+    )
     assert "trough timing concentration" in main
     assert "1.5 months" not in main
     assert "Monsoonal tropical seasonal" in overview

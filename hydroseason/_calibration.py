@@ -27,13 +27,6 @@ from ._circular_timing import (
     summarise_annual_timing,
     timing_drift,
 )
-from ._cycle_phase import (
-    PHASES,
-    PhaseThresholds,
-    label_cycle,
-    normalise_cycle,
-    phase_stability,
-)
 from ._harmonic import (
     _curve_extrema,
     _design,
@@ -73,7 +66,6 @@ MODE_FREQUENCY_GRID = (0.50, 0.60, 0.70, 0.80)
 AUTHORITY_SCOPE = {
     "evidence": "experimental_challenger",
     "recoverability": "experimental_challenger",
-    "phase": "authoritative_for_four_phase_labels_only",
 }
 
 
@@ -249,7 +241,6 @@ def _classify_boundary_recoverability(
 
 METRIC_GROUPS = {
     "challenger_decision": ["evidence", "recoverability"],
-    "four_phase": ["phase"],
 }
 
 EVIDENCE_GRID = {
@@ -264,12 +255,6 @@ EVIDENCE_GRID = {
     "admit_insufficient_drift": [False, True],
 }
 
-PHASE_GRID = {
-    "phase_low_fraction": [0.10, 0.20, 0.25, 0.30],
-    "phase_high_fraction": [0.60, 0.70, 0.75, 0.80],
-    "phase_min_duration_months": [1, 2, 3],
-    "phase_smoothing_window": [1, 3, 5],
-}
 
 
 @dataclass(frozen=True)
@@ -304,23 +289,6 @@ class RecordStatistics:
     bias_strength_pp: float
 
 
-@dataclass(frozen=True)
-class PhaseCycleStatistics:
-    """Threshold-independent geometry, residuals, and truth for one annual cycle."""
-
-    seed: int
-    year: int
-    cycle_frame: pd.DataFrame
-    normalised_z: pd.Series
-    smoothed_z: pd.Series
-    denominator_pp: float
-    smoothed_peak_position: int | None
-    observed_peak_position: int | None
-    sufficient: bool
-    start_extent_candidates: tuple[float, ...]
-    end_extent_candidates: tuple[float, ...]
-    noise_residuals: np.ndarray
-    true_phase: pd.Series
 
 
 @dataclass(frozen=True)
@@ -338,14 +306,6 @@ class GridScore:
     selection_counts: dict[str, int] | None = None
 
 
-@dataclass(frozen=True)
-class PhaseGridScore:
-    """Score summary for one evaluated phase point."""
-
-    thresholds: PhaseThresholds
-    macro_accuracy: float
-    transition_mae: float
-    forced_complete_rate: float
 
 
 def iter_evidence_points() -> Iterator[tuple]:
@@ -374,20 +334,6 @@ def iter_evidence_points() -> Iterator[tuple]:
                                         )
 
 
-def iter_phase_points() -> Iterator[PhaseThresholds]:
-    """Iterate all 144 points of the phase search grid."""
-    for low in PHASE_GRID["phase_low_fraction"]:
-        for high in PHASE_GRID["phase_high_fraction"]:
-            if low >= high:
-                continue
-            for dur in PHASE_GRID["phase_min_duration_months"]:
-                for win in PHASE_GRID["phase_smoothing_window"]:
-                    yield PhaseThresholds(
-                        phase_low_fraction=float(low),
-                        phase_high_fraction=float(high),
-                        phase_min_duration_months=int(dur),
-                        phase_smoothing_window=int(win),
-                    )
 
 
 def _circular_month_distance(left: int, right: int) -> int:
@@ -552,135 +498,9 @@ def compute_statistics(
     )
 
 
-def compute_phase_statistics(record: SyntheticRecord) -> tuple[PhaseCycleStatistics, ...]:
-    """Compute threshold-independent cycle geometry and truth for all annual cycles."""
-    if record.truth.phase_by_month is None:
-        return ()
-
-    prepared = prepare_monthly_extent(record.frame)
-    weights = candidate_weights(prepared)
-    years, values, weight_matrix = _year_matrices(prepared, weights)
-
-    # Fast order-1 fit for noise residuals
-    design = _design(1)
-    m = (weight_matrix > 0.0) & np.isfinite(values)
-    if m.any():
-        v_flat = values[m]
-        w_flat = weight_matrix[m]
-        d_flat = np.repeat(design[None, :, :], values.shape[0], axis=0)[m]
-        sqrt_w = np.sqrt(w_flat)[:, None]
-        d_w = d_flat * sqrt_w
-        v_w = v_flat * sqrt_w.squeeze()
-        coef, _, _, _ = np.linalg.lstsq(d_w, v_w, rcond=None)
-        curve = design @ coef
-        residuals = []
-        for r in range(values.shape[0]):
-            obs = values[r]
-            row_m = (weight_matrix[r] > 0.0) & np.isfinite(obs)
-            if row_m.any():
-                residuals.append(obs[row_m] - curve[row_m])
-        noise_residuals = np.concatenate(residuals) if residuals else np.zeros(1, dtype=float)
-    else:
-        noise_residuals = np.zeros(1, dtype=float)
-
-    cycle_stats: list[PhaseCycleStatistics] = []
-    trough_months = record.truth.trough_month_by_year
-    if len(trough_months) != len(years):
-        return ()
-    amplitude_pp, noise_pp = robust_scale(prepared)
-    boundary_config = RobustBoundaryConfig()
-    trough_candidates: dict[int, tuple[float, ...]] = {}
-    for year, month in zip(years, trough_months, strict=True):
-        expected = pd.Timestamp(year=int(year), month=int(month), day=1)
-        window = prepared.loc[
-            expected - pd.DateOffset(months=3) : expected + pd.DateOffset(months=3)
-        ]
-        selection = select_window_minimum(
-            window,
-            expected=expected,
-            expected_count=7,
-            noise_pp=noise_pp,
-            amplitude_pp=amplitude_pp,
-            config=boundary_config,
-        )
-        if selection.run_start is None or selection.run_end is None:
-            continue
-        run = prepared.loc[
-            selection.run_start : selection.run_end, "extent_pct"
-        ].dropna()
-        if len(run):
-            trough_candidates[int(year)] = tuple(float(value) for value in run)
-    for previous_year, current_year, previous_month, current_month in zip(
-        years[:-1],
-        years[1:],
-        trough_months[:-1],
-        trough_months[1:],
-        strict=True,
-    ):
-        previous_trough = pd.Timestamp(
-            year=int(previous_year), month=int(previous_month), day=1
-        )
-        current_trough = pd.Timestamp(
-            year=int(current_year), month=int(current_month), day=1
-        )
-        cycle_start = previous_trough + pd.DateOffset(months=1)
-        cycle_months = prepared.loc[cycle_start:current_trough].index
-        if len(cycle_months) == 0:
-            continue
-        cycle_df = prepared.loc[cycle_months]
-        true_phase_slice = record.truth.phase_by_month.loc[cycle_months]
-
-        cand_vals = cycle_df["extent_pct"].dropna()
-        start_value = prepared.loc[previous_trough, "extent_pct"]
-        end_value = prepared.loc[current_trough, "extent_pct"]
-        start_extent = (
-            float(start_value)
-            if pd.notna(start_value)
-            else (float(cand_vals.iloc[0]) if len(cand_vals) else 0.0)
-        )
-        end_extent = (
-            float(end_value)
-            if pd.notna(end_value)
-            else (float(cand_vals.iloc[-1]) if len(cand_vals) else 0.0)
-        )
-        start_candidates = trough_candidates.get(
-            int(previous_year), (start_extent,)
-        )
-        end_candidates = trough_candidates.get(int(current_year), (end_extent,))
-        start_extent = start_candidates[0]
-        end_extent = end_candidates[0]
-
-        normalised = normalise_cycle(
-            cycle_df,
-            start_extent=start_extent,
-            end_extent=end_extent,
-            window=1,
-            resolution_floor_pp=0.5,
-        )
-
-        cycle_stats.append(
-            PhaseCycleStatistics(
-                seed=record.seed,
-                year=int(current_year),
-                cycle_frame=cycle_df,
-                normalised_z=normalised.z,
-                smoothed_z=normalised.smoothed_z,
-                denominator_pp=normalised.denominator_pp,
-                smoothed_peak_position=normalised.smoothed_peak_position,
-                observed_peak_position=normalised.observed_peak_position,
-                sufficient=normalised.sufficient,
-                start_extent_candidates=start_candidates,
-                end_extent_candidates=end_candidates,
-                noise_residuals=noise_residuals,
-                true_phase=true_phase_slice,
-            )
-        )
-
-    return tuple(cycle_stats)
 
 
 _RECORD_STATS_CACHE: dict[tuple[int, str, str], RecordStatistics] = {}
-_PHASE_STATS_CACHE: dict[tuple[int, str], tuple[PhaseCycleStatistics, ...]] = {}
 
 
 def _worker_evidence(args: tuple[int, str] | tuple[int, str, QualityPolicy]) -> dict:
@@ -727,10 +547,6 @@ def _worker_evidence(args: tuple[int, str] | tuple[int, str, QualityPolicy]) -> 
     return row
 
 
-def _worker_phase(args: tuple[int, str]) -> tuple[PhaseCycleStatistics, ...]:
-    seed, partition = args
-    record = generate_record(seed, partition=partition)
-    return compute_phase_statistics(record)
 
 
 def build_evidence_cache(
@@ -790,19 +606,6 @@ def build_evidence_cache(
     return pd.DataFrame(rows)
 
 
-def build_phase_cache(
-    seeds: Iterable[int], *, partition: Literal["calibration", "validation"]
-) -> tuple[PhaseCycleStatistics, ...]:
-    """Build cycle statistics tuple over a set of record seeds."""
-    all_cycles: list[PhaseCycleStatistics] = []
-    for seed in seeds:
-        key = (int(seed), str(partition))
-        if key not in _PHASE_STATS_CACHE:
-            record = generate_record(seed, partition=partition)
-            _PHASE_STATS_CACHE[key] = compute_phase_statistics(record)
-        cycles = _PHASE_STATS_CACHE[key]
-        all_cycles.extend(cycles)
-    return tuple(all_cycles)
 
 
 def evaluate_evidence_cache(
@@ -881,79 +684,6 @@ def _rate_interval(successes: int, trials: int) -> dict[str, float | int]:
     }
 
 
-def _phase_validation_metrics(
-    phase_cache: tuple[PhaseCycleStatistics, ...],
-    thresholds: PhaseThresholds,
-) -> dict[str, object]:
-    correct = {phase: 0 for phase in PHASES}
-    totals = {phase: 0 for phase in PHASES}
-    transition_errors = {phase: [] for phase in PHASES}
-    forced_complete = 0
-    evaluated_cycles = 0
-
-    for cycle in phase_cache:
-        normalised = normalise_cycle(
-            cycle.cycle_frame,
-            start_extent=cycle.start_extent_candidates[0],
-            end_extent=cycle.end_extent_candidates[0],
-            window=thresholds.phase_smoothing_window,
-            resolution_floor_pp=0.5,
-        )
-        if not normalised.sufficient:
-            continue
-        predicted = label_cycle(
-            normalised,
-            low_fraction=thresholds.phase_low_fraction,
-            high_fraction=thresholds.phase_high_fraction,
-            min_duration_months=thresholds.phase_min_duration_months,
-        ).to_numpy(dtype=object)
-        truth = cycle.true_phase.to_numpy(dtype=object)
-        evaluated_cycles += 1
-        truth_missing_transition = any(phase not in set(truth) for phase in PHASES)
-        if truth_missing_transition and all(phase in set(predicted) for phase in PHASES):
-            forced_complete += 1
-        for phase in PHASES:
-            phase_mask = truth == phase
-            totals[phase] += int(np.count_nonzero(phase_mask))
-            correct[phase] += int(np.count_nonzero(phase_mask & (predicted == phase)))
-            truth_positions = np.flatnonzero(phase_mask)
-            predicted_positions = np.flatnonzero(predicted == phase)
-            if len(truth_positions) and len(predicted_positions):
-                transition_errors[phase].append(
-                    abs(float(predicted_positions[0] - truth_positions[0]))
-                )
-
-    by_phase: dict[str, dict[str, float | int | None]] = {}
-    accuracies: list[float] = []
-    all_transition_errors: list[float] = []
-    for phase in PHASES:
-        accuracy = correct[phase] / totals[phase] if totals[phase] else None
-        if accuracy is not None:
-            accuracies.append(float(accuracy))
-        all_transition_errors.extend(transition_errors[phase])
-        by_phase[phase] = {
-            "n_months": totals[phase],
-            "accuracy": float(accuracy) if accuracy is not None else None,
-            "transition_mae": (
-                float(np.mean(transition_errors[phase]))
-                if transition_errors[phase]
-                else None
-            ),
-        }
-
-    return {
-        "n_cycles": evaluated_cycles,
-        "macro_accuracy": float(np.mean(accuracies)) if accuracies else 0.0,
-        "transition_mae": (
-            float(np.mean(all_transition_errors))
-            if all_transition_errors
-            else 12.0
-        ),
-        "forced_complete_rate": (
-            float(forced_complete / evaluated_cycles) if evaluated_cycles else 0.0
-        ),
-        "by_phase": by_phase,
-    }
 
 
 def _group_route_metrics(
@@ -975,76 +705,6 @@ def _group_route_metrics(
     return grouped
 
 
-def _phase_stability_validation(
-    phase_cache: tuple[PhaseCycleStatistics, ...],
-    thresholds: PhaseThresholds,
-    *,
-    n_replicates: int,
-    max_cycles: int,
-) -> dict[str, object]:
-    stability_values: list[float] = []
-    correctness: list[bool] = []
-    selected_cycles = phase_cache[: int(max_cycles)]
-    for cycle in selected_cycles:
-        normalised = normalise_cycle(
-            cycle.cycle_frame,
-            start_extent=cycle.start_extent_candidates[0],
-            end_extent=cycle.end_extent_candidates[0],
-            window=thresholds.phase_smoothing_window,
-            resolution_floor_pp=0.5,
-        )
-        if not normalised.sufficient:
-            continue
-        predicted = label_cycle(
-            normalised,
-            low_fraction=thresholds.phase_low_fraction,
-            high_fraction=thresholds.phase_high_fraction,
-            min_duration_months=thresholds.phase_min_duration_months,
-        )
-        residuals = np.asarray(cycle.noise_residuals, dtype=float)
-        residuals = residuals[np.isfinite(residuals)]
-        centre = float(np.median(residuals))
-        noise_pp = 1.4826 * float(np.median(np.abs(residuals - centre)))
-        stability = phase_stability(
-            cycle.cycle_frame,
-            start_extent_candidates=cycle.start_extent_candidates,
-            end_extent_candidates=cycle.end_extent_candidates,
-            low_fraction=thresholds.phase_low_fraction,
-            high_fraction=thresholds.phase_high_fraction,
-            min_duration_months=thresholds.phase_min_duration_months,
-            window=thresholds.phase_smoothing_window,
-            resolution_floor_pp=0.5,
-            noise_pp=max(noise_pp, np.finfo(float).eps),
-            noise_residuals=residuals,
-            n_replicates=int(n_replicates),
-            random_state=int(cycle.seed + cycle.year),
-        )
-        truth = cycle.true_phase.to_numpy(dtype=object)
-        stability_values.extend(stability["phase_stability"].to_numpy(dtype=float))
-        correctness.extend((predicted.to_numpy(dtype=object) == truth).tolist())
-
-    values = np.asarray(stability_values, dtype=float)
-    correct = np.asarray(correctness, dtype=bool)
-    bins: list[dict[str, float | int | str]] = []
-    for low, high in ((0.0, 0.5), (0.5, 0.7), (0.7, 0.9), (0.9, 1.000001)):
-        mask = (values >= low) & (values < high)
-        if not np.any(mask):
-            continue
-        bins.append(
-            {
-                "range": f"[{low:.1f},{min(high, 1.0):.1f}]",
-                "n": int(np.count_nonzero(mask)),
-                "mean_stability": float(np.mean(values[mask])),
-                "empirical_phase_accuracy": float(np.mean(correct[mask])),
-            }
-        )
-    return {
-        "method": "bootstrap with threshold, boundary, and observation perturbation",
-        "n_cycles": int(len(selected_cycles)),
-        "n_months": int(len(values)),
-        "n_replicates": int(n_replicates),
-        "bins": bins,
-    }
 
 
 def _sensitivity_metrics(
@@ -1070,17 +730,13 @@ def _sensitivity_metrics(
 def build_validation_report(
     evidence_cache: pd.DataFrame,
     *,
-    phase_cache: tuple[PhaseCycleStatistics, ...],
     seeds: list[int],
     calibration_version: str,
     calibration_fingerprint: str,
     evidence_thresholds: EvidenceThresholds,
     recoverability_thresholds: RecoverabilityThresholds,
-    phase_thresholds: PhaseThresholds,
     runtime_metrics: dict[str, object],
     quality_policy_sensitivity: dict[str, object],
-    phase_stability_replicates: int = 50,
-    phase_stability_max_cycles: int = 200,
 ) -> dict[str, object]:
     """Build validation payload exclusively from measured cache outputs."""
     evaluated = evaluate_evidence_cache(
@@ -1245,13 +901,6 @@ def build_validation_report(
         },
         "boundary_metrics": boundary_metrics,
         "drift_axis": drift_axis,
-        "phase_accuracy": _phase_validation_metrics(phase_cache, phase_thresholds),
-        "phase_stability_calibration": _phase_stability_validation(
-            phase_cache,
-            phase_thresholds,
-            n_replicates=phase_stability_replicates,
-            max_cycles=phase_stability_max_cycles,
-        ),
         "sensitivity": sensitivity,
         "recoverability_sensitivity": recoverability_sensitivity,
         "periodicity_null": {
@@ -1349,6 +998,70 @@ def score_evidence_grid_point(evidence_cache: pd.DataFrame, point: tuple) -> Gri
         correct_abstention=correct_abstention,
         boundary_mae=pos_res_mae,
     )
+
+
+# Values below MIN_TIMING_YEARS_OVERRIDE are candidates for the shipped
+# override; the search's own answer is never one of them, so this constant
+# alone can never silently reproduce what the search already picked.
+MIN_TIMING_YEARS_OVERRIDE = 5
+
+
+def _apply_min_timing_years_override(
+    searched: EvidenceThresholds, evidence_cache: pd.DataFrame
+) -> tuple[EvidenceThresholds, dict[str, object] | None]:
+    """Ship a deliberately relaxed `min_timing_years`, recording why.
+
+    The 190,080-point search reproducibly selects `min_timing_years=10`:
+    `correct_abstention` (which favours a higher floor) is pruned before
+    `min_timing_years` is ever consulted as a tie-break, so a higher floor
+    keeps winning on the search's own stated priority order. But this floor
+    trades directly against `routing_recall`, which favours a *lower* floor,
+    and a per-record-length breakdown shows the floor is a hard cliff at
+    its own value with no effect above it -- raising it from 5 to 10 buys
+    zero coverage on 7-30 year records and removes all coverage on 5-6 and
+    7-9 year records. False annualisation (negative-control Wilson high) is
+    identical -- 0.0 -- at 5, 7, and 10: the one metric this constant could
+    plausibly protect is not moved by it at any tested value.
+
+    `_MIN_USABLE_YEARS = 5` in `hydroseason/_regime.py` is the released
+    floor for exactly the same question (is there enough annual timing to
+    assess a record at all). A challenger floor of 10 makes the
+    experimental second opinion refuse records the released path already
+    analyses -- stricter than the tool it exists to check, for a benefit
+    that measurably does not exist above the floor it would remove.
+
+    This function does not change the search or its objective -- both are
+    left free to report their own answer, which the report still records
+    under `evidence_searched`. It only overrides the one field the search
+    has no way to weigh against the released floor it is not shown.
+    """
+    if searched.min_timing_years == MIN_TIMING_YEARS_OVERRIDE:
+        return searched, None
+
+    def _false_ann_high(min_y: int) -> float:
+        point = (
+            searched.seasonal_cv_skill, searched.periodicity_alpha,
+            searched.amplitude_noise_ratio, searched.mode_min_frequency,
+            searched.strong_timing_concentration, searched.weak_timing_concentration,
+            min_y, RecoverabilityThresholds().within_1_month_wilson_floor, True,
+        )
+        return score_evidence_grid_point(evidence_cache, point).false_annualisation_wilson_high
+
+    shipped = replace(searched, min_timing_years=MIN_TIMING_YEARS_OVERRIDE)
+    note = {
+        "searched_value": searched.min_timing_years,
+        "shipped_value": MIN_TIMING_YEARS_OVERRIDE,
+        "false_annualisation_wilson_high_at_searched": _false_ann_high(searched.min_timing_years),
+        "false_annualisation_wilson_high_at_shipped": _false_ann_high(MIN_TIMING_YEARS_OVERRIDE),
+        "reason": (
+            f"Search selected min_timing_years={searched.min_timing_years}; shipping "
+            f"{MIN_TIMING_YEARS_OVERRIDE} to match the released _MIN_USABLE_YEARS floor "
+            "(hydroseason/_regime.py). False annualisation is unaffected at every tested "
+            "value; the floor only removes challenger coverage on records shorter than "
+            "itself, with no measurable benefit to records above it."
+        ),
+    }
+    return shipped, note
 
 
 def select_evidence_defaults(
@@ -1563,9 +1276,17 @@ def select_evidence_defaults(
         ("weak_timing_concentration_margin", 5, True),
     ):
         _retain_axis(name, position, maximise=maximise)
-    selection_counts["selected"] = 1
 
-    # Sort surviving candidates lexicographically
+    # Break any tie the staged pruning left standing, deterministically.
+    #
+    # The pick must come from `survivors`, not `candidate_indices`: the latter
+    # is still the whole stage-1 set, so sorting it here would discard every
+    # pruning stage above -- the same stages `selection_counts` reports as
+    # `selection_survivors`. The two are not interchangeable. `_retain_metric`
+    # keeps points within `np.isclose` of the stage optimum, so a point whose
+    # recall is worse only by float noise stays eligible and can win on the
+    # next metric; sorting the unpruned set applies exact ordering instead and
+    # lets that noise decide the whole selection.
     def _cand_key(idx: int) -> tuple:
         pt = all_points[idx]
         return (
@@ -1583,148 +1304,50 @@ def select_evidence_defaults(
             -pt[5],
         )
 
-    candidate_indices = sorted(candidate_indices, key=_cand_key)
+    ordered = sorted(survivors.tolist(), key=_cand_key)
+    selection_counts["final_survivors"] = int(len(ordered))
+    selection_counts["selected"] = 1
 
     best = replace(
-        score_evidence_grid_point(evidence_cache, all_points[candidate_indices[0]]),
+        score_evidence_grid_point(evidence_cache, all_points[ordered[0]]),
         selection_counts=selection_counts,
     )
     return best.evidence, best.recoverability, [best]
 
 
-def _score_phase_with_norm_cache(
-    phase_cache: tuple[PhaseCycleStatistics, ...],
-    norm_list: list,
-    point: PhaseThresholds,
-) -> PhaseGridScore:
-    phases = ("dry", "recovery", "wet", "recession")
-    correct_counts = {p: 0 for p in phases}
-    total_counts = {p: 0 for p in phases}
-    transition_errors = []
-    forced_complete_count = 0
-    evaluated_cycles = 0
-
-    if not phase_cache:
-        return PhaseGridScore(
-            thresholds=point,
-            macro_accuracy=0.0,
-            transition_mae=12.0,
-            forced_complete_rate=0.0,
-        )
-
-    for idx, cycle in enumerate(phase_cache):
-        normalised = norm_list[idx]
-        if not normalised.sufficient:
-            continue
-
-        evaluated_cycles += 1
-
-        labels = label_cycle(
-            normalised,
-            low_fraction=point.phase_low_fraction,
-            high_fraction=point.phase_high_fraction,
-            min_duration_months=point.phase_min_duration_months,
-        )
-
-        pred = labels.to_numpy()
-        true = cycle.true_phase.to_numpy()
-
-        for p in phases:
-            mask = true == p
-            n_true = int(np.sum(mask))
-            if n_true > 0:
-                total_counts[p] += n_true
-                correct_counts[p] += int(np.sum(mask & (pred == p)))
-
-        # Transition MAE
-        for p in phases:
-            true_idx = np.where(true == p)[0]
-            pred_idx = np.where(pred == p)[0]
-            if len(true_idx) > 0 and len(pred_idx) > 0:
-                transition_errors.append(abs(float(pred_idx[0] - true_idx[0])))
-
-        truth_missing_transition = any(phase not in set(true) for phase in phases)
-        if truth_missing_transition and set(phases).issubset(set(pred)):
-            forced_complete_count += 1
-
-    accuracies = [
-        correct_counts[p] / total_counts[p] for p in phases if total_counts[p] > 0
-    ]
-    macro_acc = float(np.mean(accuracies)) if accuracies else 0.0
-    t_mae = float(np.mean(transition_errors)) if transition_errors else 12.0
-    forced_rate = (
-        float(forced_complete_count / evaluated_cycles) if evaluated_cycles else 0.0
-    )
-
-    return PhaseGridScore(
-        thresholds=point,
-        macro_accuracy=macro_acc,
-        transition_mae=t_mae,
-        forced_complete_rate=forced_rate,
-    )
 
 
-def score_phase_grid_point(
-    phase_cache: tuple[PhaseCycleStatistics, ...], point: PhaseThresholds
-) -> PhaseGridScore:
-    """Score one phase threshold point over the phase cache."""
-    norm_list = [
-        normalise_cycle(
-            cycle.cycle_frame,
-            start_extent=cycle.start_extent_candidates[0],
-            end_extent=cycle.end_extent_candidates[0],
-            window=point.phase_smoothing_window,
-            resolution_floor_pp=0.5,
-        )
-        for cycle in phase_cache
-    ]
-    return _score_phase_with_norm_cache(phase_cache, norm_list, point)
 
 
-def select_phase_defaults(
-    phase_cache: tuple[PhaseCycleStatistics, ...],
-) -> tuple[PhaseThresholds, list[PhaseGridScore]]:
-    """Select optimal phase thresholds through lexicographic sorting."""
-    norm_cache = {
-        win: [
-            normalise_cycle(
-                cycle.cycle_frame,
-                start_extent=cycle.start_extent_candidates[0],
-                end_extent=cycle.end_extent_candidates[0],
-                window=win,
-                resolution_floor_pp=0.5,
-            )
-            for cycle in phase_cache
-        ]
-        for win in (1, 3, 5)
+
+
+def calibration_environment() -> dict[str, str]:
+    """The interpreter and dependency versions a calibration ran under.
+
+    Recorded alongside the constants rather than hashed into
+    :func:`fingerprint`, so the generating environment is auditable without
+    making the staleness check environment-specific.
+    """
+    return {
+        "python": sys.version.split()[0],
+        "numpy": np.__version__,
+        "pandas": pd.__version__,
     }
-
-    scores = [
-        _score_phase_with_norm_cache(phase_cache, norm_cache[pt.phase_smoothing_window], pt)
-        for pt in iter_phase_points()
-    ]
-    scores.sort(
-        key=lambda item: (
-            -item.macro_accuracy,
-            item.transition_mae,
-            item.forced_complete_rate,
-            item.thresholds.phase_smoothing_window,
-            item.thresholds.phase_min_duration_months,
-        )
-    )
-    best = scores[0]
-    return best.thresholds, scores
 
 
 def fingerprint(
     *,
     evidence_defaults: EvidenceThresholds | None = None,
     recoverability_defaults: RecoverabilityThresholds | None = None,
-    phase_defaults: PhaseThresholds | None = None,
 ) -> str:
-    """Canonical SHA-256 fingerprint over generator, grid, objective, seed manifest, and dependency versions."""
-    from . import _scientific_defaults as defaults
-    from . import _synthetic
+    """Canonical SHA-256 fingerprint over generator, grid, objective, seed manifest, and selected constants.
+
+    Changing the synthetic generator, either search grid, an objective
+    function, the seed manifest, or any selected constant changes this value,
+    which is what marks the shipped defaults stale. Interpreter and dependency
+    versions do not -- :func:`calibration_environment` records those.
+    """
+    from . import _scientific_defaults as defaults, _synthetic
 
     hasher = hashlib.sha256()
 
@@ -1735,12 +1358,9 @@ def fingerprint(
 
     # Grid constants and the shipping objective implementations.
     hasher.update(json.dumps(EVIDENCE_GRID, sort_keys=True).encode("utf-8"))
-    hasher.update(json.dumps(PHASE_GRID, sort_keys=True).encode("utf-8"))
     for objective in (
         score_evidence_grid_point,
         select_evidence_defaults,
-        score_phase_grid_point,
-        select_phase_defaults,
     ):
         hasher.update(inspect.getsource(objective).encode("utf-8"))
 
@@ -1749,13 +1369,13 @@ def fingerprint(
         json.dumps(list(_synthetic.CALIBRATION_SEEDS)).encode("utf-8")
     )
 
-    # Dependency versions
-    deps = {
-        "python": sys.version.split()[0],
-        "numpy": np.__version__,
-        "pandas": pd.__version__,
-    }
-    hasher.update(json.dumps(deps, sort_keys=True).encode("utf-8"))
+    # Interpreter and dependency versions are deliberately NOT hashed. They
+    # are provenance, not a scientific input: folding them in makes the
+    # fingerprint interpreter-specific, so a test asserting equality can pass
+    # on at most one row of a CI matrix that spans Python 3.10-3.13 and a
+    # pinned minimum-dependency floor. They are recorded instead -- see
+    # calibration_environment() and CALIBRATION_ENVIRONMENT in the generated
+    # defaults module -- so the generating environment stays auditable.
 
     selected = {
         "evidence": asdict(
@@ -1766,7 +1386,6 @@ def fingerprint(
             recoverability_defaults
             or getattr(defaults, "RECOVERABILITY_DEFAULTS", RecoverabilityThresholds())
         ),
-        "phase": asdict(phase_defaults or defaults.PHASE_DEFAULTS),
         "authority_scope": {
             "evidence": getattr(
                 defaults, "EVIDENCE_AUTHORITY_SCOPE", AUTHORITY_SCOPE["evidence"]
@@ -1775,9 +1394,6 @@ def fingerprint(
                 defaults,
                 "RECOVERABILITY_AUTHORITY_SCOPE",
                 AUTHORITY_SCOPE["recoverability"],
-            ),
-            "phase": getattr(
-                defaults, "PHASE_AUTHORITY_SCOPE", AUTHORITY_SCOPE["phase"]
             ),
         },
     }

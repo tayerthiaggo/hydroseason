@@ -21,6 +21,7 @@ nav:
   - Home: index.md
   - Usage Guide: guide.md
   - CLI Recipes: cli-recipes.md
+  - Preflight: preflight.md
   - Dynamic Hydrological State: hydrological-state.md
   - Decision Policy: decision-policy.md
   - Case Studies:
@@ -32,6 +33,7 @@ nav:
   - API Reference:
       - Overview: api/index.md
       - Workflow: api/workflow.md
+      - Preflight: api/preflight.md
       - Loading Data: api/io.md
       - Analysis: api/analysis.md
       - Reporting: api/report.md

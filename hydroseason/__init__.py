@@ -32,6 +32,7 @@ from .hydrological_state import (
 )
 from .io import (
     HistoricalMaskCoverageWarning,
+    HistoricalMaskRefreshedWarning,
     HistoricalWaterMask,
     WetPlanningFootprint,
     WOfSCacheHandle,
@@ -51,8 +52,8 @@ from .io import (
     open_wo_statistics,
     verify_cache_footprints,
 )
+from .preflight import PreflightProfileUnavailable, preflight
 from .report import CatchmentReportPaths, generate_catchment_report, generate_html_report
-from .preflight import preflight
 from .workflow import HydroSeasonPreflightError, HydroSeasonRunResult, run_hydroseason
 
 __version__ = "0.2.0"
@@ -81,6 +82,7 @@ __all__ = [
     "WetPlanningFootprint",
     "HistoricalWaterMask",
     "HistoricalMaskCoverageWarning",
+    "HistoricalMaskRefreshedWarning",
     "build_historical_water_mask",
     "load_or_build_historical_water_mask",
     "generate_html_report",
@@ -107,6 +109,7 @@ __all__ = [
     "PreflightThresholds",
     "FeasibilityResult",
     "preflight",
+    "PreflightProfileUnavailable",
     "HydroSeasonPreflightError",
     "HydroSeasonRunResult",
     "run_hydroseason",

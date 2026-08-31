@@ -10,7 +10,8 @@ REPORT = Path("docs/calibration/2026-08-21-calibration-report.json")
 
 def test_constants_exist_and_are_typed():
     assert isinstance(defaults.CALIBRATION_VERSION, str)
-    assert 0.0 <= defaults.PHASE_DEFAULTS.phase_low_fraction < defaults.PHASE_DEFAULTS.phase_high_fraction <= 1.0
+    assert 0.0 <= defaults.EVIDENCE_DEFAULTS.seasonal_cv_skill <= 1.0
+    assert 0.0 < defaults.EVIDENCE_DEFAULTS.periodicity_alpha < 1.0
 
 
 def test_report_exists_and_parses():
@@ -22,7 +23,8 @@ def test_report_matches_the_generated_constants():
     payload = json.loads(REPORT.read_text())
 
     assert payload["calibration_version"] == defaults.CALIBRATION_VERSION
-    assert payload["phase"] == asdict(defaults.PHASE_DEFAULTS)
+    assert payload["evidence"] == asdict(defaults.EVIDENCE_DEFAULTS)
+    assert payload["recoverability"] == asdict(defaults.RECOVERABILITY_DEFAULTS)
 
 
 def test_fingerprint_is_current():
@@ -32,14 +34,44 @@ def test_fingerprint_is_current():
     assert payload["fingerprint"] == fingerprint() == defaults.CALIBRATION_FINGERPRINT
 
 
+def test_fingerprint_ignores_the_interpreter_and_dependency_versions(monkeypatch):
+    """The staleness check must hold across the whole supported CI matrix.
+
+    Hashing sys.version/numpy/pandas made the fingerprint environment-specific,
+    so equality could hold on at most one row of a matrix spanning Python
+    3.10-3.13 plus a pinned minimum-dependency floor.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from hydroseason import _calibration
+
+    current = fingerprint()
+    monkeypatch.setattr(_calibration.sys, "version", "3.10.0 (fake) [fake]")
+    monkeypatch.setattr(np, "__version__", "1.24.4")
+    monkeypatch.setattr(pd, "__version__", "2.0.3")
+
+    assert fingerprint() == current
+
+
+def test_generated_defaults_record_the_calibration_environment():
+    """Version provenance is recorded rather than hashed."""
+    assert set(defaults.CALIBRATION_ENVIRONMENT) == {"python", "numpy", "pandas"}
+    payload = json.loads(REPORT.read_text())
+    assert payload["environment"] == defaults.CALIBRATION_ENVIRONMENT
+    # The report filename carries a fixed vintage label, so the run's real
+    # instant has to be legible from the payload.
+    assert payload["generated"].endswith("+00:00")
+
+
 def test_fingerprint_changes_when_selected_constants_change(monkeypatch):
     current = fingerprint()
     monkeypatch.setattr(
         defaults,
-        "PHASE_DEFAULTS",
+        "EVIDENCE_DEFAULTS",
         replace(
-            defaults.PHASE_DEFAULTS,
-            phase_low_fraction=defaults.PHASE_DEFAULTS.phase_low_fraction + 0.05,
+            defaults.EVIDENCE_DEFAULTS,
+            seasonal_cv_skill=defaults.EVIDENCE_DEFAULTS.seasonal_cv_skill + 0.05,
         ),
     )
 
@@ -75,4 +107,13 @@ def test_defaults_module_is_generated_not_hand_edited():
 
 
 def test_generated_default_module_declares_scientific_scope():
-    assert defaults.PHASE_AUTHORITY_SCOPE == "authoritative_for_four_phase_labels_only"
+    """Nothing in the calibration claims authority over released behaviour.
+
+    The four-phase labeller that PHASE_DEFAULTS governed was unreachable and
+    has been removed, so `authoritative_for_four_phase_labels_only` no longer
+    describes a product. Both remaining groups are challengers.
+    """
+    assert defaults.EVIDENCE_AUTHORITY_SCOPE == "experimental_challenger"
+    assert defaults.RECOVERABILITY_AUTHORITY_SCOPE == "experimental_challenger"
+    assert not hasattr(defaults, "PHASE_DEFAULTS")
+    assert not hasattr(defaults, "PHASE_AUTHORITY_SCOPE")
