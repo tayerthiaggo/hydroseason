@@ -174,7 +174,16 @@ def _interpret(
             "direct rainfall-driven relationship."
         )
 
-    if r in _DETERMINATE_REGIMES and e in ("aseasonal", "marginal") and e != r:
+    _weak = ("aseasonal", "marginal")
+    if e in _weak and r in _weak:
+        return "agree", (
+            f"Neither rainfall ({r}) nor observed surface-water extent ({e}) shows "
+            "a strongly reproducible annual cycle: the absence of a clear signal in "
+            "the extent record is consistent with an equally weak or aseasonal "
+            "local rainfall climate, not obviously evidence of a non-rainfall driver."
+        )
+
+    if r in _DETERMINATE_REGIMES and e in _weak and e != r:
         return "extent_damped", (
             f"Rainfall is {r} but observed surface-water extent is {e}: the "
             "catchment's rainfall input has a seasonal cycle that its surface-water "
@@ -186,20 +195,12 @@ def _interpret(
             "concluding regulation specifically."
         )
 
-    if e in _DETERMINATE_REGIMES and r in ("aseasonal", "marginal") and e != r:
+    if e in _DETERMINATE_REGIMES and r in _weak and e != r:
         return "extent_more_seasonal", (
             f"Observed surface-water extent is {e} but rainfall is {r}: the extent "
             "record shows more seasonal structure than local rainfall alone would "
             "predict. Consider upstream inflow from outside this catchment, snowmelt, "
             "or a rainfall record that does not represent the catchment well."
-        )
-
-    if e == "aseasonal" and r == "aseasonal":
-        return "agree", (
-            "Both rainfall and observed surface-water extent are aseasonal: the "
-            "absence of a reproducible annual cycle in the extent record is "
-            "consistent with an aseasonal local rainfall climate, not obviously "
-            "evidence of a non-rainfall driver."
         )
 
     return "partial", (

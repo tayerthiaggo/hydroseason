@@ -49,11 +49,11 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert 'id="timeline"' in html
     assert '<div id="timeline" class="plot-canvas"></div>' in html
     assert '<div id="secondary" class="plot-canvas"></div>' in html
-    assert html.count('class="kpi"') == 18
+    assert html.count('class="kpi"') == 20
     assert html.index("hydrological years") < html.index("mean annual amplitude")
     assert html.index("peak timing concentration") < html.index("trough timing concentration")
     assert html.index("trough timing concentration") < html.index("analytical route")
-    assert html.index("average invalid/cloud cover") > html.index("high confidence years")
+    assert html.index("average invalid/cloud cover") > html.index("point-identifiable boundary years")
     assert ".plot > .plot-canvas {" in html
     assert ".plot-primary > .plot-canvas {" in html
     assert ".plot > div {" not in html
@@ -295,7 +295,12 @@ def test_aseasonal_bundle_has_no_hydrological_year_claims(tmp_path, aseasonal_ex
     hydro_years = pd.read_csv(paths.hydro_years_csv)
 
     assert hydro_years.empty
-    assert "hydrological-year boundaries" not in html
+    # The new marginal/event-routed copy legitimately mentions "hydrological-year
+    # boundaries" while explicitly withholding them; what must never appear is a
+    # claim that they were applied or detected.
+    assert "hydrological-year boundaries are applied" not in html
+    assert "hydrological-year boundaries are detected" not in html
+    assert "exact hydrological-year boundaries are withheld" in html
     assert "wet events" in html
 
 

@@ -52,9 +52,15 @@ def verdict_sentence(analysis: CatchmentAnalysis) -> str:
             f"(SNR = {snr:.2f}). {route_desc}"
         )
     elif regime == "marginal":
+        if analysis.route == "per_year_detection":
+            return (
+                f"Exhibits marginal seasonality (SNR = {snr:.2f}); "
+                "dynamic local extrema are detected per year, alongside event descriptors."
+            )
         return (
-            f"Exhibits marginal seasonality (SNR = {snr:.2f}); "
-            f"analysis uses an imposed fixed annual climatological window as an analytical assumption."
+            f"Marginal seasonal signal (SNR = {snr:.2f}); annual timing is "
+            "insufficiently identifiable. Wet events and low-extent spells are "
+            "reported; exact hydrological-year boundaries are withheld."
         )
     elif regime == "aseasonal":
         return (
@@ -202,8 +208,12 @@ def select_kpis(
     cycle_length = _metric_column(hy_df, "cycle_months", "n_months_cycle")
     peak = _metric_column(hy_df, "peak_extent_pct")
     trough = _metric_column(hy_df, "trough_extent_pct", "end_extent_pct")
-    confidence = hy_df.get("confidence", pd.Series(dtype=object)).astype(str).str.lower()
-    high_confidence = int(confidence.eq("high").sum())
+    selection_support = pd.to_numeric(
+        hy_df.get("selection_support", pd.Series(dtype=float)), errors="coerce"
+    )
+    well_observed = int((selection_support >= 0.8).sum())
+    timing_status = hy_df.get("timing_status", pd.Series(dtype=object)).astype(str)
+    point_identifiable = int(timing_status.eq("point").sum())
     average_invalid = (
         pd.to_numeric(extent["invalid_pct"], errors="coerce").mean()
         if extent is not None and "invalid_pct" in extent.columns
@@ -218,6 +228,12 @@ def select_kpis(
     # says why it is absent rather than showing a bare "N/A": a deck of blanks
     # reads as a broken run, when it is in fact the finding.
     withheld_reason = _WITHHELD_REASONS.get(str(assessment.regime))
+    if (
+        withheld_reason is None
+        and str(assessment.regime) == "marginal"
+        and analysis.route == "event_characterisation"
+    ):
+        withheld_reason = "annual timing is insufficiently identifiable"
     if withheld_reason is None and n_years == 0:
         withheld_reason = "no hydrological years were resolved"
 
@@ -234,11 +250,11 @@ def select_kpis(
         f"seasonal >= {REGIME_THRESHOLDS['seasonal_min_snr']:.1f}, "
         f"aseasonal < {REGIME_THRESHOLDS['aseasonal_max_snr']:.1f}"
     )
-    def timing_value(value: float | None) -> str:
-        return f"R {_number(value, decimals=2)}" if value is not None else "Not defined"
+    def timing_value(ci_low: float | None) -> str:
+        return f"R {_number(ci_low, decimals=2)}" if ci_low is not None else "Not defined"
 
-    peak_iqr = _number(assessment.peak_phase_iqr_months, decimals=1, suffix=" months")
-    trough_iqr = _number(assessment.trough_phase_iqr_months, decimals=1, suffix=" months")
+    peak_mean = _number(assessment.peak_timing_concentration, decimals=2)
+    trough_mean = _number(assessment.trough_timing_concentration, decimals=2)
     peak_ci = (
         f"{_number(assessment.peak_timing_concentration_ci_low, decimals=2)} to "
         f"{_number(assessment.peak_timing_concentration_ci_high, decimals=2)}"
@@ -266,16 +282,17 @@ def select_kpis(
             f"available; {timing_record_caution}."
         )
     peak_timing_detail = (
-        f"95% bootstrap CI {peak_ci}; R >= 0.70 supports seasonal peak timing. "
+        f"95% CI lower bound; average R {peak_mean}. "
+        f"Peak timing concentration (95% bootstrap CI {peak_ci}); "
+        f"R >= 0.70 supports seasonal peak timing. "
         f"Kuiper uniformity p-value {peak_uniformity_p}. "
-        f"Peak timing IQR is descriptive only ({peak_iqr}). "
         "R ranges from 0 (diffuse or cancelling timing) to 1 (same month every year). "
         "A low R can also arise from symmetric multi-modal timing; the Kuiper p-value tests the discrete 12-month uniform null."
     )
     trough_timing_detail = (
-        f"95% bootstrap CI {trough_ci}; boundary eligibility requires trough timing "
-        f"CI lower bound R >= 0.70. Kuiper uniformity p-value {trough_uniformity_p}. "
-        f"Trough timing IQR is descriptive only ({trough_iqr})."
+        f"95% CI lower bound; average R {trough_mean}. "
+        f"Trough timing concentration (95% bootstrap CI {trough_ci}); boundary eligibility requires trough timing "
+        f"CI lower bound R >= 0.70. Kuiper uniformity p-value {trough_uniformity_p}."
     )
 
     return [
@@ -291,18 +308,25 @@ def select_kpis(
         ),
         card(
             "peak timing concentration",
-            timing_value(assessment.peak_timing_concentration),
+            timing_value(assessment.peak_timing_concentration_ci_low),
             peak_timing_detail,
         ),
         card(
             "trough timing concentration",
-            timing_value(assessment.trough_timing_concentration),
+            timing_value(assessment.trough_timing_concentration_ci_low),
             trough_timing_detail,
         ),
         card(
             "analytical route",
             _route_label(analysis.route),
             "how hydro-year boundaries were derived",
+        ),
+        card(
+            "observability",
+            f"{_number(assessment.zero_month_fraction * 100, decimals=1)}% zero-water months",
+            f"{assessment.n_whole_zero_years} whole-zero years; "
+            f"{min(assessment.n_peak_timing_years, assessment.n_trough_timing_years)}/"
+            f"{assessment.n_usable_years} years support both peak and trough timing",
         ),
         card("hydrological years", str(n_years), timing_record_detail),
         card(
@@ -343,8 +367,19 @@ def select_kpis(
             **cycle_metric(_extent_number(trough.mean()), "mean across all hydro-years"),
         ),
         card(
-            "high confidence years",
-            **cycle_metric(str(high_confidence), f"out of {n_years} total years"),
+            "well-observed years",
+            **cycle_metric(
+                str(well_observed),
+                f"out of {n_years} total years; data/window quality (selection_support >= 0.8)",
+            ),
+        ),
+        card(
+            "point-identifiable boundary years",
+            **cycle_metric(
+                str(point_identifiable),
+                f"out of {n_years} total years; timing resolved to an exact date, "
+                "not an interval or unresolved extremum",
+            ),
         ),
         # Event descriptors presume no cycle, so they are populated on every
         # route. They carry the description for aseasonal catchments, where the

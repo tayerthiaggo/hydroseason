@@ -125,6 +125,34 @@ def _fmt_date(value: Any, *, year: bool = True) -> str:
     return parsed.strftime("%B %Y" if year else "%b %Y")
 
 
+def _fmt_timing_extremum(
+    row: pd.Series,
+    *,
+    date_names: tuple[str, ...],
+    status_names: tuple[str, ...],
+    interval_start_names: tuple[str, ...],
+    interval_end_names: tuple[str, ...],
+    year: bool = True,
+) -> str:
+    """Format an extremum date without fabricating precision timing does not support.
+
+    A row without a timing-status column (e.g. the fixed-window detector) keeps
+    the original unconditional date. Otherwise: an exact date only for "point";
+    a bounded range for "interval"; an explicit withholding for "unresolved".
+    """
+    status = _row_value(row, *status_names)
+    if status is None:
+        return _fmt_date(_row_value(row, *date_names), year=year)
+    status = str(status)
+    if status == "point":
+        return _fmt_date(_row_value(row, *date_names), year=year)
+    if status == "interval":
+        start = _fmt_date(_row_value(row, *interval_start_names), year=year)
+        end = _fmt_date(_row_value(row, *interval_end_names), year=year)
+        return f"{start} – {end}"
+    return "Unresolved"
+
+
 def _interval_match(date: pd.Timestamp | None, rows: list[dict[str, Any]]) -> bool:
     if date is None:
         return False
@@ -281,6 +309,16 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
         peak_date = _row_value(row, "peak_month", "peak_date")
         mid_date = _row_value(row, "temporal_mid_dry_month", "mid_dry_month", "mid_dry_date")
         trough_date = _row_value(row, "trough_month", "end_dry_month", "trough_date")
+        peak_timing_status = _row_value(row, "peak_timing_status")
+        trough_timing_status = _row_value(row, "trough_timing_status")
+        peak_marker_suffix = (
+            "" if peak_timing_status is None or str(peak_timing_status) == "point"
+            else f" ({_escape(str(peak_timing_status))})"
+        )
+        trough_marker_suffix = (
+            "" if trough_timing_status is None or str(trough_timing_status) == "point"
+            else f" ({_escape(str(trough_timing_status))})"
+        )
         cycle = _row_value(row, "cycle_months", "n_months_cycle")
         amplitude = _row_value(row, "amplitude_pct", "drawdown_pct", "seasonal_amplitude_pp")
         confidence = str(_row_value(row, "confidence") or "unassigned").lower()
@@ -316,6 +354,20 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             f'<span class="confidence-badge badge-{_escape(confidence)}" title="Hydrological year data quality and boundary confidence: {_escape(confidence.upper())}">{_escape(confidence.upper())} CONFIDENCE</span>',
         ])
         meta_html = "".join(meta_items)
+        peak_display = _fmt_timing_extremum(
+            row,
+            date_names=("peak_month", "peak_date"),
+            status_names=("peak_timing_status",),
+            interval_start_names=("peak_interval_start",),
+            interval_end_names=("peak_interval_end",),
+        )
+        trough_display = _fmt_timing_extremum(
+            row,
+            date_names=("trough_month", "end_dry_month", "trough_date"),
+            status_names=("trough_timing_status",),
+            interval_start_names=("trough_interval_start",),
+            interval_end_names=("trough_interval_end",),
+        )
         segment = monthly_frame.loc[(monthly_frame.index >= start) & (monthly_frame.index <= end)]
         detail_rows: list[str] = []
         phase_display_map = {
@@ -339,11 +391,11 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             }.get(phase, "unassigned")
             event = ""
             if _safe_date(peak_date) == date:
-                event = '<span class="cell-marker marker-wet">Wet Peak</span>'
+                event = f'<span class="cell-marker marker-wet">Wet Peak{peak_marker_suffix}</span>'
             elif _safe_date(mid_date) == date:
                 event = '<span class="cell-marker marker-mid">Mid Dry</span>'
             elif _safe_date(trough_date) == date:
-                event = '<span class="cell-marker marker-dry">Dry End</span>'
+                event = f'<span class="cell-marker marker-dry">Dry End{trough_marker_suffix}</span>'
             extent_value = month.get("extent_pct")
             invalid_value = month.get("invalid_pct")
             invalid_text = "N/A" if pd.isna(invalid_value) else f"{float(invalid_value):.2f}%"
@@ -370,9 +422,9 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             '</summary>'
             '<div class="year-detail-content">'
             '<div class="detail-kpis">'
-            f'<div class="detail-kpi-card"><span class="detail-kpi-label">Peak Wet Month</span><span class="detail-kpi-value value-wet">{_escape(_fmt_date(peak_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "peak_extent_pct")))} extent</span></div>'
+            f'<div class="detail-kpi-card"><span class="detail-kpi-label">Peak Wet Month</span><span class="detail-kpi-value value-wet">{_escape(peak_display)}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "peak_extent_pct")))} extent</span></div>'
             f'<div class="detail-kpi-card"><span class="detail-kpi-label">Mid-Dry Target</span><span class="detail-kpi-value value-mid">{_escape(_fmt_date(mid_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "temporal_mid_dry_extent_pct", "mid_extent_pct")))} extent</span></div>'
-            f'<div class="detail-kpi-card"><span class="detail-kpi-label">End Dry Month</span><span class="detail-kpi-value value-dry">{_escape(_fmt_date(trough_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "trough_extent_pct", "end_extent_pct")))} extent</span></div>'
+            f'<div class="detail-kpi-card"><span class="detail-kpi-label">End Dry Month</span><span class="detail-kpi-value value-dry">{_escape(trough_display)}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "trough_extent_pct", "end_extent_pct")))} extent</span></div>'
             '</div>'
             f'{inferred_start_note}'
             '<table class="nested-table"><thead><tr><th>Month</th><th>Phase</th><th>Water Extent</th><th>Invalid/Cloud Cover</th><th>Key Event</th></tr></thead>'

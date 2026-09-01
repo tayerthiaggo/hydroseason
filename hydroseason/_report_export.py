@@ -94,6 +94,15 @@ HY_CSV_COLUMNS = [
     "boundary_basis",
     "regime",
     "route",
+    "timing_status",
+    "peak_timing_status",
+    "peak_interval_start_date",
+    "peak_interval_end_date",
+    "trough_timing_status",
+    "trough_interval_start_date",
+    "trough_interval_end_date",
+    "detectability_floor_pp",
+    "amplitude_to_floor_ratio",
 ]
 
 EVENT_CSV_COLUMNS = [
@@ -400,9 +409,27 @@ def build_user_hydro_years_export(hydro_years: pd.DataFrame) -> pd.DataFrame:
         "boundary_basis": ("boundary_basis",),
         "regime": ("regime",),
         "route": ("route",),
+        "timing_status": ("timing_status",),
+        "peak_timing_status": ("peak_timing_status",),
+        "peak_interval_start_date": ("peak_interval_start",),
+        "peak_interval_end_date": ("peak_interval_end",),
+        "trough_timing_status": ("trough_timing_status",),
+        "trough_interval_start_date": ("trough_interval_start",),
+        "trough_interval_end_date": ("trough_interval_end",),
+        "detectability_floor_pp": ("detectability_floor_pp",),
+        "amplitude_to_floor_ratio": ("amplitude_to_floor_ratio",),
     }
     for target, source_names in aliases.items():
         out[target] = _first_column(hydro_years, *source_names).to_numpy()
+
+    # A public exact-date field is populated only when timing status is
+    # "point": an interval or unresolved extremum has no defensible single
+    # date. Callers whose frame carries no timing_status (the fixed-window
+    # detector) keep the original, unconditional date behaviour.
+    if "peak_timing_status" in out.columns:
+        out.loc[out["peak_timing_status"] != "point", "peak_date"] = pd.NaT
+    if "trough_timing_status" in out.columns:
+        out.loc[out["trough_timing_status"] != "point", "trough_date"] = pd.NaT
 
     # Stable empty files still have the same header as populated files.
     return out.reindex(columns=HY_CSV_COLUMNS).reset_index(drop=True)

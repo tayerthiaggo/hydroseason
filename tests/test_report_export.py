@@ -137,6 +137,13 @@ def test_build_hydro_years_export_and_summary(seasonal_extent):
         "trough_timing_uniformity_p",
         "trough_phase_iqr_months",
         "n_timing_years",
+        "n_peak_timing_years",
+        "n_trough_timing_years",
+        "n_zero_months",
+        "zero_month_fraction",
+        "n_whole_zero_years",
+        "pixel_support_status",
+        "timing_evidence",
         "n_usable_years",
         "n_usable_months",
         "n_hydro_years",
@@ -198,6 +205,56 @@ def test_write_report_csvs(tmp_path, seasonal_extent):
     assert paths["wet_event"].name == "test-catchment_wet_event.csv"
     for p in paths.values():
         assert p.exists()
+
+
+def test_hydro_years_csv_carries_timing_identifiability_columns(seasonal_extent):
+    from hydroseason._report_export import build_user_hydro_years_export
+
+    analysis = analyze_catchment(seasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
+    user_hy = build_user_hydro_years_export(analysis.hydro_years)
+    timing_columns = [
+        "timing_status",
+        "peak_timing_status",
+        "peak_interval_start_date",
+        "peak_interval_end_date",
+        "trough_timing_status",
+        "trough_interval_start_date",
+        "trough_interval_end_date",
+        "detectability_floor_pp",
+        "amplitude_to_floor_ratio",
+    ]
+    for column in timing_columns:
+        assert column in user_hy.columns
+
+
+def test_public_extremum_date_is_blank_unless_timing_status_is_point():
+    from hydroseason._report_export import build_user_hydro_years_export
+
+    hydro_years = pd.DataFrame([
+        {
+            "hy_year": 2020, "peak_month": pd.Timestamp("2020-02-01"),
+            "trough_month": pd.Timestamp("2020-09-01"),
+            "peak_timing_status": "point", "trough_timing_status": "interval",
+            "trough_interval_start": pd.Timestamp("2020-08-01"),
+            "trough_interval_end": pd.Timestamp("2020-10-01"),
+        },
+        {
+            "hy_year": 2021, "peak_month": pd.Timestamp("2021-02-01"),
+            "trough_month": pd.Timestamp("2021-09-01"),
+            "peak_timing_status": "unresolved", "trough_timing_status": "point",
+        },
+    ])
+    out = build_user_hydro_years_export(hydro_years)
+    row_2020 = out.loc[out["hy_year"] == 2020].iloc[0]
+    row_2021 = out.loc[out["hy_year"] == 2021].iloc[0]
+
+    assert row_2020["peak_date"] == pd.Timestamp("2020-02-01")
+    assert pd.isna(row_2020["trough_date"])
+    assert row_2020["trough_interval_start_date"] == pd.Timestamp("2020-08-01")
+    assert row_2020["trough_interval_end_date"] == pd.Timestamp("2020-10-01")
+
+    assert pd.isna(row_2021["peak_date"])
+    assert row_2021["trough_date"] == pd.Timestamp("2021-09-01")
 
 
 def test_monthly_and_hydro_years_user_export_fields(seasonal_extent):

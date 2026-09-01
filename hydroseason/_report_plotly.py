@@ -20,6 +20,18 @@ MARKERS = {
     "HY Mid Dry": ("temporal_mid_dry_month", "#f97316", "square"),
     "HY End Dry": ("trough_month", "#dc2626", "circle"),
 }
+# Status column gating each marker's point candidacy: a marker is only drawn
+# for a row whose corresponding timing status is "point" -- an interval or
+# unresolved extremum has no defensible single date to mark. "HY Mid Dry" has
+# no timing status of its own (it is not an extremum) and is always eligible.
+_MARKER_STATUS_COLUMN = {
+    "HY Peak": "peak_timing_status",
+    "HY End Dry": "trough_timing_status",
+}
+INTERVAL_SHADE_COLORS = {
+    "peak": "rgba(37, 99, 235, 0.14)",
+    "trough": "rgba(220, 38, 38, 0.14)",
+}
 HOVER_TEMPLATE = (
     "HY %{customdata[0]}<br>Date: %{customdata[1]}<br>"
     "Extent: %{customdata[2]:.2f}%<br>Invalid: %{customdata[3]:.2f}%<br>"
@@ -249,8 +261,15 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
         x: list[str] = []
         y: list[Any] = []
         customdata: list[list[Any]] = []
+        status_column = _MARKER_STATUS_COLUMN.get(name)
         if column in rows.columns:
             for _, row in rows.iterrows():
+                if (
+                    status_column is not None
+                    and status_column in rows.columns
+                    and row.get(status_column) != "point"
+                ):
+                    continue
                 date = _iso_date(row[column])
                 if date is None:
                     continue
@@ -354,6 +373,49 @@ def _phase_shapes(
         return shapes
 
     return []
+
+
+def _timing_interval_shapes(analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
+    """Shade an extremum's equivalent-month span when its timing is an interval.
+
+    A broad low-water plateau or diffuse peak has no defensible single date, so
+    it is never marked with a point (see ``_marker_traces``); shading the span
+    it was actually resolved to shows the real evidence instead of a fabricated
+    exact date.
+    """
+    rows = getattr(analysis, "hydro_years", pd.DataFrame())
+    if rows is None or rows.empty:
+        return []
+    shapes: list[dict[str, Any]] = []
+    specs = (
+        ("peak", "peak_timing_status", "peak_interval_start", "peak_interval_end"),
+        ("trough", "trough_timing_status", "trough_interval_start", "trough_interval_end"),
+    )
+    for kind, status_col, start_col, end_col in specs:
+        if status_col not in rows.columns:
+            continue
+        for _, row in rows.iterrows():
+            if row.get(status_col) != "interval":
+                continue
+            start = _iso_date(row.get(start_col))
+            end = _iso_date(row.get(end_col))
+            if start is None or end is None:
+                continue
+            shapes.append({
+                "name": f"timing_interval:{kind}:{start}",
+                "type": "rect",
+                "xref": "x",
+                "yref": "paper",
+                "x0": start,
+                "x1": end,
+                "y0": 0,
+                "y1": 1,
+                "fillcolor": INTERVAL_SHADE_COLORS[kind],
+                "opacity": 1.0,
+                "line": {"width": 0},
+                "layer": "below",
+            })
+    return shapes
 
 
 def _hydro_year_context(analysis: CatchmentAnalysis) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -542,6 +604,7 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
     layout["shapes"] = (
         _phase_shapes(monthly, raw_dates, analysis)
         + hydro_shapes
+        + _timing_interval_shapes(analysis)
     )
     layout["annotations"] = hydro_annotations
     layout["margin"]["t"] = 52
@@ -577,7 +640,7 @@ def hydro_year_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dic
         midpoint = pd.Timestamp(start) + (pd.Timestamp(end) - pd.Timestamp(start)) / 2
         annotations.append({"text": label, "xref": "x", "yref": "paper", "x": _iso_date(midpoint), "y": 1,
                             "showarrow": False, "yanchor": "bottom", "font": {"size": 10, "color": "#475569"}})
-    layout["shapes"] = shapes
+    layout["shapes"] = shapes + _timing_interval_shapes(analysis)
     layout["annotations"] = annotations
     return {"data": data, "layout": layout, "config": _config()}
 

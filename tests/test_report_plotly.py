@@ -20,8 +20,9 @@ _CLIMATOLOGY_TRACE = "Long-term monthly water extent (+/-1 std)"
 
 
 def _marginal_frames():
-    """A record with marginal amplitude and wandering timing that routes to events."""
-    rng = np.random.default_rng(0)
+    """A record with marginal amplitude and wandering timing that still supports
+    per-year dynamic detection (regime="marginal", route="per_year_detection")."""
+    rng = np.random.default_rng(1)
     dates = pd.date_range("2004-01-01", periods=12 * 20, freq="MS")
     values = []
     for year in range(2004, 2024):
@@ -212,6 +213,111 @@ def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(season
         if shape.get("name", "").startswith("HY ") and shape.get("type") == "rect"
     ]
     assert {(shape["x0"], shape["x1"]) for shape in intervals} == expected_intervals
+
+
+def test_interval_and_unresolved_extrema_get_no_point_marker():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-08-01", "2020-09-01", "2020-10-01"]),
+            "extent_pct": [30.0, 1.0, 1.02, 1.04],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding", "receding", "receding"],
+            "hy_year": [2020, 2020, 2020, 2020],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "temporal_mid_dry_month": [pd.Timestamp("2020-08-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "confidence": ["low"],
+                "boundary_status": ["provisional"],
+                "peak_timing_status": ["unresolved"],
+                "trough_timing_status": ["interval"],
+                "trough_interval_start": [pd.Timestamp("2020-08-01")],
+                "trough_interval_end": [pd.Timestamp("2020-10-01")],
+            }
+        )
+    )
+    figure = timeline_figure(monthly, analysis)
+    peak_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Peak")
+    end_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY End Dry")
+    mid_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Mid Dry")
+
+    assert peak_trace["x"] == []
+    assert end_dry_trace["x"] == []
+    # Mid-dry has no timing status of its own and is unaffected.
+    assert mid_dry_trace["x"] == ["2020-08-01"]
+
+
+def test_point_timing_status_still_gets_a_marker():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-10-01"]),
+            "extent_pct": [30.0, 1.0],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding"],
+            "hy_year": [2020, 2020],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "confidence": ["high"],
+                "boundary_status": ["confirmed"],
+                "peak_timing_status": ["point"],
+                "trough_timing_status": ["point"],
+            }
+        )
+    )
+    figure = timeline_figure(monthly, analysis)
+    peak_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Peak")
+    end_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY End Dry")
+
+    assert peak_trace["x"] == ["2020-01-01"]
+    assert end_dry_trace["x"] == ["2020-10-01"]
+
+
+def test_interval_timing_status_shades_its_span_instead_of_a_marker():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-08-01", "2020-09-01", "2020-10-01"]),
+            "extent_pct": [30.0, 1.0, 1.02, 1.04],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding", "receding", "receding"],
+            "hy_year": [2020, 2020, 2020, 2020],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "confidence": ["low"],
+                "boundary_status": ["provisional"],
+                "peak_timing_status": ["point"],
+                "trough_timing_status": ["interval"],
+                "trough_interval_start": [pd.Timestamp("2020-08-01")],
+                "trough_interval_end": [pd.Timestamp("2020-10-01")],
+            }
+        )
+    )
+    figure = timeline_figure(monthly, analysis)
+    interval_shapes = [
+        shape for shape in figure["layout"]["shapes"]
+        if shape.get("name", "").startswith("timing_interval:")
+    ]
+    assert len(interval_shapes) == 1
+    shape = interval_shapes[0]
+    assert shape["x0"] == "2020-08-01"
+    assert shape["x1"] == "2020-10-01"
+    assert shape["name"].startswith("timing_interval:trough:")
 
 
 def test_timeline_adds_rainfall_only_when_supplied(seasonal_data, seasonal_data_with_rainfall):
