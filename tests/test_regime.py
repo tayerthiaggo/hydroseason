@@ -95,6 +95,31 @@ def _stable_peak_unstable_trough_record(*, years=30):
     )
 
 
+def _intermittent_stable_pulses(*, informative_years: int, flat_value: float = 0.0):
+    """Twelve usable years with stable extrema only in detectable pulse years."""
+    years = 12
+    index = pd.date_range("2000-01-01", periods=12 * years, freq="MS")
+    chunks = []
+    for year in range(years):
+        if year < informative_years:
+            values = np.full(12, 5.0)
+            values[2] = 25.0
+            values[8] = 0.0
+        else:
+            values = np.full(12, flat_value)
+        chunks.append(values)
+    return pd.DataFrame(
+        {"extent_pct": np.concatenate(chunks), "invalid_pct": 0.0}, index=index
+    )
+
+
+def _small_clean_cycle(*, years: int = 12):
+    values = np.full(12, 5.0)
+    values[2] = 6.5
+    values[8] = 4.0
+    return _series(values, years=years)
+
+
 # --- regime classification -------------------------------------------------
 
 def test_regime_thresholds_publish_peak_concentration_contract():
@@ -124,7 +149,10 @@ def test_checked_case_study_fixtures_preserve_scientific_timing_properties():
     for result in regimes.values():
         assert 0.0 <= result.peak_timing_concentration_ci_low <= 1.0
         assert 0.0 <= result.peak_timing_concentration_ci_high <= 1.0
-        assert result.n_timing_years == 21
+        assert result.n_usable_years == 21
+        assert result.n_timing_years == result.n_peak_timing_years
+        assert result.n_peak_timing_years <= result.n_usable_years
+        assert result.n_trough_timing_years <= result.n_usable_years
         assert "fewer than 30 usable annual timings" in " ".join(result.caveats)
     assert regimes["daly_river_nt"].peak_timing_concentration_ci_low >= 0.7
     assert regimes["lachlan_river_nsw"].peak_timing_concentration_ci_low < 0.7
@@ -152,13 +180,15 @@ def test_checked_case_study_routes_follow_snr_and_trough_timing_evidence():
         assert regimes[key].supports_per_year_boundaries is False
 
 
-def test_established_public_timing_uses_one_exact_extremum_per_year(fitzroy_30m):
+def test_candidate_timing_uses_informative_equivalent_month_sets(fitzroy_30m):
     assessment = assess_water_regime(fitzroy_30m, n_bootstrap=40)
     assert assessment.decision_policy == "established_0_1_1"
     assert assessment.climatological_peak_month == 2
     assert assessment.climatological_trough_month == 11
     assert assessment.regime == "seasonal"
     assert assessment.peak_timing_concentration is not None
+    assert assessment.n_peak_timing_years == 21
+    assert assessment.n_trough_timing_years == 11
 
 
 def test_constant_record_has_finite_zero_established_snr():
@@ -181,11 +211,11 @@ def test_checked_case_study_peak_timing_concentrations_are_reproducible():
     unrecorded Monte Carlo realization and are intentionally not used.
     """
     expected = {
-        "daly_river_nt": (0.864, 0.812, 0.923),
-        "fitzroy_river_wa": (0.907, 0.855, 0.960),
+        "daly_river_nt": (0.878, 0.831, 0.926),
+        "fitzroy_river_wa": (0.900, 0.852, 0.951),
         "gilbert_river_qld": (0.934, 0.907, 0.966),
-        "lachlan_river_nsw": (0.324, 0.148, 0.653),
-        "moonie_river_qld_nsw": (0.532, 0.317, 0.740),
+        "lachlan_river_nsw": (0.393, 0.173, 0.719),
+        "moonie_river_qld_nsw": (0.444, 0.175, 0.720),
     }
 
     regimes = _checked_case_study_regimes()
@@ -336,10 +366,10 @@ def test_seasonal_record_with_unstable_trough_permits_per_year_boundaries():
     assert result.public_route == "per_year_detection"
 
 
-def test_marginal_regime_with_supported_boundaries_permits_per_year_boundaries():
-    dates = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
+def test_regime_with_seven_supported_years_permits_per_year_boundaries():
+    dates = pd.date_range("2000-01-01", periods=12 * 7, freq="MS")
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
-    vals = np.tile(cycle, 6)
+    vals = np.tile(cycle, 7)
     vals[0 * 12 + 3] = 0.05
     vals[1 * 12 + 3] = 0.05
     vals[2 * 12 + 3] = 0.05
@@ -432,6 +462,107 @@ def test_constant_zero_record_is_aseasonal_not_infinite():
     assert np.isfinite(assessment.amplitude_snr)
     assert assessment.amplitude_snr == 0.0
     assert assessment.regime == "aseasonal"
+    assert assessment.public_route == "event_characterisation"
+    assert assessment.n_usable_years >= 5
+    assert assessment.n_timing_years == 0
+    assert assessment.n_peak_timing_years == 0
+    assert assessment.n_trough_timing_years == 0
+    assert assessment.timing_evidence == "insufficient"
+    assert assessment.n_zero_months == 12 * 12
+    assert assessment.zero_month_fraction == 1.0
+    assert assessment.n_whole_zero_years == 12
+    assert assessment.pixel_support_status == "unavailable"
+
+
+def test_zero_dominated_stable_pulses_route_per_year():
+    assessment = assess_water_regime(
+        _intermittent_stable_pulses(informative_years=7),
+        measurement_tolerance_pct=0.0,
+        n_bootstrap=40,
+    )
+
+    assert assessment.regime in {"seasonal", "marginal"}
+    assert assessment.timing_evidence == "supported"
+    assert assessment.n_peak_timing_years == 7
+    assert assessment.n_trough_timing_years == 7
+    assert assessment.public_route == "per_year_detection"
+
+
+def test_zero_dominated_too_few_pulses_route_to_events():
+    frame = _intermittent_stable_pulses(informative_years=6)
+    for year, peak_month in zip(range(2000, 2006), (1, 3, 5, 7, 10, 12)):
+        annual = frame.index.year == year
+        frame.loc[annual, "extent_pct"] = 5.0
+        frame.loc[annual & (frame.index.month == peak_month), "extent_pct"] = 25.0
+        frame.loc[annual & (frame.index.month == 9), "extent_pct"] = 0.0
+
+    assessment = assess_water_regime(
+        frame,
+        measurement_tolerance_pct=0.0,
+        n_bootstrap=40,
+    )
+
+    assert assessment.regime == "marginal"
+    assert assessment.timing_evidence == "insufficient"
+    assert assessment.n_peak_timing_years == 6
+    assert assessment.n_trough_timing_years == 6
+    assert assessment.public_route == "event_characterisation"
+    assert assessment.climatological_peak_month is None
+    assert assessment.climatological_trough_month is None
+
+
+def test_measurement_tolerance_changes_timing_identifiability():
+    precise = assess_water_regime(
+        _small_clean_cycle(), measurement_tolerance_pct=0.0, n_bootstrap=40
+    )
+    coarse = assess_water_regime(
+        _small_clean_cycle(), measurement_tolerance_pct=1.0, n_bootstrap=40
+    )
+
+    assert precise.n_timing_years == 12
+    assert precise.timing_evidence == "supported"
+    assert coarse.n_timing_years == 0
+    assert coarse.timing_evidence == "insufficient"
+
+
+def test_zero_frequency_outside_detectable_years_is_descriptive_only():
+    zero_flat = assess_water_regime(
+        _intermittent_stable_pulses(informative_years=7, flat_value=0.0),
+        measurement_tolerance_pct=0.0,
+        n_bootstrap=40,
+    )
+    nonzero_flat = assess_water_regime(
+        _intermittent_stable_pulses(informative_years=7, flat_value=5.0),
+        measurement_tolerance_pct=0.0,
+        n_bootstrap=40,
+    )
+
+    assert zero_flat.n_zero_months > nonzero_flat.n_zero_months
+    assert zero_flat.n_peak_timing_years == nonzero_flat.n_peak_timing_years == 7
+    assert zero_flat.n_trough_timing_years == nonzero_flat.n_trough_timing_years == 7
+    assert zero_flat.timing_evidence == nonzero_flat.timing_evidence == "supported"
+    assert zero_flat.public_route == nonzero_flat.public_route == "per_year_detection"
+
+
+def test_route_gate_uses_conservative_peak_trough_minimum():
+    frame = _intermittent_stable_pulses(informative_years=7)
+    broad_trough_year = frame.index.year == 2006
+    frame.loc[broad_trough_year & frame.index.month.isin([8, 9, 10, 11]), "extent_pct"] = 0.0
+
+    assessment = assess_water_regime(
+        frame, measurement_tolerance_pct=0.0, n_bootstrap=40
+    )
+
+    assert assessment.n_peak_timing_years == 7
+    assert assessment.n_trough_timing_years == 6
+    assert assessment.n_timing_years == assessment.n_peak_timing_years
+    route_gate = min(
+        assessment.n_peak_timing_years,
+        assessment.n_trough_timing_years,
+    )
+    assert route_gate == 6
+    assert assessment.timing_evidence == "insufficient"
+    assert assessment.public_route == "event_characterisation"
 
 
 def test_constant_nonzero_record_is_also_aseasonal():

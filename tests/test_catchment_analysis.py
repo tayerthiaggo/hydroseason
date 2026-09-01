@@ -248,6 +248,28 @@ def test_catchment_threads_existing_bootstrap_controls_to_regime_assessment():
     assert routed.regime.peak_timing_uniformity_p == direct.peak_timing_uniformity_p
 
 
+def test_catchment_threads_measurement_tolerance_to_regime_assessment():
+    index = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    annual = np.full(12, 5.0)
+    annual[2] = 6.5
+    annual[8] = 4.0
+    extent = pd.DataFrame(
+        {"extent_pct": np.tile(annual, 12), "invalid_pct": 0.0}, index=index
+    )
+
+    direct = assess_water_regime(
+        extent, measurement_tolerance_pct=1.0, n_bootstrap=40
+    )
+    routed = analyze_catchment(
+        extent, measurement_tolerance_pct=1.0, n_bootstrap=40
+    )
+
+    assert direct.n_timing_years == 0
+    assert routed.regime.n_timing_years == direct.n_timing_years
+    assert routed.regime.timing_evidence == direct.timing_evidence
+    assert routed.route == direct.public_route == "event_characterisation"
+
+
 def test_marginal_routes_to_events_without_recoverable_boundaries(monkeypatch):
     def fail(*args, **kwargs):
         raise ValueError("dynamic detector rejected the record")

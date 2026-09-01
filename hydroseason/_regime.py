@@ -22,8 +22,8 @@ import numpy as np
 import pandas as pd
 
 from ._circular_timing import (
-    CircularTimingSummary,
-    summarise_circular_months,
+    AnnualTimingSummary,
+    summarise_annual_timing,
 )
 from ._decision_policy import (
     ESTABLISHED_POLICY,
@@ -32,10 +32,17 @@ from ._decision_policy import (
     EstablishedDecision,
     Regime,
     Route,
+    TimingEvidence,
     decide_established,
 )
 from ._events import extract_water_events
+from ._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
 from ._state_input import QualityPolicy, prepare_monthly_extent
+from ._timing_identifiability import (
+    PixelSupportStatus,
+    RecordTimingEvidence,
+    assess_timing_identifiability,
+)
 
 _DEFAULT_MIN_MONTHS_PER_YEAR = 9
 _MIN_USABLE_YEARS = 5
@@ -70,6 +77,13 @@ class WaterRegimeAssessment:
     trough_timing_concentration_ci_high: float | None
     trough_timing_uniformity_p: float | None
     n_timing_years: int
+    timing_evidence: TimingEvidence
+    n_peak_timing_years: int
+    n_trough_timing_years: int
+    n_zero_months: int
+    zero_month_fraction: float
+    n_whole_zero_years: int
+    pixel_support_status: PixelSupportStatus
     climatological_peak_month: int | None
     climatological_trough_month: int | None
     n_usable_years: int
@@ -132,7 +146,7 @@ def assess_water_regime(
     min_months_per_year: int = _DEFAULT_MIN_MONTHS_PER_YEAR,
     max_invalid_pct: float = 20.0,
     quality_policy: QualityPolicy = "flag",
-    measurement_tolerance_pct: float = 1.0,
+    measurement_tolerance_pct: float = 0.0,
     n_bootstrap: int = 200,
     random_state: int = 0,
 ) -> WaterRegimeAssessment:
@@ -158,11 +172,53 @@ def assess_water_regime(
     qualifying_years = [year for year, _ in qualifying_groups]
     sample = usable.loc[usable.index.year.isin(qualifying_years)]
 
+    if sample.empty:
+        count_columns = {"n_water", "n_valid", "n_invalid", "n_aoi"}
+        timing_evidence = RecordTimingEvidence(
+            years={},
+            pixel_support_status=(
+                "available" if count_columns.issubset(prepared.columns) else "unavailable"
+            ),
+            n_zero_months=0,
+            zero_month_fraction=0.0,
+            n_whole_zero_years=0,
+            n_peak_timing_years=0,
+            n_trough_timing_years=0,
+            n_timing_years=0,
+        )
+    else:
+        timing_evidence = assess_timing_identifiability(
+            sample,
+            thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
+            value_col=value_col,
+            max_invalid_pct=max_invalid_pct,
+            quality_policy=quality_policy,
+            measurement_tolerance_pct=measurement_tolerance_pct,
+        )
+
+    peak_month_sets = {
+        year: annual.peak_months
+        for year, annual in timing_evidence.years.items()
+        if annual.peak_status != "unresolved"
+    }
+    trough_month_sets = {
+        year: annual.trough_months
+        for year, annual in timing_evidence.years.items()
+        if annual.trough_status != "unresolved"
+    }
+    peak_timing: AnnualTimingSummary = summarise_annual_timing(
+        peak_month_sets,
+        n_resamples=n_bootstrap,
+        random_state=random_state,
+    )
+    trough_timing: AnnualTimingSummary = summarise_annual_timing(
+        trough_month_sets,
+        n_resamples=n_bootstrap,
+        random_state=random_state,
+    )
+
     if len(qualifying_years) < _MIN_USABLE_YEARS:
-        climatology = pd.Series(dtype=float)
         snr = 0.0
-        peak_timing = CircularTimingSummary(None, None, None, None, None, 0)
-        trough_timing = CircularTimingSummary(None, None, None, None, None, 0)
     else:
         by_month = sample[value_col].groupby(sample.index.month)
         climatology = by_month.mean()
@@ -176,29 +232,26 @@ def assess_water_regime(
             snr = amplitude / within_month_sd
         else:
             snr = np.inf
-        per_year_peaks = [int(group[value_col].idxmax().month) for _, group in qualifying_groups]
-        per_year_troughs = [int(group[value_col].idxmin().month) for _, group in qualifying_groups]
-        peak_timing = summarise_circular_months(
-            per_year_peaks,
-            n_resamples=n_bootstrap,
-            random_state=random_state,
-        )
-        trough_timing = summarise_circular_months(
-            per_year_troughs,
-            n_resamples=n_bootstrap,
-            random_state=random_state,
-        )
-
     decision = decide_established(
         n_usable_years=len(qualifying_years),
         amplitude_snr=float(snr),
         peak_timing=peak_timing,
         trough_timing=trough_timing,
+        n_peak_timing_years=timing_evidence.n_peak_timing_years,
+        n_trough_timing_years=timing_evidence.n_trough_timing_years,
+        min_informative_years=TIMING_IDENTIFIABILITY_DEFAULTS.min_informative_years,
     )
 
-    if decision.regime in ("seasonal", "marginal") and not climatology.empty:
-        climatological_peak_month = int(climatology.idxmax())
-        climatological_trough_month = int(climatology.idxmin())
+    if (
+        decision.regime in ("seasonal", "marginal")
+        and decision.timing_evidence != "insufficient"
+    ):
+        climatological_peak_month = (
+            int(climatology.idxmax()) if peak_timing.dominant_month is not None else None
+        )
+        climatological_trough_month = (
+            int(climatology.idxmin()) if trough_timing.dominant_month is not None else None
+        )
     else:
         climatological_peak_month = climatological_trough_month = None
 
@@ -214,13 +267,13 @@ def assess_water_regime(
     longest_low = int(event_summary["longest_low_spell_months"])
     years_without = int(event_summary["years_without_event"])
 
-    if _MIN_USABLE_YEARS <= peak_timing.n < REGIME_THRESHOLDS["timing_record_caution_years"]:
+    if _MIN_USABLE_YEARS <= peak_timing.n_years < REGIME_THRESHOLDS["timing_record_caution_years"]:
         caveats.append(
             "fewer than 30 usable annual timings: classification is retained, "
             "but uncertainty intervals may be wide"
         )
     if (
-        _MIN_USABLE_YEARS <= peak_timing.n < REGIME_THRESHOLDS["uniformity_min_timing_years"]
+        _MIN_USABLE_YEARS <= peak_timing.n_years < REGIME_THRESHOLDS["uniformity_min_timing_years"]
         and snr >= REGIME_THRESHOLDS["seasonal_min_snr"]
         and peak_timing.ci_low is not None
         and peak_timing.ci_low < REGIME_THRESHOLDS["strong_timing_concentration"]
@@ -260,7 +313,14 @@ def assess_water_regime(
         trough_timing_concentration_ci_low=trough_timing.ci_low,
         trough_timing_concentration_ci_high=trough_timing.ci_high,
         trough_timing_uniformity_p=trough_timing.uniformity_p,
-        n_timing_years=peak_timing.n,
+        n_timing_years=timing_evidence.n_peak_timing_years,
+        timing_evidence=decision.timing_evidence,
+        n_peak_timing_years=timing_evidence.n_peak_timing_years,
+        n_trough_timing_years=timing_evidence.n_trough_timing_years,
+        n_zero_months=timing_evidence.n_zero_months,
+        zero_month_fraction=timing_evidence.zero_month_fraction,
+        n_whole_zero_years=timing_evidence.n_whole_zero_years,
+        pixel_support_status=timing_evidence.pixel_support_status,
         climatological_peak_month=climatological_peak_month,
         climatological_trough_month=climatological_trough_month,
         n_usable_years=len(qualifying_years),

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from ._circular_timing import CircularTimingSummary
+from ._circular_timing import AnnualTimingSummary
 
 Regime = Literal["seasonal", "marginal", "aseasonal", "insufficient_record"]
 Route = Literal[
@@ -12,8 +12,10 @@ Route = Literal[
     "event_characterisation",
     "insufficient_record",
 ]
-DecisionPolicy = Literal["established_0_1_1"]
+DecisionPolicy = Literal["established_0_1_1", "established_0_2_0"]
 ESTABLISHED_POLICY: DecisionPolicy = "established_0_1_1"
+CANDIDATE_POLICY: DecisionPolicy = "established_0_2_0"
+TimingEvidence = Literal["supported", "insufficient", "unsupported"]
 
 REGIME_THRESHOLDS = {
     "seasonal_min_snr": 2.0,
@@ -33,15 +35,20 @@ class EstablishedDecision:
     route: Route
     supports_per_year_boundaries: bool
     supports_fixed_window: bool
+    timing_evidence: TimingEvidence
     reason: str
+    implementation_policy: DecisionPolicy = CANDIDATE_POLICY
 
 
 def decide_established(
     *,
     n_usable_years: int,
     amplitude_snr: float,
-    peak_timing: CircularTimingSummary,
-    trough_timing: CircularTimingSummary,
+    peak_timing: AnnualTimingSummary,
+    trough_timing: AnnualTimingSummary,
+    n_peak_timing_years: int,
+    n_trough_timing_years: int,
+    min_informative_years: int,
 ) -> EstablishedDecision:
     t = REGIME_THRESHOLDS
     if n_usable_years < 5:
@@ -50,12 +57,19 @@ def decide_established(
         regime = "seasonal"
     elif amplitude_snr < t["aseasonal_max_snr"]:
         regime = "aseasonal"
-    elif peak_timing.uniformity_p is not None and peak_timing.uniformity_p >= t["circular_uniformity_alpha"] and peak_timing.n >= t["uniformity_min_timing_years"]:
+    elif peak_timing.uniformity_p is not None and peak_timing.uniformity_p >= t["circular_uniformity_alpha"] and peak_timing.n_years >= t["uniformity_min_timing_years"]:
         regime = "aseasonal"
     else:
         regime = "marginal"
 
-    per_year = regime in {"seasonal", "marginal"}
+    if min(n_peak_timing_years, n_trough_timing_years) < min_informative_years:
+        timing_evidence: TimingEvidence = "insufficient"
+    elif regime == "aseasonal":
+        timing_evidence = "unsupported"
+    else:
+        timing_evidence = "supported"
+
+    per_year = regime in {"seasonal", "marginal"} and timing_evidence == "supported"
     fixed = False
     if regime == "insufficient_record":
         route: Route = "insufficient_record"
@@ -63,5 +77,17 @@ def decide_established(
         route = "per_year_detection"
     else:
         route = "event_characterisation"
-    reason = f"{ESTABLISHED_POLICY}: regime={regime}; route={route}; amplitude_snr={amplitude_snr:.3f}"
-    return EstablishedDecision(ESTABLISHED_POLICY, regime, route, per_year, fixed, reason)
+    reason = (
+        f"candidate={CANDIDATE_POLICY}; authority={ESTABLISHED_POLICY}: "
+        f"regime={regime}; timing_evidence={timing_evidence}; route={route}; "
+        f"amplitude_snr={amplitude_snr:.3f}"
+    )
+    return EstablishedDecision(
+        policy=ESTABLISHED_POLICY,
+        regime=regime,
+        route=route,
+        supports_per_year_boundaries=per_year,
+        supports_fixed_window=fixed,
+        timing_evidence=timing_evidence,
+        reason=reason,
+    )

@@ -193,6 +193,7 @@ def analyze_catchment(
     min_months_per_year: int = 9,
     max_invalid_pct: float = 20.0,
     quality_policy: QualityPolicy = "flag",
+    measurement_tolerance_pct: float = 0.0,
     phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET,
     phase_model: LegacyPhaseModel | None = None,
     n_bootstrap: int = 200,
@@ -217,6 +218,7 @@ def analyze_catchment(
         min_months_per_year=min_months_per_year,
         max_invalid_pct=max_invalid_pct,
         quality_policy=quality_policy,
+        measurement_tolerance_pct=measurement_tolerance_pct,
         n_bootstrap=n_bootstrap,
         random_state=random_state,
     )
@@ -251,20 +253,43 @@ def analyze_catchment(
 
     if regime.supports_per_year_boundaries:
         try:
-            config = DynamicHydroYearConfig(
-                expected_trough_month=int(regime.climatological_trough_month),
-                expected_peak_month=int(regime.climatological_peak_month),
-                max_invalid_pct=max_invalid_pct,
-                quality_policy=quality_policy,
-                detector="robust_extrema",
-                phase_scheme=canonical_scheme,
-            )
             state_extent = prepare_monthly_extent(
                 extent,
                 value_col=value_col,
                 date_col=date_col,
                 max_invalid_pct=max_invalid_pct,
                 quality_policy=quality_policy,
+            )
+            operational_climatology = state_extent.loc[
+                state_extent["candidate_usable"]
+            ].groupby(state_extent.loc[state_extent["candidate_usable"]].index.month)[
+                "extent_pct"
+            ].mean()
+            operational_peak_month = (
+                regime.climatological_peak_month
+                if regime.climatological_peak_month is not None
+                else int(operational_climatology.idxmax())
+            )
+            operational_trough_month = (
+                regime.climatological_trough_month
+                if regime.climatological_trough_month is not None
+                else int(operational_climatology.idxmin())
+            )
+            if (
+                regime.climatological_peak_month is None
+                or regime.climatological_trough_month is None
+            ):
+                warnings.append(
+                    "a diffuse annual timing summary has no dominant month; "
+                    "the dynamic detector uses a private climatological anchor"
+                )
+            config = DynamicHydroYearConfig(
+                expected_trough_month=operational_trough_month,
+                expected_peak_month=operational_peak_month,
+                max_invalid_pct=max_invalid_pct,
+                quality_policy=quality_policy,
+                detector="robust_extrema",
+                phase_scheme=canonical_scheme,
             )
             state = analyze_hydrological_state(
                 state_extent,
@@ -338,14 +363,23 @@ def analyze_catchment(
         )
 
     if not regime.supports_fixed_window:
-        return CatchmentAnalysis(
-            regime=regime,
-            route="event_characterisation",
-            route_reason=(
+        if regime.timing_evidence == "insufficient":
+            route_reason = (
+                f"{regime.regime} record (SNR {regime.amplitude_snr:.2f}) has "
+                "insufficient identifiable annual timing "
+                f"(peak={regime.n_peak_timing_years}, "
+                f"trough={regime.n_trough_timing_years}); using event characterisation"
+            )
+        else:
+            route_reason = (
                 f"{regime.regime} record (SNR {regime.amplitude_snr:.2f}): complex or "
                 "diffuse timing does not support a fixed climatological window, so no "
                 "hydrological year is defined"
-            ),
+            )
+        return CatchmentAnalysis(
+            regime=regime,
+            route="event_characterisation",
+            route_reason=route_reason,
             hydro_years=empty_years,
             events=events,
             monthly=pd.DataFrame(),
