@@ -422,11 +422,32 @@ def equivalent_extremum_months(
     return tuple(sorted({int(stamp.month) for stamp in selected.index}))
 
 
+def shortest_circular_span(months: Iterable[int]) -> int | None:
+    """Return the narrowest inclusive month span covering circular month values.
+
+    A singleton has span zero; December and January have span one.  ``None``
+    represents an absent equivalent-extremum set.
+    """
+    values = tuple(months)
+    if not values:
+        return None
+    if any(isinstance(month, bool) or not isinstance(month, Integral) for month in values):
+        raise ValueError("months must contain integral values")
+    selected = np.unique(np.asarray(values, dtype=np.int64))
+    if np.any((selected < 1) | (selected > _MONTHS_PER_YEAR)):
+        raise ValueError("months must be integers from 1 to 12")
+    if len(selected) == 1:
+        return 0
+    gaps = np.diff(np.r_[selected, selected[0] + _MONTHS_PER_YEAR])
+    return int(_MONTHS_PER_YEAR - gaps.max())
+
+
 __all__ = [
     "AnnualTimingSummary",
     "CircularTimingSummary",
     "TimingDrift",
     "equivalent_extremum_months",
+    "shortest_circular_span",
     "summarise_annual_timing",
     "summarise_circular_months",
     "timing_drift",

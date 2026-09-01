@@ -7,6 +7,7 @@ from hydroseason._circular_timing import (
     TimingDrift,
     _circular_offsets,
     equivalent_extremum_months,
+    shortest_circular_span,
     summarise_annual_timing,
     timing_drift,
 )
@@ -81,6 +82,14 @@ def test_missing_months_are_ignored_not_treated_as_zero():
 def test_negative_tolerance_is_rejected():
     with pytest.raises(ValueError, match="tolerance"):
         equivalent_extremum_months(_year([1.0] * 12), kind="min", tolerance=-1.0)
+
+
+def test_shortest_circular_span_wraps_december_to_january():
+    assert shortest_circular_span((12, 1)) == 1
+
+
+def test_shortest_circular_span_keeps_non_contiguous_months_broad():
+    assert shortest_circular_span((1, 3, 11)) == 4
 
 
 def test_sharp_repeated_trough_is_highly_concentrated():
