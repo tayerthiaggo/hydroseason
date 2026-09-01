@@ -1421,8 +1421,10 @@ def build_timing_identifiability_cache(
     return pd.DataFrame(rows)
 
 
-def _timing_grid_arrays(cache: pd.DataFrame) -> tuple[list[TimingIdentifiabilityThresholds], dict[str, np.ndarray]]:
-    points = list(iter_timing_identifiability_points())
+def _timing_threshold_arrays(
+    cache: pd.DataFrame, points: Sequence[TimingIdentifiabilityThresholds]
+) -> tuple[list[TimingIdentifiabilityThresholds], dict[str, np.ndarray]]:
+    points = list(points)
     if not points:
         raise RuntimeError("timing-identifiability grid contains no valid candidates.")
     required = {
@@ -1480,8 +1482,10 @@ def _timing_grid_arrays(cache: pd.DataFrame) -> tuple[list[TimingIdentifiability
     }
 
 
-def _score_timing_points(cache: pd.DataFrame) -> tuple[list[TimingIdentifiabilityThresholds], dict[str, np.ndarray], dict[str, np.ndarray]]:
-    points, arrays = _timing_grid_arrays(cache)
+def _score_timing_thresholds(
+    cache: pd.DataFrame, points: Sequence[TimingIdentifiabilityThresholds]
+) -> tuple[list[TimingIdentifiabilityThresholds], dict[str, np.ndarray], dict[str, np.ndarray]]:
+    points, arrays = _timing_threshold_arrays(cache, points)
     status = arrays["status"]
     false_precise = (status == 2) & ~arrays["truth_point"][:, None]
     precise = status == 2
@@ -1517,6 +1521,33 @@ def _score_timing_points(cache: pd.DataFrame) -> tuple[list[TimingIdentifiabilit
         "recall": recall,
         "boundary_mae": boundary_mae,
     }
+
+
+def _score_timing_points(
+    cache: pd.DataFrame,
+) -> tuple[list[TimingIdentifiabilityThresholds], dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """Vectorially score the predeclared grid during calibration only."""
+    return _score_timing_thresholds(cache, list(iter_timing_identifiability_points()))
+
+
+def score_timing_identifiability_thresholds(
+    cache: pd.DataFrame, thresholds: TimingIdentifiabilityThresholds
+) -> TimingIdentifiabilityScore:
+    """Score one frozen tuple without enumerating timing-grid candidates."""
+    _points, _arrays, metrics = _score_timing_thresholds(cache, [thresholds])
+    return TimingIdentifiabilityScore(
+        thresholds=thresholds,
+        false_precise_boundary_rate=float(metrics["rate"][0]),
+        false_precise_boundary_wilson=wilson_interval(
+            int(metrics["n_false"][0]), int(metrics["n_precise"][0])
+        ),
+        false_precise_boundary_n=int(metrics["n_precise"][0]),
+        correct_abstention=float(metrics["abstention"][0]),
+        annualisation_recall=float(metrics["recall"][0]),
+        boundary_mae=float(metrics["boundary_mae"][0]),
+        selection_counts={"evaluated_candidates": 1},
+        tie_breaks=(),
+    )
 
 
 def select_timing_identifiability_defaults(
@@ -1584,7 +1615,11 @@ def timing_identifiability_fingerprint(
     """Fingerprint timing calibration inputs only; validation truth is excluded."""
     import inspect
 
-    from . import _scientific_defaults as defaults, _synthetic
+    from . import (
+        _scientific_defaults as defaults,
+        _synthetic,
+        _timing_identifiability as timing_metrics,
+    )
 
     selected = thresholds or getattr(defaults, "TIMING_IDENTIFIABILITY_DEFAULTS", None)
     if selected is None:
@@ -1593,8 +1628,18 @@ def timing_identifiability_fingerprint(
     for item in (
         _synthetic.TimingTruthLabels,
         _synthetic.generate_timing_identifiability_record,
+        timing_metrics.assess_timing_identifiability,
+        timing_metrics._validate_tolerance,
+        timing_metrics._resolution_pp,
+        timing_metrics._peak_water_pixels,
+        timing_metrics._timing_status,
+        robust_scale,
+        prepare_monthly_extent,
+        equivalent_extremum_months,
+        shortest_circular_span,
         _timing_truth_status,
         build_timing_identifiability_cache,
+        _score_timing_thresholds,
         _score_timing_points,
         select_timing_identifiability_defaults,
     ):

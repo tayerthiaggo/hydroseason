@@ -5003,14 +5003,14 @@
     24998,
     24999
   ],
-  "generated": "2026-09-01T05:18:12+00:00",
+  "generated": "2026-09-01T05:31:19+00:00",
   "environment": {
-    "python": "3.14.5",
+    "python": "3.12.13",
     "numpy": "2.4.6",
     "pandas": "3.0.3"
   },
   "authority_scope": "candidate_for_established_0_2_0",
-  "threshold_fingerprint": "a14d0929ea042f5b057c059b2d43ab0b9abcc698aea77303aed7e4ca4d5eca10",
+  "threshold_fingerprint": "e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735",
   "grid": {
     "min_amplitude_to_floor_ratio": [
       1.0,
@@ -5064,13 +5064,16 @@
   },
   "runtime": {
     "records": 5000,
-    "wall_seconds": 94.31214800011367,
-    "records_per_second": 53.015439750073064
+    "wall_seconds": 78.29744659992866,
+    "records_per_second": 63.859042882307165
   },
   "inputs": {
     "station_ids": "excluded",
     "rainfall": "excluded",
     "current_policy_output": "excluded",
     "motivating_record_outputs": "excluded"
+  },
+  "scoring": {
+    "evaluated_candidates": 1
   }
 }

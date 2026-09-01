@@ -16,5 +16,5 @@ EVIDENCE_DEFAULTS = EvidenceThresholds(**{'seasonal_cv_skill': 0.3, 'periodicity
 RECOVERABILITY_DEFAULTS = RecoverabilityThresholds(**{'min_years': 5, 'min_coverage': 0.8, 'min_within_1_month': 0.8, 'within_1_month_wilson_floor': 0.3, 'max_p90_error_months': 2.0, 'admit_insufficient_drift': True})
 
 TIMING_IDENTIFIABILITY_AUTHORITY_SCOPE = 'candidate_for_established_0_2_0'
-TIMING_IDENTIFIABILITY_FINGERPRINT = 'a14d0929ea042f5b057c059b2d43ab0b9abcc698aea77303aed7e4ca4d5eca10'
+TIMING_IDENTIFIABILITY_FINGERPRINT = 'e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735'
 TIMING_IDENTIFIABILITY_DEFAULTS = TimingIdentifiabilityThresholds(**{'min_amplitude_to_floor_ratio': 3.0, 'min_peak_water_pixels': 5, 'max_point_span_months': 0, 'max_boundary_interval_months': 2, 'min_informative_years': 7})

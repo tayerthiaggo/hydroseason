@@ -3,7 +3,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 from hydroseason import _scientific_defaults as defaults
-from hydroseason._calibration import fingerprint
+from hydroseason._calibration import fingerprint, timing_identifiability_fingerprint
 
 REPORT = Path("docs/calibration/2026-08-21-calibration-report.json")
 TIMING_CALIBRATION_REPORT = Path("docs/calibration/2026-09-01-timing-identifiability-calibration.json")
@@ -132,6 +132,10 @@ def test_timing_calibration_and_untouched_validation_artifacts_are_fresh():
 
     assert calibration["thresholds"] == asdict(defaults.TIMING_IDENTIFIABILITY_DEFAULTS)
     assert calibration["threshold_fingerprint"] == defaults.TIMING_IDENTIFIABILITY_FINGERPRINT
+    assert timing_identifiability_fingerprint() == defaults.TIMING_IDENTIFIABILITY_FINGERPRINT
     assert validation["threshold_fingerprint"] == defaults.TIMING_IDENTIFIABILITY_FINGERPRINT
     assert validation["partition"] == "validation"
     assert validation["selection_survivors"] == {"reselection": 0}
+    assert validation["scoring"] == {"evaluated_candidates": 1}
+    for payload in (calibration, validation):
+        assert tuple(map(int, payload["environment"]["python"].split(".")[:2])) < (3, 14)

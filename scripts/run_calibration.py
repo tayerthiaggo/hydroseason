@@ -35,6 +35,7 @@ from hydroseason._calibration import (  # noqa: E402
     calibration_environment,
     evaluate_evidence_cache,
     fingerprint,
+    score_timing_identifiability_thresholds,
     select_evidence_defaults,
     select_timing_identifiability_defaults,
     timing_identifiability_fingerprint,
@@ -374,7 +375,7 @@ TIMING_IDENTIFIABILITY_DEFAULTS = TimingIdentifiabilityThresholds(**{asdict(thre
 
 
 def _timing_report_payload(*, partition: str, seeds: list[int], thresholds, score, fingerprint_value: str, elapsed: float) -> dict[str, object]:
-    return {
+    payload = {
         "calibration_version": "0.2.0-timing-identifiability.1",
         "partition": partition,
         "seeds": seeds,
@@ -384,7 +385,7 @@ def _timing_report_payload(*, partition: str, seeds: list[int], thresholds, scor
         "threshold_fingerprint": fingerprint_value,
         "grid": TIMING_IDENTIFIABILITY_GRID,
         "thresholds": asdict(thresholds),
-        "selection_survivors": score.selection_counts,
+        "selection_survivors": score.selection_counts if partition == "calibration" else {"reselection": 0},
         "tie_breaks": list(score.tie_breaks),
         "metrics": {
             "false_precise_boundary_rate": score.false_precise_boundary_rate,
@@ -406,6 +407,9 @@ def _timing_report_payload(*, partition: str, seeds: list[int], thresholds, scor
             "motivating_record_outputs": "excluded",
         },
     }
+    if partition == "validation":
+        payload["scoring"] = score.selection_counts
+    return payload
 
 
 def run_timing_identifiability_calibration(
@@ -447,24 +451,9 @@ def run_timing_identifiability_validation(
         raise RuntimeError("timing-identifiability fingerprint differs from calibration; refusing validation.")
     started = time.perf_counter()
     cache = build_timing_identifiability_cache(seeds, partition="validation")
-    # This evaluates only the frozen tuple.  It deliberately does not call the selector.
-    from hydroseason._calibration import _score_timing_points
-    points, _arrays, metrics = _score_timing_points(cache)
-    selected_index = points.index(thresholds)
-    from hydroseason._calibration import TimingIdentifiabilityScore, wilson_interval
-    score = TimingIdentifiabilityScore(
-        thresholds=thresholds,
-        false_precise_boundary_rate=float(metrics["rate"][selected_index]),
-        false_precise_boundary_wilson=wilson_interval(
-            int(metrics["n_false"][selected_index]), int(metrics["n_precise"][selected_index])
-        ),
-        false_precise_boundary_n=int(metrics["n_precise"][selected_index]),
-        correct_abstention=float(metrics["abstention"][selected_index]),
-        annualisation_recall=float(metrics["recall"][selected_index]),
-        boundary_mae=float(metrics["boundary_mae"][selected_index]),
-        selection_counts={"reselection": 0},
-        tie_breaks=(),
-    )
+    # This evaluates only the frozen tuple.  It deliberately does not call the
+    # grid selector or enumerate the predeclared candidate grid.
+    score = score_timing_identifiability_thresholds(cache, thresholds)
     elapsed = time.perf_counter() - started
     out_report.parent.mkdir(parents=True, exist_ok=True)
     out_report.write_text(

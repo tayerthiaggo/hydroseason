@@ -581,3 +581,41 @@ def test_timing_validation_truth_cannot_change_selected_defaults_or_fingerprint(
     repeat, _ = select_timing_identifiability_defaults(calibration)
     assert repeat == selected
     assert timing_identifiability_fingerprint(repeat) == original
+
+
+def test_timing_validation_scores_only_the_frozen_tuple(monkeypatch):
+    import hydroseason._calibration as calibration
+
+    def _grid_forbidden():
+        raise AssertionError("untouched validation must not enumerate the timing grid")
+
+    monkeypatch.setattr(calibration, "iter_timing_identifiability_points", _grid_forbidden)
+    cache = calibration.build_timing_identifiability_cache(
+        [20000, 20001], partition="validation"
+    )
+    from hydroseason import _scientific_defaults as defaults
+
+    score = calibration.score_timing_identifiability_thresholds(
+        cache, defaults.TIMING_IDENTIFIABILITY_DEFAULTS
+    )
+
+    assert score.selection_counts == {"evaluated_candidates": 1}
+
+
+def test_timing_fingerprint_covers_metric_implementation(monkeypatch):
+    import inspect
+
+    import hydroseason._timing_identifiability as timing_metrics
+    from hydroseason import _scientific_defaults as defaults
+    from hydroseason._calibration import timing_identifiability_fingerprint
+
+    baseline = timing_identifiability_fingerprint(defaults.TIMING_IDENTIFIABILITY_DEFAULTS)
+    original = inspect.getsource
+
+    def _changed_source(item):
+        source = original(item)
+        return source + "\n# synthetic metric implementation change" if item is timing_metrics.assess_timing_identifiability else source
+
+    monkeypatch.setattr(inspect, "getsource", _changed_source)
+
+    assert timing_identifiability_fingerprint(defaults.TIMING_IDENTIFIABILITY_DEFAULTS) != baseline
