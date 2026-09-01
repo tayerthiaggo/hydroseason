@@ -11,6 +11,7 @@ import json
 import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
+from itertools import product
 from typing import Literal
 
 import numpy as np
@@ -24,6 +25,7 @@ from ._boundary import (
 from ._circular_timing import (
     AnnualTimingSummary,
     equivalent_extremum_months,
+    shortest_circular_span,
     summarise_annual_timing,
     timing_drift,
 )
@@ -36,7 +38,11 @@ from ._harmonic import (
     select_harmonic_order,
 )
 from ._state_input import QualityPolicy, candidate_weights, prepare_monthly_extent
-from ._synthetic import SyntheticRecord, generate_record
+from ._synthetic import SyntheticRecord, generate_record, generate_timing_identifiability_record
+from ._timing_identifiability import (
+    TimingIdentifiabilityThresholds,
+    assess_timing_identifiability,
+)
 
 
 @dataclass(frozen=True)
@@ -1315,6 +1321,291 @@ def select_evidence_defaults(
     return best.evidence, best.recoverability, [best]
 
 
+# The timing-identifiability calibration is intentionally independent from the
+# established evidence/recoverability challenger calibration above.  In
+# particular, its cache contains only annual timing metrics and synthetic truth.
+TIMING_IDENTIFIABILITY_GRID = {
+    "min_amplitude_to_floor_ratio": [1.0, 1.5, 2.0, 3.0],
+    "min_peak_water_pixels": [1, 2, 3, 5],
+    "max_point_span_months": [0, 1, 2],
+    "max_boundary_interval_months": [2, 3, 4],
+    "min_informative_years": [5, 7, 10],
+}
+TIMING_IDENTIFIABILITY_AUTHORITY_SCOPE = "candidate_for_established_0_2_0"
+
+
+@dataclass(frozen=True)
+class TimingIdentifiabilityScore:
+    thresholds: TimingIdentifiabilityThresholds
+    false_precise_boundary_rate: float
+    false_precise_boundary_wilson: tuple[float, float]
+    false_precise_boundary_n: int
+    correct_abstention: float
+    annualisation_recall: float
+    boundary_mae: float
+    selection_counts: dict[str, int]
+    tie_breaks: tuple[str, ...]
+
+
+def iter_timing_identifiability_points() -> Iterator[TimingIdentifiabilityThresholds]:
+    """Yield the frozen timing grid, rejecting structurally invalid tuples."""
+    for values in product(
+        TIMING_IDENTIFIABILITY_GRID["min_amplitude_to_floor_ratio"],
+        TIMING_IDENTIFIABILITY_GRID["min_peak_water_pixels"],
+        TIMING_IDENTIFIABILITY_GRID["max_point_span_months"],
+        TIMING_IDENTIFIABILITY_GRID["max_boundary_interval_months"],
+        TIMING_IDENTIFIABILITY_GRID["min_informative_years"],
+    ):
+        try:
+            yield TimingIdentifiabilityThresholds(*values)
+        except ValueError:
+            continue
+
+
+def _timing_truth_status(detectable: bool, months: tuple[int, ...]) -> str:
+    if not detectable:
+        return "unresolved"
+    return "point" if len(months) == 1 else "interval"
+
+
+def build_timing_identifiability_cache(
+    seeds: Iterable[int], *, partition: Literal["calibration", "validation"]
+) -> pd.DataFrame:
+    """Cache threshold-independent annual metrics for the timing corpus once.
+
+    The permissive metric pass exposes amplitude ratios, pixel support, and
+    equivalent-month spans.  Candidate thresholds are only applied later by
+    :func:`select_timing_identifiability_defaults`, so the grid never reruns
+    observation preparation or annual extrema calculation.
+    """
+    rows: list[dict[str, object]] = []
+    permissive = TimingIdentifiabilityThresholds(0.0, 0, 11, 11, 0)
+    for seed in seeds:
+        record = generate_timing_identifiability_record(int(seed), partition=partition)
+        evidence = assess_timing_identifiability(record.frame, thresholds=permissive)
+        first_year = min(evidence.years)
+        for year, annual in evidence.years.items():
+            offset = int(year - first_year)
+            truth = record.truth
+            for kind, observed_months, truth_detectable, truth_months in (
+                (
+                    "peak",
+                    annual.peak_months,
+                    truth.detectable_peak_by_year[offset],
+                    truth.peak_months_by_year[offset],
+                ),
+                (
+                    "trough",
+                    annual.trough_months,
+                    truth.detectable_trough_by_year[offset],
+                    truth.trough_months_by_year[offset],
+                ),
+            ):
+                span = shortest_circular_span(observed_months)
+                rows.append(
+                    {
+                        "seed": int(seed),
+                        "family": record.family,
+                        "year": int(year),
+                        "kind": kind,
+                        "amplitude_to_floor_ratio": annual.amplitude_to_floor_ratio,
+                        "peak_n_water": annual.peak_n_water,
+                        "observed_span_months": 12 if span is None else int(span),
+                        "observed_anchor_month": int(observed_months[0]) if observed_months else 0,
+                        "truth_status": _timing_truth_status(bool(truth_detectable), tuple(truth_months)),
+                        "truth_anchor_month": int(truth_months[0]) if truth_months else 0,
+                        "truth_detectable": bool(truth_detectable),
+                        "truth_is_annual": bool(truth.is_annual),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def _timing_grid_arrays(cache: pd.DataFrame) -> tuple[list[TimingIdentifiabilityThresholds], dict[str, np.ndarray]]:
+    points = list(iter_timing_identifiability_points())
+    if not points:
+        raise RuntimeError("timing-identifiability grid contains no valid candidates.")
+    required = {
+        "seed", "family", "kind", "amplitude_to_floor_ratio", "peak_n_water",
+        "observed_span_months", "observed_anchor_month", "truth_status",
+        "truth_anchor_month", "truth_is_annual",
+    }
+    missing = required - set(cache.columns)
+    if missing:
+        raise ValueError(f"timing-identifiability cache missing columns: {sorted(missing)}")
+    seeds, record_index = np.unique(cache["seed"].to_numpy(dtype=int), return_inverse=True)
+    ratio = cache["amplitude_to_floor_ratio"].to_numpy(dtype=float)
+    pixels = cache["peak_n_water"].fillna(-1).to_numpy(dtype=int)
+    span = cache["observed_span_months"].to_numpy(dtype=int)
+    is_peak = cache["kind"].eq("peak").to_numpy(dtype=bool)
+    truth_point = cache["truth_status"].eq("point").to_numpy(dtype=bool)
+    truth_annual = cache["truth_is_annual"].to_numpy(dtype=bool)
+    anchor_error = np.minimum(
+        np.abs(cache["observed_anchor_month"].to_numpy(dtype=int) - cache["truth_anchor_month"].to_numpy(dtype=int)),
+        12 - np.abs(cache["observed_anchor_month"].to_numpy(dtype=int) - cache["truth_anchor_month"].to_numpy(dtype=int)),
+    ).astype(float)
+    family = cache["family"].to_numpy(dtype=object)
+    candidate = np.array(
+        [
+            (p.min_amplitude_to_floor_ratio, p.min_peak_water_pixels, p.max_point_span_months,
+             p.max_boundary_interval_months, p.min_informative_years)
+            for p in points
+        ],
+        dtype=float,
+    )
+    detectable = (ratio[:, None] >= candidate[None, :, 0]) & (pixels[:, None] >= candidate[None, :, 1])
+    point = detectable & (span[:, None] <= candidate[None, :, 2])
+    interval = detectable & ~point & (span[:, None] <= candidate[None, :, 3])
+    status = np.where(point, 2, np.where(interval, 1, 0)).astype(np.int8)
+    n_records, n_points = len(seeds), len(points)
+    peak_counts = np.zeros((n_records, n_points), dtype=np.int16)
+    trough_counts = np.zeros((n_records, n_points), dtype=np.int16)
+    np.add.at(peak_counts, record_index[is_peak], (status[is_peak] > 0).astype(np.int16))
+    np.add.at(trough_counts, record_index[~is_peak], (status[~is_peak] > 0).astype(np.int16))
+    published = np.minimum(peak_counts, trough_counts) >= candidate[None, :, 4]
+    record_family = np.empty(n_records, dtype=object)
+    record_annual = np.zeros(n_records, dtype=bool)
+    for row, idx in enumerate(record_index):
+        record_family[idx] = family[row]
+        record_annual[idx] = truth_annual[row]
+    return points, {
+        "candidate": candidate,
+        "status": status,
+        "record_index": record_index,
+        "published": published,
+        "record_family": record_family,
+        "record_annual": record_annual,
+        "truth_point": truth_point,
+        "anchor_error": anchor_error,
+    }
+
+
+def _score_timing_points(cache: pd.DataFrame) -> tuple[list[TimingIdentifiabilityThresholds], dict[str, np.ndarray], dict[str, np.ndarray]]:
+    points, arrays = _timing_grid_arrays(cache)
+    status = arrays["status"]
+    false_precise = (status == 2) & ~arrays["truth_point"][:, None]
+    precise = status == 2
+    n_false = false_precise.sum(axis=0)
+    n_precise = precise.sum(axis=0)
+    wilson_high = np.asarray(
+        [wilson_interval(int(k), int(n))[1] if n else 1.0 for k, n in zip(n_false, n_precise, strict=True)],
+        dtype=float,
+    )
+    rate = np.divide(n_false, n_precise, out=np.zeros(len(points), dtype=float), where=n_precise > 0)
+    family = arrays["record_family"]
+    controls = np.isin(family, ["all_zero_years", "persistent_low_amplitude_water", "broad_zero_plateaus"])
+    positives = family == "intermittent_seasonal_pulses"
+    published = arrays["published"]
+    abstention = np.mean(~published[controls], axis=0) if np.any(controls) else np.zeros(len(points))
+    recall = np.mean(published[positives], axis=0) if np.any(positives) else np.zeros(len(points))
+    retained = (
+        (status > 0)
+        & arrays["truth_point"][:, None]
+        & arrays["record_annual"][arrays["record_index"]][:, None]
+        & published[arrays["record_index"]]
+    )
+    boundary_mae = np.empty(len(points), dtype=float)
+    for col in range(len(points)):
+        errors = arrays["anchor_error"][retained[:, col]]
+        boundary_mae[col] = float(np.median(errors)) if len(errors) else 12.0
+    return points, arrays, {
+        "n_false": n_false,
+        "n_precise": n_precise,
+        "wilson_high": wilson_high,
+        "rate": rate,
+        "abstention": abstention,
+        "recall": recall,
+        "boundary_mae": boundary_mae,
+    }
+
+
+def select_timing_identifiability_defaults(
+    cache: pd.DataFrame,
+) -> tuple[TimingIdentifiabilityThresholds, TimingIdentifiabilityScore]:
+    """Apply the frozen five-stage lexicographic timing selector."""
+    points, _arrays, metrics = _score_timing_points(cache)
+    survivors = np.flatnonzero(metrics["wilson_high"] <= 0.05)
+    if not len(survivors):
+        raise RuntimeError(
+            "no timing-identifiability candidate satisfies the frozen false precise-boundary Wilson gate."
+        )
+    counts = {"grid": len(points), "false_precise_boundary_wilson": int(len(survivors))}
+    ties = (
+        "correct_abstention", "annualisation_recall", "median_absolute_boundary_error",
+        "larger_min_amplitude_to_floor_ratio", "larger_min_peak_water_pixels",
+        "smaller_max_point_span_months", "smaller_max_boundary_interval_months",
+        "larger_min_informative_years",
+    )
+
+    def retain(name: str, values: np.ndarray, *, maximise: bool) -> None:
+        nonlocal survivors
+        best = values[survivors].max() if maximise else values[survivors].min()
+        survivors = survivors[np.isclose(values[survivors], best)]
+        counts[name] = int(len(survivors))
+
+    retain("correct_abstention", metrics["abstention"], maximise=True)
+    retain("annualisation_recall", metrics["recall"], maximise=True)
+    retain("median_absolute_boundary_error", metrics["boundary_mae"], maximise=False)
+    for name, position, maximise in (
+        ("larger_min_amplitude_to_floor_ratio", 0, True),
+        ("larger_min_peak_water_pixels", 1, True),
+        ("smaller_max_point_span_months", 2, False),
+        ("smaller_max_boundary_interval_months", 3, False),
+        ("larger_min_informative_years", 4, True),
+    ):
+        values = np.asarray([getattr(point, (
+            "min_amplitude_to_floor_ratio", "min_peak_water_pixels", "max_point_span_months",
+            "max_boundary_interval_months", "min_informative_years",
+        )[position]) for point in points], dtype=float)
+        retain(name, values, maximise=maximise)
+    counts["final_survivors"] = int(len(survivors))
+    counts["selected"] = 1
+    selected_index = int(survivors[0])
+    selected = points[selected_index]
+    score = TimingIdentifiabilityScore(
+        thresholds=selected,
+        false_precise_boundary_rate=float(metrics["rate"][selected_index]),
+        false_precise_boundary_wilson=wilson_interval(
+            int(metrics["n_false"][selected_index]), int(metrics["n_precise"][selected_index])
+        ),
+        false_precise_boundary_n=int(metrics["n_precise"][selected_index]),
+        correct_abstention=float(metrics["abstention"][selected_index]),
+        annualisation_recall=float(metrics["recall"][selected_index]),
+        boundary_mae=float(metrics["boundary_mae"][selected_index]),
+        selection_counts=counts,
+        tie_breaks=ties,
+    )
+    return selected, score
+
+
+def timing_identifiability_fingerprint(
+    thresholds: TimingIdentifiabilityThresholds | None = None,
+) -> str:
+    """Fingerprint timing calibration inputs only; validation truth is excluded."""
+    import inspect
+
+    from . import _scientific_defaults as defaults, _synthetic
+
+    selected = thresholds or getattr(defaults, "TIMING_IDENTIFIABILITY_DEFAULTS", None)
+    if selected is None:
+        raise ValueError("timing-identifiability defaults have not been generated.")
+    hasher = hashlib.sha256()
+    for item in (
+        _synthetic.TimingTruthLabels,
+        _synthetic.generate_timing_identifiability_record,
+        _timing_truth_status,
+        build_timing_identifiability_cache,
+        _score_timing_points,
+        select_timing_identifiability_defaults,
+    ):
+        hasher.update(inspect.getsource(item).encode("utf-8"))
+    hasher.update(json.dumps(TIMING_IDENTIFIABILITY_GRID, sort_keys=True).encode("utf-8"))
+    hasher.update(json.dumps(list(_synthetic.CALIBRATION_SEEDS)).encode("utf-8"))
+    hasher.update(json.dumps(asdict(selected), sort_keys=True).encode("utf-8"))
+    hasher.update(TIMING_IDENTIFIABILITY_AUTHORITY_SCOPE.encode("utf-8"))
+    return hasher.hexdigest()
+
+
 
 
 
@@ -1351,10 +1642,15 @@ def fingerprint(
 
     hasher = hashlib.sha256()
 
-    # Generator source code
+    # Generator source code.  The timing-identifiability corpus is appended to
+    # this module behind an explicit boundary and does not feed the established
+    # evidence calibration, so it must not stale that independent artifact.
     import inspect
 
-    hasher.update(inspect.getsource(_synthetic).encode("utf-8"))
+    legacy_source = inspect.getsource(_synthetic).split(
+        "\n\n# TIMING_IDENTIFIABILITY_SYNTHETIC_CORPUS", 1
+    )[0]
+    hasher.update(legacy_source.encode("utf-8"))
 
     # Grid constants and the shipping objective implementations.
     hasher.update(json.dumps(EVIDENCE_GRID, sort_keys=True).encode("utf-8"))

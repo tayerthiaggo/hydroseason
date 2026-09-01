@@ -6,6 +6,7 @@ from hydroseason._synthetic import (
     SyntheticRecord,
     apply_extent_dependent_bias,
     generate_record,
+    generate_timing_identifiability_record,
 )
 
 
@@ -173,3 +174,28 @@ def test_annual_phase_truth_is_populated_and_aligned():
         if record.truth.is_annual:
             assert record.truth.phase_by_month is not None
             assert record.truth.phase_by_month.index.equals(record.frame.index)
+
+
+def test_timing_identifiability_families_carry_extremum_truth():
+    """The dedicated timing corpus covers every frozen zero-dominated family."""
+    records = [
+        generate_timing_identifiability_record(seed, partition="calibration")
+        for seed in range(10000, 10096)
+    ]
+    families = {record.family for record in records}
+
+    assert {
+        "all_zero_years",
+        "broad_zero_plateaus",
+        "one_pixel_pulses",
+        "intermittent_seasonal_pulses",
+        "intermittent_aseasonal_pulses",
+        "persistent_low_amplitude_water",
+        "variable_valid_pixel_counts",
+        "cloud_gaps",
+    }.issubset(families)
+    for record in records:
+        assert len(record.truth.detectable_peak_by_year) == record.truth.n_years
+        assert len(record.truth.detectable_trough_by_year) == record.truth.n_years
+        assert len(record.truth.peak_months_by_year) == record.truth.n_years
+        assert len(record.truth.trough_months_by_year) == record.truth.n_years

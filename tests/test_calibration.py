@@ -21,6 +21,7 @@ from hydroseason._calibration import (
     select_evidence_defaults,
 )
 from hydroseason._synthetic import generate_record
+from hydroseason._timing_identifiability import TimingIdentifiabilityThresholds
 from scripts.run_calibration import _drift_axis_rates, run_calibration, run_validation
 
 
@@ -538,3 +539,45 @@ def test_validation_report_uses_the_same_authority_scope():
     }
     assert "phase_accuracy" not in payload
     assert "phase_stability_calibration" not in payload
+
+
+def test_timing_identifiability_grid_and_selection_are_frozen_and_isolated():
+    from hydroseason._calibration import (
+        TIMING_IDENTIFIABILITY_GRID,
+        build_timing_identifiability_cache,
+        select_timing_identifiability_defaults,
+        timing_identifiability_fingerprint,
+    )
+
+    assert TIMING_IDENTIFIABILITY_GRID == {
+        "min_amplitude_to_floor_ratio": [1.0, 1.5, 2.0, 3.0],
+        "min_peak_water_pixels": [1, 2, 3, 5],
+        "max_point_span_months": [0, 1, 2],
+        "max_boundary_interval_months": [2, 3, 4],
+        "min_informative_years": [5, 7, 10],
+    }
+    calibration = build_timing_identifiability_cache(range(10000, 10032), partition="calibration")
+    selected, score = select_timing_identifiability_defaults(calibration)
+
+    assert isinstance(selected, TimingIdentifiabilityThresholds)
+    assert score.selection_counts["selected"] == 1
+    assert timing_identifiability_fingerprint(selected) == timing_identifiability_fingerprint(selected)
+
+
+def test_timing_validation_truth_cannot_change_selected_defaults_or_fingerprint():
+    from hydroseason._calibration import (
+        build_timing_identifiability_cache,
+        select_timing_identifiability_defaults,
+        timing_identifiability_fingerprint,
+    )
+
+    calibration = build_timing_identifiability_cache(range(10000, 10032), partition="calibration")
+    validation = build_timing_identifiability_cache(range(20000, 20016), partition="validation")
+    selected, _ = select_timing_identifiability_defaults(calibration)
+    original = timing_identifiability_fingerprint(selected)
+    validation.loc[:, "truth_peak_status"] = "point"
+    validation.loc[:, "truth_trough_status"] = "point"
+
+    repeat, _ = select_timing_identifiability_defaults(calibration)
+    assert repeat == selected
+    assert timing_identifiability_fingerprint(repeat) == original

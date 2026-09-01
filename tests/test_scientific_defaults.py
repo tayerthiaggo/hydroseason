@@ -6,6 +6,8 @@ from hydroseason import _scientific_defaults as defaults
 from hydroseason._calibration import fingerprint
 
 REPORT = Path("docs/calibration/2026-08-21-calibration-report.json")
+TIMING_CALIBRATION_REPORT = Path("docs/calibration/2026-09-01-timing-identifiability-calibration.json")
+TIMING_VALIDATION_REPORT = Path("docs/calibration/2026-09-01-timing-identifiability-validation.json")
 
 
 def test_constants_exist_and_are_typed():
@@ -117,3 +119,19 @@ def test_generated_default_module_declares_scientific_scope():
     assert defaults.RECOVERABILITY_AUTHORITY_SCOPE == "experimental_challenger"
     assert not hasattr(defaults, "PHASE_DEFAULTS")
     assert not hasattr(defaults, "PHASE_AUTHORITY_SCOPE")
+
+
+def test_generated_timing_identifiability_defaults_are_a_candidate():
+    assert defaults.TIMING_IDENTIFIABILITY_AUTHORITY_SCOPE == "candidate_for_established_0_2_0"
+    assert defaults.TIMING_IDENTIFIABILITY_DEFAULTS.min_informative_years in {5, 7, 10}
+
+
+def test_timing_calibration_and_untouched_validation_artifacts_are_fresh():
+    calibration = json.loads(TIMING_CALIBRATION_REPORT.read_text(encoding="utf-8"))
+    validation = json.loads(TIMING_VALIDATION_REPORT.read_text(encoding="utf-8"))
+
+    assert calibration["thresholds"] == asdict(defaults.TIMING_IDENTIFIABILITY_DEFAULTS)
+    assert calibration["threshold_fingerprint"] == defaults.TIMING_IDENTIFIABILITY_FINGERPRINT
+    assert validation["threshold_fingerprint"] == defaults.TIMING_IDENTIFIABILITY_FINGERPRINT
+    assert validation["partition"] == "validation"
+    assert validation["selection_survivors"] == {"reselection": 0}

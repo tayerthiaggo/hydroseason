@@ -593,3 +593,162 @@ def generate_record(seed: int, *, partition: Literal["calibration", "validation"
     return SyntheticRecord(
         frame=frame, truth=truth, scenario=scenario, family=family, seed=seed
     )
+
+
+# TIMING_IDENTIFIABILITY_SYNTHETIC_CORPUS
+#
+# Keep this corpus independent of ``generate_record``.  The legacy generator
+# underpins the shipped evidence calibration; adding a timing-specific family
+# must not perturb its family allocation or invalidate its frozen artifact.
+
+
+@dataclass(frozen=True)
+class TimingTruthLabels:
+    """Known annual timing support for the zero-dominated timing corpus."""
+
+    is_annual: bool
+    trough_month: int | None
+    peak_month: int | None
+    phase_by_month: pd.Series | None
+    n_years: int
+    trough_month_by_year: tuple[int, ...]
+    detectable_peak_by_year: tuple[bool, ...]
+    detectable_trough_by_year: tuple[bool, ...]
+    peak_months_by_year: tuple[tuple[int, ...], ...]
+    trough_months_by_year: tuple[tuple[int, ...], ...]
+
+
+_TIMING_IDENTIFIABILITY_FAMILIES = (
+    "all_zero_years",
+    "broad_zero_plateaus",
+    "one_pixel_pulses",
+    "intermittent_seasonal_pulses",
+    "intermittent_aseasonal_pulses",
+    "persistent_low_amplitude_water",
+    "variable_valid_pixel_counts",
+    "cloud_gaps",
+)
+
+
+def _timing_counts_frame(
+    index: pd.DatetimeIndex, values: np.ndarray, *, valid: np.ndarray, cloud: np.ndarray
+) -> pd.DataFrame:
+    n_aoi = np.full(len(index), 100, dtype=int)
+    n_valid = np.where(cloud, 0, np.asarray(valid, dtype=int))
+    n_invalid = n_aoi - n_valid
+    n_water = np.rint(np.clip(values, 0.0, 100.0) * n_valid / 100.0).astype(int)
+    return pd.DataFrame(
+        {
+            "n_water": n_water,
+            "n_valid": n_valid,
+            "n_invalid": n_invalid,
+            "n_aoi": n_aoi,
+        },
+        index=index,
+    )
+
+
+def generate_timing_identifiability_record(
+    seed: int, *, partition: Literal["calibration", "validation"]
+) -> SyntheticRecord:
+    """Build one deterministic, truth-labelled record for timing calibration.
+
+    These families deliberately exercise the independent annual metrics from
+    :mod:`hydroseason._timing_identifiability`; no station, rainfall, policy,
+    or motivating-record output enters this corpus.
+    """
+    if partition not in {"calibration", "validation"}:
+        raise ValueError("partition must be 'calibration' or 'validation'.")
+    valid_seeds = CALIBRATION_SEEDS if partition == "calibration" else VALIDATION_SEEDS
+    if seed not in valid_seeds:
+        raise ValueError(f"seed {seed} is outside the {partition} partition.")
+
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0x54494D45]))
+    family = _TIMING_IDENTIFIABILITY_FAMILIES[seed % len(_TIMING_IDENTIFIABILITY_FAMILIES)]
+    n_years = 10
+    index = _monthly_index(n_years)
+    months = index.month.to_numpy()
+    peak_month, trough_month = 8, 2
+    peak_set = (peak_month,)
+    trough_set = (trough_month,)
+    values = np.full(len(index), 10.0, dtype=float)
+    valid = np.full(len(index), 100, dtype=int)
+    cloud = np.zeros(len(index), dtype=bool)
+    peak_detectable = np.ones(n_years, dtype=bool)
+    trough_detectable = np.ones(n_years, dtype=bool)
+    peak_intervals = [peak_set for _ in range(n_years)]
+    trough_intervals = [trough_set for _ in range(n_years)]
+    annual = True
+
+    for year in range(n_years):
+        rows = np.arange(year * 12, (year + 1) * 12)
+        values[rows] = 10.0
+        values[rows[months[rows] == trough_month]] = 1.0
+        values[rows[months[rows] == peak_month]] = 50.0
+
+    if family == "all_zero_years":
+        values[:] = 0.0
+        annual = False
+        peak_detectable[:] = trough_detectable[:] = False
+        peak_intervals = trough_intervals = [() for _ in range(n_years)]
+    elif family == "broad_zero_plateaus":
+        values[:] = 0.0
+        values[np.isin(months, [7, 8, 9])] = 25.0
+        annual = False
+        peak_detectable[:] = trough_detectable[:] = False
+        peak_intervals = [(7, 8, 9) for _ in range(n_years)]
+        trough_intervals = [(10, 11, 12, 1, 2, 3, 4, 5, 6) for _ in range(n_years)]
+    elif family == "one_pixel_pulses":
+        values[:] = 0.0
+        values[months == peak_month] = 1.0
+        annual = False
+        peak_detectable[:] = trough_detectable[:] = False
+        peak_intervals = [peak_set for _ in range(n_years)]
+        trough_intervals = [(1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12) for _ in range(n_years)]
+    elif family == "intermittent_seasonal_pulses":
+        for year in range(n_years):
+            if year in {1, 4, 8}:
+                rows = np.arange(year * 12, (year + 1) * 12)
+                values[rows] = 0.0
+                peak_detectable[year] = trough_detectable[year] = False
+                peak_intervals[year] = trough_intervals[year] = ()
+    elif family == "intermittent_aseasonal_pulses":
+        values[:] = 0.0
+        for year in range(n_years):
+            month = int(rng.integers(1, 13))
+            values[year * 12 + month - 1] = 1.0
+        annual = False
+        peak_detectable[:] = trough_detectable[:] = False
+        peak_intervals = trough_intervals = [() for _ in range(n_years)]
+    elif family == "persistent_low_amplitude_water":
+        values[:] = 30.0
+        values[months == trough_month] = 29.5
+        values[months == peak_month] = 30.5
+        annual = False
+        peak_detectable[:] = trough_detectable[:] = False
+        peak_intervals = trough_intervals = [() for _ in range(n_years)]
+    elif family == "variable_valid_pixel_counts":
+        valid = np.where(np.isin(months, [peak_month, trough_month]), 25, 100)
+    elif family == "cloud_gaps":
+        for year in range(n_years):
+            if year in {0, 3, 6, 9}:
+                rows = np.arange(year * 12, (year + 1) * 12)
+                cloud[rows[months[rows] == peak_month]] = True
+                peak_detectable[year] = False
+                peak_intervals[year] = ()
+
+    frame = _timing_counts_frame(index, values, valid=valid, cloud=cloud)
+    truth = TimingTruthLabels(
+        is_annual=annual,
+        trough_month=trough_month if annual else None,
+        peak_month=peak_month if annual else None,
+        phase_by_month=None,
+        n_years=n_years,
+        trough_month_by_year=tuple([trough_month] * n_years),
+        detectable_peak_by_year=tuple(bool(item) for item in peak_detectable),
+        detectable_trough_by_year=tuple(bool(item) for item in trough_detectable),
+        peak_months_by_year=tuple(peak_intervals),
+        trough_months_by_year=tuple(trough_intervals),
+    )
+    scenario = ScenarioMetadata("none", "none", 0.0, 0, 0.0)
+    return SyntheticRecord(frame=frame, truth=truth, scenario=scenario, family=family, seed=seed)
