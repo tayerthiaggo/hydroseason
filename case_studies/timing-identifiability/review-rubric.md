@@ -36,6 +36,34 @@ The hidden-field list is `regime`, `route`, `timing status`, `confidence`,
 `selected thresholds`, policy identifiers, threshold fingerprints, and model
 output. Any field outside the allowlist is removed or rejected before review.
 
+The machine-readable packet-blinding contract is:
+
+```json
+{
+  "packet_allowlist": [
+    "date",
+    "extent_pct",
+    "pixel_counts",
+    "invalid_coverage",
+    "quality_flags",
+    "source_imagery_references"
+  ],
+  "hidden_decision_fields": [
+    "regime",
+    "route",
+    "timing_status",
+    "confidence",
+    "selected_thresholds",
+    "policy_id",
+    "threshold_fingerprint",
+    "model_output"
+  ]
+}
+```
+
+Packet construction accepts only `packet_allowlist` fields and rejects every
+field in `hidden_decision_fields` before review.
+
 The reviewer considers whether an extremum is supported across the available
 record, whether a bounded set of months is defensible, and whether only water
 events can be observed. Invalid or missing coverage and unavailable spatial

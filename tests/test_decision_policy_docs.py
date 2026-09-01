@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).parents[1]
 
@@ -102,5 +104,40 @@ def test_review_rubric_freezes_blinded_labels_and_adjudication():
     assert "excluded from rate denominators" in text
     for hidden in ("regime", "route", "timing status", "confidence", "selected thresholds"):
         assert hidden in text
-    assert "The packet observation allowlist is" in text
-    assert "Any field outside the allowlist is removed or rejected" in text
+    blinding_block = re.search(
+        r"The machine-readable packet-blinding contract is:\n\n```json\n(\{.*?\})\n```",
+        text,
+        re.DOTALL,
+    )
+    assert blinding_block is not None
+    blinding = json.loads(blinding_block.group(1))
+    allowlist = set(blinding["packet_allowlist"])
+    hidden = set(blinding["hidden_decision_fields"])
+    assert allowlist == {
+        "date",
+        "extent_pct",
+        "pixel_counts",
+        "invalid_coverage",
+        "quality_flags",
+        "source_imagery_references",
+    }
+    assert hidden == {
+        "regime",
+        "route",
+        "timing_status",
+        "confidence",
+        "selected_thresholds",
+        "policy_id",
+        "threshold_fingerprint",
+        "model_output",
+    }
+    assert allowlist.isdisjoint(hidden)
+
+    def validate_packet_fields(fields: set[str]) -> None:
+        unexpected = fields - allowlist
+        assert not unexpected, f"prohibited packet fields: {sorted(unexpected)}"
+
+    validate_packet_fields(allowlist)
+    for prohibited in hidden:
+        with pytest.raises(AssertionError, match="prohibited packet fields"):
+            validate_packet_fields(allowlist | {prohibited})
