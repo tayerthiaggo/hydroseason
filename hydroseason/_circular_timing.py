@@ -442,11 +442,56 @@ def shortest_circular_span(months: Iterable[int]) -> int | None:
     return int(_MONTHS_PER_YEAR - gaps.max())
 
 
+def equivalent_extremum_dates(
+    values: pd.Series,
+    *,
+    kind: Literal["min", "max"],
+    tolerance: float,
+) -> tuple[pd.Timestamp, ...]:
+    """Chronologically ordered timestamps tied with a window's extremum.
+
+    Unlike :func:`equivalent_extremum_months`, this is not circular and does
+    not fold repeated calendar months onto one label: it is meant for a single
+    bounded window (one hydrological-year cycle), not a multi-year record, so
+    each observation keeps its own date.
+    """
+    if kind not in {"min", "max"}:
+        raise ValueError("kind must be 'min' or 'max'.")
+    if not np.isfinite(tolerance) or tolerance < 0.0:
+        raise ValueError("tolerance must be a non-negative finite number.")
+    finite = values.loc[np.isfinite(values.to_numpy(dtype=float, na_value=np.nan))]
+    if finite.empty:
+        return ()
+    extremum = float(finite.min() if kind == "min" else finite.max())
+    if kind == "min":
+        selected = finite.loc[finite <= extremum + tolerance]
+    else:
+        selected = finite.loc[finite >= extremum - tolerance]
+    return tuple(pd.Timestamp(stamp) for stamp in selected.index.sort_values())
+
+
+def linear_span_months(dates: Iterable[pd.Timestamp]) -> int | None:
+    """Return the inclusive month span between the earliest and latest date.
+
+    Non-circular counterpart of :func:`shortest_circular_span`, for a
+    timestamp set drawn from one bounded window rather than a multi-year
+    calendar-month record. A singleton has span zero.
+    """
+    values = tuple(dates)
+    if not values:
+        return None
+    stamps = sorted(pd.Timestamp(value) for value in values)
+    first, last = stamps[0], stamps[-1]
+    return (last.year - first.year) * _MONTHS_PER_YEAR + last.month - first.month
+
+
 __all__ = [
     "AnnualTimingSummary",
     "CircularTimingSummary",
     "TimingDrift",
+    "equivalent_extremum_dates",
     "equivalent_extremum_months",
+    "linear_span_months",
     "shortest_circular_span",
     "summarise_annual_timing",
     "summarise_circular_months",

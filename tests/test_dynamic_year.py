@@ -542,6 +542,75 @@ def test_existing_columns_keep_their_order():
 
 
 
+def test_flat_cycle_reports_unresolved_timing_but_selection_support_stands():
+    # A flat cycle can still have good data/window coverage (selection_support)
+    # while contributing no timing observation -- the two must be independent.
+    dates = pd.date_range("2018-01-01", "2021-12-01", freq="MS")
+    values = (
+        [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.5, 2.0, 1.8, 1.5, 1.2, 1.0]
+        + [1.0] * 12
+        + [1.0, 1.5, 2.0, 3.0, 5.0, 8.0, 12.0, 16.0, 14.0, 10.0, 6.0, 3.0]
+        + [2.0, 1.8, 1.5, 1.2, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
+    )
+    raw = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=12, measurement_tolerance_pct=0.5)
+    )
+    flat = result.loc[result["hy_year"] == 2019].iloc[0]
+    assert flat["timing_status"] == "unresolved"
+    assert flat["boundary_status"] == "provisional"
+    assert flat["status"] == "partial"
+    assert flat["confidence"] == "low"
+    assert flat["selection_support"] >= 0.8
+
+
+def test_detectable_cycle_reports_point_or_interval_timing_status():
+    raw = _candidate_frame(start="2017-01-01", periods=72)
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9)
+    )
+    complete = result.loc[result["status"] == "complete"]
+    assert not complete.empty
+    row = complete.iloc[0]
+    assert row["timing_status"] in {"point", "interval"}
+    assert row["peak_timing_status"] in {"point", "interval"}
+    assert row["trough_timing_status"] in {"point", "interval"}
+    assert pd.notna(row["detectability_floor_pp"])
+    assert pd.notna(row["amplitude_to_floor_ratio"])
+
+
+def test_timing_status_columns_present_for_every_row():
+    from hydroseason._dynamic_year import ANNUAL_COLUMNS
+
+    timing_columns = [
+        "detectability_floor_pp", "amplitude_to_floor_ratio", "peak_n_water",
+        "peak_timing_status", "peak_interval_start", "peak_interval_end",
+        "trough_timing_status", "trough_interval_start", "trough_interval_end",
+        "timing_status",
+    ]
+    for column in timing_columns:
+        assert column in ANNUAL_COLUMNS
+
+    raw = _candidate_frame(start="2017-01-01", periods=72)
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9)
+    )
+    for column in timing_columns:
+        assert column in result.columns
+
+
+def test_aggregate_timing_status_is_the_weaker_of_peak_and_trough():
+    raw = _candidate_frame(start="2017-01-01", periods=72)
+    raw.loc["2020-08-01":"2020-10-01", "extent_pct"] = [1.0, 1.02, 1.04]
+    result = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, measurement_tolerance_pct=0.1)
+    )
+    row = result.loc[result["hy_year"] == 2020].iloc[0]
+    order = {"unresolved": 0, "interval": 1, "point": 2}
+    weakest = min(row["peak_timing_status"], row["trough_timing_status"], key=order.get)
+    assert row["timing_status"] == weakest
+
+
 def test_two_phase_is_the_default_phase_scheme():
     config = DynamicHydroYearConfig(expected_trough_month=9)
     assert config.phase_scheme == "two_phase"

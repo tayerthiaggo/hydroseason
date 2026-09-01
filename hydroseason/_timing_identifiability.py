@@ -9,7 +9,12 @@ import numpy as np
 import pandas as pd
 
 from ._boundary import robust_scale
-from ._circular_timing import equivalent_extremum_months, shortest_circular_span
+from ._circular_timing import (
+    equivalent_extremum_dates,
+    equivalent_extremum_months,
+    linear_span_months,
+    shortest_circular_span,
+)
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
 TimingStatus = Literal["point", "interval", "unresolved"]
@@ -63,6 +68,30 @@ class AnnualTimingEvidence:
 
 
 @dataclass(frozen=True)
+class WindowTimingEvidence:
+    """Detectability evidence for one bounded window (not a calendar year).
+
+    Shares the exact detectability formula in :func:`assess_timing_identifiability`
+    (same floor, same ratio, same status thresholds) but is timestamp-native and
+    non-circular, so it applies to one hydrological-year cycle's start..end span
+    -- which need not align to a calendar year and must not fold repeated
+    calendar months from different years onto one label.
+    """
+
+    n_usable_months: int
+    amplitude_pp: float
+    detectability_floor_pp: float
+    amplitude_to_floor_ratio: float
+    peak_n_water: int | None
+    at_or_below_floor: bool
+    detectable: bool
+    peak_dates: tuple[pd.Timestamp, ...]
+    trough_dates: tuple[pd.Timestamp, ...]
+    peak_status: TimingStatus
+    trough_status: TimingStatus
+
+
+@dataclass(frozen=True)
 class RecordTimingEvidence:
     years: dict[int, AnnualTimingEvidence]
     pixel_support_status: PixelSupportStatus
@@ -108,6 +137,88 @@ def _timing_status(months: tuple[int, ...], thresholds: TimingIdentifiabilityThr
     if span <= thresholds.max_point_span_months:
         return "point"
     return "interval"
+
+
+def _window_status(
+    dates: tuple[pd.Timestamp, ...], thresholds: TimingIdentifiabilityThresholds
+) -> TimingStatus:
+    span = linear_span_months(dates)
+    if span is None or span > thresholds.max_boundary_interval_months:
+        return "unresolved"
+    if span <= thresholds.max_point_span_months:
+        return "point"
+    return "interval"
+
+
+def assess_window_timing(
+    values: pd.Series,
+    rows: pd.DataFrame,
+    *,
+    thresholds: TimingIdentifiabilityThresholds,
+    measurement_tolerance_pct: float,
+    noise_pp: float,
+    pixel_support_status: PixelSupportStatus,
+) -> WindowTimingEvidence:
+    """Assess peak/trough detectability and timing status for one bounded window.
+
+    ``values`` is the window's usable ``extent_pct`` series (any index, not
+    necessarily calendar-aligned); ``rows`` is the matching frame slice carrying
+    the optional pixel-count columns. Uses the identical detectability floor and
+    status thresholds as :func:`assess_timing_identifiability`, so a
+    hydrological-year cycle and a calendar year are judged by the same rule.
+    """
+    measurement_tolerance_pp = _validate_tolerance(measurement_tolerance_pct)
+    n_usable = int(len(values))
+    if not n_usable:
+        return WindowTimingEvidence(
+            0, 0.0, 0.0, 0.0, None, True, False, (), (), "unresolved", "unresolved",
+        )
+    values = values.astype(float)
+    maximum, minimum = float(values.max()), float(values.min())
+    amplitude_pp = maximum - minimum
+    peak_rows = rows.loc[values.index[values == maximum]]
+    trough_rows = rows.loc[values.index[values == minimum]]
+    detectability_floor_pp = max(
+        measurement_tolerance_pp,
+        float(noise_pp),
+        _resolution_pp(peak_rows),
+        _resolution_pp(trough_rows),
+        float(np.finfo(float).eps),
+    )
+    at_or_below_floor = amplitude_pp <= detectability_floor_pp
+    ratio = 0.0 if at_or_below_floor else float(amplitude_pp / detectability_floor_pp)
+    peak_n_water = _peak_water_pixels(peak_rows)
+    detectable = bool(
+        amplitude_pp > 0.0
+        and not at_or_below_floor
+        and ratio >= thresholds.min_amplitude_to_floor_ratio
+        and (
+            pixel_support_status == "unavailable"
+            or peak_n_water is not None
+            and peak_n_water >= thresholds.min_peak_water_pixels
+        )
+    )
+    if detectable:
+        peak_dates = equivalent_extremum_dates(values, kind="max", tolerance=detectability_floor_pp)
+        trough_dates = equivalent_extremum_dates(values, kind="min", tolerance=detectability_floor_pp)
+        peak_status = _window_status(peak_dates, thresholds)
+        trough_status = _window_status(trough_dates, thresholds)
+    else:
+        peak_dates = trough_dates = ()
+        peak_status = trough_status = "unresolved"
+    return WindowTimingEvidence(
+        n_usable_months=n_usable,
+        amplitude_pp=amplitude_pp,
+        detectability_floor_pp=detectability_floor_pp,
+        amplitude_to_floor_ratio=ratio,
+        peak_n_water=peak_n_water,
+        at_or_below_floor=at_or_below_floor,
+        detectable=detectable,
+        peak_dates=peak_dates,
+        trough_dates=trough_dates,
+        peak_status=peak_status,
+        trough_status=trough_status,
+    )
 
 
 def assess_timing_identifiability(
@@ -242,5 +353,7 @@ __all__ = [
     "RecordTimingEvidence",
     "TimingIdentifiabilityThresholds",
     "TimingStatus",
+    "WindowTimingEvidence",
     "assess_timing_identifiability",
+    "assess_window_timing",
 ]

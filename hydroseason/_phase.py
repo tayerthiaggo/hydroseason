@@ -272,13 +272,20 @@ def assign_two_phase_phases(
         if start is None or end is None or peak is None or not (start <= peak <= end):
             continue
         cycle_months = _months_in(prepared, start, end)
+        out.loc[cycle_months, "hy_year"] = int(row["hy_year"])
+        timing_status = row.get("timing_status")
+        if timing_status == "unresolved":
+            out.loc[cycle_months, "phase_status"] = "unresolved_cycle"
+            continue
         recovery = _months_in(prepared, start, peak)
         recession = _months_in(prepared, peak + pd.DateOffset(months=1), end)
-        out.loc[cycle_months, "hy_year"] = int(row["hy_year"])
         out.loc[recovery, "phase"] = "rising"
         out.loc[recession, "phase"] = "receding"
         usable = out.loc[cycle_months, "candidate_usable"].astype(bool)
-        base_status = "ok" if row.get("status") == "complete" else "provisional"
+        if timing_status == "interval":
+            base_status = "interval_boundary"
+        else:
+            base_status = "ok" if row.get("status") == "complete" else "provisional"
         out.loc[cycle_months, "phase_status"] = np.where(usable, base_status, "unusable")
         out.loc[cycle_months, "phase_confidence"] = [
             _confidence(row, has_half_loss=False, unusable=not bool(value))

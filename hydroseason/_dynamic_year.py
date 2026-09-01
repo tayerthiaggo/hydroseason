@@ -21,8 +21,18 @@ from ._phase_scheme import (
     UnsetPhaseScheme,
     resolve_phase_scheme,
 )
+from ._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._state_input import QualityPolicy, prepare_monthly_extent
+from ._timing_identifiability import (
+    PixelSupportStatus,
+    TimingIdentifiabilityThresholds,
+    TimingStatus,
+    WindowTimingEvidence,
+    assess_window_timing,
+)
+
+_TIMING_STATUS_RANK: dict[TimingStatus, int] = {"unresolved": 0, "interval": 1, "point": 2}
 
 # Fallback values substituted for the deprecated recovery-window fields when a
 # caller has not supplied them. These match the historical defaults (2 and 4)
@@ -55,6 +65,9 @@ class DynamicHydroYearConfig:
     low_percentile: float = 20.0
     high_percentile: float = 80.0
     measurement_tolerance_pct: float = 1.0
+    timing_identifiability_thresholds: TimingIdentifiabilityThresholds = (
+        TIMING_IDENTIFIABILITY_DEFAULTS
+    )
     detector: Literal["robust_extrema"] = "robust_extrema"
     phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET
     phase_model: LegacyPhaseModel | None = None
@@ -278,6 +291,10 @@ ANNUAL_COLUMNS = [
     "window_n_expected", "window_n_usable", "phase_shift_months",
     "raw_peak_month", "raw_peak_extent_pct",
     "peak_selection_status", "peak_selection_support",
+    "detectability_floor_pp", "amplitude_to_floor_ratio", "peak_n_water",
+    "peak_timing_status", "peak_interval_start", "peak_interval_end",
+    "trough_timing_status", "trough_interval_start", "trough_interval_end",
+    "timing_status",
 ]
 
 
@@ -499,6 +516,39 @@ def _adaptive_edge_retry_years(
     return retryable
 
 
+_COUNT_COLUMNS = {"n_water", "n_valid", "n_invalid", "n_aoi"}
+
+
+def _pixel_support_status(frame: pd.DataFrame) -> PixelSupportStatus:
+    return "available" if _COUNT_COLUMNS.issubset(frame.columns) else "unavailable"
+
+
+def _cycle_timing_evidence(
+    cycle: pd.DataFrame,
+    usable: pd.Series,
+    *,
+    config: DynamicHydroYearConfig,
+    noise_pp: float,
+    pixel_support_status: PixelSupportStatus,
+) -> WindowTimingEvidence:
+    rows = cycle.loc[usable.index]
+    return assess_window_timing(
+        usable, rows,
+        thresholds=config.timing_identifiability_thresholds,
+        measurement_tolerance_pct=config.measurement_tolerance_pct,
+        noise_pp=noise_pp,
+        pixel_support_status=pixel_support_status,
+    )
+
+
+def _aggregate_timing_status(
+    peak_status: TimingStatus, trough_status: TimingStatus
+) -> TimingStatus:
+    return min(
+        (peak_status, trough_status), key=lambda status: _TIMING_STATUS_RANK[status]
+    )
+
+
 def _assemble_dynamic_years(
     frame: pd.DataFrame, opportunities: pd.DataFrame, config: DynamicHydroYearConfig,
     pattern: SeasonalPatternResult | None,
@@ -506,6 +556,7 @@ def _assemble_dynamic_years(
     min_usable_months_by_year: dict[int, int] | None = None,
 ) -> pd.DataFrame:
     amplitude_pp, noise_pp = robust_scale(frame)
+    pixel_support_status = _pixel_support_status(frame)
     rows = []
     previous = None
     for position, (_, opportunity) in enumerate(opportunities.iterrows()):
@@ -569,11 +620,17 @@ def _assemble_dynamic_years(
         secondary = _secondary_extrema(usable, peak, trough) if pattern is not None and pattern.pattern == "bimodal_or_complex" else (None, np.nan, None, np.nan)
         peak_invalid = frame.loc[peak, "invalid_pct"]
         peak_low_quality = peak_selection.selection_status == "low_quality"
+        timing = _cycle_timing_evidence(
+            cycle, usable, config=config, noise_pp=noise_pp,
+            pixel_support_status=pixel_support_status,
+        )
+        timing_status = _aggregate_timing_status(timing.peak_status, timing.trough_status)
         boundary_status = (
             "provisional"
             if peak_low_quality
             or used_record_start
             or opportunity["boundary_status"] != "confirmed"
+            or timing_status == "unresolved"
             else "confirmed"
         )
         status_reason = (
@@ -581,10 +638,15 @@ def _assemble_dynamic_years(
             if used_record_start
             else "peak_low_quality"
             if peak_low_quality
+            else "unresolved_timing"
+            if timing_status == "unresolved"
             else "ok"
             if boundary_status == "confirmed"
             else "boundary_provisional"
         )
+        confidence = _confidence(cycle, boundary_status)
+        if timing_status == "unresolved":
+            confidence = "low"
         row.update(
             status="complete" if boundary_status == "confirmed" else "partial",
             status_reason=status_reason,
@@ -601,13 +663,23 @@ def _assemble_dynamic_years(
             persistence_ratio=trough_value / peak_value if peak_value > 0 else np.nan,
             recession_months=_month_delta(trough, peak),
             half_loss_months=_month_delta(half, peak) if pd.notna(half) else np.nan,
-            n_rewetting_pulses=pulses, n_usable_months=len(usable), confidence=_confidence(cycle, boundary_status),
+            n_rewetting_pulses=pulses, n_usable_months=len(usable), confidence=confidence,
             secondary_peak_month=secondary[0], secondary_peak_extent_pct=secondary[1],
             secondary_trough_month=secondary[2], secondary_trough_extent_pct=secondary[3],
             raw_peak_month=peak_selection.raw_month if peak_selection.raw_month is not None else pd.NaT,
             raw_peak_extent_pct=peak_selection.raw_extent_pct,
             peak_selection_status=peak_selection.selection_status,
             peak_selection_support=peak_selection.support,
+            detectability_floor_pp=timing.detectability_floor_pp,
+            amplitude_to_floor_ratio=timing.amplitude_to_floor_ratio,
+            peak_n_water=timing.peak_n_water if timing.peak_n_water is not None else np.nan,
+            peak_timing_status=timing.peak_status,
+            peak_interval_start=timing.peak_dates[0] if timing.peak_dates else pd.NaT,
+            peak_interval_end=timing.peak_dates[-1] if timing.peak_dates else pd.NaT,
+            trough_timing_status=timing.trough_status,
+            trough_interval_start=timing.trough_dates[0] if timing.trough_dates else pd.NaT,
+            trough_interval_end=timing.trough_dates[-1] if timing.trough_dates else pd.NaT,
+            timing_status=timing_status,
         )
         previous = opportunity
         rows.append(row)

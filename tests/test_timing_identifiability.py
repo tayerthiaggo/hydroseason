@@ -2,9 +2,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from hydroseason._boundary import robust_scale
+from hydroseason._state_input import prepare_monthly_extent
 from hydroseason._timing_identifiability import (
     TimingIdentifiabilityThresholds,
     assess_timing_identifiability,
+    assess_window_timing,
 )
 
 TEST_THRESHOLDS = TimingIdentifiabilityThresholds(
@@ -160,3 +163,112 @@ def test_thresholds_reject_invalid_ordering_and_non_finite_measurement_tolerance
         assess_timing_identifiability(
             _counts([0] * 12), thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=np.nan
         )
+
+
+def _window(values, *, start="2019-10-01", n_valid=100, n_water=None):
+    index = pd.date_range(start, periods=len(values), freq="MS")
+    valid = np.broadcast_to(n_valid, len(values)).astype(int)
+    water = np.asarray(values if n_water is None else n_water, dtype=int)
+    return pd.DataFrame(
+        {
+            "extent_pct": np.asarray(values, dtype=float),
+            "n_water": water,
+            "n_valid": valid,
+        },
+        index=index,
+    )
+
+
+def test_window_timing_detects_a_point_peak_across_a_cycle_spanning_two_years():
+    # Cycle Oct-2019..Sep-2020: a single sharp peak in Nov identifies a point,
+    # even though the window crosses a calendar-year boundary.
+    values = [5.0, 40.0, 8.0, 6.0, 5.0, 4.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0]
+    rows = _window(values)
+    result = assess_window_timing(
+        rows["extent_pct"], rows,
+        thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0, noise_pp=0.5,
+        pixel_support_status="unavailable",
+    )
+    assert result.detectable is True
+    assert result.peak_status == "point"
+    assert result.peak_dates == (pd.Timestamp("2019-11-01"),)
+
+
+def test_window_timing_reports_interval_for_a_broad_plateau():
+    values = [30.0, 25.0, 20.0, 1.0, 1.1, 1.0, 15.0, 20.0, 25.0, 28.0, 29.0, 30.0]
+    rows = _window(values)
+    result = assess_window_timing(
+        rows["extent_pct"], rows,
+        thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0, noise_pp=0.5,
+        pixel_support_status="unavailable",
+    )
+    assert result.trough_status == "interval"
+    assert result.trough_dates == (
+        pd.Timestamp("2020-01-01"), pd.Timestamp("2020-02-01"), pd.Timestamp("2020-03-01"),
+    )
+
+
+def test_window_timing_flat_cycle_is_unresolved_and_at_or_below_floor():
+    rows = _window([5.0] * 12)
+    result = assess_window_timing(
+        rows["extent_pct"], rows,
+        thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0, noise_pp=0.5,
+        pixel_support_status="unavailable",
+    )
+    assert result.detectable is False
+    assert result.at_or_below_floor is True
+    assert result.peak_status == result.trough_status == "unresolved"
+    assert result.peak_dates == result.trough_dates == ()
+
+
+def test_window_timing_empty_window_is_unresolved():
+    rows = _window([])
+    result = assess_window_timing(
+        rows["extent_pct"], rows,
+        thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0, noise_pp=0.5,
+        pixel_support_status="unavailable",
+    )
+    assert result.n_usable_months == 0
+    assert result.detectable is False
+    assert result.peak_status == result.trough_status == "unresolved"
+
+
+def test_window_timing_pixel_available_gates_on_peak_water_pixels():
+    values = [1.0, 40.0, 1.0, 1.0]
+    rows = _window(values, n_water=[1, 0, 1, 1])
+    result = assess_window_timing(
+        rows["extent_pct"], rows,
+        thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0, noise_pp=0.1,
+        pixel_support_status="available",
+    )
+    assert result.peak_n_water == 0
+    assert result.detectable is False
+    assert result.peak_status == "unresolved"
+
+
+def test_window_timing_uses_same_floor_formula_as_calendar_year_assessment():
+    # A single calendar year and an identical HY cycle spanning the same
+    # months must agree exactly: same values, same formula.
+    values = [5.0, 40.0, 8.0, 6.0, 5.0, 4.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0]
+    calendar_counts = _counts(values, year=2020)
+    prepared = prepare_monthly_extent(calendar_counts)
+    year_evidence = assess_timing_identifiability(
+        calendar_counts, thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0
+    ).years[2020]
+
+    _amplitude_pp, noise_pp = robust_scale(prepared)
+    window_rows = prepared.loc[prepared["candidate_usable"]]
+    window_evidence = assess_window_timing(
+        window_rows["extent_pct"], window_rows,
+        thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0,
+        noise_pp=noise_pp,
+        pixel_support_status="available",
+    )
+    assert window_evidence.detectability_floor_pp == pytest.approx(
+        year_evidence.detectability_floor_pp
+    )
+    assert window_evidence.amplitude_to_floor_ratio == pytest.approx(
+        year_evidence.amplitude_to_floor_ratio
+    )
+    assert window_evidence.detectable == year_evidence.detectable
+    assert window_evidence.peak_status == year_evidence.peak_status

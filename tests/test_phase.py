@@ -231,6 +231,33 @@ def test_record_start_boundary_cycle_receives_monthly_phases():
     assert set(out["phase"].unique()) - {"unspecified"}
 
 
+def test_two_phase_unresolved_timing_yields_unresolved_cycle_status(prepared_extent):
+    cycle = _one_cycle()
+    cycle["timing_status"] = "unresolved"
+    out = assign_two_phase_phases(prepared_extent, cycle, boundary_basis="robust_extrema")
+    months = out.loc["2019-01":"2019-06"]
+    assert (months["phase_status"] == "unresolved_cycle").all()
+    assert (months["phase"] == "unspecified").all()
+
+
+def test_two_phase_interval_timing_yields_interval_boundary_status(prepared_extent):
+    cycle = _one_cycle()
+    cycle["timing_status"] = "interval"
+    out = assign_two_phase_phases(prepared_extent, cycle, boundary_basis="robust_extrema")
+    months = out.loc["2019-01":"2019-06"]
+    assert (months["phase_status"] == "interval_boundary").all()
+    assert months.loc[pd.Timestamp("2019-03-01"), "phase"] == "rising"
+    assert months.loc[pd.Timestamp("2019-06-01"), "phase"] == "receding"
+
+
+def test_two_phase_point_timing_keeps_ok_status(prepared_extent):
+    cycle = _one_cycle()
+    cycle["timing_status"] = "point"
+    out = assign_two_phase_phases(prepared_extent, cycle, boundary_basis="robust_extrema")
+    months = out.loc["2019-01":"2019-06"]
+    assert (months["phase_status"] == "ok").all()
+
+
 def test_monthly_phase_boundary_basis_matches_actual_annual_boundary_detector(monsonal_extent):
     # Regression for the stage-06 review finding: monthly_phase.boundary_basis
     # must report the detector that actually produced the annual boundaries,
@@ -315,7 +342,7 @@ def test_insufficient_cycle_amplitude_is_recorded(flat_frame):
     )
     statuses = set(result.monthly_phase["phase_status"])
 
-    assert statuses <= {"outside_cycle", "provisional", "unusable"}
+    assert statuses <= {"outside_cycle", "provisional", "unusable", "unresolved_cycle"}
     assert set(result.monthly_phase["phase"]) <= {"rising", "receding", "unspecified"}
 
 

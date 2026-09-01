@@ -194,6 +194,26 @@ def test_timing_confidence_from_amplitude_vs_noise():
     assert (unknown["timing_confidence"] == "unknown").all()
 
 
+def test_interval_timing_status_excluded_from_baseline_despite_confirmed_boundary():
+    # Five confirmed-boundary cycles, but one has only interval (not point)
+    # timing -- an internal operational date, not a defensible exact extremum.
+    # It must not anchor the baseline even though its boundary is confirmed.
+    annual = _annual().iloc[:5].copy()
+    annual["boundary_status"] = "confirmed"
+    annual["timing_status"] = "point"
+    annual.loc[annual["hy_year"] == 2002, "timing_status"] = "interval"
+    result = classify_annual_surface_water_condition(annual, min_baseline_cycles=5)
+    assert set(result["annual_condition"]) == {"insufficient_baseline"}
+
+
+def test_point_timing_status_activates_baseline_when_boundary_confirmed():
+    annual = _annual().iloc[:5].copy()
+    annual["boundary_status"] = "confirmed"
+    annual["timing_status"] = "point"
+    result = classify_annual_surface_water_condition(annual, min_baseline_cycles=5)
+    assert (result["annual_condition"] != "insufficient_baseline").any()
+
+
 def test_existing_columns_unchanged_for_full_record_mode():
     # The default (full_record) call must yield the same pre-existing columns
     # it always did; new columns are purely additive.
