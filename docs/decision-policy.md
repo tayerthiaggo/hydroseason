@@ -19,3 +19,9 @@ A replacement decision policy requires all of the following before implementatio
 7. Migration notes describing changed public outputs and downstream impact.
 
 Regenerating expected fixtures, tuning to the five protected catchments, or obtaining a better in-sample fit is not sufficient.
+
+The v0.2.0 policy design is frozen in
+[`decision-policy-0.2.0.md`](decision-policy-0.2.0.md). Its public policy
+identifier is `established_0_2_0`; implementation and promotion remain subject
+to every gate in this document and the frozen calibration, validation, and
+real-review protocol.

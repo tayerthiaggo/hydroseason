@@ -1,0 +1,33 @@
+{
+  "protocol_id": "timing-identifiability-real-cohort-v1",
+  "policy_id": "established_0_2_0",
+  "seed": 20260901,
+  "source_bundles": [
+    "D:\\RLH\\5.6\\hydroseason_tests\\outputs\\stress_test_final"
+  ],
+  "exclude_station_ids": ["130413a", "130407a", "130302a"],
+  "motivating_station_ids": ["130413a", "130407a", "130302a"],
+  "stratification": {
+    "variable": "amplitude_to_floor_ratio",
+    "aggregation": "median annual amplitude_to_floor_ratio under calibrated thresholds",
+    "reported_covariate": "zero_fraction",
+    "zero_fraction_role": "reported covariate only; not a selection stratum",
+    "strata": [
+      {"name": "below_floor", "lower": 0, "upper": 1, "upper_inclusive": false},
+      {"name": "mid_ratio", "lower": 1, "upper": 3, "upper_inclusive": false},
+      {"name": "high_ratio", "lower": 3, "upper": "inf", "upper_inclusive": true}
+    ]
+  },
+  "quota_policy": "min_8_or_available",
+  "quota_per_stratum": "min(8, available)",
+  "shortfall_is_reported_not_fatal": true,
+  "selection": "sort eligible records by SHA-256(seed:station_id) within each stratum and take the quota",
+  "pixel_support_expected": "unavailable",
+  "review": {
+    "rubric": "case_studies/timing-identifiability/review-rubric.md",
+    "reviewers_required": 1,
+    "adjudicate_uncertain": true,
+    "adjudicate_model_review_disagreement": true,
+    "uncertain_excluded_from_rate_denominators": true
+  }
+}
