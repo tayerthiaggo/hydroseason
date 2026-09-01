@@ -69,6 +69,9 @@ The established route is `per_year_detection` only for seasonal or marginal
 records with supported timing evidence. A seasonal or marginal record with
 insufficient identifiable timing retains its regime but routes to
 `event_characterisation`. Unsupported timing remains a separate diagnostic.
+Flat and below-floor years remain valid dry observations and continue to
+contribute to dry-duration and event summaries; they contribute no peak or
+trough timing observation.
 
 ## Frozen calibration grid and selection
 
@@ -95,6 +98,12 @@ smaller point span, smaller interval span, and larger informative-year count.
 
 Untouched synthetic validation is report-only: validation cannot trigger threshold reselection. It uses the calibration-selected tuple and its
 fingerprint without writing defaults or searching the grid.
+
+The three motivating records—130413A Denison Creek at Braeside, 130407A Nebo
+Creek at Nebo, and 130302A Dawson River at Taroom—are diagnostic examples only.
+They are excluded from calibration fitting, threshold selection, and untouched
+synthetic validation; their qualitative checks occur only after the policy is
+frozen.
 
 ## Promotion checklist
 
@@ -123,3 +132,7 @@ stress CSVs are HydroSeason output and contain no pixel counts, so real-cohort
 records report `pixel_support_status="unavailable"`; minimum peak-water-pixel
 evidence is synthetic-only. Review packets must strip policy and result fields
 from those outputs before human review.
+
+Every stochastic test and generated report records the package version, input
+fingerprint, threshold fingerprint, and seed. These are required reproducibility
+metadata for calibration, validation, and cohort artifacts.

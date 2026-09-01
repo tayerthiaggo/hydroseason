@@ -3,7 +3,7 @@
   "policy_id": "established_0_2_0",
   "seed": 20260901,
   "source_bundles": [
-    "D:\\RLH\\5.6\\hydroseason_tests\\outputs\\stress_test_final"
+    "stress_test_final"
   ],
   "exclude_station_ids": ["130413a", "130407a", "130302a"],
   "motivating_station_ids": ["130413a", "130407a", "130302a"],
@@ -15,7 +15,7 @@
     "strata": [
       {"name": "below_floor", "lower": 0, "upper": 1, "upper_inclusive": false},
       {"name": "mid_ratio", "lower": 1, "upper": 3, "upper_inclusive": false},
-      {"name": "high_ratio", "lower": 3, "upper": "inf", "upper_inclusive": true}
+      {"name": "high_ratio", "lower": 3, "upper": "inf", "upper_inclusive": false}
     ]
   },
   "quota_policy": "min_8_or_available",
@@ -23,6 +23,13 @@
   "shortfall_is_reported_not_fatal": true,
   "selection": "sort eligible records by SHA-256(seed:station_id) within each stratum and take the quota",
   "pixel_support_expected": "unavailable",
+  "reproducibility_metadata": {
+    "package_version": "0.2.0",
+    "input_fingerprint": "required in generated manifest",
+    "threshold_fingerprint": "required from calibrated defaults",
+    "seed": 20260901
+  },
+  "exclude_motivating_records_from_calibration_and_validation": true,
   "review": {
     "rubric": "case_studies/timing-identifiability/review-rubric.md",
     "reviewers_required": 1,

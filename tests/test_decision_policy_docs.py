@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 
@@ -21,6 +22,9 @@ def test_decision_policy_document_contains_complete_promotion_gate():
         "regenerating expected fixtures",
     )
     assert all(phrase in text for phrase in required)
+    assert "identifier remains `established_0_1_1`" in text
+    assert "until promotion passes" in text
+    assert "its public policy identifier is `established_0_2_0`" not in text
 
 
 def test_v020_policy_design_freezes_public_decision_contract():
@@ -37,6 +41,17 @@ def test_v020_policy_design_freezes_public_decision_contract():
         "validation cannot trigger threshold reselection",
     }
     assert all(phrase in text for phrase in required)
+    grid = {
+        '"min_amplitude_to_floor_ratio": [1.0, 1.5, 2.0, 3.0],',
+        '"min_peak_water_pixels": [1, 2, 3, 5],',
+        '"max_point_span_months": [0, 1, 2],',
+        '"max_boundary_interval_months": [2, 3, 4],',
+        '"min_informative_years": [5, 7, 10],',
+    }
+    assert all(line in text for line in grid)
+    assert "motivating records" in text.lower()
+    assert "excluded from calibration fitting, threshold selection" in text
+    assert "dry-duration and event summaries" in text
 
 
 def test_cohort_protocol_declares_amplitude_strata_and_safe_quota():
@@ -52,28 +67,40 @@ def test_cohort_protocol_declares_amplitude_strata_and_safe_quota():
     assert protocol["stratification"]["strata"] == [
         {"name": "below_floor", "lower": 0, "upper": 1, "upper_inclusive": False},
         {"name": "mid_ratio", "lower": 1, "upper": 3, "upper_inclusive": False},
-        {"name": "high_ratio", "lower": 3, "upper": "inf", "upper_inclusive": True},
+        {"name": "high_ratio", "lower": 3, "upper": "inf", "upper_inclusive": False},
     ]
     assert protocol["quota_policy"] == "min_8_or_available"
     assert protocol["shortfall_is_reported_not_fatal"] is True
     assert isinstance(protocol["source_bundles"], list)
+    assert protocol["source_bundles"] == ["stress_test_final"]
     assert protocol["pixel_support_expected"] == "unavailable"
+    assert protocol["exclude_motivating_records_from_calibration_and_validation"] is True
+    assert protocol["reproducibility_metadata"] == {
+        "package_version": "0.2.0",
+        "input_fingerprint": "required in generated manifest",
+        "threshold_fingerprint": "required from calibrated defaults",
+        "seed": 20260901,
+    }
 
 
 def test_review_rubric_freezes_blinded_labels_and_adjudication():
     text = (
         ROOT / "case_studies" / "timing-identifiability" / "review-rubric.md"
     ).read_text(encoding="utf-8")
-    labels = {
+    labels = [
         "point_supported",
         "interval_supported",
         "event_only",
         "unobservable",
         "uncertain",
-    }
-    assert all(label in text for label in labels)
+    ]
+    label_block = re.search(r"```json\n(\[.*?\])\n```", text, re.DOTALL)
+    assert label_block is not None
+    assert json.loads(label_block.group(1)) == labels
     assert "one reviewer" in text
     assert "adjudication" in text
     assert "excluded from rate denominators" in text
     for hidden in ("regime", "route", "timing status", "confidence", "selected thresholds"):
         assert hidden in text
+    assert "The packet observation allowlist is" in text
+    assert "Any field outside the allowlist is removed or rejected" in text

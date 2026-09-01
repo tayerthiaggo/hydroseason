@@ -20,8 +20,9 @@ A replacement decision policy requires all of the following before implementatio
 
 Regenerating expected fixtures, tuning to the five protected catchments, or obtaining a better in-sample fit is not sufficient.
 
-The v0.2.0 policy design is frozen in
+The v0.2.0 candidate policy design is frozen in
 [`decision-policy-0.2.0.md`](decision-policy-0.2.0.md). Its public policy
-identifier is `established_0_2_0`; implementation and promotion remain subject
+identifier remains `established_0_1_1` until promotion passes; the frozen
+replacement identifier is `established_0_2_0`. Implementation and promotion remain subject
 to every gate in this document and the frozen calibration, validation, and
 real-review protocol.

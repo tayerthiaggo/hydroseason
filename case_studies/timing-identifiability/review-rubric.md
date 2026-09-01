@@ -16,6 +16,12 @@ Exactly one label is allowed for each record:
 No synonyms, compound labels, or blank labels are permitted. `uncertain` is an
 explicit outcome, not an invitation to guess.
 
+The complete and exclusive label set is:
+
+```json
+["point_supported", "interval_supported", "event_only", "unobservable", "uncertain"]
+```
+
 ## Blinding and packet contents
 
 The packet may show observation dates, `extent_pct`, pixel counts when
@@ -23,6 +29,12 @@ available, invalid coverage, quality flags, and source imagery references. It
 must hide HydroSeason `regime`, `route`, timing status, confidence, and
 selected thresholds. The packet must not reveal policy identifiers, threshold
 fingerprints, or model output alongside the observations.
+
+The packet observation allowlist is `date`, `extent_pct`, pixel counts when
+available, invalid coverage, quality flags, and source imagery references.
+The hidden-field list is `regime`, `route`, `timing status`, `confidence`,
+`selected thresholds`, policy identifiers, threshold fingerprints, and model
+output. Any field outside the allowlist is removed or rejected before review.
 
 The reviewer considers whether an extremum is supported across the available
 record, whether a bounded set of months is defensible, and whether only water
