@@ -47,6 +47,11 @@ _DEFAULT_PULSE_REJECTION_WINDOW_MONTHS = 4
 _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS = 5
 _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE = 6
 
+# The outside-window audit span never widens the search.  It reaches at most
+# the radius the adaptive retry can already use, so a diagnostic can never name
+# a month the shipped detector was structurally incapable of selecting.
+_DIAGNOSTIC_AUDIT_RADIUS_MONTHS = 5
+
 
 @dataclass(frozen=True)
 class DynamicHydroYearConfig:
@@ -134,6 +139,51 @@ def _month_delta(actual: pd.Timestamp, expected: pd.Timestamp) -> int:
     return (actual.year - expected.year) * 12 + actual.month - expected.month
 
 
+def _search_edge_diagnostics(
+    frame: pd.DataFrame,
+    *,
+    expected: pd.Timestamp,
+    radius: int,
+    selected: pd.Timestamp,
+) -> dict[str, object]:
+    """Describe a selected boundary's position relative to its own window.
+
+    Report-only.  ``outside_window_lower`` states that a strictly lower *raw
+    observed* extent exists in the audit span -- the same raw-value rule the
+    existing adaptive retry uses.  It does not state that the outside month is
+    the correct boundary: a wider search can select a competing event or damage
+    cycle geometry.  It is a challenge count, never an error rate.
+    """
+    shift = _month_delta(selected, expected)
+    at_edge = abs(shift) == radius
+    side = "none" if not at_edge else ("left" if shift < 0 else "right")
+    diagnostics: dict[str, object] = {
+        "boundary_at_search_edge": at_edge,
+        "boundary_search_edge_side": side,
+        "outside_window_observed": False,
+        "outside_window_lower": False,
+    }
+    if radius >= _DIAGNOSTIC_AUDIT_RADIUS_MONTHS:
+        return diagnostics
+
+    outer = [
+        expected + pd.DateOffset(months=offset)
+        for offset in range(-_DIAGNOSTIC_AUDIT_RADIUS_MONTHS, _DIAGNOSTIC_AUDIT_RADIUS_MONTHS + 1)
+        if abs(offset) > radius
+    ]
+    present = [month for month in outer if month in frame.index]
+    if len(present) != len(outer):
+        return diagnostics
+    values = frame.loc[present, "extent_pct"].dropna()
+    if values.empty:
+        return diagnostics
+    diagnostics["outside_window_observed"] = True
+    diagnostics["outside_window_lower"] = bool(
+        float(values.min()) < float(frame.loc[selected, "extent_pct"])
+    )
+    return diagnostics
+
+
 # Diagnostic columns carried straight from each robust trough opportunity into
 # the annual output for every year (resolved or unresolved), so the raw observed
 # minimum and the evidence behind the selected boundary are always auditable.
@@ -142,6 +192,17 @@ _TROUGH_DIAGNOSTIC_COLUMNS = (
     "low_run_start_month", "low_run_end_month",
     "window_status", "selection_status", "selection_support", "selection_quality",
     "window_n_expected", "window_n_usable", "phase_shift_months",
+    "trough_search_radius_used", "boundary_at_search_edge",
+    "boundary_search_edge_side", "outside_window_observed", "outside_window_lower",
+)
+
+# Geometry diagnostics published on every annual row.  ``retry_outcome`` is set
+# once, after the adaptive retry loop settles, because only the loop knows
+# whether a widened result survived.
+GEOMETRY_DIAGNOSTIC_COLUMNS = (
+    "trough_search_radius_used", "boundary_at_search_edge",
+    "boundary_search_edge_side", "outside_window_observed",
+    "outside_window_lower", "retry_outcome",
 )
 
 
@@ -164,6 +225,7 @@ def _find_robust_trough_opportunities(
     years = list(range(int(frame.index.min().year), int(frame.index.max().year) + 1))
     selections = []
     expecteds = []
+    radii = []
     sequence_input: list[dict] = []
     for year in years:
         radius = radius_by_year.get(year, config.trough_search_radius_months)
@@ -178,6 +240,7 @@ def _find_robust_trough_opportunities(
         )
         selections.append(selection)
         expecteds.append(expected)
+        radii.append(radius)
         if selection.run_start is not None and selection.run_end is not None:
             run = frame.loc[selection.run_start:selection.run_end]
             if selection.selection_status == "quality_adjusted":
@@ -222,7 +285,9 @@ def _find_robust_trough_opportunities(
     )
 
     rows = []
-    for year, expected, selection, selected in zip(years, expecteds, selections, selected_dates):
+    for year, expected, radius, selection, selected in zip(
+        years, expecteds, radii, selections, selected_dates
+    ):
         selection_status = selection.selection_status
         if (
             selected is not None
@@ -250,6 +315,11 @@ def _find_robust_trough_opportunities(
             "selection_quality": selection.support,
             "window_n_expected": selection.n_expected,
             "window_n_usable": selection.n_usable,
+            "trough_search_radius_used": radius,
+            "boundary_at_search_edge": False,
+            "boundary_search_edge_side": "none",
+            "outside_window_observed": False,
+            "outside_window_lower": False,
         }
         if selected is None:
             rows.append(row)
@@ -269,6 +339,11 @@ def _find_robust_trough_opportunities(
             trough_invalid_pct=float(observed["invalid_pct"]) if pd.notna(observed["invalid_pct"]) else np.nan,
             boundary_status="confirmed" if confirmed else "provisional",
             phase_shift_months=_month_delta(selected, expected),
+        )
+        row.update(
+            _search_edge_diagnostics(
+                frame, expected=expected, radius=radius, selected=selected
+            )
         )
         rows.append(row)
     return pd.DataFrame(rows)
@@ -295,6 +370,9 @@ ANNUAL_COLUMNS = [
     "peak_timing_status", "peak_interval_start", "peak_interval_end",
     "trough_timing_status", "trough_interval_start", "trough_interval_end",
     "timing_status",
+    "trough_search_radius_used", "boundary_at_search_edge",
+    "boundary_search_edge_side", "outside_window_observed",
+    "outside_window_lower", "retry_outcome",
 ]
 
 
@@ -362,6 +440,8 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
     # not enough evidence to invent one across a data gap; the base boundary
     # must already exist and have classified neighbours on both sides.
     relaxed_years: set[int] = set()
+    retry_attempted: set[int] = set()
+    retry_applied: set[int] = set()
     base_boundaries = {
         int(row["hy_year"]): pd.Timestamp(row["trough_month"])
         for _, row in result.iterrows()
@@ -376,6 +456,7 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         if not new_years:
             break
         relaxed_years.update(new_years)
+        retry_attempted.update(new_years)
         radius = min(
             5,
             max(config.trough_search_radius_months, _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS),
@@ -427,6 +508,7 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
             and pd.notna(row["peak_month"])
             and row["status_reason"] != "insufficient_cycle_coverage"
         }
+        retry_applied = set(successful_relaxed_years)
         failed_relaxed_years = effective_relaxed_years - successful_relaxed_years
         if failed_relaxed_years:
             for year in failed_relaxed_years:
@@ -444,6 +526,11 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
                     for year in successful_relaxed_years
                 },
             )
+    result["retry_outcome"] = "not_attempted"
+    if retry_attempted:
+        years_index = result["hy_year"].astype(int)
+        result.loc[years_index.isin(retry_attempted), "retry_outcome"] = "rolled_back"
+        result.loc[years_index.isin(retry_applied), "retry_outcome"] = "applied"
     return result
 
 

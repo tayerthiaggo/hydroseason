@@ -622,8 +622,99 @@ def test_explicit_phase_schemes_are_stored():
     assert two.phase_scheme == "two_phase"
 
 
+from hydroseason._dynamic_year import (
+    ANNUAL_COLUMNS,
+    _DIAGNOSTIC_AUDIT_RADIUS_MONTHS,
+)
 
 
+def _anchored_frame(trough_by_year, *, anchor_month=7, n_years=6, base=40.0, low=2.0):
+    """Monthly frame whose annual minimum sits at the requested calendar month.
+
+    ``trough_by_year`` is one calendar month per year, so a caller can place a
+    true trough outside a given search radius on purpose.
+    """
+    index = pd.date_range("2000-01-01", periods=12 * n_years, freq="MS")
+    values = np.full(len(index), base, dtype=float)
+    for offset, month in enumerate(trough_by_year):
+        rows = np.arange(offset * 12, (offset + 1) * 12)
+        values[rows[index.month.to_numpy()[rows] == month]] = low
+    return pd.DataFrame(
+        {"extent_pct": values, "invalid_pct": np.zeros(len(index))}, index=index
+    ), anchor_month
+
+
+def test_annual_columns_carry_geometry_diagnostics():
+    for column in (
+        "trough_search_radius_used",
+        "boundary_at_search_edge",
+        "boundary_search_edge_side",
+        "outside_window_observed",
+        "outside_window_lower",
+        "retry_outcome",
+    ):
+        assert column in ANNUAL_COLUMNS
+
+
+def test_boundary_at_window_centre_is_not_an_edge():
+    frame, anchor = _anchored_frame([7] * 6)
+    config = DynamicHydroYearConfig(expected_trough_month=anchor, trough_search_radius_months=3)
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    resolved = result.loc[result["trough_month"].notna()]
+    assert not resolved["boundary_at_search_edge"].any()
+    assert (resolved["boundary_search_edge_side"] == "none").all()
+    assert (resolved["trough_search_radius_used"] == 3).all()
+
+
+def test_boundary_pinned_to_right_edge_is_reported_with_its_side():
+    # True trough three months after the anchor: exactly the right edge of a
+    # radius-3 window.
+    frame, anchor = _anchored_frame([10] * 6)
+    config = DynamicHydroYearConfig(expected_trough_month=anchor, trough_search_radius_months=3)
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    resolved = result.loc[result["trough_month"].notna()]
+    edge = resolved.loc[resolved["boundary_at_search_edge"]]
+    assert not edge.empty
+    assert (edge["boundary_search_edge_side"] == "right").all()
+    assert (edge["phase_shift_months"].abs() == edge["trough_search_radius_used"]).all()
+
+
+def test_outside_window_lower_reports_a_strictly_lower_observed_outer_month():
+    # Anchor July, radius 3 -> window Apr..Oct. Place a deeper low in December,
+    # five months out: inside the audit span, outside the search window.
+    index = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
+    values = np.full(len(index), 40.0)
+    values[index.month == 10] = 5.0
+    values[index.month == 12] = 1.0
+    frame = pd.DataFrame(
+        {"extent_pct": values, "invalid_pct": np.zeros(len(index))}, index=index
+    )
+    config = DynamicHydroYearConfig(expected_trough_month=7, trough_search_radius_months=3)
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    resolved = result.loc[result["trough_month"].notna()]
+    interior = resolved.iloc[1:-1]
+    assert interior["outside_window_observed"].any()
+    assert interior["outside_window_lower"].any()
+
+
+def test_audit_span_is_empty_at_the_widest_radius():
+    """A diagnostic must never name a month the detector could not reach."""
+    frame, anchor = _anchored_frame([7] * 6)
+    config = DynamicHydroYearConfig(
+        expected_trough_month=anchor,
+        trough_search_radius_months=_DIAGNOSTIC_AUDIT_RADIUS_MONTHS,
+    )
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    assert not result["outside_window_observed"].any()
+    assert not result["outside_window_lower"].any()
+
+
+def test_retry_outcome_defaults_to_not_attempted():
+    frame, anchor = _anchored_frame([7] * 6)
+    config = DynamicHydroYearConfig(expected_trough_month=anchor, trough_search_radius_months=3)
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    assert set(result["retry_outcome"]) <= {"not_attempted", "applied", "rolled_back"}
+    assert (result["retry_outcome"] == "not_attempted").all()
 
 
 
