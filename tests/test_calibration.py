@@ -619,3 +619,133 @@ def test_timing_fingerprint_covers_metric_implementation(monkeypatch):
     monkeypatch.setattr(inspect, "getsource", _changed_source)
 
     assert timing_identifiability_fingerprint(defaults.TIMING_IDENTIFIABILITY_DEFAULTS) != baseline
+
+
+from hydroseason._calibration import (
+    TROUGH_GEOMETRY_GRID,
+    TroughGeometry,
+    build_trough_geometry_cache,
+    iter_trough_geometry_points,
+    score_trough_geometry,
+    select_trough_geometry_defaults,
+    trough_geometry_fingerprint,
+)
+
+SHIPPED_GEOMETRY = TroughGeometry(3, 5, 6)
+
+
+def test_geometry_grid_matches_the_frozen_design():
+    assert TROUGH_GEOMETRY_GRID == {
+        "trough_search_radius_months": [3, 4, 5],
+        "adaptive_trough_search_radius_months": [3, 4, 5],
+        "adaptive_min_usable_months_per_cycle": [5, 6, 7, 8],
+    }
+
+
+def test_grid_enumerates_exactly_the_valid_tuples():
+    points = list(iter_trough_geometry_points())
+    assert len(points) == 24
+    assert len(set(points)) == 24
+    assert all(
+        point.adaptive_trough_search_radius_months >= point.trough_search_radius_months
+        for point in points
+    )
+    assert all(point.adaptive_min_usable_months_per_cycle <= 8 for point in points)
+
+
+def test_shipped_geometry_competes_on_equal_terms():
+    assert SHIPPED_GEOMETRY in set(iter_trough_geometry_points())
+
+
+def test_cache_covers_every_record_and_every_tuple():
+    seeds = list(range(30000, 30004))
+    cache = build_trough_geometry_cache(seeds, partition="calibration")
+    assert set(cache["seed"]) == set(seeds)
+    assert cache["geometry_index"].nunique() == 24
+    for column in (
+        "family", "hy_year", "published", "truth_identifiable", "error_months",
+        "wrong_cycle", "coverage_drop", "record_nonmonotonic", "outside_window_lower",
+    ):
+        assert column in cache.columns
+
+
+def test_scoring_one_tuple_reports_every_predeclared_metric():
+    cache = build_trough_geometry_cache(range(30000, 30004), partition="calibration")
+    score = score_trough_geometry(cache, SHIPPED_GEOMETRY)
+    assert score.geometry == SHIPPED_GEOMETRY
+    for value in (
+        score.false_precise_boundary_rate, score.duplicate_or_nonmonotonic_rate,
+        score.boundary_mae, score.boundary_signed_bias, score.wrong_cycle_rate,
+        score.short_long_cycle_rate, score.coverage_drop_rate, score.abstention_rate,
+        score.outside_window_lower_rate,
+    ):
+        assert np.isfinite(value)
+    low, high = score.false_precise_boundary_wilson
+    assert 0.0 <= low <= high <= 1.0
+
+
+def test_selector_prefers_the_shipped_tuple_when_every_metric_ties():
+    """A tie must not republish every hydrological year downstream."""
+    points = list(iter_trough_geometry_points())
+    rows = []
+    for index, _point in enumerate(points):
+        rows.append({
+            "seed": 30000, "family": "stationary_trough", "geometry_index": index,
+            "hy_year": 2001, "published": True, "truth_identifiable": True,
+            "error_months": 0.0, "wrong_cycle": False, "coverage_drop": False,
+            "record_nonmonotonic": False, "outside_window_lower": False,
+            "outside_window_observed": True, "cycle_months": 12.0,
+        })
+    selected, score = select_trough_geometry_defaults(pd.DataFrame(rows))
+    assert selected == SHIPPED_GEOMETRY
+    assert score.selection_counts["selected"] == 1
+
+
+def test_selector_rejects_a_tuple_that_can_emit_nonmonotonic_boundaries():
+    points = list(iter_trough_geometry_points())
+    shipped_index = points.index(SHIPPED_GEOMETRY)
+    rows = []
+    for index, _point in enumerate(points):
+        rows.append({
+            "seed": 30000, "family": "stationary_trough", "geometry_index": index,
+            "hy_year": 2001, "published": True, "truth_identifiable": True,
+            # The shipped tuple is made worse on accuracy but structurally sound;
+            # every rival is perfect on accuracy but structurally broken.
+            "error_months": 0.0 if index != shipped_index else 1.0,
+            "wrong_cycle": False, "coverage_drop": False,
+            "record_nonmonotonic": index != shipped_index,
+            "outside_window_lower": False, "outside_window_observed": True,
+            "cycle_months": 12.0,
+        })
+    selected, _score = select_trough_geometry_defaults(pd.DataFrame(rows))
+    assert selected == SHIPPED_GEOMETRY
+
+
+def test_selector_raises_rather_than_relaxing_an_empty_structural_gate():
+    points = list(iter_trough_geometry_points())
+    rows = [{
+        "seed": 30000, "family": "stationary_trough", "geometry_index": index,
+        "hy_year": 2001, "published": True, "truth_identifiable": True,
+        "error_months": 0.0, "wrong_cycle": False, "coverage_drop": False,
+        "record_nonmonotonic": True, "outside_window_lower": False,
+        "outside_window_observed": True, "cycle_months": 12.0,
+    } for index, _point in enumerate(points)]
+    with pytest.raises(RuntimeError, match="duplicate_or_nonmonotonic"):
+        select_trough_geometry_defaults(pd.DataFrame(rows))
+
+
+def test_challenge_count_is_not_a_selection_metric():
+    """Selecting on it would reward widening regardless of correctness."""
+    import inspect
+
+    from hydroseason import _calibration
+
+    source = inspect.getsource(_calibration.select_trough_geometry_defaults)
+    assert "outside_window_lower" not in source
+
+
+def test_geometry_fingerprint_is_stable_and_tuple_sensitive():
+    first = trough_geometry_fingerprint(SHIPPED_GEOMETRY)
+    assert first == trough_geometry_fingerprint(SHIPPED_GEOMETRY)
+    assert first != trough_geometry_fingerprint(TroughGeometry(5, 5, 6))
+    assert len(first) == 64

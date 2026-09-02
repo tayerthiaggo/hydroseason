@@ -1651,6 +1651,370 @@ def timing_identifiability_fingerprint(
     return hasher.hexdigest()
 
 
+# ---------------------------------------------------------------------------
+# Trough search geometry
+#
+# Unlike the timing grid, geometry is not threshold-independent: changing a
+# radius changes detection itself, so the cache runs full boundary detection
+# once per (record, tuple) pair rather than caching threshold-free metrics.
+# ---------------------------------------------------------------------------
+
+TROUGH_GEOMETRY_GRID = {
+    "trough_search_radius_months": [3, 4, 5],
+    "adaptive_trough_search_radius_months": [3, 4, 5],
+    "adaptive_min_usable_months_per_cycle": [5, 6, 7, 8],
+}
+TROUGH_GEOMETRY_AUTHORITY_SCOPE = "candidate_for_established_0_3_0"
+
+# Beyond half a cycle a published boundary cannot plausibly be the same trough
+# as the truth date it is nearest to, so it is counted as a wrong-cycle match.
+_GEOMETRY_MAX_MATCH_MONTHS = 6
+_GEOMETRY_CYCLE_BOUNDS = (10, 14)
+
+
+@dataclass(frozen=True)
+class TroughGeometry:
+    """One point of the joint geometry policy under selection."""
+
+    trough_search_radius_months: int
+    adaptive_trough_search_radius_months: int
+    adaptive_min_usable_months_per_cycle: int
+
+
+@dataclass(frozen=True)
+class TroughGeometryScore:
+    geometry: TroughGeometry
+    false_precise_boundary_rate: float
+    false_precise_boundary_wilson: tuple[float, float]
+    false_precise_boundary_n: int
+    duplicate_or_nonmonotonic_rate: float
+    boundary_mae: float
+    boundary_signed_bias: float
+    wrong_cycle_rate: float
+    short_long_cycle_rate: float
+    coverage_drop_rate: float
+    abstention_rate: float
+    outside_window_lower_rate: float
+    selection_counts: dict[str, int]
+    tie_breaks: tuple[str, ...]
+
+
+def iter_trough_geometry_points() -> Iterator[TroughGeometry]:
+    """Enumerate the 24 valid points of the frozen geometry grid.
+
+    A retry that narrows the base search, or a relaxation that tightens the base
+    minimum coverage, is rejected before scoring rather than scored and lost.
+    """
+    for base, adaptive, coverage in product(
+        TROUGH_GEOMETRY_GRID["trough_search_radius_months"],
+        TROUGH_GEOMETRY_GRID["adaptive_trough_search_radius_months"],
+        TROUGH_GEOMETRY_GRID["adaptive_min_usable_months_per_cycle"],
+    ):
+        if adaptive < base or coverage > 8:
+            continue
+        yield TroughGeometry(base, adaptive, coverage)
+
+
+def _geometry_month_delta(actual: pd.Timestamp, expected: pd.Timestamp) -> int:
+    return (actual.year - expected.year) * 12 + actual.month - expected.month
+
+
+def _geometry_rows(
+    record: SyntheticRecord, geometry_index: int, annual: pd.DataFrame
+) -> list[dict[str, object]]:
+    """Score one detection run against its record's truth.
+
+    A published boundary is matched to the nearest truth trough.  Two boundaries
+    resolving to one truth trough, or a match further than half a cycle away,
+    are wrong-cycle errors: the boundary exists but names the wrong year.
+    """
+    truth = record.truth
+    truth_dates = [date for date in truth.trough_date_by_year if date is not None]
+    published = annual.loc[annual["trough_month"].notna()]
+
+    boundaries = [pd.Timestamp(value) for value in published["trough_month"]]
+    monotonic = all(
+        earlier < later for earlier, later in zip(boundaries, boundaries[1:])
+    )
+    nonmonotonic = not monotonic or len(set(boundaries)) != len(boundaries)
+
+    claimed: dict[pd.Timestamp, int] = {}
+    rows: list[dict[str, object]] = []
+    for _, row in annual.iterrows():
+        is_published = pd.notna(row["trough_month"])
+        error = np.nan
+        wrong_cycle = False
+        if is_published and truth_dates:
+            selected = pd.Timestamp(row["trough_month"])
+            nearest = min(
+                truth_dates, key=lambda date: abs(_geometry_month_delta(selected, date))
+            )
+            error = float(_geometry_month_delta(selected, nearest))
+            claimed[nearest] = claimed.get(nearest, 0) + 1
+            wrong_cycle = abs(error) > _GEOMETRY_MAX_MATCH_MONTHS or claimed[nearest] > 1
+        rows.append(
+            {
+                "seed": int(record.seed),
+                "family": record.family,
+                "geometry_index": int(geometry_index),
+                "hy_year": int(row["hy_year"]),
+                "published": bool(is_published),
+                # Every truth year is identifiable unless the corpus says
+                # otherwise; a record whose truth is entirely unidentifiable
+                # contributes only false-precise-boundary evidence.
+                "truth_identifiable": bool(any(truth.identifiable_by_year)),
+                "error_months": error,
+                "wrong_cycle": bool(wrong_cycle),
+                "coverage_drop": bool(row.get("status_reason") == "insufficient_cycle_coverage"),
+                "record_nonmonotonic": bool(nonmonotonic),
+                "outside_window_observed": bool(row.get("outside_window_observed", False)),
+                "outside_window_lower": bool(row.get("outside_window_lower", False)),
+                "cycle_months": float(row["cycle_months"]) if pd.notna(row.get("cycle_months")) else np.nan,
+            }
+        )
+    return rows
+
+
+def build_trough_geometry_cache(
+    seeds: Iterable[int], *, partition: Literal["calibration", "validation"]
+) -> pd.DataFrame:
+    """Run detection once per (record, geometry tuple) and cache the outcome."""
+    from ._dynamic_year import DynamicHydroYearConfig, detect_dynamic_hydrological_years
+    from ._synthetic import generate_trough_geometry_record
+
+    points = list(iter_trough_geometry_points())
+    rows: list[dict[str, object]] = []
+    for seed in seeds:
+        record = generate_trough_geometry_record(int(seed), partition=partition)
+        for index, geometry in enumerate(points):
+            config = DynamicHydroYearConfig(
+                expected_trough_month=record.truth.climatological_trough_month,
+                trough_search_radius_months=geometry.trough_search_radius_months,
+                adaptive_trough_search_radius_months=geometry.adaptive_trough_search_radius_months,
+                adaptive_min_usable_months_per_cycle=geometry.adaptive_min_usable_months_per_cycle,
+            )
+            annual = detect_dynamic_hydrological_years(record.frame, config=config)
+            rows.extend(_geometry_rows(record, index, annual))
+    return pd.DataFrame(rows)
+
+
+def _geometry_metrics(cache: pd.DataFrame, geometry_index: int) -> dict[str, float]:
+    """Compute every predeclared metric for one tuple.
+
+    Denominators differ by metric and are never mixed:
+    ``false_precise_boundary_rate`` is over boundaries published on
+    unidentifiable truth; ``boundary_mae`` is over identifiable years with a
+    published boundary; ``outside_window_lower_rate`` is over boundaries with a
+    fully observed audit span.
+    """
+    subset = cache.loc[cache["geometry_index"] == geometry_index]
+    published = subset.loc[subset["published"]]
+
+    unidentifiable = subset.loc[~subset["truth_identifiable"]]
+    n_false = int(unidentifiable["published"].sum())
+    n_unidentifiable = int(len(unidentifiable))
+
+    identifiable = subset.loc[subset["truth_identifiable"]]
+    matched = identifiable.loc[identifiable["published"] & identifiable["error_months"].notna()]
+    errors = matched["error_months"].to_numpy(dtype=float)
+
+    records = subset.groupby("seed")["record_nonmonotonic"].any()
+    cycles = published["cycle_months"].dropna()
+    observed = published.loc[published["outside_window_observed"]]
+
+    return {
+        "false_precise_boundary_rate": (n_false / n_unidentifiable) if n_unidentifiable else 0.0,
+        "n_false": float(n_false),
+        "n_unidentifiable": float(n_unidentifiable),
+        "duplicate_or_nonmonotonic_rate": float(records.mean()) if len(records) else 0.0,
+        "boundary_mae": float(np.median(np.abs(errors))) if errors.size else 12.0,
+        "boundary_signed_bias": float(np.mean(errors)) if errors.size else 0.0,
+        "wrong_cycle_rate": float(published["wrong_cycle"].mean()) if len(published) else 0.0,
+        "short_long_cycle_rate": (
+            float(
+                ((cycles < _GEOMETRY_CYCLE_BOUNDS[0]) | (cycles > _GEOMETRY_CYCLE_BOUNDS[1])).mean()
+            )
+            if len(cycles)
+            else 0.0
+        ),
+        "coverage_drop_rate": float(subset["coverage_drop"].mean()) if len(subset) else 0.0,
+        "abstention_rate": (
+            float((~identifiable["published"]).mean()) if len(identifiable) else 0.0
+        ),
+        "outside_window_lower_rate": (
+            float(observed["outside_window_lower"].mean()) if len(observed) else 0.0
+        ),
+    }
+
+
+def _geometry_score(
+    geometry: TroughGeometry,
+    metrics: dict[str, float],
+    *,
+    selection_counts: dict[str, int],
+    tie_breaks: tuple[str, ...],
+) -> TroughGeometryScore:
+    return TroughGeometryScore(
+        geometry=geometry,
+        false_precise_boundary_rate=metrics["false_precise_boundary_rate"],
+        false_precise_boundary_wilson=wilson_interval(
+            int(metrics["n_false"]), int(metrics["n_unidentifiable"])
+        ),
+        false_precise_boundary_n=int(metrics["n_unidentifiable"]),
+        duplicate_or_nonmonotonic_rate=metrics["duplicate_or_nonmonotonic_rate"],
+        boundary_mae=metrics["boundary_mae"],
+        boundary_signed_bias=metrics["boundary_signed_bias"],
+        wrong_cycle_rate=metrics["wrong_cycle_rate"],
+        short_long_cycle_rate=metrics["short_long_cycle_rate"],
+        coverage_drop_rate=metrics["coverage_drop_rate"],
+        abstention_rate=metrics["abstention_rate"],
+        outside_window_lower_rate=metrics["outside_window_lower_rate"],
+        selection_counts=selection_counts,
+        tie_breaks=tie_breaks,
+    )
+
+
+def score_trough_geometry(
+    cache: pd.DataFrame, geometry: TroughGeometry
+) -> TroughGeometryScore:
+    """Score one frozen tuple without enumerating the grid."""
+    points = list(iter_trough_geometry_points())
+    if geometry not in points:
+        raise ValueError(f"{geometry} is not a point of TROUGH_GEOMETRY_GRID.")
+    metrics = _geometry_metrics(cache, points.index(geometry))
+    return _geometry_score(
+        geometry, metrics, selection_counts={"evaluated_candidates": 1}, tie_breaks=()
+    )
+
+
+def select_trough_geometry_defaults(
+    cache: pd.DataFrame,
+) -> tuple[TroughGeometry, TroughGeometryScore]:
+    """Apply the frozen seven-stage lexicographic geometry selector.
+
+    Stage 7 prefers the shipped tuple on a tie so that a geometry change must be
+    earned: a tie does not justify republishing every hydrological year in every
+    downstream record.
+
+    The outside-window-challenge rate is deliberately absent from this
+    function's own metrics.  It is a challenge count against an unlabelled
+    alternative, so selecting on it would reward any tuple that widens the
+    search window regardless of whether the wider choice is correct.
+    """
+    points = list(iter_trough_geometry_points())
+    metrics = [_geometry_metrics(cache, index) for index in range(len(points))]
+    counts = {"grid": len(points)}
+
+    def column(name: str) -> np.ndarray:
+        return np.asarray([item[name] for item in metrics], dtype=float)
+
+    wilson_high = np.asarray(
+        [
+            wilson_interval(int(item["n_false"]), int(item["n_unidentifiable"]))[1]
+            if item["n_unidentifiable"]
+            else 0.0
+            for item in metrics
+        ],
+        dtype=float,
+    )
+    survivors = np.flatnonzero(wilson_high <= 0.05)
+    counts["false_precise_boundary_wilson"] = int(len(survivors))
+    if not len(survivors):
+        raise RuntimeError(
+            "no trough-geometry candidate satisfies the frozen false precise-boundary Wilson gate."
+        )
+
+    structural = column("duplicate_or_nonmonotonic_rate")
+    survivors = survivors[structural[survivors] == 0.0]
+    counts["duplicate_or_nonmonotonic"] = int(len(survivors))
+    if not len(survivors):
+        raise RuntimeError(
+            "no trough-geometry candidate satisfies the duplicate_or_nonmonotonic structural gate; "
+            "a policy that can emit non-monotonic boundaries is inadmissible at any accuracy."
+        )
+
+    def retain(name: str, values: np.ndarray) -> None:
+        nonlocal survivors
+        best = values[survivors].min()
+        survivors = survivors[np.isclose(values[survivors], best)]
+        counts[name] = int(len(survivors))
+
+    retain("boundary_mae", column("boundary_mae"))
+    retain("wrong_cycle_rate", column("wrong_cycle_rate"))
+    retain("abstention_rate", column("abstention_rate"))
+    retain("boundary_signed_bias", np.abs(column("boundary_signed_bias")))
+
+    shipped = TroughGeometry(3, 5, 6)
+    status_quo = np.asarray(
+        [
+            (
+                0 if points[index] == shipped else 1,
+                points[index].trough_search_radius_months,
+                points[index].adaptive_trough_search_radius_months,
+                -points[index].adaptive_min_usable_months_per_cycle,
+            )
+            for index in survivors
+        ],
+        dtype=float,
+    )
+    order = np.lexsort(
+        (status_quo[:, 3], status_quo[:, 2], status_quo[:, 1], status_quo[:, 0])
+    )
+    selected_index = int(survivors[order[0]])
+    counts["status_quo_tie_break"] = int(len(survivors))
+    counts["final_survivors"] = int(len(survivors))
+    counts["selected"] = 1
+
+    tie_breaks = (
+        "false_precise_boundary_wilson", "duplicate_or_nonmonotonic", "boundary_mae",
+        "wrong_cycle_rate", "abstention_rate", "abs_boundary_signed_bias",
+        "status_quo_shipped_tuple", "smaller_trough_search_radius_months",
+        "smaller_adaptive_trough_search_radius_months",
+        "larger_adaptive_min_usable_months_per_cycle",
+    )
+    score = _geometry_score(
+        points[selected_index],
+        metrics[selected_index],
+        selection_counts=counts,
+        tie_breaks=tie_breaks,
+    )
+    return points[selected_index], score
+
+
+def trough_geometry_fingerprint(geometry: TroughGeometry | None = None) -> str:
+    """Fingerprint geometry calibration inputs only; validation truth excluded."""
+    import inspect
+
+    from . import (
+        _dynamic_year as dynamic_year,
+        _scientific_defaults as defaults,
+        _synthetic,
+    )
+
+    selected = geometry or getattr(defaults, "TROUGH_GEOMETRY_DEFAULTS", None)
+    if selected is None:
+        raise ValueError("trough-geometry defaults have not been generated.")
+    hasher = hashlib.sha256()
+    for item in (
+        _synthetic.TroughGeometryTruthLabels,
+        _synthetic.generate_trough_geometry_record,
+        _synthetic._geometry_frame,
+        dynamic_year.DynamicHydroYearConfig,
+        dynamic_year.detect_dynamic_hydrological_years,
+        dynamic_year._find_robust_trough_opportunities,
+        dynamic_year._adaptive_edge_retry_years,
+        dynamic_year._search_edge_diagnostics,
+        _geometry_rows,
+        _geometry_metrics,
+        build_trough_geometry_cache,
+        select_trough_geometry_defaults,
+    ):
+        hasher.update(inspect.getsource(item).encode("utf-8"))
+    hasher.update(json.dumps(TROUGH_GEOMETRY_GRID, sort_keys=True).encode("utf-8"))
+    hasher.update(json.dumps(list(_synthetic.GEOMETRY_CALIBRATION_SEEDS)).encode("utf-8"))
+    hasher.update(json.dumps(asdict(selected), sort_keys=True).encode("utf-8"))
+    hasher.update(TROUGH_GEOMETRY_AUTHORITY_SCOPE.encode("utf-8"))
+    return hasher.hexdigest()
 
 
 
