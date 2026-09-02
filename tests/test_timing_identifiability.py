@@ -272,3 +272,58 @@ def test_window_timing_uses_same_floor_formula_as_calendar_year_assessment():
     )
     assert window_evidence.detectable == year_evidence.detectable
     assert window_evidence.peak_status == year_evidence.peak_status
+
+
+def _oversized_window(start="1990-02-01", periods=18, n_valid=100):
+    index = pd.date_range(start, periods=periods, freq="MS")
+    valid = np.broadcast_to(n_valid, periods).astype(int)
+    return pd.DataFrame({"n_valid": valid}, index=index)
+
+
+def test_window_timing_recovers_a_recurring_peak_in_an_oversized_cycle():
+    # An 18-month window whose boundary detector could not close a clean
+    # 12-month cycle (e.g. an alternating trough) can genuinely contain the
+    # SAME annual peak twice, a year apart -- not one diffuse extremum. The
+    # most recent occurrence is the defensible read, not "unresolved".
+    values = pd.Series(
+        [5.0] * 2 + [10.0] + [5.0] * 10 + [10.0] + [5.0] * 3 + [0.0],
+        index=pd.date_range("1990-02-01", periods=18, freq="MS"),
+    )
+    rows = _oversized_window()
+    result = assess_window_timing(
+        values, rows,
+        thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0, noise_pp=0.0,
+        pixel_support_status="unavailable",
+    )
+    assert result.peak_status == "point"
+    assert result.peak_dates == (pd.Timestamp("1991-03-01"),)
+
+
+def test_window_timing_genuinely_diffuse_extremum_stays_unresolved():
+    # A true diffuse spread (many distinct near-tied months, no recurrence
+    # structure) must not be rescued by the recurrence-cluster narrowing.
+    index = pd.date_range("1990-02-01", periods=18, freq="MS")
+    values = pd.Series([10.0] * 12 + [5.0] * 6, index=index)
+    rows = _oversized_window()
+    result = assess_window_timing(
+        values, rows,
+        thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0, noise_pp=0.0,
+        pixel_support_status="unavailable",
+    )
+    assert result.peak_status == "unresolved"
+    assert len(result.peak_dates) == 12
+
+
+def test_window_timing_recurrence_cluster_does_not_touch_a_span_within_tolerance():
+    # A span already within the boundary-interval threshold must be reported
+    # as-is, not silently narrowed to a sub-cluster.
+    index = pd.date_range("1990-02-01", periods=6, freq="MS")
+    values = pd.Series([5.0, 10.0, 10.0, 5.0, 4.0, 0.0], index=index)
+    rows = _oversized_window(start="1990-02-01", periods=6)
+    result = assess_window_timing(
+        values, rows,
+        thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0, noise_pp=0.0,
+        pixel_support_status="unavailable",
+    )
+    assert result.peak_status == "interval"
+    assert result.peak_dates == (pd.Timestamp("1990-03-01"), pd.Timestamp("1990-04-01"))

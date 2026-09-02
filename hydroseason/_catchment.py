@@ -295,6 +295,7 @@ def analyze_catchment(
                 expected_peak_month=operational_peak_month,
                 max_invalid_pct=max_invalid_pct,
                 quality_policy=quality_policy,
+                measurement_tolerance_pct=measurement_tolerance_pct,
                 detector="robust_extrema",
                 phase_scheme=canonical_scheme,
             )
@@ -342,6 +343,41 @@ def analyze_catchment(
             )
         years["boundary_basis"] = "detected_per_year"
         state = replace(state, hydro_years=years)
+
+        # The regime's calendar-year timing_evidence gates whether the dynamic
+        # detector even runs, but it is not the last word: the cycles it
+        # actually produces are the real seasonal context, and calendar-year
+        # and hydrological-year windowing can disagree. A record must not be
+        # routed to per_year_detection on a calendar-year "supported" verdict
+        # while every cycle it actually detected is unresolved.
+        min_informative = config.timing_identifiability_thresholds.min_informative_years
+        n_peak_cycles = int((years["peak_timing_status"] != "unresolved").sum()) if "peak_timing_status" in years.columns else 0
+        n_trough_cycles = int((years["trough_timing_status"] != "unresolved").sum()) if "trough_timing_status" in years.columns else 0
+        cycles_support_timing = min(n_peak_cycles, n_trough_cycles) >= min_informative
+
+        if not cycles_support_timing:
+            reason = (
+                f"{regime.regime} record (SNR {regime.amplitude_snr:.2f}): calendar-year "
+                "timing evidence appeared sufficient, but the detected hydrological-year "
+                f"cycles do not support it (peak cycles resolved={n_peak_cycles}, "
+                f"trough cycles resolved={n_trough_cycles}, need >={min_informative} on "
+                "each); using event characterisation"
+            )
+            warnings.append(reason)
+            return CatchmentAnalysis(
+                regime=regime,
+                route="event_characterisation",
+                route_reason=reason,
+                hydro_years=empty_years,
+                events=events,
+                monthly=pd.DataFrame(),
+                state=None,
+                warnings=tuple(warnings),
+                quality_policy=quality_policy,
+                max_invalid_pct=max_invalid_pct,
+                decision_policy=regime.decision_policy,
+            )
+
         if regime.regime == "seasonal":
             route_reason = (
                 f"seasonal record (SNR {regime.amplitude_snr:.2f}): "

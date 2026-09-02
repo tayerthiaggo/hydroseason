@@ -270,6 +270,41 @@ def test_catchment_threads_measurement_tolerance_to_regime_assessment():
     assert routed.route == direct.public_route == "event_characterisation"
 
 
+def test_catchment_threads_measurement_tolerance_to_the_dynamic_cycle_detector():
+    """measurement_tolerance_pct must reach the per-cycle detector, not just the
+    calendar-year regime assessment -- otherwise a route decision made on one
+    tolerance can be undercut by cycles computed on a silently different one."""
+    result = _calibrated(_seasonal(), measurement_tolerance_pct=0.0, n_bootstrap=40)
+    assert result.route == "per_year_detection"
+    assert not result.hydro_years.empty
+    assert (result.hydro_years["timing_status"] == "point").all()
+
+
+def test_route_falls_back_to_events_when_cycles_cannot_deliver_supported_timing(monkeypatch):
+    """A record whose calendar-year check says timing is supported must still
+    route to events if the actually-detected hydrological-year cycles cannot
+    resolve peak and trough timing on enough of them -- the calendar-year
+    check gates whether the detector runs, not the final route."""
+    baseline = _calibrated(_seasonal(), measurement_tolerance_pct=0.0, n_bootstrap=40)
+    assert baseline.route == "per_year_detection"
+    unresolved_years = baseline.hydro_years.copy()
+    unresolved_years["peak_timing_status"] = "unresolved"
+    unresolved_years["trough_timing_status"] = "unresolved"
+    unresolved_years["timing_status"] = "unresolved"
+    forced_state = replace(baseline.state, hydro_years=unresolved_years)
+    monkeypatch.setattr(
+        "hydroseason._catchment.analyze_hydrological_state",
+        lambda *args, **kwargs: forced_state,
+    )
+
+    result = _calibrated(_seasonal(), measurement_tolerance_pct=0.0, n_bootstrap=40)
+
+    assert result.route == "event_characterisation"
+    assert result.hydro_years.empty
+    assert "calendar-year timing evidence" in result.route_reason
+    assert "cycles do not support it" in result.route_reason
+
+
 def test_marginal_routes_to_events_without_recoverable_boundaries(monkeypatch):
     def fail(*args, **kwargs):
         raise ValueError("dynamic detector rejected the record")

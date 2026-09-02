@@ -1,0 +1,34 @@
+{
+  "excluded_station_ids": [
+    "130302a",
+    "130407a",
+    "130413a"
+  ],
+  "manifest_path": "case_studies\\results\\timing-identifiability\\cohort-manifest.csv",
+  "n_candidates": 31,
+  "n_selected": 21,
+  "per_stratum": {
+    "below_floor": {
+      "available": 5,
+      "selected": 5,
+      "shortfall": 3
+    },
+    "high_ratio": {
+      "available": 11,
+      "selected": 8,
+      "shortfall": 0
+    },
+    "mid_ratio": {
+      "available": 15,
+      "selected": 8,
+      "shortfall": 0
+    }
+  },
+  "protocol_id": "timing-identifiability-real-cohort-v1",
+  "quota_policy": "min_8_or_available",
+  "seed": 20260901,
+  "source_bundles": [
+    "stress_test_final"
+  ],
+  "threshold_fingerprint": "e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735"
+}

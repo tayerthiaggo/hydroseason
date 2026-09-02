@@ -1,0 +1,157 @@
+{
+  "confusion_table": [
+    {
+      "count": 5,
+      "new_category": "event_only",
+      "reviewer_label": "event_only"
+    },
+    {
+      "count": 2,
+      "new_category": "event_only",
+      "reviewer_label": "interval_supported"
+    },
+    {
+      "count": 3,
+      "new_category": "interval_supported",
+      "reviewer_label": "interval_supported"
+    },
+    {
+      "count": 2,
+      "new_category": "interval_supported",
+      "reviewer_label": "point_supported"
+    },
+    {
+      "count": 1,
+      "new_category": "point_supported",
+      "reviewer_label": "point_supported"
+    }
+  ],
+  "disagreements": [
+    {
+      "new_category": "interval_supported",
+      "new_route": "per_year_detection",
+      "old_route": "per_year_detection",
+      "regime": "marginal",
+      "reviewer_label": "point_supported",
+      "station_id": "130404a",
+      "stratum": "mid_ratio"
+    },
+    {
+      "new_category": "event_only",
+      "new_route": "event_characterisation",
+      "old_route": "per_year_detection",
+      "regime": "marginal",
+      "reviewer_label": "interval_supported",
+      "station_id": "130410a",
+      "stratum": "high_ratio"
+    },
+    {
+      "new_category": "interval_supported",
+      "new_route": "per_year_detection",
+      "old_route": "per_year_detection",
+      "regime": "seasonal",
+      "reviewer_label": "point_supported",
+      "station_id": "kakadu",
+      "stratum": "high_ratio"
+    },
+    {
+      "new_category": "event_only",
+      "new_route": "per_year_detection",
+      "old_route": "per_year_detection",
+      "regime": "marginal",
+      "reviewer_label": "interval_supported",
+      "station_id": "130005a",
+      "stratum": "high_ratio"
+    }
+  ],
+  "false_precise_boundary": {
+    "k": 0,
+    "n": 13,
+    "rate": 0.0,
+    "wilson_high": 0.22809537235419838,
+    "wilson_low": 0.0
+  },
+  "labels_sha256": "531d709375d6ac1954265123c59205a1ac6e11ae41a217c940c98a6641a28069",
+  "missing_label_station_ids": [],
+  "n_cohort_records": 21,
+  "n_disagreements": 4,
+  "n_evaluated": 21,
+  "n_missing_labels": 0,
+  "n_missing_source": 0,
+  "n_rated": 13,
+  "n_route_changes": 6,
+  "n_uncertain_excluded": 8,
+  "old_vs_new_route_changes": [
+    {
+      "new_route": "event_characterisation",
+      "old_route": "per_year_detection",
+      "regime": "marginal",
+      "station_id": "130336a",
+      "stratum": "below_floor"
+    },
+    {
+      "new_route": "event_characterisation",
+      "old_route": "per_year_detection",
+      "regime": "marginal",
+      "station_id": "130504b",
+      "stratum": "below_floor"
+    },
+    {
+      "new_route": "event_characterisation",
+      "old_route": "per_year_detection",
+      "regime": "marginal",
+      "station_id": "130348a",
+      "stratum": "below_floor"
+    },
+    {
+      "new_route": "event_characterisation",
+      "old_route": "per_year_detection",
+      "regime": "marginal",
+      "station_id": "130506a",
+      "stratum": "below_floor"
+    },
+    {
+      "new_route": "event_characterisation",
+      "old_route": "per_year_detection",
+      "regime": "marginal",
+      "station_id": "130334a",
+      "stratum": "mid_ratio"
+    },
+    {
+      "new_route": "event_characterisation",
+      "old_route": "per_year_detection",
+      "regime": "marginal",
+      "station_id": "130410a",
+      "stratum": "high_ratio"
+    }
+  ],
+  "overall_agreement": {
+    "k": 9,
+    "n": 13,
+    "rate": 0.6923076923076923,
+    "wilson_high": 0.8731929634428948,
+    "wilson_low": 0.42369343180549035
+  },
+  "per_stratum": {
+    "below_floor": {
+      "n": 5,
+      "n_rated": 4
+    },
+    "high_ratio": {
+      "n": 8,
+      "n_rated": 4
+    },
+    "mid_ratio": {
+      "n": 8,
+      "n_rated": 5
+    }
+  },
+  "threshold_fingerprint_source": "TIMING_IDENTIFIABILITY_DEFAULTS (loaded, never reselected)",
+  "thresholds": {
+    "max_boundary_interval_months": 2,
+    "max_point_span_months": 0,
+    "min_amplitude_to_floor_ratio": 3.0,
+    "min_informative_years": 7,
+    "min_peak_water_pixels": 5
+  }
+}

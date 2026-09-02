@@ -150,6 +150,41 @@ def _window_status(
     return "interval"
 
 
+def _most_recent_recurrence_cluster(
+    dates: tuple[pd.Timestamp, ...], thresholds: TimingIdentifiabilityThresholds
+) -> tuple[pd.Timestamp, ...]:
+    """Narrow a wide equivalent-extremum set to its most recent recurrence.
+
+    A window unusually longer than a year (the boundary detector's own
+    cost function targets 12-month cycles but does not forbid a longer one
+    when the record's own troughs force it) can tie two occurrences of the
+    *same* annual extremum -- e.g. April 1990 and April 1991 both being the
+    window's maximum -- rather than one genuinely diffuse extremum spread
+    across many months. Left alone, the wide total span reads as
+    "unresolved"; but each occurrence is independently a clean point/interval,
+    and the most recent one is the defensible read of when this cycle's
+    extremum actually fell. Splitting the equivalent set into recency-ordered
+    clusters (consecutive dates no more than the boundary-interval threshold
+    apart) and keeping only the last cluster recovers that recurrence
+    structure without inventing precision a genuinely spread-out extremum
+    would not have: a set that does NOT cluster this way is untouched, and
+    still reports its full (unresolved) span.
+    """
+    if len(dates) < 2:
+        return dates
+    ordered = sorted(dates)
+    clusters: list[list[pd.Timestamp]] = [[ordered[0]]]
+    for date in ordered[1:]:
+        gap = linear_span_months((clusters[-1][-1], date))
+        if gap is not None and gap <= thresholds.max_boundary_interval_months:
+            clusters[-1].append(date)
+        else:
+            clusters.append([date])
+    if len(clusters) < 2:
+        return dates
+    return tuple(clusters[-1])
+
+
 def assess_window_timing(
     values: pd.Series,
     rows: pd.DataFrame,
@@ -203,6 +238,18 @@ def assess_window_timing(
         trough_dates = equivalent_extremum_dates(values, kind="min", tolerance=detectability_floor_pp)
         peak_status = _window_status(peak_dates, thresholds)
         trough_status = _window_status(trough_dates, thresholds)
+        if peak_status == "unresolved":
+            narrowed = _most_recent_recurrence_cluster(peak_dates, thresholds)
+            if narrowed != peak_dates:
+                narrowed_status = _window_status(narrowed, thresholds)
+                if narrowed_status != "unresolved":
+                    peak_dates, peak_status = narrowed, narrowed_status
+        if trough_status == "unresolved":
+            narrowed = _most_recent_recurrence_cluster(trough_dates, thresholds)
+            if narrowed != trough_dates:
+                narrowed_status = _window_status(narrowed, thresholds)
+                if narrowed_status != "unresolved":
+                    trough_dates, trough_status = narrowed, narrowed_status
     else:
         peak_dates = trough_dates = ()
         peak_status = trough_status = "unresolved"
