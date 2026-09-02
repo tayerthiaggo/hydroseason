@@ -73,6 +73,36 @@ not define hydrological years. Date columns are month starts.
 | `detectability_floor_pp` | The record's detectability floor for that cycle, in percentage points: `max(measurement_tolerance_pct, robust_noise_pp, peak_resolution_pp, trough_resolution_pp, machine epsilon)`. |
 | `amplitude_to_floor_ratio` | That cycle's amplitude divided by `detectability_floor_pp`; `0.0` when the amplitude is at or below the floor. |
 
+### Trough search geometry diagnostics
+
+These six columns appear on the diagnostic hydrological-year frame and in
+`build_hydro_years_export`. They are **report-only**: they describe how a
+boundary was found and never take part in finding one. They are not present in
+the compact CSV bundle, whose column set (`STABLE_HY_COLUMNS`) is unchanged.
+
+| Column | Meaning |
+|---|---|
+| `trough_search_radius_used` | Radius in months actually used for this year's window. Equals the configured `trough_search_radius_months` unless the adaptive retry widened this year. |
+| `boundary_at_search_edge` | The published boundary sits exactly at an edge month of its own window. A warning that a lower continuation may lie outside; not a defect. |
+| `boundary_search_edge_side` | `left`, `right`, or `none`. |
+| `outside_window_observed` | Every month of the outside-audit span was present in the prepared frame. The span reaches at most five months from the anchor — the radius the adaptive retry can already use — so it never names a month the detector could not have selected. |
+| `outside_window_lower` | A strictly lower raw observed extent exists in that span. |
+| `retry_outcome` | `not_attempted`, `applied`, or `rolled_back`. |
+
+`outside_window_lower` is a **challenge count, not a clipping rate**. It states
+that a lower raw value was observed outside the window. It does not state that
+the outside month is the correct boundary: a wider search can select a
+competing event or damage cycle geometry. Confirming a challenge needs
+per-cycle truth, which no real record supplies.
+
+The two derived rates have different denominators and must not be compared:
+`boundary_search_edge_rate` is over published boundaries, and
+`outside_window_lower_rate` is over boundaries with `outside_window_observed`.
+Both publish numerator, denominator, and an interval. Within one catchment that
+interval is Wilson and is labelled an understatement, because cycles inside one
+catchment are serially dependent; across a cohort it is a catchment-level
+bootstrap.
+
 ## Wet events (`<stem>_wet_event.csv`)
 
 Wet events are contiguous runs above a robust, record-specific wet threshold.
