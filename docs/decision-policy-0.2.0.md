@@ -1,9 +1,10 @@
 # HydroSeason 0.2.0 decision-policy design
 
-Status: frozen design and review contract. The implementation may publish the
-policy identifier `established_0_2_0` only after the promotion checklist below
-has passed. The prior released baseline remains `established_0_1_1` until that
-promotion is complete.
+Status: promoted. Every item in the promotion checklist below has passed
+(synthetic calibration, untouched validation, protected-baseline review, the
+three motivating records, and an independently reviewed real cohort), and
+`established_0_2_0` is the public policy identifier. `established_0_1_1` is
+the prior released baseline these gates were measured against.
 
 This document is authoritative with `docs/decision-policy.md` and
 `docs/hydrological-state.md` for the v0.2.0 policy. It defines what HydroSeason

@@ -71,6 +71,17 @@
     "wilson_high": 0.22809537235419838,
     "wilson_low": 0.0
   },
+  "known_limitations": {
+    "min_peak_water_pixels_evidence_basis": "synthetic-only: every cohort record reports pixel_support_status=\"unavailable\", so this threshold's detectability condition is never exercised on real data",
+    "per_stratum_shortfall": {
+      "below_floor": 3,
+      "high_ratio": 0,
+      "mid_ratio": 0
+    },
+    "pixel_support_status": [
+      "unavailable"
+    ]
+  },
   "labels_sha256": "531d709375d6ac1954265123c59205a1ac6e11ae41a217c940c98a6641a28069",
   "missing_label_station_ids": [],
   "n_cohort_records": 21,
@@ -135,15 +146,18 @@
   "per_stratum": {
     "below_floor": {
       "n": 5,
-      "n_rated": 4
+      "n_rated": 4,
+      "shortfall": 3
     },
     "high_ratio": {
       "n": 8,
-      "n_rated": 4
+      "n_rated": 4,
+      "shortfall": 0
     },
     "mid_ratio": {
       "n": 8,
-      "n_rated": 5
+      "n_rated": 5,
+      "shortfall": 0
     }
   },
   "threshold_fingerprint_source": "TIMING_IDENTIFIABILITY_DEFAULTS (loaded, never reselected)",

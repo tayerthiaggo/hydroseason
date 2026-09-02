@@ -204,15 +204,45 @@ test complements `R` by testing the discrete 12-month uniform null.
 | Marginal | Otherwise | Evidence sits between the gates; a fixed climatological window is used only when both peak and trough evidence support it. |
 | Insufficient record | <5 usable annual timings | Do not infer lack of seasonality from inadequate data. |
 
-The seasonal label and the route are related but separate. Per-year boundaries
-need trough timing support too: `per_year_detection` requires the lower 95%
-bootstrap CI for trough `R` to be >= 0.70. A seasonal record with unstable
-troughs instead uses `fixed_climatological_window`; complex or diffuse timing
-uses `event_characterisation`. `n_timing_years` counts qualifying **years**,
-not months. Fewer than 30 usable annual timings (not 30 months) keeps the
-classification but warns that uncertainty intervals may be wide. The approved
-10-year guard keeps a strong 5–9-year record marginal when a Kuiper uniformity
-result has little power.
+The regime label and the route are related but separate, and since v0.2.0 the
+route additionally requires that annual timing be *identifiable*, not just that
+the record be seasonal or marginal. Each qualifying year's peak and trough are
+independently classified `point` (a defensible exact month), `interval` (a
+defensible bounded span, e.g. a broad low-water plateau), or `unresolved` (a
+flat or below-floor year, or a diffuse extremum that clears no calibrated
+threshold) using a detectability floor derived from measurement tolerance,
+robust noise, and pixel resolution when available. Record-level
+`timing_evidence` is `insufficient` when
+`min(n_peak_timing_years, n_trough_timing_years)` — the count of years whose
+peak/trough is independently identifiable — falls below a calibrated
+`min_informative_years`; `unsupported` when the established seasonality
+evidence above already rejects an annual cycle; otherwise `supported`.
+
+`per_year_detection` is used only for a seasonal or marginal record whose
+timing evidence is `supported`. A seasonal or marginal record with
+insufficient identifiable timing keeps its regime label but routes to
+`event_characterisation` instead — wet events and low-extent spells are
+still reported, but no hydrological-year boundary is published. The
+`fixed_climatological_window` route exists in the type system for backward
+compatibility but is not reachable under the current established policy: no
+regime/timing combination selects it. `n_timing_years` counts qualifying
+**years**, not months, and keeps its historical peak-derived meaning (it
+equals `n_peak_timing_years`); the conservative minimum of peak and trough
+years is used only inside the route gate, never as a public field's value.
+Fewer than 30 usable annual timings (not 30 months) keeps the classification
+but warns that uncertainty intervals may be wide. The approved 10-year guard
+keeps a strong 5–9-year record marginal when a Kuiper uniformity result has
+little power.
+
+Exact-zero extent is a valid dry observation, not missing data, and zero
+frequency (`n_zero_months`, `zero_month_fraction`, `n_whole_zero_years`) is
+reported descriptively but never used to decide detectability or route. A
+whole-zero year still contributes to dry-duration and event summaries; it
+contributes no peak or trough timing observation. See
+[Dynamic Hydrological State](hydrological-state.md#diagnostic-columns) for the
+per-cycle `timing_status` fields and
+[the 0.2.0 migration notes](migrations/0.2.0-timing-identifiability.md) for
+what changed from `established_0_1_1`.
 
 ---
 

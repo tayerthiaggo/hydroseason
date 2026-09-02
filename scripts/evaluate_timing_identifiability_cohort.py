@@ -213,10 +213,12 @@ def evaluate(
         if not rated.empty else pd.Series(dtype=bool)
     )
 
+    quota = 8
     per_stratum = {
         stratum: {
             "n": int((results["stratum"] == stratum).sum()),
             "n_rated": int((rated["stratum"] == stratum).sum()) if not rated.empty else 0,
+            "shortfall": max(0, quota - int((results["stratum"] == stratum).sum())),
         }
         for stratum in sorted(results["stratum"].dropna().unique())
     }
@@ -259,6 +261,23 @@ def evaluate(
         "n_route_changes": len(route_changes),
         "disagreements": disagreements,
         "n_disagreements": len(disagreements),
+        "known_limitations": {
+            "per_stratum_shortfall": {
+                stratum: report["shortfall"] for stratum, report in per_stratum.items()
+            },
+            "pixel_support_status": (
+                sorted(set(manifest["pixel_support_status"]))
+                if "pixel_support_status" in manifest.columns else []
+            ),
+            "min_peak_water_pixels_evidence_basis": (
+                "synthetic-only: every cohort record reports "
+                "pixel_support_status=\"unavailable\", so this threshold's "
+                "detectability condition is never exercised on real data"
+                if "pixel_support_status" in manifest.columns
+                and set(manifest["pixel_support_status"]) == {"unavailable"}
+                else "mixed: some cohort records carry pixel counts"
+            ),
+        },
     }
     return report
 

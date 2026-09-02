@@ -24,9 +24,12 @@ def test_decision_policy_document_contains_complete_promotion_gate():
         "regenerating expected fixtures",
     )
     assert all(phrase in text for phrase in required)
-    assert "identifier remains `established_0_1_1`" in text
-    assert "until promotion passes" in text
-    assert "its public policy identifier is `established_0_2_0`" not in text
+    # Promotion is complete (Task 8): the document now records the promoted
+    # identifier and the historical baseline it was measured against, not a
+    # pending-promotion state.
+    normalized = " ".join(text.split())
+    assert "promoted to public policy identifier `established_0_2_0`" in normalized
+    assert "established_0_1_1` remains the historical baseline" in normalized
 
 
 def test_v020_policy_design_freezes_public_decision_contract():

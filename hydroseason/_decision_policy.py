@@ -13,7 +13,7 @@ Route = Literal[
     "insufficient_record",
 ]
 DecisionPolicy = Literal["established_0_1_1", "established_0_2_0"]
-ESTABLISHED_POLICY: DecisionPolicy = "established_0_1_1"
+ESTABLISHED_POLICY: DecisionPolicy = "established_0_2_0"
 CANDIDATE_POLICY: DecisionPolicy = "established_0_2_0"
 TimingEvidence = Literal["supported", "insufficient", "unsupported"]
 

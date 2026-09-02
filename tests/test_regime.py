@@ -182,7 +182,7 @@ def test_checked_case_study_routes_follow_snr_and_trough_timing_evidence():
 
 def test_candidate_timing_uses_informative_equivalent_month_sets(fitzroy_30m):
     assessment = assess_water_regime(fitzroy_30m, n_bootstrap=40)
-    assert assessment.decision_policy == "established_0_1_1"
+    assert assessment.decision_policy == "established_0_2_0"
     assert assessment.climatological_peak_month == 2
     assert assessment.climatological_trough_month == 11
     assert assessment.regime == "seasonal"

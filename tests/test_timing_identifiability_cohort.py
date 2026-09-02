@@ -284,6 +284,28 @@ def test_freeze_labels_hash_records_then_rejects_a_later_change(tmp_path):
         freeze_labels_hash(labels_path)
 
 
+def test_evaluate_restates_known_limitations_in_the_report(synthetic_stress_root, protocol, tmp_path):
+    from scripts.evaluate_timing_identifiability_cohort import evaluate
+
+    build_cohort(stress_root=synthetic_stress_root, protocol=protocol, output_dir=tmp_path / "out")
+    manifest = pd.read_csv(tmp_path / "out" / "cohort-manifest.csv")
+    labels = pd.DataFrame({
+        "station_id": manifest["station_id"],
+        "label": "uncertain",
+        "reason": "",
+    })
+    report = evaluate(manifest=manifest, labels=labels, stress_root=synthetic_stress_root)
+
+    assert "known_limitations" in report
+    limits = report["known_limitations"]
+    assert "per_stratum_shortfall" in limits
+    assert limits["pixel_support_status"] == ["unavailable"]
+    assert "synthetic-only" in limits["min_peak_water_pixels_evidence_basis"]
+    for stratum, report_entry in report["per_stratum"].items():
+        assert "shortfall" in report_entry
+        assert report_entry["shortfall"] == limits["per_stratum_shortfall"][stratum]
+
+
 def test_real_stress_bundle_builds_without_raising_if_present():
     """Smoke test against the real external bundle, skipped if unavailable."""
     stress_root = Path(r"D:\RLH\5.6\hydroseason_tests\outputs\stress_test_final")

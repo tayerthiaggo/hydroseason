@@ -140,7 +140,13 @@ def test_candidate_route_requires_informative_peak_and_trough_years():
     assert result.route == "event_characterisation"
 
 
-def test_candidate_contract_does_not_claim_public_promotion():
+def test_established_0_2_0_is_the_promoted_public_policy():
+    """established_0_2_0 was promoted after all decision-policy.md gates
+    passed (Task 8 promotion audit): calibration, untouched validation,
+    protected-baseline review, and the independently reviewed real cohort
+    (zero false precise-boundary, zero direct contradictions). The public
+    policy identifier and the candidate/implementation identifier now
+    agree."""
     result = decide(
         n_usable_years=20,
         amplitude_snr=2.0,
@@ -148,7 +154,7 @@ def test_candidate_contract_does_not_claim_public_promotion():
         trough_timing=timing(ci_low=0.70),
     )
 
-    assert result.policy == "established_0_1_1"
+    assert result.policy == "established_0_2_0"
     assert result.implementation_policy == "established_0_2_0"
     assert "candidate=established_0_2_0" in result.reason
-    assert "authority=established_0_1_1" in result.reason
+    assert "authority=established_0_2_0" in result.reason

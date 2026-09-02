@@ -1,6 +1,6 @@
 # Decision policy and scientific baseline
 
-HydroSeason 0.2.0 publishes regime, route, exact climatological extrema, and hydrological years under `established_0_1_1`, using circular timing statistics of annual extrema and circular Kuiper uniformity testing.
+HydroSeason 0.2.0 publishes regime, route, timing-identifiability status, and hydrological years under `established_0_2_0`, using circular timing statistics of annual extrema, circular Kuiper uniformity testing, and calibrated per-year timing-identifiability thresholds. See [the 0.2.0 design](decision-policy-0.2.0.md) and [migration notes](migrations/0.2.0-timing-identifiability.md).
 
 ## Protected baseline
 
@@ -20,9 +20,15 @@ A replacement decision policy requires all of the following before implementatio
 
 Regenerating expected fixtures, tuning to the five protected catchments, or obtaining a better in-sample fit is not sufficient.
 
-The v0.2.0 candidate policy design is frozen in
-[`decision-policy-0.2.0.md`](decision-policy-0.2.0.md). Its public policy
-identifier remains `established_0_1_1` until promotion passes; the frozen
-replacement identifier is `established_0_2_0`. Implementation and promotion remain subject
-to every gate in this document and the frozen calibration, validation, and
-real-review protocol.
+The v0.2.0 policy design is frozen in
+[`decision-policy-0.2.0.md`](decision-policy-0.2.0.md). It was promoted to
+public policy identifier `established_0_2_0` after every gate above passed:
+synthetic calibration and untouched validation (false precise-boundary
+Wilson upper bound `1.2e-4 <= 0.05`), the five protected catchments'
+outcomes unchanged, no confirmed baseline anchor from an unresolved row, the
+three motivating records' qualitative checks, and an independently reviewed
+21-station real cohort (zero false precise-boundary claims, zero direct
+contradictions -- see
+`case_studies/results/timing-identifiability/comparison-report.json`).
+`established_0_1_1` remains the historical baseline these gates were
+measured against; it is no longer the published policy identifier.

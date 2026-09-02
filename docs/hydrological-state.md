@@ -129,6 +129,29 @@ Each year's trough opportunity carries diagnostics that separate what was
   diagnostics for the observed within-cycle maximum. A `low_quality` peak is
   retained, but forces the annual row to `status="partial"` and
   `boundary_status="provisional"`.
+- `peak_timing_status` / `trough_timing_status` / `timing_status`: whether
+  that cycle's peak/trough resolves to an exact month (`point`), a bounded
+  interval (`interval`), or cannot be resolved (`unresolved`), using the same
+  calibrated detectability floor and span thresholds as the record-level
+  regime assessment. `timing_status` is the weaker of the two
+  (`unresolved` < `interval` < `point`). This is a separate concept from
+  `boundary_status`: a cycle can have high data/window quality
+  (`selection_support >= 0.8`, `boundary_status` eligible) while its timing
+  is still `unresolved` -- a flat or below-floor year contributes no peak or
+  trough timing observation even when it is well observed. Unresolved timing
+  forces `boundary_status="provisional"`, `status="partial"`, and confidence
+  capped at `low`, and only rows with `boundary_status="confirmed"` and
+  `timing_status="point"` may anchor a historical condition baseline.
+- `peak_interval_start`/`peak_interval_end` and
+  `trough_interval_start`/`trough_interval_end`: the bounds of the defensible
+  interval when the corresponding status is `interval` (or the single month
+  when `point`); blank when `unresolved`. The compact CSV export blanks
+  `peak_date`/`trough_date` unless the status is `point`, but always
+  populates the interval columns when the status is `interval`.
+- `detectability_floor_pp` / `amplitude_to_floor_ratio`: the cycle's
+  detectability floor (percentage points) and its amplitude expressed as a
+  multiple of that floor. `amplitude_to_floor_ratio` is `0.0` when the
+  amplitude is at or below the floor.
 - `detector` (a `DynamicHydroYearConfig` field, not an annual output column):
   `"robust_extrema"` is the only supported value, gated on real Fitzroy and
   Gilbert River evidence; any other value is rejected at construction.

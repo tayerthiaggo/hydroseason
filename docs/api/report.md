@@ -15,7 +15,7 @@ display and must not be treated as the analysed footprint.
 
 `generate_catchment_report(..., aoi_context=None)` preserves existing
 map-free reports. `CatchmentReportPaths` remains the five generated paths:
-Reports display public results derived under `established_0_1_1`.
+Reports display public results derived under `established_0_2_0`.
 
 ::: hydroseason.report
     options:

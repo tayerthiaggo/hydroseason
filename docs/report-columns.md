@@ -45,7 +45,7 @@ month; percentages are 0--100.
 | `in_wet_event` / `wet_event_id` | Whether the month belongs to a wet event and its identifier. |
 | `in_low_spell` / `low_spell_id` | Whether the month belongs to a low-extent spell and its identifier. |
 | `regime` / `route` | The regime decision and analysis route applied to the record. |
-| `decision_policy` | Decision policy identifier controlling public routing (`established_0_1_1`). |
+| `decision_policy` | Decision policy identifier controlling public routing (`established_0_2_0`). |
 | `rainfall_mm` / `rain_anomaly_mm` | Optional supplied-CSV or SILO rainfall context, written only when rainfall loads successfully. The anomaly is rainfall minus the median for the same calendar month. These fields never drive regime routing, boundaries, phases, events, or low spells. |
 
 ## Hydrological years (`<stem>_hydro_years.csv`)
@@ -66,6 +66,12 @@ not define hydrological years. Date columns are month starts.
 | `status` / `boundary_status` | Result status and whether boundaries are exact, provisional, or otherwise constrained. |
 | `boundary_basis` | Whether the boundary was detected per year or imposed from a fixed climatological window. |
 | `regime` / `route` | Record-level routing metadata. |
+| `timing_status` | Aggregate timing identifiability for the row (`point`, `interval`, or `unresolved`): the weaker of `peak_timing_status` and `trough_timing_status`. `boundary_status` describes selection/data admissibility; `timing_status` describes temporal identifiability -- the two are independent. |
+| `peak_timing_status` / `trough_timing_status` | Whether the peak/trough resolves to an exact month (`point`), a bounded interval (`interval`), or cannot be resolved (`unresolved`). |
+| `peak_date` / `trough_date` | Populated only when the corresponding `*_timing_status` is `point`; blank for `interval` or `unresolved` so a broad plateau or diffuse peak is never presented as a fabricated exact date. |
+| `peak_interval_start_date` / `peak_interval_end_date` / `trough_interval_start_date` / `trough_interval_end_date` | Populated whenever the corresponding `*_timing_status` is `interval` (bounds of the defensible interval), also populated for `point` (a single-month interval). Blank for `unresolved`. |
+| `detectability_floor_pp` | The record's detectability floor for that cycle, in percentage points: `max(measurement_tolerance_pct, robust_noise_pp, peak_resolution_pp, trough_resolution_pp, machine epsilon)`. |
+| `amplitude_to_floor_ratio` | That cycle's amplitude divided by `detectability_floor_pp`; `0.0` when the amplitude is at or below the floor. |
 
 ## Wet events (`<stem>_wet_event.csv`)
 
@@ -114,7 +120,13 @@ them should use the analysis result or a full summary export.
 | `peak_timing_concentration_ci_low`, `peak_timing_concentration_ci_high`, `trough_timing_concentration_ci_low`, `trough_timing_concentration_ci_high` | Unitless 0–1, 95% bootstrap bounds | `null` for insufficient records. |
 | `peak_timing_uniformity_p`, `trough_timing_uniformity_p` | Kuiper probability 0–1 | `null` for insufficient records. |
 | `peak_phase_iqr_months`, `trough_phase_iqr_months` | Circular months | `null` with fewer than four timing observations or an insufficient record; IQR is descriptive only. |
-| `n_timing_years` | Non-negative integer **years** | `0` for insufficient records; it is not a count of months. |
+| `n_timing_years` | Non-negative integer **years** | `0` for insufficient records; it is not a count of months. Equals `n_peak_timing_years` -- it keeps its historical peak-derived meaning and is never silently redefined as a minimum. |
+| `n_peak_timing_years`, `n_trough_timing_years` | Non-negative integer **years** | Count of calendar years whose peak/trough extremum is independently identifiable (not `unresolved`). The conservative `min()` of the two is used only in the route gate, and is not itself a published field. |
+| `n_zero_months` | Non-negative integer **months** | Total months with exact-zero observed extent among usable months. Descriptive only; it never enters a route or timing decision. |
+| `zero_month_fraction` | Unitless, 0–1 | Fraction of usable months that are exact zero. |
+| `n_whole_zero_years` | Non-negative integer **years** | Count of years whose usable months are all exact zero. A whole-zero year still contributes to dry-duration and event summaries; it contributes no peak or trough timing observation. |
+| `pixel_support_status` | `"available"` or `"unavailable"` | Whether the record carries pixel counts (`n_water`/`n_valid`/`n_invalid`/`n_aoi`). Percentage-only inputs always report `"unavailable"`, and their `min_peak_water_pixels` threshold is not consulted. |
+| `timing_evidence` | `"supported"`, `"insufficient"`, or `"unsupported"` | Record-level timing verdict: `insufficient` when `min(n_peak_timing_years, n_trough_timing_years) < min_informative_years`; `unsupported` when the established seasonality/uniformity evidence rejects an annual cycle (today this is reachable only when `regime == "aseasonal"`); otherwise `supported`. |
 
 `R` and confidence intervals are rounded to three decimal places in the
 summary; IQR is rounded to two decimal places. The report uses peak `R` for

@@ -56,7 +56,7 @@ def test_raw_30m_record_matches_established_public_baseline(case_key: str):
         random_state=0,
     )
 
-    assert analysis.regime.decision_policy == "established_0_1_1"
+    assert analysis.regime.decision_policy == "established_0_2_0"
     assert analysis.regime.regime == regime
     assert analysis.route == route
     assert analysis.climatological_peak_month == peak_month

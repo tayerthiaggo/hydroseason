@@ -463,5 +463,5 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
 
 def test_catchment_analysis_exposes_decision_policy():
     result = _calibrated(_seasonal(), n_bootstrap=40)
-    assert result.decision_policy == "established_0_1_1"
+    assert result.decision_policy == "established_0_2_0"
     assert result.public_route == "per_year_detection"
