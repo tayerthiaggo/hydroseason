@@ -144,3 +144,39 @@ def test_review_rubric_freezes_blinded_labels_and_adjudication():
     for prohibited in hidden:
         with pytest.raises(AssertionError, match="prohibited packet fields"):
             validate_packet_fields(allowlist | {prohibited})
+
+
+def test_v030_geometry_design_freezes_grid_and_selector():
+    text = (ROOT / "docs" / "decision-policy-0.3.0.md").read_text(encoding="utf-8")
+    required = {
+        "TROUGH_GEOMETRY_GRID",
+        "trough_search_radius_months",
+        "adaptive_trough_search_radius_months",
+        "adaptive_min_usable_months_per_cycle",
+        "duplicate_or_nonmonotonic_rate",
+        "boundary_signed_bias",
+        "Status-quo tie-break",
+        "GEOMETRY_CALIBRATION_SEEDS = range(30000, 35000)",
+        "GEOMETRY_VALIDATION_SEEDS  = range(40000, 45000)",
+    }
+    missing = sorted(phrase for phrase in required if phrase not in text)
+    assert not missing, f"frozen geometry design is missing: {missing}"
+
+
+def test_v030_geometry_design_excludes_challenge_count_from_selection():
+    """The outside-window challenge count must never become a selection metric.
+
+    Selecting on it would reward any tuple that widens the window regardless of
+    whether the wider choice is correct.
+    """
+    text = (ROOT / "docs" / "decision-policy-0.3.0.md").read_text(encoding="utf-8")
+    normalized = " ".join(text.split())
+    assert "Report-only. **Excluded from selection.**" in normalized
+    assert "`established_0_2_0` must **not** be silently retained across a geometry change." in normalized
+
+
+def test_v030_geometry_design_records_null_result_as_publishable():
+    text = (ROOT / "docs" / "decision-policy-0.3.0.md").read_text(encoding="utf-8")
+    normalized = " ".join(text.split())
+    assert "Null result — shipped tuple `(3, 5, 6)` wins" in normalized
+    assert "This is a real result and is reported as such, not as \"no change\"." in normalized

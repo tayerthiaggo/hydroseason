@@ -25,6 +25,7 @@ nav:
   - Dynamic Hydrological State: hydrological-state.md
   - Decision Policy: decision-policy.md
   - Decision Policy 0.2.0 Design: decision-policy-0.2.0.md
+  - Decision Policy 0.3.0 Design: decision-policy-0.3.0.md
   - Migrations:
       - 0.2.0 Timing Identifiability: migrations/0.2.0-timing-identifiability.md
   - Case Studies:
