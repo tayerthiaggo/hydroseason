@@ -53,22 +53,32 @@ _REQUIRED_COLUMNS = (
     "retry_outcome",
 )
 
-# (0.0, 1.0) -- not (0.0, 0.0) -- because "no data" is not the same claim as "a
-# confidently estimated rate of zero".  This matches wilson_interval's own
-# convention for n <= 0.
-_NO_DATA = BoundaryGeometrySummary(
-    n_boundaries=0,
-    n_at_search_edge=0,
-    boundary_search_edge_rate=0.0,
-    boundary_search_edge_interval=(0.0, 1.0),
-    interval_method="wilson_within_catchment",
-    n_outside_window_observed=0,
-    n_outside_window_lower=0,
-    outside_window_lower_rate=0.0,
-    radius_used_counts={},
-    retry_outcome_counts={},
-    edge_side_counts={},
-)
+
+def _no_data() -> BoundaryGeometrySummary:
+    """No summarisable data.
+
+    ``(0.0, 1.0)`` -- not ``(0.0, 0.0)`` -- because "no data" is not the same
+    claim as "a confidently estimated rate of zero".  This matches
+    wilson_interval's own convention for n <= 0.
+
+    Built fresh on every call: the three dict fields are mutable, and a
+    shared singleton would let one caller's in-place aggregation (e.g.
+    ``summary.radius_used_counts.update(...)``) corrupt every other "no
+    data" summary for the rest of the process.
+    """
+    return BoundaryGeometrySummary(
+        n_boundaries=0,
+        n_at_search_edge=0,
+        boundary_search_edge_rate=0.0,
+        boundary_search_edge_interval=(0.0, 1.0),
+        interval_method="wilson_within_catchment",
+        n_outside_window_observed=0,
+        n_outside_window_lower=0,
+        outside_window_lower_rate=0.0,
+        radius_used_counts={},
+        retry_outcome_counts={},
+        edge_side_counts={},
+    )
 
 
 def summarise_boundary_geometry(annual: pd.DataFrame) -> BoundaryGeometrySummary:
@@ -80,12 +90,12 @@ def summarise_boundary_geometry(annual: pd.DataFrame) -> BoundaryGeometrySummary
     :func:`bootstrap_catchment_rate` across catchments instead.
     """
     if annual.empty or not set(_REQUIRED_COLUMNS).issubset(annual.columns):
-        return _NO_DATA  # no annual frame at all, or missing required columns
+        return _no_data()  # no annual frame at all, or missing required columns
 
     published = annual.loc[annual["trough_month"].notna()]
     n_boundaries = int(len(published))
     if n_boundaries == 0:
-        return _NO_DATA  # frame present but nothing published yet
+        return _no_data()  # frame present but nothing published yet
 
     at_edge = published["boundary_at_search_edge"].fillna(False).astype(bool)
     observed = published["outside_window_observed"].fillna(False).astype(bool)

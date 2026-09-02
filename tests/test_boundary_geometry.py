@@ -94,6 +94,14 @@ def test_empty_frame_reports_uninformative_interval():
     assert summary.boundary_search_edge_interval == (0.0, 1.0)
 
 
+def test_no_data_summaries_do_not_share_mutable_state():
+    first = summarise_boundary_geometry(_annual([]).iloc[0:0])
+    second = summarise_boundary_geometry(_annual([]).iloc[0:0])
+    first.radius_used_counts["poisoned"] = 999
+    assert "poisoned" not in second.radius_used_counts
+    assert second.radius_used_counts == {}
+
+
 def test_frame_missing_a_required_column_reports_no_data_not_a_keyerror():
     annual = _annual([True, False]).drop(columns=["boundary_at_search_edge"])
     summary = summarise_boundary_geometry(annual)
