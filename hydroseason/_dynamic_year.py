@@ -149,10 +149,15 @@ def _search_edge_diagnostics(
     """Describe a selected boundary's position relative to its own window.
 
     Report-only.  ``outside_window_lower`` states that a strictly lower *raw
-    observed* extent exists in the audit span -- the same raw-value rule the
-    existing adaptive retry uses.  It does not state that the outside month is
-    the correct boundary: a wider search can select a competing event or damage
-    cycle geometry.  It is a challenge count, never an error rate.
+    observed* extent exists in the audit span.  The comparison excludes any
+    outer month whose ``invalid_pct`` is 100 -- a fully invalid month has no
+    valid pixels behind its ``extent_pct``, so it is not an observation at
+    all -- matching the rule ``_adaptive_edge_retry_years`` uses.  A
+    partially invalid month still counts: its value is a genuine (if noisy)
+    observation.  ``outside_window_lower`` does not state that the outside
+    month is the correct boundary: a wider search can select a competing
+    event or damage cycle geometry.  It is a challenge count, never an error
+    rate.
     """
     shift = _month_delta(selected, expected)
     at_edge = abs(shift) == radius
@@ -178,8 +183,11 @@ def _search_edge_diagnostics(
     if values.empty:
         return diagnostics
     diagnostics["outside_window_observed"] = True
+    comparable = values.loc[frame.loc[values.index, "invalid_pct"].lt(100.0)]
+    if comparable.empty:
+        return diagnostics
     diagnostics["outside_window_lower"] = bool(
-        float(values.min()) < float(frame.loc[selected, "extent_pct"])
+        float(comparable.min()) < float(frame.loc[selected, "extent_pct"])
     )
     return diagnostics
 

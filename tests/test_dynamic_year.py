@@ -739,11 +739,37 @@ def test_audit_span_never_reaches_a_month_the_search_radius_could_not_touch():
 
 
 def test_outside_window_lower_uses_raw_extent_not_quality_filtered():
-    # November carries invalid_pct=100 -- quality screening would exclude it
-    # from candidacy entirely, under either quality_policy -- yet its raw
+    # November carries invalid_pct=60 -- well above the default
+    # max_invalid_pct=20 threshold, so quality screening (quality_state ==
+    # "low", candidate_usable False under quality_policy="exclude") would
+    # drop it as a candidate entirely -- yet it is still a real observation
+    # (invalid_pct < 100, so valid pixels back the value) and its raw
     # extent_pct is genuinely lower than the selected July trough.
     # outside_window_lower compares raw observed extents, matching the rule
-    # the adaptive retry itself uses, so it must still report True.
+    # the adaptive retry itself uses, so it must still report True; a
+    # quality-filtered comparison would drop November and report False.
+    index = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
+    values = np.full(len(index), 40.0)
+    invalid = np.zeros(len(index))
+    values[index.month == 7] = 5.0
+    values[index.month == 11] = 1.0
+    invalid[index.month == 11] = 60.0
+    frame = pd.DataFrame({"extent_pct": values, "invalid_pct": invalid}, index=index)
+    config = DynamicHydroYearConfig(expected_trough_month=7, trough_search_radius_months=3)
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    resolved = result.loc[result["trough_month"].notna()]
+    interior = resolved.iloc[1:-1]
+    assert interior["outside_window_observed"].all()
+    assert interior["outside_window_lower"].all()
+
+
+def test_outside_window_lower_excludes_a_fully_invalid_outer_month():
+    # November carries invalid_pct=100 -- no valid pixels back its
+    # extent_pct, so it is not an observation at all, even though its raw
+    # extent_pct value is lower than the selected July trough. Unlike the
+    # partially invalid case above, outside_window_lower must not treat a
+    # fully invalid month as a challenge, matching the rule
+    # _adaptive_edge_retry_years uses.
     index = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
     values = np.full(len(index), 40.0)
     invalid = np.zeros(len(index))
@@ -756,7 +782,7 @@ def test_outside_window_lower_uses_raw_extent_not_quality_filtered():
     resolved = result.loc[result["trough_month"].notna()]
     interior = resolved.iloc[1:-1]
     assert interior["outside_window_observed"].all()
-    assert interior["outside_window_lower"].all()
+    assert not interior["outside_window_lower"].any()
 
 
 def test_retry_outcome_reports_applied_when_the_widened_boundary_survives():
