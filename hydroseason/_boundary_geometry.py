@@ -7,8 +7,8 @@ challenge is a challenge, not a correction.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -36,6 +36,39 @@ class BoundaryGeometrySummary:
     outside_window_lower_rate: float
     radius_used_counts: dict[int, int]
     retry_outcome_counts: dict[str, int]
+    edge_side_counts: dict[str, int]
+
+
+# The Task 2 diagnostic columns this module reads.  A frame missing any of
+# these (e.g. one loaded from the compact CSV export bundle, which omits them)
+# cannot be summarised and must hit the "no data" branch instead of raising a
+# bare KeyError partway through.
+_REQUIRED_COLUMNS = (
+    "trough_month",
+    "boundary_at_search_edge",
+    "boundary_search_edge_side",
+    "outside_window_observed",
+    "outside_window_lower",
+    "trough_search_radius_used",
+    "retry_outcome",
+)
+
+# (0.0, 1.0) -- not (0.0, 0.0) -- because "no data" is not the same claim as "a
+# confidently estimated rate of zero".  This matches wilson_interval's own
+# convention for n <= 0.
+_NO_DATA = BoundaryGeometrySummary(
+    n_boundaries=0,
+    n_at_search_edge=0,
+    boundary_search_edge_rate=0.0,
+    boundary_search_edge_interval=(0.0, 1.0),
+    interval_method="wilson_within_catchment",
+    n_outside_window_observed=0,
+    n_outside_window_lower=0,
+    outside_window_lower_rate=0.0,
+    radius_used_counts={},
+    retry_outcome_counts={},
+    edge_side_counts={},
+)
 
 
 def summarise_boundary_geometry(annual: pd.DataFrame) -> BoundaryGeometrySummary:
@@ -46,25 +79,13 @@ def summarise_boundary_geometry(annual: pd.DataFrame) -> BoundaryGeometrySummary
     uncertainty and is reported honestly as such.  Use
     :func:`bootstrap_catchment_rate` across catchments instead.
     """
-    if annual.empty or "trough_month" not in annual.columns:
-        return BoundaryGeometrySummary(
-            n_boundaries=0, n_at_search_edge=0, boundary_search_edge_rate=0.0,
-            boundary_search_edge_interval=(0.0, 0.0),
-            interval_method="wilson_within_catchment",
-            n_outside_window_observed=0, n_outside_window_lower=0,
-            outside_window_lower_rate=0.0, radius_used_counts={}, retry_outcome_counts={},
-        )
+    if annual.empty or not set(_REQUIRED_COLUMNS).issubset(annual.columns):
+        return _NO_DATA  # no annual frame at all, or missing required columns
 
     published = annual.loc[annual["trough_month"].notna()]
     n_boundaries = int(len(published))
     if n_boundaries == 0:
-        return BoundaryGeometrySummary(
-            n_boundaries=0, n_at_search_edge=0, boundary_search_edge_rate=0.0,
-            boundary_search_edge_interval=(0.0, 0.0),
-            interval_method="wilson_within_catchment",
-            n_outside_window_observed=0, n_outside_window_lower=0,
-            outside_window_lower_rate=0.0, radius_used_counts={}, retry_outcome_counts={},
-        )
+        return _NO_DATA  # frame present but nothing published yet
 
     at_edge = published["boundary_at_search_edge"].fillna(False).astype(bool)
     observed = published["outside_window_observed"].fillna(False).astype(bool)
@@ -82,6 +103,10 @@ def summarise_boundary_geometry(annual: pd.DataFrame) -> BoundaryGeometrySummary
         str(value): int(count)
         for value, count in published["retry_outcome"].dropna().value_counts().items()
     }
+    edge_side_counts = {
+        str(value): int(count)
+        for value, count in published["boundary_search_edge_side"].dropna().value_counts().items()
+    }
 
     return BoundaryGeometrySummary(
         n_boundaries=n_boundaries,
@@ -94,6 +119,7 @@ def summarise_boundary_geometry(annual: pd.DataFrame) -> BoundaryGeometrySummary
         outside_window_lower_rate=(n_lower / n_observed) if n_observed else 0.0,
         radius_used_counts=dict(sorted(radius_counts.items())),
         retry_outcome_counts=dict(sorted(retry_counts.items())),
+        edge_side_counts=dict(sorted(edge_side_counts.items())),
     )
 
 
@@ -108,10 +134,14 @@ def bootstrap_catchment_rate(
     ``per_catchment`` is one ``(successes, trials)`` pair per catchment.  Cycles
     within a catchment are serially dependent, so a cycle-level interval on the
     pooled counts understates uncertainty by roughly the cluster size.  The
-    resampling unit is therefore the catchment.
+    resampling unit is therefore the catchment.  Returns a 95% percentile
+    bootstrap interval (the 2.5th and 97.5th percentiles of the resampled
+    rates).
     """
     if not len(per_catchment):
         raise ValueError("bootstrap_catchment_rate needs at least one catchment.")
+    if n_resamples <= 0:
+        raise ValueError("bootstrap_catchment_rate needs n_resamples > 0.")
     successes = np.asarray([int(item[0]) for item in per_catchment], dtype=float)
     trials = np.asarray([int(item[1]) for item in per_catchment], dtype=float)
     if (trials < 0).any() or (successes < 0).any() or (successes > trials).any():
@@ -126,5 +156,8 @@ def bootstrap_catchment_rate(
         rates = np.where(resampled_trials > 0, resampled_successes / resampled_trials, np.nan)
     rates = rates[np.isfinite(rates)]
     if not rates.size:
-        return (0.0, 0.0)
+        raise ValueError(
+            "bootstrap_catchment_rate: every catchment has trials == 0; "
+            "no resampled rate is defined."
+        )
     return (float(np.percentile(rates, 2.5)), float(np.percentile(rates, 97.5)))
