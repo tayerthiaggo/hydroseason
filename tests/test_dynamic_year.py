@@ -912,6 +912,40 @@ def test_relaxed_coverage_may_not_tighten_the_base_minimum():
         )
 
 
+def test_unset_adaptive_minimum_derives_from_a_below_default_base():
+    # A caller who sets only min_usable_months_per_cycle=5 (below the shipped
+    # adaptive default of 6) must not see a ValueError naming a field they
+    # never touched, for a default value they never supplied. The old
+    # runtime clamp absorbed this case silently; the derived default must
+    # keep doing so.
+    config = DynamicHydroYearConfig(expected_trough_month=7, min_usable_months_per_cycle=5)
+    assert config.adaptive_min_usable_months_per_cycle == 5
+
+
+def test_unset_adaptive_minimum_derives_from_a_far_below_default_base():
+    config = DynamicHydroYearConfig(expected_trough_month=7, min_usable_months_per_cycle=3)
+    assert config.adaptive_min_usable_months_per_cycle == 3
+
+
+def test_unset_adaptive_minimum_matches_shipped_default_for_the_common_base():
+    # min_usable_months_per_cycle=8 is the only value used anywhere in this
+    # repo; the resolved adaptive default here must be byte-identical to the
+    # value shipped before this fix (min(6, 8) == 6).
+    config = DynamicHydroYearConfig(expected_trough_month=7, min_usable_months_per_cycle=8)
+    assert config.adaptive_min_usable_months_per_cycle == 6
+
+
+def test_explicit_inconsistent_adaptive_minimum_still_raises():
+    # An explicitly-supplied value that is inconsistent with the base must
+    # still be rejected strictly; only the unset case gets a derived default.
+    with pytest.raises(ValueError, match="adaptive_min_usable_months_per_cycle"):
+        DynamicHydroYearConfig(
+            expected_trough_month=7,
+            min_usable_months_per_cycle=5,
+            adaptive_min_usable_months_per_cycle=6,
+        )
+
+
 def test_configured_geometry_reaches_detection():
     frame, anchor = _anchored_frame([7] * 6)
     wide = DynamicHydroYearConfig(

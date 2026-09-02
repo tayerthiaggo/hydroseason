@@ -48,6 +48,20 @@ _DEFAULT_PULSE_REJECTION_WINDOW_MONTHS = 4
 _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS = 5
 _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE = 6
 
+
+class _UnsetAdaptiveMinUsableMonths:
+    """Sentinel distinguishing "not supplied" from an explicit equal value.
+
+    A literal default of ``_ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE`` would be
+    indistinguishable from a caller who explicitly passed that exact value,
+    so ``__post_init__`` could not tell whether to derive a fallback for a
+    below-6 ``min_usable_months_per_cycle`` or to apply strict validation.
+    Mirrors ``UnsetPhaseScheme``/``PHASE_SCHEME_UNSET`` in ``_phase_scheme.py``.
+    """
+
+
+_ADAPTIVE_MIN_USABLE_MONTHS_UNSET = _UnsetAdaptiveMinUsableMonths()
+
 # The outside-window audit span never widens the search.  It reaches at most
 # the radius the adaptive retry can already use, so a diagnostic can never name
 # a month the shipped detector was structurally incapable of selecting.
@@ -67,7 +81,9 @@ class DynamicHydroYearConfig:
     quality_policy: QualityPolicy = "flag"
     min_usable_months_per_cycle: int = 8
     adaptive_trough_search_radius_months: int = _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS
-    adaptive_min_usable_months_per_cycle: int = _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE
+    adaptive_min_usable_months_per_cycle: int | _UnsetAdaptiveMinUsableMonths = (
+        _ADAPTIVE_MIN_USABLE_MONTHS_UNSET
+    )
     min_usable_trough_candidates: int = 2
     min_baseline_cycles: int = 5
     low_percentile: float = 20.0
@@ -101,7 +117,13 @@ class DynamicHydroYearConfig:
                 "adaptive_trough_search_radius_months must not be smaller than "
                 "trough_search_radius_months; the retry never narrows the search."
             )
-        if not 1 <= self.adaptive_min_usable_months_per_cycle <= self.min_usable_months_per_cycle:
+        if self.adaptive_min_usable_months_per_cycle is _ADAPTIVE_MIN_USABLE_MONTHS_UNSET:
+            object.__setattr__(
+                self,
+                "adaptive_min_usable_months_per_cycle",
+                min(_ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE, self.min_usable_months_per_cycle),
+            )
+        elif not 1 <= self.adaptive_min_usable_months_per_cycle <= self.min_usable_months_per_cycle:
             raise ValueError(
                 "adaptive_min_usable_months_per_cycle must be in "
                 "1..min_usable_months_per_cycle; the relaxation never tightens the base."
