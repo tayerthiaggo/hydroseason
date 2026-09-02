@@ -752,3 +752,222 @@ def generate_timing_identifiability_record(
     )
     scenario = ScenarioMetadata("none", "none", 0.0, 0, 0.0)
     return SyntheticRecord(frame=frame, truth=truth, scenario=scenario, family=family, seed=seed)
+
+
+# ---------------------------------------------------------------------------
+# Trough search geometry corpus
+#
+# Kept independent of ``generate_record`` and
+# ``generate_timing_identifiability_record``: both underpin frozen calibration
+# artifacts, and adding a family to either would change its allocation and
+# invalidate its fingerprint.  Seed ranges are disjoint from both.
+# ---------------------------------------------------------------------------
+
+GEOMETRY_CALIBRATION_SEEDS = range(30000, 35000)
+GEOMETRY_VALIDATION_SEEDS = range(40000, 45000)
+
+_TROUGH_GEOMETRY_FAMILIES = (
+    "stationary_trough",
+    "wide_phase_excursion",
+    "abrupt_phase_shift",
+    "competing_secondary_minimum",
+    "tied_low_plateau_wide",
+    "missing_outer_months",
+    "quality_loss_outer_months",
+    "zero_dominated_wide_excursion",
+    "short_cycle_stress",
+    "long_cycle_stress",
+)
+
+_GEOMETRY_N_YEARS = 12
+_GEOMETRY_ANCHOR_MONTH = 7
+_GEOMETRY_BASE_PP = 40.0
+_GEOMETRY_TROUGH_PP = 2.0
+_GEOMETRY_PEAK_PP = 70.0
+# Must match ``_monthly_index``, which starts at 1990.  A truth date built on a
+# different base year silently falls outside the frame and every boundary-error
+# metric computed against it is meaningless.
+_GEOMETRY_BASE_YEAR = 1990
+
+
+@dataclass(frozen=True)
+class TroughGeometryTruthLabels:
+    """Known trough position per year for the search-geometry corpus.
+
+    ``trough_date_by_year`` is ``None`` for a year with no identifiable point
+    trough -- a broad equivalent-low plateau or a fully masked year.  For those
+    years abstention is the correct answer and a published point date is a
+    false precise boundary.
+    """
+
+    climatological_trough_month: int
+    n_years: int
+    trough_date_by_year: tuple[pd.Timestamp | None, ...]
+    identifiable_by_year: tuple[bool, ...]
+    max_abs_excursion_months: int
+
+
+def _geometry_month(year_offset: int, month: int) -> pd.Timestamp:
+    """Month-start timestamp for a calendar month inside one corpus year."""
+    return pd.Timestamp(_GEOMETRY_BASE_YEAR + year_offset, month, 1)
+
+
+def _geometry_frame(
+    index: pd.DatetimeIndex,
+    values: np.ndarray,
+    *,
+    valid: np.ndarray,
+    masked: np.ndarray,
+) -> pd.DataFrame:
+    """Counts plus the percentages the detector reads.
+
+    ``extent_pct`` is written explicitly rather than left to
+    ``prepare_monthly_extent`` so the corpus is readable in isolation and a
+    masked month is unambiguously missing rather than zero water.
+    """
+    n_aoi = np.full(len(index), 100, dtype=int)
+    n_valid = np.where(masked, 0, np.asarray(valid, dtype=int))
+    n_invalid = n_aoi - n_valid
+    n_water = np.rint(np.clip(values, 0.0, 100.0) * n_valid / 100.0).astype(int)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        extent_pct = np.where(n_valid > 0, 100.0 * n_water / n_valid, np.nan)
+    return pd.DataFrame(
+        {
+            "n_water": n_water,
+            "n_valid": n_valid,
+            "n_invalid": n_invalid,
+            "n_aoi": n_aoi,
+            "extent_pct": extent_pct,
+            "invalid_pct": 100.0 * n_invalid / n_aoi,
+        },
+        index=index,
+    )
+
+
+def _geometry_shifted_month(anchor: int, shift: int) -> int:
+    """Calendar month ``shift`` months from ``anchor``, wrapping the year."""
+    return ((anchor - 1 + shift) % 12) + 1
+
+
+def generate_trough_geometry_record(
+    seed: int, *, partition: Literal["calibration", "validation"]
+) -> SyntheticRecord:
+    """Build one deterministic, truth-labelled trough-geometry record.
+
+    Returns a :class:`SyntheticRecord` whose ``truth`` is a
+    :class:`TroughGeometryTruthLabels`, mirroring how
+    ``generate_timing_identifiability_record`` carries ``TimingTruthLabels``.
+    """
+    if partition not in {"calibration", "validation"}:
+        raise ValueError("partition must be 'calibration' or 'validation'.")
+    valid_seeds = (
+        GEOMETRY_CALIBRATION_SEEDS if partition == "calibration" else GEOMETRY_VALIDATION_SEEDS
+    )
+    if seed not in valid_seeds:
+        raise ValueError(f"seed {seed} is outside the {partition} partition.")
+
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0x47454F4D]))
+    family = _TROUGH_GEOMETRY_FAMILIES[seed % len(_TROUGH_GEOMETRY_FAMILIES)]
+    anchor = _GEOMETRY_ANCHOR_MONTH
+    n_years = _GEOMETRY_N_YEARS
+    index = _monthly_index(n_years)
+    months = index.month.to_numpy()
+
+    values = np.full(len(index), _GEOMETRY_BASE_PP, dtype=float)
+    valid = np.full(len(index), 100, dtype=int)
+    masked = np.zeros(len(index), dtype=bool)
+
+    shifts = [0] * n_years
+    identifiable = [True] * n_years
+    if family == "stationary_trough":
+        pass
+    elif family == "wide_phase_excursion":
+        pattern = (0, 2, 4, 5, 3, 0, -2, -4, -5, -3, -1, 1)
+        shifts = list(pattern[:n_years])
+    elif family == "abrupt_phase_shift":
+        shifts = [0] * (n_years // 2) + [4] * (n_years - n_years // 2)
+    elif family == "competing_secondary_minimum":
+        shifts = [int(rng.integers(-2, 3)) for _ in range(n_years)]
+    elif family == "tied_low_plateau_wide":
+        identifiable = [False] * n_years
+    elif family == "missing_outer_months":
+        # Half the years put the truth trough at +/-4, inside the masked span.
+        # Those years are unidentifiable at every radius, so abstention is the
+        # correct answer and widening the window buys nothing.
+        shifts = [0, 3, -3, 4, -4, 0, 3, -3, 4, -4, 0, 3][:n_years]
+    elif family == "quality_loss_outer_months":
+        shifts = [0, 3, -3, 4, -4, 0, 3, -3, 4, -4, 0, 3][:n_years]
+    elif family == "zero_dominated_wide_excursion":
+        shifts = [0, 4, -4, 5, -5, 2, -2, 3, -3, 1, -1, 0][:n_years]
+    elif family == "short_cycle_stress":
+        shifts = [(-3 * offset) % 12 - 6 for offset in range(n_years)]
+        shifts = [max(-5, min(5, shift)) for shift in shifts]
+    elif family == "long_cycle_stress":
+        shifts = [(3 * offset) % 12 - 6 for offset in range(n_years)]
+        shifts = [max(-5, min(5, shift)) for shift in shifts]
+
+    trough_dates: list[pd.Timestamp | None] = []
+    for offset in range(n_years):
+        rows = np.arange(offset * 12, (offset + 1) * 12)
+        row_months = months[rows]
+        trough_month = _geometry_shifted_month(anchor, shifts[offset])
+        peak_month = _geometry_shifted_month(trough_month, 6)
+
+        if family == "tied_low_plateau_wide":
+            plateau = [_geometry_shifted_month(anchor, step) for step in (-2, -1, 0, 1, 2)]
+            values[rows[np.isin(row_months, plateau)]] = _GEOMETRY_TROUGH_PP
+            values[rows[row_months == peak_month]] = _GEOMETRY_PEAK_PP
+            trough_dates.append(None)
+            continue
+
+        values[rows[row_months == trough_month]] = _GEOMETRY_TROUGH_PP
+        values[rows[row_months == peak_month]] = _GEOMETRY_PEAK_PP
+
+        if family == "competing_secondary_minimum":
+            # Five months out, not six: at six it would land on the peak month
+            # and overwrite it, destroying the annual cycle this family needs.
+            rival = _geometry_shifted_month(trough_month, 5)
+            values[rows[row_months == rival]] = _GEOMETRY_TROUGH_PP + 0.5
+        elif family == "zero_dominated_wide_excursion":
+            # Exactly one zero month.  A whole year tied at zero has no point
+            # trough at all, so labelling one would invert the false
+            # precise-boundary metric: abstention would score as an error.
+            values[rows] = 1.0
+            values[rows[row_months == peak_month]] = _GEOMETRY_PEAK_PP
+            values[rows[row_months == trough_month]] = 0.0
+        elif family == "missing_outer_months":
+            outer = [
+                _geometry_shifted_month(anchor, step)
+                for step in (-5, -4, 4, 5)
+            ]
+            masked[rows[np.isin(row_months, outer)]] = True
+        elif family == "quality_loss_outer_months":
+            outer = [
+                _geometry_shifted_month(anchor, step)
+                for step in (-5, -4, 4, 5)
+            ]
+            valid[rows[np.isin(row_months, outer)]] = 5
+
+        trough_dates.append(_geometry_month(offset, trough_month))
+
+    if family == "missing_outer_months":
+        # A truth trough hidden behind a mask is not identifiable at any radius.
+        for offset in range(n_years):
+            date = trough_dates[offset]
+            if date is not None and bool(masked[index.get_loc(date)]):
+                identifiable[offset] = False
+                trough_dates[offset] = None
+
+    frame = _geometry_frame(index, values, valid=valid, masked=masked)
+    observed_shifts = [
+        abs(shift) for shift, keep in zip(shifts, identifiable) if keep
+    ]
+    truth = TroughGeometryTruthLabels(
+        climatological_trough_month=anchor,
+        n_years=n_years,
+        trough_date_by_year=tuple(trough_dates),
+        identifiable_by_year=tuple(bool(item) for item in identifiable),
+        max_abs_excursion_months=int(max(observed_shifts)) if observed_shifts else 0,
+    )
+    scenario = ScenarioMetadata("none", "none", 0.0, 0, 0.0)
+    return SyntheticRecord(frame=frame, truth=truth, scenario=scenario, family=family, seed=seed)
