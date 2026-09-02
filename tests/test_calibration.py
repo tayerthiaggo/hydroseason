@@ -749,3 +749,36 @@ def test_geometry_fingerprint_is_stable_and_tuple_sensitive():
     assert first == trough_geometry_fingerprint(SHIPPED_GEOMETRY)
     assert first != trough_geometry_fingerprint(TroughGeometry(5, 5, 6))
     assert len(first) == 64
+
+
+def test_selector_composes_with_a_real_cache_from_the_calibration_partition():
+    """Run the cache builder and selector back-to-back on real synthetic data.
+
+    This is the path that was never exercised end-to-end: Task 6's own tests
+    only ever fed the selector a hand-built ``pd.DataFrame`` of rows, never
+    the output of ``build_trough_geometry_cache`` itself.  The per-year
+    ``truth_identifiable`` bug (fixed above in ``_geometry_rows``) hid exactly
+    here -- a hand-built fixture cannot reproduce a per-record mix of
+    identifiable and unidentifiable years the way the real corpus does.
+
+    The seed range below is 4 seeds per one of the 10 trough-geometry
+    families (``range(30000, 30040)``, families cycling on ``seed % 10``).
+    As of this fix pass, this real cache causes the selector to raise
+    ``RuntimeError`` at the false-precise-boundary Wilson gate: at least one
+    family (observed: ``tied_low_plateau_wide``, whose truth is
+    unidentifiable in every year by construction) produces a false-precise
+    rate whose Wilson upper bound exceeds the frozen 0.05 admission gate for
+    every one of the 24 grid points, so no candidate survives stage 1.  This
+    is a legitimate, informative outcome for right now, not a test bug: it
+    proves the Wilson gate actually rejects an unsafe grid rather than
+    silently admitting one once per-row identifiability is scored correctly.
+    Whether ``tied_low_plateau_wide``'s flat rejection reflects a genuine
+    detector-side issue (as opposed to a corpus-labelling question) is being
+    investigated separately and is out of scope for this fix pass -- this
+    test intentionally does not weaken the gate to force a selection through.
+    """
+    seeds = list(range(30000, 30040))
+    cache = build_trough_geometry_cache(seeds, partition="calibration")
+
+    with pytest.raises(RuntimeError, match="false precise-boundary"):
+        select_trough_geometry_defaults(cache)

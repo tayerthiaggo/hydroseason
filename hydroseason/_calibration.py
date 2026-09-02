@@ -1724,12 +1724,33 @@ def _geometry_rows(
 ) -> list[dict[str, object]]:
     """Score one detection run against its record's truth.
 
-    A published boundary is matched to the nearest truth trough.  Two boundaries
-    resolving to one truth trough, or a match further than half a cycle away,
-    are wrong-cycle errors: the boundary exists but names the wrong year.
+    ``identifiable_by_year`` and ``trough_date_by_year`` are per-year: a row is
+    only matched against truth when its *own* year is identifiable.  A
+    published boundary on an unidentifiable year is never nearest-matched --
+    no truth date is correct for it, so it counts only as a false precise
+    boundary, never as a wrong-cycle or accuracy error.
+
+    Among identifiable-year rows, a published boundary is matched to the
+    nearest truth trough among *identifiable* years only -- an unidentifiable
+    year contributes no candidate date, since no boundary is correct for it.
+    A match further than half a cycle away is a wrong-cycle error: the
+    boundary exists but names the wrong year.  When two boundaries both
+    resolve to the same truth trough -- one genuinely close to it, one that
+    drifted onto it from a neighbouring year -- only the *later* claimant (in
+    row/iteration order) is marked wrong-cycle.  The first claimant is never
+    flagged for this reason alone: it may be the boundary that is genuinely
+    correct for that truth date, and flagging both would penalise a case
+    where only one boundary is actually spurious.
     """
     truth = record.truth
-    truth_dates = [date for date in truth.trough_date_by_year if date is not None]
+    base_year = int(annual["hy_year"].min())
+    identifiable_truth_dates = [
+        date
+        for year_identifiable, date in zip(
+            truth.identifiable_by_year, truth.trough_date_by_year
+        )
+        if year_identifiable and date is not None
+    ]
     published = annual.loc[annual["trough_month"].notna()]
 
     boundaries = [pd.Timestamp(value) for value in published["trough_month"]]
@@ -1742,12 +1763,20 @@ def _geometry_rows(
     rows: list[dict[str, object]] = []
     for _, row in annual.iterrows():
         is_published = pd.notna(row["trough_month"])
+        offset = int(row["hy_year"]) - base_year
+        row_identifiable = bool(truth.identifiable_by_year[offset])
         error = np.nan
         wrong_cycle = False
-        if is_published and truth_dates:
+        if is_published and row_identifiable and identifiable_truth_dates:
+            # This row's own year is identifiable, so it is a legitimate
+            # candidate for nearest-match scoring; the pool of candidate
+            # truth dates is restricted to identifiable years only, so an
+            # unidentifiable year's (masked/absent) date can never be
+            # nearest-matched into another row's error or wrong-cycle count.
             selected = pd.Timestamp(row["trough_month"])
             nearest = min(
-                truth_dates, key=lambda date: abs(_geometry_month_delta(selected, date))
+                identifiable_truth_dates,
+                key=lambda date: abs(_geometry_month_delta(selected, date)),
             )
             error = float(_geometry_month_delta(selected, nearest))
             claimed[nearest] = claimed.get(nearest, 0) + 1
@@ -1759,10 +1788,9 @@ def _geometry_rows(
                 "geometry_index": int(geometry_index),
                 "hy_year": int(row["hy_year"]),
                 "published": bool(is_published),
-                # Every truth year is identifiable unless the corpus says
-                # otherwise; a record whose truth is entirely unidentifiable
-                # contributes only false-precise-boundary evidence.
-                "truth_identifiable": bool(any(truth.identifiable_by_year)),
+                # Per-row identifiability: this row's own year, not any
+                # record-wide reduction over all years.
+                "truth_identifiable": row_identifiable,
                 "error_months": error,
                 "wrong_cycle": bool(wrong_cycle),
                 "coverage_drop": bool(row.get("status_reason") == "insufficient_cycle_coverage"),
@@ -1804,8 +1832,15 @@ def _geometry_metrics(cache: pd.DataFrame, geometry_index: int) -> dict[str, flo
     Denominators differ by metric and are never mixed:
     ``false_precise_boundary_rate`` is over boundaries published on
     unidentifiable truth; ``boundary_mae`` is over identifiable years with a
-    published boundary; ``outside_window_lower_rate`` is over boundaries with a
-    fully observed audit span.
+    published, correctly-cycled boundary; ``outside_window_lower_rate`` is
+    over boundaries with a fully observed audit span.
+
+    ``boundary_mae`` and ``boundary_signed_bias`` exclude ``wrong_cycle`` rows.
+    A wrong-cycle match is a large, off-by-a-year error that is already
+    captured by ``wrong_cycle_rate``; leaving it in the error-distance sample
+    would double-count the same failure as both a wrong-cycle error and an
+    accuracy error, and a single such outlier can dominate the (undamped)
+    mean that feeds ``boundary_signed_bias``.
     """
     subset = cache.loc[cache["geometry_index"] == geometry_index]
     published = subset.loc[subset["published"]]
@@ -1815,7 +1850,11 @@ def _geometry_metrics(cache: pd.DataFrame, geometry_index: int) -> dict[str, flo
     n_unidentifiable = int(len(unidentifiable))
 
     identifiable = subset.loc[subset["truth_identifiable"]]
-    matched = identifiable.loc[identifiable["published"] & identifiable["error_months"].notna()]
+    matched = identifiable.loc[
+        identifiable["published"]
+        & identifiable["error_months"].notna()
+        & ~identifiable["wrong_cycle"]
+    ]
     errors = matched["error_months"].to_numpy(dtype=float)
 
     records = subset.groupby("seed")["record_nonmonotonic"].any()
