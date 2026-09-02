@@ -131,6 +131,34 @@ def test_identifiable_truth_dates_sit_at_the_annual_minimum():
             ), f"{record.family} year {year_offset}: truth is not the annual minimum"
 
 
+def test_identifiable_truth_dates_are_the_unique_annual_minimum():
+    """A tied annual minimum is not an identifiable point truth.
+
+    ``test_identifiable_truth_dates_sit_at_the_annual_minimum`` only checks
+    that the truth date's value equals the observed minimum -- a tie between
+    the truth month and a competing month satisfies that trivially. A family
+    that claims ``identifiable=True`` with a specific truth date must have
+    exactly one month attaining the annual minimum; otherwise the label is
+    unresolvable and any detector choosing the tied competitor is penalised
+    for a genuinely ambiguous record.
+    """
+    for offset in range(len(_TROUGH_GEOMETRY_FAMILIES)):
+        record = generate_trough_geometry_record(30000 + offset, partition="calibration")
+        for year_offset, date in enumerate(record.truth.trough_date_by_year):
+            if date is None or not record.truth.identifiable_by_year[year_offset]:
+                continue
+            window = record.frame.iloc[year_offset * 12 : (year_offset + 1) * 12]
+            observed = window["extent_pct"].dropna()
+            if observed.empty:
+                continue
+            tied_count = int((observed == observed.min()).sum())
+            assert tied_count == 1, (
+                f"{record.family} year {year_offset}: annual minimum "
+                f"{observed.min()!r} is attained by {tied_count} months, not 1 "
+                "-- truth date is not a resolvable point trough"
+            )
+
+
 def test_generating_the_geometry_corpus_does_not_perturb_the_frozen_corpora():
     from hydroseason._synthetic import generate_record, generate_timing_identifiability_record
 

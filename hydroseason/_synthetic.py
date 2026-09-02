@@ -926,8 +926,20 @@ def generate_trough_geometry_record(
         if family == "competing_secondary_minimum":
             # Five months out, not six: at six it would land on the peak month
             # and overwrite it, destroying the annual cycle this family needs.
+            #
+            # The offset above the true trough must survive integer-pixel
+            # quantization in ``_geometry_frame``, which rounds every value to
+            # whole ``n_water`` counts via
+            # ``np.rint(values * n_valid / 100.0)`` at ``n_valid == 100``.  A
+            # +0.5 offset (2.0 -> 2.5) rounds right back to the same
+            # ``n_water`` as the true trough, so the rival silently ties
+            # instead of losing, turning this family into an unlabelled
+            # duplicate of ``tied_low_plateau_wide`` while still claiming a
+            # single identifiable point truth.  +2.0 (2.0 -> 4.0) rounds to a
+            # distinct, strictly higher ``n_water`` (4 vs 2) and stays well
+            # clear of ``_GEOMETRY_PEAK_PP`` (70.0).
             rival = _geometry_shifted_month(trough_month, 5)
-            values[rows[row_months == rival]] = _GEOMETRY_TROUGH_PP + 0.5
+            values[rows[row_months == rival]] = _GEOMETRY_TROUGH_PP + 2.0
         elif family == "zero_dominated_wide_excursion":
             # Exactly one zero month.  A whole year tied at zero has no point
             # trough at all, so labelling one would invert the false
