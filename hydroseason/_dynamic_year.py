@@ -41,9 +41,10 @@ _TIMING_STATUS_RANK: dict[TimingStatus, int] = {"unresolved": 0, "interval": 1, 
 _DEFAULT_SUSTAINED_RISE_MONTHS = 2
 _DEFAULT_PULSE_REJECTION_WINDOW_MONTHS = 4
 
-# The released detector stays conservative by default (3-month boundary
-# window, 8 usable months).  A short cycle is only allowed to use this wider
-# geometry after the base pass has found it between two usable boundaries.
+# Default adaptive geometry.  These are the shipped values and the defaults for
+# the matching ``DynamicHydroYearConfig`` fields.  They are inherited from the
+# first dynamic-year implementation and have never been selected against truth;
+# ``docs/decision-policy-0.3.0.md`` specifies the sweep that will select them.
 _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS = 5
 _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE = 6
 
@@ -65,6 +66,8 @@ class DynamicHydroYearConfig:
     allow_unknown_quality: bool = False
     quality_policy: QualityPolicy = "flag"
     min_usable_months_per_cycle: int = 8
+    adaptive_trough_search_radius_months: int = _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS
+    adaptive_min_usable_months_per_cycle: int = _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE
     min_usable_trough_candidates: int = 2
     min_baseline_cycles: int = 5
     low_percentile: float = 20.0
@@ -91,6 +94,18 @@ class DynamicHydroYearConfig:
             raise ValueError("expected_peak_month must be in 1..12.")
         if not 0 <= self.trough_search_radius_months <= 5:
             raise ValueError("trough_search_radius_months must be in 0..5.")
+        if not 0 <= self.adaptive_trough_search_radius_months <= 5:
+            raise ValueError("adaptive_trough_search_radius_months must be in 0..5.")
+        if self.adaptive_trough_search_radius_months < self.trough_search_radius_months:
+            raise ValueError(
+                "adaptive_trough_search_radius_months must not be smaller than "
+                "trough_search_radius_months; the retry never narrows the search."
+            )
+        if not 1 <= self.adaptive_min_usable_months_per_cycle <= self.min_usable_months_per_cycle:
+            raise ValueError(
+                "adaptive_min_usable_months_per_cycle must be in "
+                "1..min_usable_months_per_cycle; the relaxation never tightens the base."
+            )
         if self.sustained_rise_months is not None and self.sustained_rise_months < 1:
             raise ValueError("recovery windows must be positive.")
         if self.pulse_rejection_window_months is not None and self.pulse_rejection_window_months < 1:
@@ -465,10 +480,7 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
             break
         relaxed_years.update(new_years)
         retry_attempted.update(new_years)
-        radius = min(
-            5,
-            max(config.trough_search_radius_months, _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS),
-        )
+        radius = config.adaptive_trough_search_radius_months
         relaxed_radius = {year: radius for year in relaxed_years}
         fixed = {
             year: month for year, month in base_boundaries.items()
@@ -505,7 +517,7 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
             config,
             pattern,
             min_usable_months_by_year={
-                year: min(config.min_usable_months_per_cycle, _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE)
+                year: config.adaptive_min_usable_months_per_cycle
                 for year in effective_relaxed_years
             },
         )
@@ -530,7 +542,7 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
                 config,
                 pattern,
                 min_usable_months_by_year={
-                    year: min(config.min_usable_months_per_cycle, _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE)
+                    year: config.adaptive_min_usable_months_per_cycle
                     for year in successful_relaxed_years
                 },
             )
@@ -571,10 +583,7 @@ def _adaptive_edge_retry_years(
     observed extent, preserving the existing rule that partially invalid
     observations can still identify a trough.
     """
-    expanded_radius = min(
-        5,
-        max(config.trough_search_radius_months, _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS),
-    )
+    expanded_radius = config.adaptive_trough_search_radius_months
     if expanded_radius <= config.trough_search_radius_months:
         return set()
 

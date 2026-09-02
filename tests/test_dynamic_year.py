@@ -874,8 +874,55 @@ def test_boundary_pinned_to_left_edge_is_reported_with_its_side():
     assert (edge["phase_shift_months"] == -edge["trough_search_radius_used"]).all()
 
 
+def test_adaptive_geometry_defaults_match_the_shipped_constants():
+    from hydroseason._dynamic_year import (
+        _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE,
+        _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS,
+    )
+
+    config = DynamicHydroYearConfig(expected_trough_month=7)
+    assert config.trough_search_radius_months == 3
+    assert config.adaptive_trough_search_radius_months == _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS
+    assert config.adaptive_min_usable_months_per_cycle == _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE
 
 
+def test_adaptive_radius_may_not_narrow_the_base_search():
+    with pytest.raises(ValueError, match="must not be smaller than trough_search_radius_months"):
+        DynamicHydroYearConfig(
+            expected_trough_month=7,
+            trough_search_radius_months=5,
+            adaptive_trough_search_radius_months=3,
+        )
+
+
+def test_adaptive_radius_respects_the_derived_upper_bound():
+    """A symmetric radius 6 spans 13 months, so adjacent windows would overlap."""
+    with pytest.raises(ValueError, match="adaptive_trough_search_radius_months must be in 0..5"):
+        DynamicHydroYearConfig(
+            expected_trough_month=7, adaptive_trough_search_radius_months=6
+        )
+
+
+def test_relaxed_coverage_may_not_tighten_the_base_minimum():
+    with pytest.raises(ValueError, match="adaptive_min_usable_months_per_cycle"):
+        DynamicHydroYearConfig(
+            expected_trough_month=7,
+            min_usable_months_per_cycle=8,
+            adaptive_min_usable_months_per_cycle=9,
+        )
+
+
+def test_configured_geometry_reaches_detection():
+    frame, anchor = _anchored_frame([7] * 6)
+    wide = DynamicHydroYearConfig(
+        expected_trough_month=anchor,
+        trough_search_radius_months=5,
+        adaptive_trough_search_radius_months=5,
+        adaptive_min_usable_months_per_cycle=5,
+    )
+    result = detect_dynamic_hydrological_years(frame, config=wide)
+    resolved = result.loc[result["trough_month"].notna()]
+    assert (resolved["trough_search_radius_used"] == 5).all()
 
 
 
