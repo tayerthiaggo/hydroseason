@@ -717,6 +717,137 @@ def test_retry_outcome_defaults_to_not_attempted():
     assert (result["retry_outcome"] == "not_attempted").all()
 
 
+def test_audit_span_never_reaches_a_month_the_search_radius_could_not_touch():
+    # Anchor July, radius 3 -> window Apr..Oct, audit span reaches at most
+    # +-5 months (Feb, Mar, Nov, Dec). January sits at offset +6/-6 from
+    # every year's anchor: inside neither the search window nor the widest
+    # possible audit span. Its much deeper low must never be reported as a
+    # challenge, however far the audit span is (mis)computed to reach.
+    index = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
+    values = np.full(len(index), 40.0)
+    values[index.month == 7] = 2.0
+    values[index.month == 1] = 1.0
+    frame = pd.DataFrame(
+        {"extent_pct": values, "invalid_pct": np.zeros(len(index))}, index=index
+    )
+    config = DynamicHydroYearConfig(expected_trough_month=7, trough_search_radius_months=3)
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    resolved = result.loc[result["trough_month"].notna()]
+    interior = resolved.iloc[1:-1]
+    assert interior["outside_window_observed"].all()
+    assert not interior["outside_window_lower"].any()
+
+
+def test_outside_window_lower_uses_raw_extent_not_quality_filtered():
+    # November carries invalid_pct=100 -- quality screening would exclude it
+    # from candidacy entirely, under either quality_policy -- yet its raw
+    # extent_pct is genuinely lower than the selected July trough.
+    # outside_window_lower compares raw observed extents, matching the rule
+    # the adaptive retry itself uses, so it must still report True.
+    index = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
+    values = np.full(len(index), 40.0)
+    invalid = np.zeros(len(index))
+    values[index.month == 7] = 5.0
+    values[index.month == 11] = 1.0
+    invalid[index.month == 11] = 100.0
+    frame = pd.DataFrame({"extent_pct": values, "invalid_pct": invalid}, index=index)
+    config = DynamicHydroYearConfig(expected_trough_month=7, trough_search_radius_months=3)
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    resolved = result.loc[result["trough_month"].notna()]
+    interior = resolved.iloc[1:-1]
+    assert interior["outside_window_observed"].all()
+    assert interior["outside_window_lower"].all()
+
+
+def test_retry_outcome_reports_applied_when_the_widened_boundary_survives():
+    years = list(range(2000, 2006))
+    index = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
+    values = np.full(len(index), 40.0)
+
+    def set_month(year, month, value):
+        values[index.get_loc(pd.Timestamp(year, month, 1))] = value
+
+    for year in years:
+        set_month(year, 7, 5.0)
+
+    target = 2002
+    # Base window (radius 3) puts the trough at April: exactly the window's
+    # left edge. February -- two months further back, inside the adaptive
+    # retry's 5-month reach but outside the base window -- carries a
+    # genuinely lower, fully observed extent, so `_adaptive_edge_retry_years`
+    # is expected to fire and the widened search should pull the boundary
+    # back to February. The surrounding months stay rich enough that the
+    # resulting (shorter) cycle still clears the retry's relaxed
+    # usable-month floor, so the widened boundary should survive.
+    set_month(target, 4, 3.0)
+    set_month(target, 7, 20.0)
+    set_month(target, 2, 1.0)
+    set_month(target, 3, 40.0)
+
+    frame = pd.DataFrame(
+        {"extent_pct": values, "invalid_pct": np.zeros(len(index))}, index=index
+    )
+    config = DynamicHydroYearConfig(expected_trough_month=7, trough_search_radius_months=3)
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    row = result.loc[result["hy_year"] == target].iloc[0]
+    assert row["trough_month"] == pd.Timestamp(target, 2, 1)
+    assert row["retry_outcome"] == "applied"
+
+
+def test_retry_outcome_reports_rolled_back_when_the_widened_boundary_fails_coverage():
+    years = list(range(2000, 2006))
+    index = pd.date_range("2000-01-01", periods=12 * 6, freq="MS")
+    values = np.full(len(index), 40.0)
+
+    def set_month(year, month, value):
+        values[index.get_loc(pd.Timestamp(year, month, 1))] = value
+
+    for year in years:
+        set_month(year, 7, 5.0)
+
+    previous_year, target = 2001, 2002
+    # Radius-2 windows. The previous year's trough sits at its own window's
+    # right edge (September), so the cycle feeding into `target` starts
+    # late. `target`'s base trough sits at its own window's left edge (May);
+    # two months further back -- inside the adaptive retry's 5-month reach
+    # but outside the base window -- is a genuinely lower, fully observed
+    # extent in February, so `_adaptive_edge_retry_years` is expected to
+    # fire. Pulling the boundary back to February shrinks the already-short
+    # cycle below even the retry's relaxed usable-month floor, so the
+    # widened attempt must be rolled back to the original (April) boundary.
+    set_month(previous_year, 9, 5.0)
+    set_month(previous_year, 7, 40.0)
+    set_month(target, 5, 3.0)
+    set_month(target, 7, 40.0)
+    set_month(target, 2, 1.0)
+    set_month(target, 3, 40.0)
+    set_month(target, 4, 40.0)
+
+    frame = pd.DataFrame(
+        {"extent_pct": values, "invalid_pct": np.zeros(len(index))}, index=index
+    )
+    config = DynamicHydroYearConfig(expected_trough_month=7, trough_search_radius_months=2)
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    row = result.loc[result["hy_year"] == target].iloc[0]
+    # The widened attempt is rolled back: the boundary stays at its base
+    # (pre-retry) month, not the lower one the retry found.
+    assert row["trough_month"] == pd.Timestamp(target, 5, 1)
+    assert row["retry_outcome"] == "rolled_back"
+
+
+def test_boundary_pinned_to_left_edge_is_reported_with_its_side():
+    # True trough three months before the anchor: exactly the left edge of a
+    # radius-3 window.
+    frame, anchor = _anchored_frame([4] * 6)
+    config = DynamicHydroYearConfig(expected_trough_month=anchor, trough_search_radius_months=3)
+    result = detect_dynamic_hydrological_years(frame, config=config)
+    resolved = result.loc[result["trough_month"].notna()]
+    edge = resolved.loc[resolved["boundary_search_edge_side"] == "left"]
+    assert not edge.empty
+    assert edge["boundary_at_search_edge"].all()
+    assert (edge["phase_shift_months"] == -edge["trough_search_radius_used"]).all()
+
+
 
 
 
