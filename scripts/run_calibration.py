@@ -549,16 +549,11 @@ def run_trough_geometry_validation(*, seeds, out_report, frozen_fingerprint=None
     )
 
     if not hasattr(defaults, "TROUGH_GEOMETRY_DEFAULTS"):
-        raise RuntimeError(
-            "trough-geometry fingerprint mismatch: defaults are not generated; calibrate first."
-        )
+        raise RuntimeError("trough-geometry defaults are not generated; calibrate first.")
     TROUGH_GEOMETRY_DEFAULTS = defaults.TROUGH_GEOMETRY_DEFAULTS
     expected = frozen_fingerprint or defaults.TROUGH_GEOMETRY_FINGERPRINT
     if trough_geometry_fingerprint(TROUGH_GEOMETRY_DEFAULTS) != expected:
-        raise RuntimeError(
-            "trough-geometry fingerprint mismatch: calibration inputs changed after freezing. "
-            "Re-run calibration rather than validating against a stale tuple."
-        )
+        raise RuntimeError("trough-geometry fingerprint differs from calibration; refusing validation.")
     started = time.perf_counter()
     seeds = list(seeds)
     cache = build_trough_geometry_cache(seeds, partition="validation")

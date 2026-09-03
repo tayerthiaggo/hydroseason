@@ -901,7 +901,7 @@ def test_geometry_runner_writes_defaults_and_a_report(tmp_path, monkeypatch):
     assert "TROUGH_GEOMETRY_FINGERPRINT" in text
 
 
-def test_geometry_validation_refuses_a_fingerprint_mismatch(tmp_path):
+def test_geometry_validation_refuses_when_defaults_are_not_generated(tmp_path):
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
@@ -910,7 +910,41 @@ def test_geometry_validation_refuses_a_fingerprint_mismatch(tmp_path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    with pytest.raises(RuntimeError, match="fingerprint"):
+    with pytest.raises(RuntimeError, match="not generated"):
+        module.run_trough_geometry_validation(
+            seeds=list(range(40000, 40004)),
+            out_report=tmp_path / "geometry-validation.json",
+            frozen_fingerprint="0" * 64,
+        )
+
+
+def test_geometry_validation_refuses_a_fingerprint_mismatch(tmp_path, monkeypatch):
+    """Exercise the actual mismatch branch, not the earlier not-generated guard.
+
+    Monkeypatches real ``TROUGH_GEOMETRY_DEFAULTS``/``TROUGH_GEOMETRY_FINGERPRINT``
+    attributes onto ``hydroseason._scientific_defaults`` (removed afterwards by
+    monkeypatch's teardown) so the ``hasattr`` guard passes and the runner reaches
+    its fingerprint comparison, then calls with a ``frozen_fingerprint`` that does
+    not match -- proving the comparison itself, not just the guard in front of it,
+    is what raises.
+    """
+    import importlib.util
+
+    import hydroseason._scientific_defaults as defaults
+    from hydroseason._calibration import TroughGeometry, trough_geometry_fingerprint
+
+    fake_geometry = TroughGeometry(3, 5, 6)
+    real_fingerprint = trough_geometry_fingerprint(fake_geometry)
+    monkeypatch.setattr(defaults, "TROUGH_GEOMETRY_DEFAULTS", fake_geometry, raising=False)
+    monkeypatch.setattr(defaults, "TROUGH_GEOMETRY_FINGERPRINT", real_fingerprint, raising=False)
+
+    spec = importlib.util.spec_from_file_location(
+        "run_calibration", ROOT / "scripts" / "run_calibration.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    with pytest.raises(RuntimeError, match="differs from calibration"):
         module.run_trough_geometry_validation(
             seeds=list(range(40000, 40004)),
             out_report=tmp_path / "geometry-validation.json",
