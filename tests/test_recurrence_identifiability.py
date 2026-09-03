@@ -127,3 +127,69 @@ def test_narrowed_dates_are_always_a_subset_of_input():
         for policy in ELIGIBLE_RECURRENCE_POLICIES:
             result = _narrow(dates, policy=policy, end="1991-12-01")
             assert set(result).issubset(dates)
+
+
+import numpy as np
+
+from hydroseason._timing_identifiability import (
+    TimingIdentifiabilityThresholds,
+    assess_window_timing,
+)
+
+WINDOW_THRESHOLDS = TimingIdentifiabilityThresholds(1.5, 1, 0, 2, 2)
+
+
+def _window_result(values, index, *, policy, window_start=None, window_end=None):
+    series = pd.Series(values, index=pd.to_datetime(index), dtype=float)
+    rows = pd.DataFrame({"n_valid": 100}, index=series.index)
+    return assess_window_timing(
+        series,
+        rows,
+        thresholds=WINDOW_THRESHOLDS,
+        measurement_tolerance_pct=1.0,
+        noise_pp=0.0,
+        pixel_support_status="unavailable",
+        recurrence_policy=policy,
+        window_start=window_start,
+        window_end=window_end,
+    )
+
+
+def test_window_assessor_drives_explicit_candidate_policy():
+    index = pd.date_range("1990-02-01", periods=18, freq="MS")
+    values = [5.0] * 2 + [10.0] + [5.0] * 10 + [10.0] + [5.0] * 3 + [0.0]
+    result = _window_result(values, index, policy="annual_shape_match")
+    assert result.peak_status == "point"
+    assert result.peak_dates == (pd.Timestamp("1991-03-01"),)
+
+
+# Both bound tests need a window whose peak set is genuinely ``unresolved``,
+# because that is the only branch that calls ``narrow_most_recent_recurrence()``
+# at all.  ``[10, 5, 10]`` spans 2 months, which is within
+# ``max_boundary_interval_months=2``, so it resolves to ``interval`` and the
+# narrowing code is never reached; ``[10, 5, 5, 5, 10]`` spans 4 and is.
+
+
+def test_derived_bounds_normalise_non_month_start_value_index():
+    index = ["1990-01-15", "1990-02-15", "1990-03-15", "1990-04-15", "1990-05-15"]
+    result = _window_result(
+        [10.0, 5.0, 5.0, 5.0, 10.0], index, policy="no_narrowing"
+    )
+    assert result.detectable is True
+    assert result.peak_status == "unresolved"
+    assert result.peak_dates == (
+        pd.Timestamp("1990-01-15"),
+        pd.Timestamp("1990-05-15"),
+    )
+
+
+def test_explicit_non_month_start_bound_is_rejected():
+    with pytest.raises(ValueError, match="month-start"):
+        _window_result(
+            [10.0, 5.0, 5.0, 5.0, 10.0],
+            pd.date_range("1990-01-01", periods=5, freq="MS"),
+            policy="no_narrowing",
+            window_start=pd.Timestamp("1990-01-02"),
+            window_end=pd.Timestamp("1990-05-01"),
+        )
+

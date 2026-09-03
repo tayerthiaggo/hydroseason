@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from hydroseason import _dynamic_year as dynamic_year
 from hydroseason._dynamic_year import (
     DynamicHydroYearConfig,
     _find_robust_trough_opportunities,
@@ -644,6 +645,22 @@ def _anchored_frame(trough_by_year, *, anchor_month=7, n_years=6, base=40.0, low
     ), anchor_month
 
 
+def _anchored_frame_with_missing_cycle_edges() -> pd.DataFrame:
+    index = pd.date_range("2000-01-01", periods=36, freq="MS")
+    by_month = {
+        1: 40.0, 2: 30.0, 3: 20.0, 4: 15.0, 5: 10.0, 6: 7.0,
+        7: 5.0,
+        8: 10.0, 9: 18.0, 10: 25.0, 11: 35.0,
+        12: 50.0,
+    }
+    values = [by_month[dt.month] for dt in index]
+    frame = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
+    frame.loc["2000-08-01", "invalid_pct"] = 100.0
+    frame.loc["2001-07-01", "invalid_pct"] = 100.0
+    return frame
+
+
+
 def test_annual_columns_carry_geometry_diagnostics():
     for column in (
         "trough_search_radius_used",
@@ -957,6 +974,29 @@ def test_configured_geometry_reaches_detection():
     result = detect_dynamic_hydrological_years(frame, config=wide)
     resolved = result.loc[result["trough_month"].notna()]
     assert (resolved["trough_search_radius_used"] == 5).all()
+
+
+def test_cycle_timing_passes_full_bounds_when_edge_months_are_unusable(monkeypatch):
+    seen = []
+    real = dynamic_year.assess_window_timing
+
+    def capture(*args, **kwargs):
+        seen.append((kwargs["window_start"], kwargs["window_end"]))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(dynamic_year, "assess_window_timing", capture)
+    frame = _anchored_frame_with_missing_cycle_edges()
+    detect_dynamic_hydrological_years(
+        frame,
+        config=DynamicHydroYearConfig(
+            expected_trough_month=7,
+            recurrence_policy="no_narrowing",
+        ),
+    )
+    assert seen
+    assert all(start.day == end.day == 1 for start, end in seen)
+    assert any((end.year - start.year) * 12 + end.month - start.month >= 12 for start, end in seen)
+
 
 
 

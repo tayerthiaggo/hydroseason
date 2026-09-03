@@ -21,6 +21,7 @@ from ._phase_scheme import (
     UnsetPhaseScheme,
     resolve_phase_scheme,
 )
+from ._recurrence_identifiability import RecurrencePolicy
 from ._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._state_input import QualityPolicy, prepare_monthly_extent
@@ -92,6 +93,7 @@ class DynamicHydroYearConfig:
     timing_identifiability_thresholds: TimingIdentifiabilityThresholds = (
         TIMING_IDENTIFIABILITY_DEFAULTS
     )
+    recurrence_policy: RecurrencePolicy | None = None
     detector: Literal["robust_extrema"] = "robust_extrema"
     phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET
     phase_model: LegacyPhaseModel | None = None
@@ -664,6 +666,9 @@ def _cycle_timing_evidence(
         measurement_tolerance_pct=config.measurement_tolerance_pct,
         noise_pp=noise_pp,
         pixel_support_status=pixel_support_status,
+        recurrence_policy=config.recurrence_policy,
+        window_start=pd.Timestamp(cycle.index[0]),
+        window_end=pd.Timestamp(cycle.index[-1]),
     )
 
 

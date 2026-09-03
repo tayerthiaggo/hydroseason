@@ -294,6 +294,7 @@ def test_window_timing_recovers_a_recurring_peak_in_an_oversized_cycle():
         values, rows,
         thresholds=TEST_THRESHOLDS, measurement_tolerance_pct=1.0, noise_pp=0.0,
         pixel_support_status="unavailable",
+        recurrence_policy="annual_shape_match",
     )
     assert result.peak_status == "point"
     assert result.peak_dates == (pd.Timestamp("1991-03-01"),)

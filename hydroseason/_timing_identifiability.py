@@ -15,6 +15,10 @@ from ._circular_timing import (
     linear_span_months,
     shortest_circular_span,
 )
+from ._recurrence_identifiability import (
+    RecurrencePolicy,
+    narrow_most_recent_recurrence,
+)
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
 TimingStatus = Literal["point", "interval", "unresolved"]
@@ -193,6 +197,9 @@ def assess_window_timing(
     measurement_tolerance_pct: float,
     noise_pp: float,
     pixel_support_status: PixelSupportStatus,
+    recurrence_policy: RecurrencePolicy | None = None,
+    window_start: pd.Timestamp | None = None,
+    window_end: pd.Timestamp | None = None,
 ) -> WindowTimingEvidence:
     """Assess peak/trough detectability and timing status for one bounded window.
 
@@ -208,6 +215,20 @@ def assess_window_timing(
         return WindowTimingEvidence(
             0, 0.0, 0.0, 0.0, None, True, False, (), (), "unresolved", "unresolved",
         )
+
+    def _recurrence_bounds() -> tuple[pd.Timestamp, pd.Timestamp]:
+        start = (
+            pd.Timestamp(values.index.min()).to_period("M").to_timestamp()
+            if window_start is None
+            else pd.Timestamp(window_start)
+        )
+        end = (
+            pd.Timestamp(values.index.max()).to_period("M").to_timestamp()
+            if window_end is None
+            else pd.Timestamp(window_end)
+        )
+        return start, end
+
     values = values.astype(float)
     maximum, minimum = float(values.max()), float(values.min())
     amplitude_pp = maximum - minimum
@@ -239,13 +260,33 @@ def assess_window_timing(
         peak_status = _window_status(peak_dates, thresholds)
         trough_status = _window_status(trough_dates, thresholds)
         if peak_status == "unresolved":
-            narrowed = _most_recent_recurrence_cluster(peak_dates, thresholds)
+            if recurrence_policy is None:
+                narrowed = _most_recent_recurrence_cluster(peak_dates, thresholds)
+            else:
+                recurrence_start, recurrence_end = _recurrence_bounds()
+                narrowed = narrow_most_recent_recurrence(
+                    peak_dates,
+                    window_start=recurrence_start,
+                    window_end=recurrence_end,
+                    max_boundary_interval_months=thresholds.max_boundary_interval_months,
+                    policy=recurrence_policy,
+                )
             if narrowed != peak_dates:
                 narrowed_status = _window_status(narrowed, thresholds)
                 if narrowed_status != "unresolved":
                     peak_dates, peak_status = narrowed, narrowed_status
         if trough_status == "unresolved":
-            narrowed = _most_recent_recurrence_cluster(trough_dates, thresholds)
+            if recurrence_policy is None:
+                narrowed = _most_recent_recurrence_cluster(trough_dates, thresholds)
+            else:
+                recurrence_start, recurrence_end = _recurrence_bounds()
+                narrowed = narrow_most_recent_recurrence(
+                    trough_dates,
+                    window_start=recurrence_start,
+                    window_end=recurrence_end,
+                    max_boundary_interval_months=thresholds.max_boundary_interval_months,
+                    policy=recurrence_policy,
+                )
             if narrowed != trough_dates:
                 narrowed_status = _window_status(narrowed, thresholds)
                 if narrowed_status != "unresolved":
