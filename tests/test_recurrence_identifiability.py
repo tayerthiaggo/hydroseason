@@ -5,6 +5,22 @@ from hydroseason._recurrence_identifiability import (
     ELIGIBLE_RECURRENCE_POLICIES,
     narrow_most_recent_recurrence,
 )
+from hydroseason._recurrence_synthetic import (
+    RECURRENCE_CALIBRATION_SEEDS,
+    RECURRENCE_FAMILIES,
+    RECURRENCE_VALIDATION_SEEDS,
+    generate_recurrence_record,
+)
+from hydroseason._synthetic import (
+    CALIBRATION_SEEDS,
+    GEOMETRY_CALIBRATION_SEEDS,
+    GEOMETRY_VALIDATION_SEEDS,
+    VALIDATION_SEEDS,
+)
+from hydroseason._timing_identifiability import (
+    TimingIdentifiabilityThresholds,
+    assess_window_timing,
+)
 
 
 def _dates(*values: str) -> tuple[pd.Timestamp, ...]:
@@ -129,13 +145,6 @@ def test_narrowed_dates_are_always_a_subset_of_input():
             assert set(result).issubset(dates)
 
 
-import numpy as np
-
-from hydroseason._timing_identifiability import (
-    TimingIdentifiabilityThresholds,
-    assess_window_timing,
-)
-
 WINDOW_THRESHOLDS = TimingIdentifiabilityThresholds(1.5, 1, 0, 2, 2)
 
 
@@ -193,3 +202,76 @@ def test_explicit_non_month_start_bound_is_rejected():
             window_end=pd.Timestamp("1990-05-01"),
         )
 
+
+def test_recurrence_seed_partitions_are_disjoint_from_every_existing_corpus():
+    groups = [
+        set(CALIBRATION_SEEDS), set(VALIDATION_SEEDS),
+        set(GEOMETRY_CALIBRATION_SEEDS), set(GEOMETRY_VALIDATION_SEEDS),
+        set(RECURRENCE_CALIBRATION_SEEDS), set(RECURRENCE_VALIDATION_SEEDS),
+    ]
+    assert all(left.isdisjoint(right) for i, left in enumerate(groups) for right in groups[i + 1 :])
+
+
+def test_first_960_seeds_balance_eight_families_exactly():
+    records = [generate_recurrence_record(seed, partition="calibration") for seed in range(50000, 50960)]
+    counts = pd.Series([record.family for record in records]).value_counts().to_dict()
+    assert set(counts) == set(RECURRENCE_FAMILIES)
+    assert set(counts.values()) == {120}
+
+
+def test_recurrence_truth_is_generator_owned_and_reachable():
+    for offset, family in enumerate(RECURRENCE_FAMILIES):
+        record = generate_recurrence_record(50000 + offset, partition="calibration")
+        assert record.family == family
+        assert record.window_start <= record.values.index.min()
+        assert record.values.index.max() <= record.window_end
+        if family.startswith("annual_") and family != "annual_aligned_fragment_trap":
+            assert record.truth.status in {"point", "interval"}
+            assert record.truth.latest_dates
+        else:
+            assert record.truth.status == "unresolved"
+            assert record.truth.latest_dates == ()
+
+
+def test_corpus_is_deterministic_and_partitions_differ():
+    first = generate_recurrence_record(50007, partition="calibration")
+    again = generate_recurrence_record(50007, partition="calibration")
+    validation = generate_recurrence_record(60007, partition="validation")
+    pd.testing.assert_series_equal(first.values, again.values)
+    pd.testing.assert_frame_equal(first.rows, again.rows)
+    assert first.truth == again.truth
+    assert not first.values.equals(validation.values) or first.window_end != validation.window_end
+
+
+def _assess_record(record, policy):
+    result = assess_window_timing(
+        record.values,
+        record.rows,
+        thresholds=record.thresholds,
+        measurement_tolerance_pct=record.measurement_tolerance_pct,
+        noise_pp=record.noise_pp,
+        pixel_support_status=record.pixel_support_status,
+        recurrence_policy=policy,
+        window_start=record.window_start,
+        window_end=record.window_end,
+    )
+    return (
+        (result.peak_status, result.peak_dates)
+        if record.truth.kind == "peak"
+        else (result.trough_status, result.trough_dates)
+    )
+
+
+def test_legacy_ablation_fails_fragmented_negative_control():
+    record = generate_recurrence_record(50003, partition="calibration")
+    status, _dates = _assess_record(record, "long_window_last_cluster")
+    assert record.family == "ordinary_gap_fragmented_plateau"
+    assert status == "unresolved"  # short-window gate must defeat legacy narrowing
+
+
+def test_annual_shape_candidate_recovers_positive_families():
+    for offset in range(3):
+        record = generate_recurrence_record(50000 + offset, partition="calibration")
+        status, dates = _assess_record(record, "annual_shape_match")
+        assert status == record.truth.status
+        assert dates == record.truth.latest_dates
