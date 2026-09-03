@@ -180,3 +180,27 @@ def test_v030_geometry_design_records_null_result_as_publishable():
     normalized = " ".join(text.split())
     assert "Null result — shipped tuple `(3, 5, 6)` wins" in normalized
     assert "This is a real result and is reported as such, not as \"no change\"." in normalized
+
+
+def test_recurrence_identifiability_design_freezes_the_020_correction():
+    text = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "specs"
+        / "2026-09-03-recurrence-cluster-identifiability-design.md"
+    ).read_text(encoding="utf-8")
+    required = {
+        'RECURRENCE_CALIBRATION_SEEDS = range(50000, 55000)',
+        'RECURRENCE_VALIDATION_SEEDS = range(60000, 65000)',
+        '"no_narrowing"',
+        '"long_window_last_cluster"',
+        '"annual_shape_match"',
+        "false-point Wilson upper bound <= 0.05",
+        "false-resolution Wilson upper bound <= 0.05",
+        "at least 0.90 genuine-recurrence status accuracy",
+        "keep `ESTABLISHED_POLICY == \"established_0_2_0\"` throughout",
+        "timing_identifiability_fingerprint()` must remain byte-identical",
+    }
+    missing = sorted(phrase for phrase in required if phrase not in text)
+    assert not missing, f"approved recurrence design is missing: {missing}"
