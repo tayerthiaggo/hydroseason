@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from hydroseason._catchment import analyze_catchment
 from scripts.check_motivating_records import (
-    MotivatingRecordCheckFailure,
     check_denison,
     check_nebo,
     check_taroom,
@@ -13,7 +13,6 @@ from scripts.check_motivating_records import (
     load_observation_frame,
     run_check,
 )
-from hydroseason._catchment import analyze_catchment
 
 STRESS_ROOT = Path(r"D:\RLH\5.6\hydroseason_tests\outputs\stress_test_final")
 

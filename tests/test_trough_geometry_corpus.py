@@ -5,16 +5,15 @@ phase drift reach only about +/-2 months, and the timing-identifiability corpus
 uses fixed extrema.  Neither contains a year whose true trough lies outside a
 radius-3 window, so neither can distinguish radius 3 from radius 5.
 """
-import numpy as np
 import pandas as pd
 import pytest
 
 from hydroseason._synthetic import (
+    _TROUGH_GEOMETRY_FAMILIES,
     CALIBRATION_SEEDS,
     GEOMETRY_CALIBRATION_SEEDS,
     GEOMETRY_VALIDATION_SEEDS,
     VALIDATION_SEEDS,
-    _TROUGH_GEOMETRY_FAMILIES,
     TroughGeometryTruthLabels,
     generate_trough_geometry_record,
 )

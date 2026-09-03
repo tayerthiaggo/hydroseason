@@ -6,6 +6,8 @@ import pytest
 
 from hydroseason import _dynamic_year as dynamic_year
 from hydroseason._dynamic_year import (
+    _DIAGNOSTIC_AUDIT_RADIUS_MONTHS,
+    ANNUAL_COLUMNS,
     DynamicHydroYearConfig,
     _find_robust_trough_opportunities,
     detect_dynamic_hydrological_years,
@@ -621,12 +623,6 @@ def test_two_phase_is_the_default_phase_scheme():
 def test_explicit_phase_schemes_are_stored():
     two = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="two_phase")
     assert two.phase_scheme == "two_phase"
-
-
-from hydroseason._dynamic_year import (
-    ANNUAL_COLUMNS,
-    _DIAGNOSTIC_AUDIT_RADIUS_MONTHS,
-)
 
 
 def _anchored_frame(trough_by_year, *, anchor_month=7, n_years=6, base=40.0, low=2.0):
