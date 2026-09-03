@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Literal
 
 import numpy as np
+import pandas as pd
 
 from . import (
     _recurrence_identifiability as recurrence_metrics,
@@ -26,6 +27,7 @@ from ._recurrence_synthetic import (
 from ._timing_identifiability import (
     PixelSupportStatus,
     TimingStatus,
+    _window_status,
     assess_window_timing,
 )
 
@@ -293,11 +295,96 @@ def recurrence_fingerprint(
     return hasher.hexdigest()
 
 
+def legacy_last_cluster(
+    dates: Sequence[pd.Timestamp], *, max_boundary_interval_months: int
+) -> tuple[pd.Timestamp, ...]:
+    ordered = tuple(sorted(pd.Timestamp(value) for value in dates))
+    if len(ordered) <= 1:
+        return ordered
+    clusters = recurrence_metrics._clusters(
+        ordered, max_gap=max_boundary_interval_months
+    )
+    latest = clusters[-1]
+    return latest if recurrence_metrics._resolved(
+        latest, limit=max_boundary_interval_months
+    ) else ordered
+
+
+def evaluate_legacy_records(
+    records: Iterable[RecurrenceSyntheticRecord],
+    *,
+    policy: str = "legacy_last_cluster_report_only",
+) -> list[RecurrenceEvaluation]:
+    """Evaluate synthetic records against the legacy last-cluster policy for reporting."""
+    evaluations: list[RecurrenceEvaluation] = []
+    for record in records:
+        result = assess_window_timing(
+            record.values,
+            record.rows,
+            thresholds=record.thresholds,
+            measurement_tolerance_pct=record.measurement_tolerance_pct,
+            noise_pp=record.noise_pp,
+            pixel_support_status=record.pixel_support_status,
+            recurrence_policy="no_narrowing",
+            window_start=record.window_start,
+            window_end=record.window_end,
+        )
+        peak_dates = result.peak_dates
+        peak_status = result.peak_status
+        if peak_status == "unresolved" and len(peak_dates) > 0:
+            narrowed = legacy_last_cluster(
+                peak_dates,
+                max_boundary_interval_months=record.thresholds.max_boundary_interval_months,
+            )
+            if narrowed != peak_dates:
+                narrowed_status = _window_status(narrowed, record.thresholds)
+                if narrowed_status != "unresolved":
+                    peak_dates, peak_status = narrowed, narrowed_status
+
+        trough_dates = result.trough_dates
+        trough_status = result.trough_status
+        if trough_status == "unresolved" and len(trough_dates) > 0:
+            narrowed = legacy_last_cluster(
+                trough_dates,
+                max_boundary_interval_months=record.thresholds.max_boundary_interval_months,
+            )
+            if narrowed != trough_dates:
+                narrowed_status = _window_status(narrowed, record.thresholds)
+                if narrowed_status != "unresolved":
+                    trough_dates, trough_status = narrowed, narrowed_status
+
+        if record.truth.kind == "peak":
+            predicted_status = peak_status
+            predicted_dates = peak_dates
+        else:
+            predicted_status = trough_status
+            predicted_dates = trough_dates
+
+        exact_latest_dates = bool(
+            record.truth.status in {"point", "interval"}
+            and tuple(predicted_dates) == tuple(record.truth.latest_dates)
+        )
+        evaluations.append(
+            RecurrenceEvaluation(
+                policy=policy,  # type: ignore[arg-type]
+                family=record.family,
+                kind=record.truth.kind,
+                pixel_support_status=record.pixel_support_status,
+                truth_status=record.truth.status,
+                predicted_status=predicted_status,
+                exact_latest_dates=exact_latest_dates,
+            )
+        )
+    return evaluations
+
+
 __all__ = [
     "RECURRENCE_AUTHORITY_SCOPE",
     "RecurrenceEvaluation",
     "RecurrencePolicyScore",
+    "evaluate_legacy_records",
     "evaluate_recurrence_records",
+    "legacy_last_cluster",
     "recurrence_fingerprint",
     "score_recurrence_policy",
     "select_recurrence_policy",

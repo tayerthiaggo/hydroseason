@@ -1,3 +1,4 @@
+import importlib.util
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -6,25 +7,44 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from hydroseason import _calibration as calibration, _scientific_defaults as defaults
 from hydroseason._calibration import (
     EVIDENCE_GRID,
     MIN_TIMING_YEARS_OVERRIDE,
+    TROUGH_GEOMETRY_GRID,
     EvidenceThresholds,
     RecordStatistics,
     RecoverabilityThresholds,
+    TroughGeometry,
     _apply_min_timing_years_override,
+    _geometry_metrics,
     build_evidence_cache,
+    build_trough_geometry_cache,
     compute_statistics,
     evaluate_evidence_cache,
     iter_evidence_points,
+    iter_trough_geometry_points,
     score_evidence_grid_point,
+    score_trough_geometry,
     select_evidence_defaults,
+    select_trough_geometry_defaults,
+    trough_geometry_fingerprint,
 )
 from hydroseason._synthetic import generate_record
 from hydroseason._timing_identifiability import TimingIdentifiabilityThresholds
 from scripts.run_calibration import _drift_axis_rates, run_calibration, run_validation
 
 ROOT = Path(__file__).parents[1]
+
+
+def _load_run_calibration_module():
+    spec = importlib.util.spec_from_file_location(
+        "run_calibration", ROOT / "scripts" / "run_calibration.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 
 
 def _tiny_gate_cache() -> pd.DataFrame:
@@ -586,8 +606,6 @@ def test_timing_validation_truth_cannot_change_selected_defaults_or_fingerprint(
 
 
 def test_timing_validation_scores_only_the_frozen_tuple(monkeypatch):
-    import hydroseason._calibration as calibration
-
     def _grid_forbidden():
         raise AssertionError("untouched validation must not enumerate the timing grid")
 
@@ -595,7 +613,6 @@ def test_timing_validation_scores_only_the_frozen_tuple(monkeypatch):
     cache = calibration.build_timing_identifiability_cache(
         [20000, 20001], partition="validation"
     )
-    from hydroseason import _scientific_defaults as defaults
 
     score = calibration.score_timing_identifiability_thresholds(
         cache, defaults.TIMING_IDENTIFIABILITY_DEFAULTS
@@ -622,17 +639,6 @@ def test_timing_fingerprint_covers_metric_implementation(monkeypatch):
 
     assert timing_identifiability_fingerprint(defaults.TIMING_IDENTIFIABILITY_DEFAULTS) != baseline
 
-
-from hydroseason._calibration import (
-    TROUGH_GEOMETRY_GRID,
-    TroughGeometry,
-    _geometry_metrics,
-    build_trough_geometry_cache,
-    iter_trough_geometry_points,
-    score_trough_geometry,
-    select_trough_geometry_defaults,
-    trough_geometry_fingerprint,
-)
 
 SHIPPED_GEOMETRY = TroughGeometry(3, 5, 6)
 
@@ -845,18 +851,8 @@ def test_geometry_runner_writes_defaults_and_a_report(tmp_path, monkeypatch):
     actually adds -- report payload shape and defaults-module writing --
     from that already-documented, not-this-task's-problem selector outcome.
     """
-    import importlib.util
-    import json
+    module = _load_run_calibration_module()
 
-    spec = importlib.util.spec_from_file_location(
-        "run_calibration", ROOT / "scripts" / "run_calibration.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    from hydroseason._calibration import TroughGeometry, iter_trough_geometry_points
-
-    shipped = TroughGeometry(3, 5, 6)
     points = list(iter_trough_geometry_points())
     rows = [
         {
@@ -869,10 +865,9 @@ def test_geometry_runner_writes_defaults_and_a_report(tmp_path, monkeypatch):
         for index, _point in enumerate(points)
     ]
     fake_cache = pd.DataFrame(rows)
-    import hydroseason._calibration as calibration_module
 
     monkeypatch.setattr(
-        calibration_module, "build_trough_geometry_cache",
+        calibration, "build_trough_geometry_cache",
         lambda seeds, *, partition: fake_cache,
     )
 
@@ -902,13 +897,7 @@ def test_geometry_runner_writes_defaults_and_a_report(tmp_path, monkeypatch):
 
 
 def test_geometry_validation_refuses_when_defaults_are_not_generated(tmp_path):
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "run_calibration", ROOT / "scripts" / "run_calibration.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = _load_run_calibration_module()
 
     with pytest.raises(RuntimeError, match="not generated"):
         module.run_trough_geometry_validation(
@@ -928,21 +917,12 @@ def test_geometry_validation_refuses_a_fingerprint_mismatch(tmp_path, monkeypatc
     not match -- proving the comparison itself, not just the guard in front of it,
     is what raises.
     """
-    import importlib.util
-
-    import hydroseason._scientific_defaults as defaults
-    from hydroseason._calibration import TroughGeometry, trough_geometry_fingerprint
-
     fake_geometry = TroughGeometry(3, 5, 6)
     real_fingerprint = trough_geometry_fingerprint(fake_geometry)
     monkeypatch.setattr(defaults, "TROUGH_GEOMETRY_DEFAULTS", fake_geometry, raising=False)
     monkeypatch.setattr(defaults, "TROUGH_GEOMETRY_FINGERPRINT", real_fingerprint, raising=False)
 
-    spec = importlib.util.spec_from_file_location(
-        "run_calibration", ROOT / "scripts" / "run_calibration.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = _load_run_calibration_module()
 
     with pytest.raises(RuntimeError, match="differs from calibration"):
         module.run_trough_geometry_validation(
@@ -950,3 +930,170 @@ def test_geometry_validation_refuses_a_fingerprint_mismatch(tmp_path, monkeypatc
             out_report=tmp_path / "geometry-validation.json",
             frozen_fingerprint="0" * 64,
         )
+
+
+def test_recurrence_runner_writes_report_and_appends_defaults(tmp_path):
+    module = _load_run_calibration_module()
+    defaults_path = tmp_path / "_scientific_defaults.py"
+    defaults_path.write_text("# GENERATED\nKEEP = 1\n", encoding="utf-8")
+    report_path = tmp_path / "recurrence.json"
+    module.run_recurrence_calibration(
+        seeds=list(range(50000, 50080)),
+        out_report=report_path,
+        out_module=defaults_path,
+    )
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    text = defaults_path.read_text(encoding="utf-8")
+    assert payload["partition"] == "calibration"
+    assert payload["selected_policy"] in {
+        "no_narrowing", "annual_shape_match", "long_window_last_cluster"
+    }
+    assert "KEEP = 1" in text
+    assert "RECURRENCE_POLICY" in text
+    assert payload["fingerprint"] in text
+
+
+def test_recurrence_validation_refuses_stale_fingerprint_before_building_corpus(tmp_path, monkeypatch):
+    module = _load_run_calibration_module()
+    calibration_path = tmp_path / "calibration.json"
+    calibration_path.write_text(
+        json.dumps(
+            {
+                "selected_policy": "annual_shape_match",
+                "fingerprint": "frozen",
+                "seeds": list(range(50000, 50960)),
+                "metrics": {"false_point_k": 0, "false_point_n": 120},
+                "authority_scope": "candidate_for_established_0_2_0",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "recurrence_fingerprint", lambda *args, **kwargs: "changed")
+    monkeypatch.setattr(
+        module,
+        "generate_recurrence_record",
+        lambda *args, **kwargs: pytest.fail("validation corpus was read before staleness check"),
+    )
+    with pytest.raises(RuntimeError, match="recurrence fingerprint"):
+        module.run_recurrence_validation(
+            seeds=list(range(60000, 60960)),
+            out_report=tmp_path / "validation.json",
+            calibration_report=calibration_path,
+            frozen_policy="annual_shape_match",
+            frozen_fingerprint="frozen",
+        )
+
+
+def test_writer_order_idempotent(tmp_path):
+    module = _load_run_calibration_module()
+    defaults_path = tmp_path / "_scientific_defaults.py"
+
+    thresholds = TimingIdentifiabilityThresholds(
+        min_amplitude_to_floor_ratio=3.0,
+        min_peak_water_pixels=5,
+        max_point_span_months=0,
+        max_boundary_interval_months=2,
+        min_informative_years=7,
+    )
+    timing_fp = "timing_fp_123"
+    geometry = TroughGeometry(3, 5, 6)
+    geom_fp = "geom_fp_456"
+
+    # 1. Timing writer first
+    module._write_timing_identifiability_defaults(
+        defaults_path, thresholds=thresholds, timing_fingerprint=timing_fp
+    )
+    # 2. Recurrence writer second
+    module._write_recurrence_defaults(
+        defaults_path,
+        policy="annual_shape_match",
+        recurrence_fingerprint_value="rec_fp_789",
+    )
+    # 3. Geometry writer third
+    module._write_trough_geometry_defaults(
+        defaults_path, geometry=geometry, geometry_fingerprint=geom_fp
+    )
+
+    text = defaults_path.read_text(encoding="utf-8")
+    assert text.count("TIMING_IDENTIFIABILITY_DEFAULTS") == 1
+    assert text.count("RECURRENCE_POLICY") == 1
+    assert text.count("TROUGH_GEOMETRY_DEFAULTS") == 1
+    assert text.index("RECURRENCE_POLICY") < text.index("TROUGH_GEOMETRY_DEFAULTS")
+
+    # 4. Timing writer a second time
+    module._write_timing_identifiability_defaults(
+        defaults_path, thresholds=thresholds, timing_fingerprint=timing_fp
+    )
+    # 5. Geometry writer a second time
+    module._write_trough_geometry_defaults(
+        defaults_path, geometry=geometry, geometry_fingerprint=geom_fp
+    )
+
+    text2 = defaults_path.read_text(encoding="utf-8")
+    assert text2.count("TIMING_IDENTIFIABILITY_DEFAULTS") == 1
+    assert text2.count("RECURRENCE_POLICY") == 1
+    assert text2.count("TROUGH_GEOMETRY_DEFAULTS") == 1
+    assert text2.index("RECURRENCE_POLICY") < text2.index("TROUGH_GEOMETRY_DEFAULTS")
+
+
+def test_recurrence_validation_runner_writes_report(tmp_path):
+    module = _load_run_calibration_module()
+    defaults_path = tmp_path / "_scientific_defaults.py"
+    defaults_path.write_text("# placeholder\n", encoding="utf-8")
+    cal_report_path = tmp_path / "calibration.json"
+    module.run_recurrence_calibration(
+        seeds=list(range(50000, 50120)),
+        out_report=cal_report_path,
+        out_module=defaults_path,
+    )
+    cal_payload = json.loads(cal_report_path.read_text(encoding="utf-8"))
+    assert "legacy_last_cluster_report_only" in cal_payload["candidate_metrics"]
+
+    val_report_path = tmp_path / "validation.json"
+    module.run_recurrence_validation(
+        seeds=list(range(60000, 60120)),
+        out_report=val_report_path,
+        calibration_report=cal_report_path,
+    )
+
+    val_payload = json.loads(val_report_path.read_text(encoding="utf-8"))
+    assert val_payload["partition"] == "validation"
+    assert val_payload["selected_policy"] == cal_payload["selected_policy"]
+    assert val_payload["fingerprint"] == cal_payload["fingerprint"]
+    assert val_payload["selection_counts"] == {"reselection": 0}
+    assert list(val_payload["candidate_metrics"].keys()) == [cal_payload["selected_policy"]]
+
+
+def test_recurrence_cli_mutual_exclusion():
+    module = _load_run_calibration_module()
+    parser = module._build_parser()
+
+    # Valid individual modes
+    args1 = parser.parse_args(["--recurrence-identifiability"])
+    assert args1.recurrence_identifiability is True
+    assert args1.num_recurrence_seeds == 960
+
+    args2 = parser.parse_args(["--timing-identifiability"])
+    assert args2.timing_identifiability is True
+
+    args3 = parser.parse_args(["--trough-geometry"])
+    assert args3.trough_geometry is True
+
+    # Mutually exclusive flags
+    for flags in (
+        ["--recurrence-identifiability", "--trough-geometry"],
+        ["--recurrence-identifiability", "--timing-identifiability"],
+        ["--recurrence-identifiability", "--legacy-calibration"],
+        ["--timing-identifiability", "--trough-geometry"],
+    ):
+        with pytest.raises(SystemExit):
+            # parse_args will succeed, but checking exclusivity in main raises parser.error
+            parsed = parser.parse_args(flags)
+            mode_flags = [
+                parsed.recurrence_identifiability,
+                parsed.trough_geometry,
+                parsed.timing_identifiability,
+                parsed.legacy_calibration,
+            ]
+            if sum(bool(f) for f in mode_flags) > 1:
+                parser.error("mutually exclusive")
