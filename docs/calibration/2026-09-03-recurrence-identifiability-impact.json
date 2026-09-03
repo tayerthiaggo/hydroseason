@@ -1,0 +1,4031 @@
+{
+  "selection_use": "forbidden",
+  "timing_identifiability_fingerprint": "e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735",
+  "recurrence_fingerprint": "4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00",
+  "selected_policy": "annual_shape_match",
+  "counts": {
+    "stress_records": 34,
+    "protected_catchments": 5,
+    "motivating_ids": 3,
+    "cohort_ids": 21,
+    "missing_sources": 0,
+    "missing_legacy_artifacts": 5,
+    "total_annual_changes": 478,
+    "total_record_changes": 17
+  },
+  "counts_by_source_group": {
+    "stress": {
+      "records": 34,
+      "annual_changes": 478,
+      "record_changes": 17,
+      "missing_artifacts": 0
+    },
+    "protected": {
+      "records": 5,
+      "annual_changes": 0,
+      "record_changes": 0,
+      "missing_artifacts": 5
+    }
+  },
+  "counts_by_field": {
+    "peak_timing_status": 17,
+    "peak_interval_start": 17,
+    "trough_timing_status": 91,
+    "trough_interval_start": 91,
+    "timing_status": 94,
+    "boundary_status": 75,
+    "confidence": 93
+  },
+  "counts_by_station": {
+    "130003b": 30,
+    "130005a": 24,
+    "130105b": 60,
+    "130106a": 14,
+    "130206a": 20,
+    "130216a": 47,
+    "130217a": 38,
+    "130302a": 50,
+    "130303b": 34,
+    "130306b": 38,
+    "130322a": 31,
+    "130324a": 9,
+    "130327a": 14,
+    "130401a": 37,
+    "kakadu": 32
+  },
+  "counts_by_year": {
+    "2005": 14,
+    "2008": 40,
+    "2012": 24,
+    "2013": 14,
+    "2016": 44,
+    "2017": 30,
+    "2018": 19,
+    "2022": 23,
+    "2024": 29,
+    "2025": 24,
+    "2007": 39,
+    "2009": 20,
+    "2010": 10,
+    "2014": 32,
+    "2019": 15,
+    "2020": 41,
+    "2021": 23,
+    "2015": 17,
+    "2011": 5,
+    "2006": 10,
+    "2023": 5
+  },
+  "counts_by_cohort_membership": {
+    "in_cohort": {
+      "records": 21,
+      "annual_changes": 274
+    },
+    "not_in_cohort": {
+      "records": 18,
+      "annual_changes": 204
+    }
+  },
+  "counts_by_motivating_status": {
+    "motivating": {
+      "records": 3,
+      "annual_changes": 50
+    },
+    "non_motivating": {
+      "records": 36,
+      "annual_changes": 428
+    }
+  },
+  "counts_by_protected_status": {
+    "protected": {
+      "records": 5,
+      "annual_changes": 0
+    },
+    "non_protected": {
+      "records": 34,
+      "annual_changes": 478
+    }
+  },
+  "records": [
+    {
+      "station_id": "130003b",
+      "bundle": "130003b-fitzroy-river-at-riverslea",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 30,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130005a",
+      "bundle": "130005a-fitzroy-river-at-the-gap",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 24,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130105b",
+      "bundle": "130105b-mackenzie-river-at-coolmaringa",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 60,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130106a",
+      "bundle": "130106a-mackenzie-river-at-bingegang",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 14,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130113a",
+      "bundle": "130113a-mackenzie-river-at-rileys-crossing",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 2
+    },
+    {
+      "station_id": "130206a",
+      "bundle": "130206a-theresa-creek-at-gregory-highway",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 20,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130210a",
+      "bundle": "130210a-theresa-creek-at-valeria",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130216a",
+      "bundle": "130216a-nogoa-river-at-fairbairn-dam",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 47,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130217a",
+      "bundle": "130217a-theresa-creek-at-theresa-creek-dam",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 38,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130302a",
+      "bundle": "130302a-dawson-river-at-taroom",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": true,
+      "is_protected": false,
+      "annual_changes_count": 50,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130303b",
+      "bundle": "130303b-dawson-river-at-glebe-recorder",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 34,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130306b",
+      "bundle": "130306b-don-river-at-rannes",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 38,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130314b",
+      "bundle": "130314b-callide-creek-callide-dam",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130317b",
+      "bundle": "130317b-dawson-river-at-woodleigh",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130319a",
+      "bundle": "130319a-bell-creek-at-craiglands",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130322a",
+      "bundle": "130322a-dawson-river-at-beckers",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 31,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130324a",
+      "bundle": "130324a-dawson-river-at-utopia-downs",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 9,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130327a",
+      "bundle": "130327a-callide-creek-at-goovigen",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 14,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130334a",
+      "bundle": "130334a-south-kariboe-creek-at-pump-station",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130336a",
+      "bundle": "130336a-grevillea-creek-at-folding-hills",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130348a",
+      "bundle": "130348a-prospect-creek-at-red-hill",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130349a",
+      "bundle": "130349a-don-river-at-kingsborough",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130401a",
+      "bundle": "130401a-isaac-river-at-yatton",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 37,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130403a",
+      "bundle": "130403a-connors-river-mt-bridget",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "130404a",
+      "bundle": "130404a-connors-river-at-pink-lagoon",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 2
+    },
+    {
+      "station_id": "130406a",
+      "bundle": "130406a-funnel-creek-at-main-road",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130407a",
+      "bundle": "130407a-nebo-creek-at-nebo",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": true,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130410a",
+      "bundle": "130410a-isaac-river-at-deverill",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130413a",
+      "bundle": "130413a-denison-creek-at-braeside",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": true,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130502b",
+      "bundle": "130502b-brown-river-at-lake-brown",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130504b",
+      "bundle": "130504b-comet-river-at-comet-weir",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130506a",
+      "bundle": "130506a-comet-river-at-the-lake-124-2-km",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "130509a",
+      "bundle": "130509a-carnarvon-creek-at-rewan",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 0,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "kakadu",
+      "bundle": "kakadu-national-park",
+      "group": "stress",
+      "source_exists": true,
+      "legacy_artifact_exists": true,
+      "in_cohort": true,
+      "is_motivating": false,
+      "is_protected": false,
+      "annual_changes_count": 32,
+      "record_changes_count": 1
+    },
+    {
+      "station_id": "daly_river_nt",
+      "bundle": "daly_river_nt",
+      "group": "protected",
+      "source_exists": true,
+      "legacy_artifact_exists": false,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": true,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "fitzroy_river_wa",
+      "bundle": "fitzroy_river_wa",
+      "group": "protected",
+      "source_exists": true,
+      "legacy_artifact_exists": false,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": true,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "gilbert_river_qld",
+      "bundle": "gilbert_river_qld",
+      "group": "protected",
+      "source_exists": true,
+      "legacy_artifact_exists": false,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": true,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "lachlan_river_nsw",
+      "bundle": "lachlan_river_nsw",
+      "group": "protected",
+      "source_exists": true,
+      "legacy_artifact_exists": false,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": true,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    },
+    {
+      "station_id": "moonie_river_qld_nsw",
+      "bundle": "moonie_river_qld_nsw",
+      "group": "protected",
+      "source_exists": true,
+      "legacy_artifact_exists": false,
+      "in_cohort": false,
+      "is_motivating": false,
+      "is_protected": true,
+      "annual_changes_count": 0,
+      "record_changes_count": 0
+    }
+  ],
+  "annual_changes": [
+    {
+      "station_id": "130003b",
+      "hy_year": 2005,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2005,
+      "field": "peak_interval_start",
+      "legacy": "2005-07-01",
+      "selected": "2005-01-01"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2008,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2008,
+      "field": "trough_interval_start",
+      "legacy": "2008-10-01",
+      "selected": "2008-05-01"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2008,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2008,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2008,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2012,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2012,
+      "field": "trough_interval_start",
+      "legacy": "2012-10-01",
+      "selected": "2011-11-01"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2012,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2012,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2013,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2013,
+      "field": "trough_interval_start",
+      "legacy": "2013-11-01",
+      "selected": "2013-07-01"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2013,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2013,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2016,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2016,
+      "field": "peak_interval_start",
+      "legacy": "2016-07-01",
+      "selected": "2016-02-01"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2016,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2016,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2016,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2017,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2017,
+      "field": "trough_interval_start",
+      "legacy": "2018-01-01",
+      "selected": "2017-09-01"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2017,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2017,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2017,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2018,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2018,
+      "field": "trough_interval_start",
+      "legacy": "2018-09-01",
+      "selected": "2018-05-01"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2018,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2018,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130003b",
+      "hy_year": 2018,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2008,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2008,
+      "field": "trough_interval_start",
+      "legacy": "2008-11-01",
+      "selected": "2007-12-01"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2008,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2008,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2008,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2016,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2016,
+      "field": "peak_interval_start",
+      "legacy": "2016-07-01",
+      "selected": "2016-02-01"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2016,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2016,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2016,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2022,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2022,
+      "field": "peak_interval_start",
+      "legacy": "2022-07-01",
+      "selected": "2021-12-01"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2022,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2022,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2022,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2024,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2024,
+      "field": "trough_interval_start",
+      "legacy": "2024-11-01",
+      "selected": "2024-03-01"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2024,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2024,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2024,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2025,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2025,
+      "field": "trough_interval_start",
+      "legacy": "2025-10-01",
+      "selected": "2025-01-01"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2025,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130005a",
+      "hy_year": 2025,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2005,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2005,
+      "field": "trough_interval_start",
+      "legacy": "2005-09-01",
+      "selected": "2005-04-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2005,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2005,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2007,
+      "field": "peak_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2007,
+      "field": "peak_interval_start",
+      "legacy": "2007-06-01",
+      "selected": "2007-02-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2007,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2007,
+      "field": "trough_interval_start",
+      "legacy": "2007-11-01",
+      "selected": "2007-01-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2007,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2007,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2007,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2008,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2008,
+      "field": "trough_interval_start",
+      "legacy": "2008-10-01",
+      "selected": "2008-06-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2008,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2008,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2008,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2009,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2009,
+      "field": "peak_interval_start",
+      "legacy": "2009-04-01",
+      "selected": "2009-01-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2009,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2009,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2009,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2010,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2010,
+      "field": "trough_interval_start",
+      "legacy": "2010-07-01",
+      "selected": "2009-12-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2010,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2010,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2010,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2014,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2014,
+      "field": "trough_interval_start",
+      "legacy": "2014-10-01",
+      "selected": "2014-05-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2014,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2014,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2016,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2016,
+      "field": "peak_interval_start",
+      "legacy": "2016-07-01",
+      "selected": "2016-02-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2016,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2016,
+      "field": "trough_interval_start",
+      "legacy": "2017-01-01",
+      "selected": "2015-12-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2016,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2016,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2016,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2017,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2017,
+      "field": "trough_interval_start",
+      "legacy": "2018-01-01",
+      "selected": "2017-10-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2017,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2017,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2017,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2019,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2019,
+      "field": "trough_interval_start",
+      "legacy": "2019-11-01",
+      "selected": "2018-12-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2019,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2019,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2019,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2020,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2020,
+      "field": "trough_interval_start",
+      "legacy": "2020-10-01",
+      "selected": "2019-12-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2020,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2020,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2021,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2021,
+      "field": "peak_interval_start",
+      "legacy": "2021-07-01",
+      "selected": "2021-01-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2021,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2021,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2021,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2022,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2022,
+      "field": "trough_interval_start",
+      "legacy": "2022-02-01",
+      "selected": "2021-11-01"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2022,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130105b",
+      "hy_year": 2022,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2007,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2007,
+      "field": "trough_interval_start",
+      "legacy": "2007-11-01",
+      "selected": "2006-12-01"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2007,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2007,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2008,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2008,
+      "field": "trough_interval_start",
+      "legacy": "2008-10-01",
+      "selected": "2007-12-01"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2008,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2008,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2008,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2020,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2020,
+      "field": "trough_interval_start",
+      "legacy": "2020-10-01",
+      "selected": "2020-01-01"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2020,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2020,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130106a",
+      "hy_year": 2020,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2008,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2008,
+      "field": "trough_interval_start",
+      "legacy": "2008-06-01",
+      "selected": "2007-11-01"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2008,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2008,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2008,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2015,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2015,
+      "field": "trough_interval_start",
+      "legacy": "2015-12-01",
+      "selected": "2014-08-01"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2015,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2015,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2015,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2020,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2020,
+      "field": "trough_interval_start",
+      "legacy": "2020-11-01",
+      "selected": "2020-01-01"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2020,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2020,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2020,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2021,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2021,
+      "field": "trough_interval_start",
+      "legacy": "2021-11-01",
+      "selected": "2021-02-01"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2021,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2021,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130206a",
+      "hy_year": 2021,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2005,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2005,
+      "field": "trough_interval_start",
+      "legacy": "2005-09-01",
+      "selected": "2005-06-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2007,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2007,
+      "field": "trough_interval_start",
+      "legacy": "2007-10-01",
+      "selected": "2006-12-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2007,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2007,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2007,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2009,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2009,
+      "field": "trough_interval_start",
+      "legacy": "2009-10-01",
+      "selected": "2009-04-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2009,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2009,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2009,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2012,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2012,
+      "field": "trough_interval_start",
+      "legacy": "2012-11-01",
+      "selected": "2012-01-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2012,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2012,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2012,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2013,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2013,
+      "field": "trough_interval_start",
+      "legacy": "2013-10-01",
+      "selected": "2013-03-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2013,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2013,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2013,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2014,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2014,
+      "field": "peak_interval_start",
+      "legacy": "2014-09-01",
+      "selected": "2013-12-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2014,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2014,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2014,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2015,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2015,
+      "field": "peak_interval_start",
+      "legacy": "2015-06-01",
+      "selected": "2014-12-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2016,
+      "field": "peak_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2016,
+      "field": "peak_interval_start",
+      "legacy": "2016-07-01",
+      "selected": "2016-03-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2016,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2016,
+      "field": "trough_interval_start",
+      "legacy": "2016-11-01",
+      "selected": "2016-04-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2016,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2016,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2016,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2018,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2018,
+      "field": "trough_interval_start",
+      "legacy": "2019-01-01",
+      "selected": "2018-10-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2020,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2020,
+      "field": "peak_interval_start",
+      "legacy": "2020-07-01",
+      "selected": "2020-02-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2020,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2020,
+      "field": "trough_interval_start",
+      "legacy": "2020-12-01",
+      "selected": "2020-01-01"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2020,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2020,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2020,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2021,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130216a",
+      "hy_year": 2021,
+      "field": "trough_interval_start",
+      "legacy": "2021-10-01",
+      "selected": "2021-01-01"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2005,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2005,
+      "field": "trough_interval_start",
+      "legacy": "2006-01-01",
+      "selected": "2005-03-01"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2005,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2005,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2011,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2011,
+      "field": "trough_interval_start",
+      "legacy": "2011-11-01",
+      "selected": "2010-11-01"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2011,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2011,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2011,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2014,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2014,
+      "field": "trough_interval_start",
+      "legacy": "2014-10-01",
+      "selected": "2014-01-01"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2014,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2014,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2015,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2015,
+      "field": "trough_interval_start",
+      "legacy": "2015-12-01",
+      "selected": "2015-06-01"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2015,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2015,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2015,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2018,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2018,
+      "field": "trough_interval_start",
+      "legacy": "2019-01-01",
+      "selected": "2018-02-01"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2018,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2018,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2018,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2020,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2020,
+      "field": "trough_interval_start",
+      "legacy": "2020-10-01",
+      "selected": "2019-12-01"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2020,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2020,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2020,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2022,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2022,
+      "field": "trough_interval_start",
+      "legacy": "2022-07-01",
+      "selected": "2021-11-01"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2022,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2022,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2022,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2024,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2024,
+      "field": "trough_interval_start",
+      "legacy": "2024-10-01",
+      "selected": "2024-05-01"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2024,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2024,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130217a",
+      "hy_year": 2024,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2006,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2006,
+      "field": "trough_interval_start",
+      "legacy": "2006-08-01",
+      "selected": "2005-06-01"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2006,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2006,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2006,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2009,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2009,
+      "field": "trough_interval_start",
+      "legacy": "2009-08-01",
+      "selected": "2009-01-01"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2009,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2009,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2009,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2012,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2012,
+      "field": "trough_interval_start",
+      "legacy": "2012-09-01",
+      "selected": "2011-11-01"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2012,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2012,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2012,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2013,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2013,
+      "field": "trough_interval_start",
+      "legacy": "2013-09-01",
+      "selected": "2012-10-01"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2013,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2013,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2013,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2016,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2016,
+      "field": "trough_interval_start",
+      "legacy": "2016-11-01",
+      "selected": "2016-03-01"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2016,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2016,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2016,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2018,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2018,
+      "field": "trough_interval_start",
+      "legacy": "2018-09-01",
+      "selected": "2017-10-01"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2018,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2018,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2018,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2020,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2020,
+      "field": "trough_interval_start",
+      "legacy": "2020-09-01",
+      "selected": "2019-12-01"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2020,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2020,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2020,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2021,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2021,
+      "field": "trough_interval_start",
+      "legacy": "2021-09-01",
+      "selected": "2020-11-01"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2021,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2021,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2021,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2023,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2023,
+      "field": "trough_interval_start",
+      "legacy": "2023-09-01",
+      "selected": "2023-01-01"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2023,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2023,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2023,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2024,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2024,
+      "field": "trough_interval_start",
+      "legacy": "2024-09-01",
+      "selected": "2023-11-01"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2024,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2024,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130302a",
+      "hy_year": 2024,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2007,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2007,
+      "field": "trough_interval_start",
+      "legacy": "2007-09-01",
+      "selected": "2006-11-01"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2007,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2007,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2007,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2008,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2008,
+      "field": "peak_interval_start",
+      "legacy": "2008-09-01",
+      "selected": "2007-12-01"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2008,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2008,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2008,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2012,
+      "field": "peak_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2012,
+      "field": "peak_interval_start",
+      "legacy": "2012-06-01",
+      "selected": "2012-01-01"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2012,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2012,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2012,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2014,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2014,
+      "field": "trough_interval_start",
+      "legacy": "2014-10-01",
+      "selected": "2013-12-01"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2014,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2014,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2014,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2018,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2018,
+      "field": "trough_interval_start",
+      "legacy": "2018-09-01",
+      "selected": "2017-10-01"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2020,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2020,
+      "field": "trough_interval_start",
+      "legacy": "2020-09-01",
+      "selected": "2019-12-01"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2020,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2020,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2020,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2021,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2021,
+      "field": "trough_interval_start",
+      "legacy": "2021-09-01",
+      "selected": "2020-11-01"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2024,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2024,
+      "field": "trough_interval_start",
+      "legacy": "2024-10-01",
+      "selected": "2023-11-01"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2024,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2024,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130303b",
+      "hy_year": 2024,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2005,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2005,
+      "field": "peak_interval_start",
+      "legacy": "2005-07-01",
+      "selected": "2005-02-01"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2007,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2007,
+      "field": "trough_interval_start",
+      "legacy": "2007-10-01",
+      "selected": "2007-01-01"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2007,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2007,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2007,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2010,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2010,
+      "field": "trough_interval_start",
+      "legacy": "2010-07-01",
+      "selected": "2010-02-01"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2010,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2010,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2010,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2012,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2012,
+      "field": "trough_interval_start",
+      "legacy": "2012-12-01",
+      "selected": "2011-12-01"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2012,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2012,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2012,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2014,
+      "field": "peak_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2014,
+      "field": "peak_interval_start",
+      "legacy": "2014-04-01",
+      "selected": "2014-01-01"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2016,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2016,
+      "field": "trough_interval_start",
+      "legacy": "2016-12-01",
+      "selected": "2016-03-01"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2016,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2016,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2016,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2017,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2017,
+      "field": "trough_interval_start",
+      "legacy": "2018-01-01",
+      "selected": "2017-02-01"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2017,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2017,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2017,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2022,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2022,
+      "field": "trough_interval_start",
+      "legacy": "2023-01-01",
+      "selected": "2022-04-01"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2022,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2022,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2022,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2025,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2025,
+      "field": "trough_interval_start",
+      "legacy": "2025-02-01",
+      "selected": "2024-11-01"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2025,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130306b",
+      "hy_year": 2025,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2007,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2007,
+      "field": "trough_interval_start",
+      "legacy": "2007-05-01",
+      "selected": "2007-02-01"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2007,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2007,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2008,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2008,
+      "field": "trough_interval_start",
+      "legacy": "2008-06-01",
+      "selected": "2007-10-01"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2008,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2008,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2008,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2014,
+      "field": "peak_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2014,
+      "field": "peak_interval_start",
+      "legacy": "2014-04-01",
+      "selected": "2013-12-01"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2014,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2014,
+      "field": "trough_interval_start",
+      "legacy": "2014-11-01",
+      "selected": "2014-02-01"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2014,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2014,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2014,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2016,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2016,
+      "field": "trough_interval_start",
+      "legacy": "2016-11-01",
+      "selected": "2016-04-01"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2016,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2016,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2016,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2017,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2017,
+      "field": "trough_interval_start",
+      "legacy": "2018-01-01",
+      "selected": "2017-10-01"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2017,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2017,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2017,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2020,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2020,
+      "field": "trough_interval_start",
+      "legacy": "2020-11-01",
+      "selected": "2020-01-01"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2020,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2020,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130322a",
+      "hy_year": 2020,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130324a",
+      "hy_year": 2015,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130324a",
+      "hy_year": 2015,
+      "field": "trough_interval_start",
+      "legacy": "2015-10-01",
+      "selected": "2014-11-01"
+    },
+    {
+      "station_id": "130324a",
+      "hy_year": 2015,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130324a",
+      "hy_year": 2015,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130324a",
+      "hy_year": 2015,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130324a",
+      "hy_year": 2025,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130324a",
+      "hy_year": 2025,
+      "field": "trough_interval_start",
+      "legacy": "2025-10-01",
+      "selected": "2024-11-01"
+    },
+    {
+      "station_id": "130324a",
+      "hy_year": 2025,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130324a",
+      "hy_year": 2025,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2007,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2007,
+      "field": "trough_interval_start",
+      "legacy": "2007-08-01",
+      "selected": "2007-02-01"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2007,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2007,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2007,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2009,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2009,
+      "field": "trough_interval_start",
+      "legacy": "2009-10-01",
+      "selected": "2008-12-01"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2009,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2009,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2009,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2025,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2025,
+      "field": "trough_interval_start",
+      "legacy": "2025-09-01",
+      "selected": "2024-12-01"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2025,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130327a",
+      "hy_year": 2025,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2006,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2006,
+      "field": "trough_interval_start",
+      "legacy": "2006-12-01",
+      "selected": "2005-10-01"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2006,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2006,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2006,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2007,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2007,
+      "field": "trough_interval_start",
+      "legacy": "2007-11-01",
+      "selected": "2007-01-01"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2007,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2007,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2008,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2008,
+      "field": "trough_interval_start",
+      "legacy": "2008-10-01",
+      "selected": "2007-12-01"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2008,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2008,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2008,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2014,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2014,
+      "field": "trough_interval_start",
+      "legacy": "2014-11-01",
+      "selected": "2014-01-01"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2014,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2014,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2014,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2017,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2017,
+      "field": "trough_interval_start",
+      "legacy": "2017-11-01",
+      "selected": "2017-03-01"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2017,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2017,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2017,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2019,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2019,
+      "field": "trough_interval_start",
+      "legacy": "2019-10-01",
+      "selected": "2019-01-01"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2019,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2019,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2019,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2024,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2024,
+      "field": "trough_interval_start",
+      "legacy": "2024-11-01",
+      "selected": "2023-12-01"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2024,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2024,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2025,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2025,
+      "field": "trough_interval_start",
+      "legacy": "2025-11-01",
+      "selected": "2024-12-01"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2025,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "130401a",
+      "hy_year": 2025,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2016,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2016,
+      "field": "trough_interval_start",
+      "legacy": "2016-05-01",
+      "selected": "2015-11-01"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2016,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2016,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2016,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2017,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2017,
+      "field": "trough_interval_start",
+      "legacy": "2017-10-01",
+      "selected": "2016-06-01"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2017,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2017,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2017,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2019,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2019,
+      "field": "trough_interval_start",
+      "legacy": "2019-11-01",
+      "selected": "2019-05-01"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2019,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2019,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2019,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2021,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2021,
+      "field": "trough_interval_start",
+      "legacy": "2021-09-01",
+      "selected": "2020-07-01"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2021,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2021,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2022,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2022,
+      "field": "trough_interval_start",
+      "legacy": "2022-09-01",
+      "selected": "2021-11-01"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2022,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2022,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2024,
+      "field": "trough_timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2024,
+      "field": "trough_interval_start",
+      "legacy": "2024-10-01",
+      "selected": "2023-11-01"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2024,
+      "field": "timing_status",
+      "legacy": "interval",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2024,
+      "field": "boundary_status",
+      "legacy": "confirmed",
+      "selected": "provisional"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2024,
+      "field": "confidence",
+      "legacy": "high",
+      "selected": "low"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2025,
+      "field": "trough_timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2025,
+      "field": "trough_interval_start",
+      "legacy": "2025-10-01",
+      "selected": "2025-07-01"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2025,
+      "field": "timing_status",
+      "legacy": "point",
+      "selected": "unresolved"
+    },
+    {
+      "station_id": "kakadu",
+      "hy_year": 2025,
+      "field": "confidence",
+      "legacy": "medium",
+      "selected": "low"
+    }
+  ],
+  "record_changes": [
+    {
+      "station_id": "130003b",
+      "field": "publication_category",
+      "legacy": "interval_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130105b",
+      "field": "publication_category",
+      "legacy": "interval_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130106a",
+      "field": "publication_category",
+      "legacy": "point_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130113a",
+      "field": "route",
+      "legacy": "per_year_detection",
+      "selected": "event_characterisation"
+    },
+    {
+      "station_id": "130113a",
+      "field": "publication_category",
+      "legacy": "interval_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130206a",
+      "field": "publication_category",
+      "legacy": "interval_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130217a",
+      "field": "publication_category",
+      "legacy": "interval_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130302a",
+      "field": "publication_category",
+      "legacy": "interval_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130319a",
+      "field": "route",
+      "legacy": "per_year_detection",
+      "selected": "event_characterisation"
+    },
+    {
+      "station_id": "130322a",
+      "field": "publication_category",
+      "legacy": "point_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130327a",
+      "field": "publication_category",
+      "legacy": "interval_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130401a",
+      "field": "publication_category",
+      "legacy": "interval_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130403a",
+      "field": "route",
+      "legacy": "per_year_detection",
+      "selected": "event_characterisation"
+    },
+    {
+      "station_id": "130404a",
+      "field": "route",
+      "legacy": "per_year_detection",
+      "selected": "event_characterisation"
+    },
+    {
+      "station_id": "130404a",
+      "field": "publication_category",
+      "legacy": "interval_supported",
+      "selected": "event_only"
+    },
+    {
+      "station_id": "130509a",
+      "field": "route",
+      "legacy": "per_year_detection",
+      "selected": "event_characterisation"
+    },
+    {
+      "station_id": "kakadu",
+      "field": "publication_category",
+      "legacy": "interval_supported",
+      "selected": "point_supported"
+    }
+  ]
+}
