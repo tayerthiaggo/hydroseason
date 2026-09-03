@@ -374,6 +374,20 @@ TIMING_IDENTIFIABILITY_DEFAULTS = TimingIdentifiabilityThresholds(**{asdict(thre
     out_module.write_text(module_code, encoding="utf-8")
 
 
+def _write_trough_geometry_defaults(out_module, *, geometry, geometry_fingerprint: str) -> None:
+    """Append the frozen geometry tuple to the generated defaults module."""
+    path = Path(out_module)
+    text = path.read_text(encoding="utf-8")
+    block = (
+        "\nfrom hydroseason._calibration import TroughGeometry\n"
+        "\n"
+        f"TROUGH_GEOMETRY_AUTHORITY_SCOPE = 'candidate_for_established_0_3_0'\n"
+        f"TROUGH_GEOMETRY_FINGERPRINT = '{geometry_fingerprint}'\n"
+        f"TROUGH_GEOMETRY_DEFAULTS = TroughGeometry(**{asdict(geometry)!r})\n"
+    )
+    path.write_text(text.rstrip("\n") + "\n" + block, encoding="utf-8")
+
+
 def _timing_report_payload(*, partition: str, seeds: list[int], thresholds, score, fingerprint_value: str, elapsed: float) -> dict[str, object]:
     payload = {
         "calibration_version": "0.2.0-timing-identifiability.1",
@@ -466,6 +480,101 @@ def run_timing_identifiability_validation(
     print(f"Wrote untouched timing validation report to {out_report}", flush=True)
 
 
+def _geometry_report_payload(
+    *, partition: str, seeds: list[int], score, fingerprint_value: str, elapsed: float
+) -> dict[str, object]:
+    return {
+        "partition": partition,
+        "authority_scope": "candidate_for_established_0_3_0",
+        "n_seeds": len(seeds),
+        "seed_range": [int(min(seeds)), int(max(seeds))],
+        "geometry": asdict(score.geometry),
+        "fingerprint": fingerprint_value,
+        "environment": calibration_environment(),
+        "elapsed_seconds": round(elapsed, 3),
+        "selection_counts": score.selection_counts,
+        "tie_breaks": list(score.tie_breaks),
+        "metrics": {
+            "false_precise_boundary_rate": score.false_precise_boundary_rate,
+            "false_precise_boundary_wilson": list(score.false_precise_boundary_wilson),
+            "false_precise_boundary_n": score.false_precise_boundary_n,
+            "duplicate_or_nonmonotonic_rate": score.duplicate_or_nonmonotonic_rate,
+            "boundary_mae": score.boundary_mae,
+            "boundary_signed_bias": score.boundary_signed_bias,
+            "wrong_cycle_rate": score.wrong_cycle_rate,
+            "short_long_cycle_rate": score.short_long_cycle_rate,
+            "coverage_drop_rate": score.coverage_drop_rate,
+            "abstention_rate": score.abstention_rate,
+            # Report-only.  Never a selection metric: see decision-policy-0.3.0.md.
+            "outside_window_lower_rate": score.outside_window_lower_rate,
+        },
+    }
+
+
+def run_trough_geometry_calibration(*, seeds, out_report, out_module) -> None:
+    from hydroseason._calibration import (
+        build_trough_geometry_cache,
+        select_trough_geometry_defaults,
+        trough_geometry_fingerprint,
+    )
+
+    started = time.perf_counter()
+    seeds = list(seeds)
+    cache = build_trough_geometry_cache(seeds, partition="calibration")
+    geometry, score = select_trough_geometry_defaults(cache)
+    fingerprint_value = trough_geometry_fingerprint(geometry)
+    payload = _geometry_report_payload(
+        partition="calibration",
+        seeds=seeds,
+        score=score,
+        fingerprint_value=fingerprint_value,
+        elapsed=time.perf_counter() - started,
+    )
+    Path(out_report).parent.mkdir(parents=True, exist_ok=True)
+    Path(out_report).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _write_trough_geometry_defaults(
+        out_module, geometry=geometry, geometry_fingerprint=fingerprint_value
+    )
+    print(f"Selected trough-geometry defaults: {geometry}", flush=True)
+    print(f"Wrote trough-geometry calibration report to {out_report}", flush=True)
+
+
+def run_trough_geometry_validation(*, seeds, out_report, frozen_fingerprint=None) -> None:
+    """Run the untouched partition once. Report-only: it cannot reselect."""
+    import hydroseason._scientific_defaults as defaults
+    from hydroseason._calibration import (
+        build_trough_geometry_cache,
+        score_trough_geometry,
+        trough_geometry_fingerprint,
+    )
+
+    if not hasattr(defaults, "TROUGH_GEOMETRY_DEFAULTS"):
+        raise RuntimeError(
+            "trough-geometry fingerprint mismatch: defaults are not generated; calibrate first."
+        )
+    TROUGH_GEOMETRY_DEFAULTS = defaults.TROUGH_GEOMETRY_DEFAULTS
+    expected = frozen_fingerprint or defaults.TROUGH_GEOMETRY_FINGERPRINT
+    if trough_geometry_fingerprint(TROUGH_GEOMETRY_DEFAULTS) != expected:
+        raise RuntimeError(
+            "trough-geometry fingerprint mismatch: calibration inputs changed after freezing. "
+            "Re-run calibration rather than validating against a stale tuple."
+        )
+    started = time.perf_counter()
+    seeds = list(seeds)
+    cache = build_trough_geometry_cache(seeds, partition="validation")
+    score = score_trough_geometry(cache, TROUGH_GEOMETRY_DEFAULTS)
+    payload = _geometry_report_payload(
+        partition="validation",
+        seeds=seeds,
+        score=score,
+        fingerprint_value=expected,
+        elapsed=time.perf_counter() - started,
+    )
+    Path(out_report).parent.mkdir(parents=True, exist_ok=True)
+    Path(out_report).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(f"Wrote untouched trough-geometry validation report to {out_report}", flush=True)
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run calibration/validation workflow")
@@ -474,9 +583,21 @@ if __name__ == "__main__":
     parser.add_argument("--out-module", default="hydroseason/_scientific_defaults.py")
     parser.add_argument("--num-seeds", type=int, default=None)
     parser.add_argument("--timing-identifiability", action="store_true")
+    parser.add_argument("--trough-geometry", action="store_true")
+    parser.add_argument("--num-geometry-seeds", type=int, default=240)
     args = parser.parse_args()
 
-    if args.timing_identifiability:
+    if args.trough_geometry:
+        base = 40000 if args.partition == "validation" else 30000
+        geometry_seeds = list(range(base, base + args.num_geometry_seeds))
+        report_path = args.out_report or f"docs/calibration/trough-geometry-{args.partition}.json"
+        if args.partition == "validation":
+            run_trough_geometry_validation(seeds=geometry_seeds, out_report=report_path)
+        else:
+            run_trough_geometry_calibration(
+                seeds=geometry_seeds, out_report=report_path, out_module=args.out_module
+            )
+    elif args.timing_identifiability:
         timing_seeds = list(VALIDATION_SEEDS if args.partition == "validation" else CALIBRATION_SEEDS)
         if args.num_seeds is not None:
             timing_seeds = timing_seeds[: args.num_seeds]

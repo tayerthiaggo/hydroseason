@@ -24,6 +24,8 @@ from hydroseason._synthetic import generate_record
 from hydroseason._timing_identifiability import TimingIdentifiabilityThresholds
 from scripts.run_calibration import _drift_axis_rates, run_calibration, run_validation
 
+ROOT = Path(__file__).parents[1]
+
 
 def _tiny_gate_cache() -> pd.DataFrame:
     return pd.DataFrame(
@@ -826,3 +828,91 @@ def test_selector_composes_with_a_real_cache_from_the_calibration_partition():
 
     with pytest.raises(RuntimeError, match="false precise-boundary"):
         select_trough_geometry_defaults(cache)
+
+
+def test_geometry_runner_writes_defaults_and_a_report(tmp_path, monkeypatch):
+    """Exercise the runner's report/defaults-writing plumbing end to end.
+
+    The real calibration corpus (seeds 30000+) is known -- per Task 6's own
+    ``test_selector_composes_with_a_real_cache_from_the_calibration_partition``
+    -- to make ``select_trough_geometry_defaults`` raise ``RuntimeError`` on
+    every occurrence of the ``missing_outer_months`` family, regardless of
+    geometry candidate or seed-range size: it is an accepted, geometry-
+    invariant 8/64 false-precise-boundary rate, not a bug this task should
+    route around. So this test stands up the runner against a hand-built
+    cache (mirroring Task 6's own tie-break fixtures) where selection
+    succeeds by construction, to isolate and verify the plumbing this task
+    actually adds -- report payload shape and defaults-module writing --
+    from that already-documented, not-this-task's-problem selector outcome.
+    """
+    import importlib.util
+    import json
+
+    spec = importlib.util.spec_from_file_location(
+        "run_calibration", ROOT / "scripts" / "run_calibration.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    from hydroseason._calibration import TroughGeometry, iter_trough_geometry_points
+
+    shipped = TroughGeometry(3, 5, 6)
+    points = list(iter_trough_geometry_points())
+    rows = [
+        {
+            "seed": 30000, "family": "stationary_trough", "geometry_index": index,
+            "hy_year": 2001, "published": True, "truth_identifiable": True,
+            "error_months": 0.0, "wrong_cycle": False, "coverage_drop": False,
+            "record_nonmonotonic": False, "outside_window_lower": False,
+            "outside_window_observed": True, "cycle_months": 12.0,
+        }
+        for index, _point in enumerate(points)
+    ]
+    fake_cache = pd.DataFrame(rows)
+    import hydroseason._calibration as calibration_module
+
+    monkeypatch.setattr(
+        calibration_module, "build_trough_geometry_cache",
+        lambda seeds, *, partition: fake_cache,
+    )
+
+    out_module = tmp_path / "_generated_defaults.py"
+    out_module.write_text("# placeholder\n", encoding="utf-8")
+    out_report = tmp_path / "geometry-calibration.json"
+    module.run_trough_geometry_calibration(
+        seeds=list(range(30000, 30010)),
+        out_report=out_report,
+        out_module=out_module,
+    )
+
+    payload = json.loads(out_report.read_text(encoding="utf-8"))
+    assert payload["partition"] == "calibration"
+    assert payload["authority_scope"] == "candidate_for_established_0_3_0"
+    assert set(payload["geometry"]) == {
+        "trough_search_radius_months",
+        "adaptive_trough_search_radius_months",
+        "adaptive_min_usable_months_per_cycle",
+    }
+    assert len(payload["fingerprint"]) == 64
+    assert "outside_window_lower_rate" in payload["metrics"]
+
+    text = out_module.read_text(encoding="utf-8")
+    assert "TROUGH_GEOMETRY_DEFAULTS" in text
+    assert "TROUGH_GEOMETRY_FINGERPRINT" in text
+
+
+def test_geometry_validation_refuses_a_fingerprint_mismatch(tmp_path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "run_calibration", ROOT / "scripts" / "run_calibration.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    with pytest.raises(RuntimeError, match="fingerprint"):
+        module.run_trough_geometry_validation(
+            seeds=list(range(40000, 40004)),
+            out_report=tmp_path / "geometry-validation.json",
+            frozen_fingerprint="0" * 64,
+        )
