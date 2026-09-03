@@ -18,3 +18,11 @@ RECOVERABILITY_DEFAULTS = RecoverabilityThresholds(**{'min_years': 5, 'min_cover
 TIMING_IDENTIFIABILITY_AUTHORITY_SCOPE = 'candidate_for_established_0_2_0'
 TIMING_IDENTIFIABILITY_FINGERPRINT = 'e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735'
 TIMING_IDENTIFIABILITY_DEFAULTS = TimingIdentifiabilityThresholds(**{'min_amplitude_to_floor_ratio': 3.0, 'min_peak_water_pixels': 5, 'max_point_span_months': 0, 'max_boundary_interval_months': 2, 'min_informative_years': 7})
+
+# BEGIN RECURRENCE IDENTIFIABILITY DEFAULTS
+from hydroseason._recurrence_identifiability import RecurrencePolicy
+
+RECURRENCE_AUTHORITY_SCOPE = 'candidate_for_established_0_2_0'
+RECURRENCE_FINGERPRINT = '4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00'
+RECURRENCE_POLICY: RecurrencePolicy = 'annual_shape_match'
+# END RECURRENCE IDENTIFIABILITY DEFAULTS

@@ -139,3 +139,41 @@ def test_timing_calibration_and_untouched_validation_artifacts_are_fresh():
     assert validation["scoring"] == {"evaluated_candidates": 1}
     for payload in (calibration, validation):
         assert tuple(map(int, payload["environment"]["python"].split(".")[:2])) < (3, 14)
+
+
+RECURRENCE_CALIBRATION_REPORT = Path(
+    "docs/calibration/2026-09-03-recurrence-identifiability-calibration.json"
+)
+
+
+def test_recurrence_calibration_artifact_matches_generated_defaults():
+    from hydroseason._recurrence_calibration import recurrence_fingerprint
+
+    payload = json.loads(RECURRENCE_CALIBRATION_REPORT.read_text(encoding="utf-8"))
+    assert payload["selected_policy"] == defaults.RECURRENCE_POLICY
+    assert payload["fingerprint"] == defaults.RECURRENCE_FINGERPRINT
+    assert payload["authority_scope"] == defaults.RECURRENCE_AUTHORITY_SCOPE
+    assert payload["seeds"] == list(range(50000, 50960))
+    assert recurrence_fingerprint(
+        defaults.RECURRENCE_POLICY,
+        seeds=payload["seeds"],
+        metrics=payload["metrics"],
+    ) == defaults.RECURRENCE_FINGERPRINT
+
+
+RECURRENCE_VALIDATION_REPORT = Path(
+    "docs/calibration/2026-09-03-recurrence-identifiability-validation.json"
+)
+
+
+def test_recurrence_untouched_validation_uses_frozen_policy_once():
+    calibration = json.loads(RECURRENCE_CALIBRATION_REPORT.read_text(encoding="utf-8"))
+    validation = json.loads(RECURRENCE_VALIDATION_REPORT.read_text(encoding="utf-8"))
+    assert validation["partition"] == "validation"
+    assert validation["selected_policy"] == calibration["selected_policy"]
+    assert validation["fingerprint"] == calibration["fingerprint"]
+    assert validation["seeds"] == list(range(60000, 60960))
+    assert validation["selection_counts"] == {"reselection": 0}
+    assert set(validation["candidate_metrics"]) == {calibration["selected_policy"]}
+    assert validation["metrics"]["false_point_wilson"][1] <= 0.05
+    assert validation["metrics"]["false_resolution_wilson"][1] <= 0.05
