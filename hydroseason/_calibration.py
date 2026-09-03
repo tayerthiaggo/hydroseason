@@ -1724,6 +1724,34 @@ def _geometry_rows(
 ) -> list[dict[str, object]]:
     """Score one detection run against its record's truth.
 
+    "Published" means a genuine point-timing claim -- ``trough_timing_status
+    == "point"`` -- not merely a populated ``trough_month``.  ``trough_month``
+    is an internal operational boundary date that is populated on essentially
+    every row regardless of timing status (see ``docs/hydrological-state.md``,
+    the ``peak_timing_status``/``trough_timing_status``/``timing_status``
+    section): a flat or below-floor year still gets an operational trough date
+    even though it contributes no identifiable peak or trough timing
+    observation.  ``trough_timing_status`` is the field that actually says
+    whether that date is an exact claim (``"point"``), a bounded interval
+    (``"interval"``), or nothing resolvable (``"unresolved"``); it can also be
+    ``NaN`` on the rare row where ``trough_month`` is set but timing was never
+    computed (e.g. ``insufficient_cycle_coverage`` on the first cycle, before
+    any prior boundary exists to bound a cycle against). Only ``"point"``
+    counts as published here -- an ``"interval"`` row is the detector
+    correctly declining to claim precision and must not be scored as a claimed
+    point-truth date; a ``NaN``/``"unresolved"`` row has no timing verdict at
+    all and is likewise not published.
+
+    The record-level monotonicity/duplicate-date check below is intentionally
+    kept on the *raw* operational ``trough_month`` rather than restricted to
+    point-status rows: ``hy_start``/``hy_end``/``cycle_months`` (used
+    elsewhere in this scoring) are built from the operational date regardless
+    of timing status, so a genuinely duplicate or non-monotonic operational
+    date is still a structural problem in the detector's cycle bookkeeping
+    even when its timing status is ``"interval"``. Diluting this check to
+    point-only rows would hide a structural defect on any record where every
+    row happens to resolve to ``"interval"``.
+
     ``identifiable_by_year`` and ``trough_date_by_year`` are per-year: a row is
     only matched against truth when its *own* year is identifiable.  A
     published boundary on an unidentifiable year is never nearest-matched --
@@ -1751,9 +1779,10 @@ def _geometry_rows(
         )
         if year_identifiable and date is not None
     ]
-    published = annual.loc[annual["trough_month"].notna()]
 
-    boundaries = [pd.Timestamp(value) for value in published["trough_month"]]
+    # Structural check: raw operational dates, regardless of timing status.
+    operational = annual.loc[annual["trough_month"].notna()]
+    boundaries = [pd.Timestamp(value) for value in operational["trough_month"]]
     monotonic = all(
         earlier < later for earlier, later in zip(boundaries, boundaries[1:])
     )
@@ -1762,7 +1791,7 @@ def _geometry_rows(
     claimed: dict[pd.Timestamp, int] = {}
     rows: list[dict[str, object]] = []
     for _, row in annual.iterrows():
-        is_published = pd.notna(row["trough_month"])
+        is_published = row.get("trough_timing_status") == "point"
         offset = int(row["hy_year"]) - base_year
         row_identifiable = bool(truth.identifiable_by_year[offset])
         error = np.nan

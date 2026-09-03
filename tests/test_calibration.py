@@ -757,25 +757,46 @@ def test_selector_composes_with_a_real_cache_from_the_calibration_partition():
     This is the path that was never exercised end-to-end: Task 6's own tests
     only ever fed the selector a hand-built ``pd.DataFrame`` of rows, never
     the output of ``build_trough_geometry_cache`` itself.  The per-year
-    ``truth_identifiable`` bug (fixed above in ``_geometry_rows``) hid exactly
-    here -- a hand-built fixture cannot reproduce a per-record mix of
-    identifiable and unidentifiable years the way the real corpus does.
+    ``truth_identifiable`` bug (fixed in ``_geometry_rows``, first fix pass)
+    hid exactly here -- a hand-built fixture cannot reproduce a per-record mix
+    of identifiable and unidentifiable years the way the real corpus does.
 
     The seed range below is 4 seeds per one of the 10 trough-geometry
     families (``range(30000, 30040)``, families cycling on ``seed % 10``).
-    As of this fix pass, this real cache causes the selector to raise
-    ``RuntimeError`` at the false-precise-boundary Wilson gate: at least one
-    family (observed: ``tied_low_plateau_wide``, whose truth is
-    unidentifiable in every year by construction) produces a false-precise
-    rate whose Wilson upper bound exceeds the frozen 0.05 admission gate for
-    every one of the 24 grid points, so no candidate survives stage 1.  This
-    is a legitimate, informative outcome for right now, not a test bug: it
-    proves the Wilson gate actually rejects an unsafe grid rather than
-    silently admitting one once per-row identifiability is scored correctly.
-    Whether ``tied_low_plateau_wide``'s flat rejection reflects a genuine
-    detector-side issue (as opposed to a corpus-labelling question) is being
-    investigated separately and is out of scope for this fix pass -- this
-    test intentionally does not weaken the gate to force a selection through.
+
+    A second fix pass changed what counts as "published" from a populated
+    ``trough_month`` (an internal operational boundary date that is set on
+    essentially every row regardless of timing status) to
+    ``trough_timing_status == "point"`` (a genuine point-timing claim; see
+    ``_geometry_rows``'s docstring). Before that fix, every ``"interval"``-
+    status row on ``tied_low_plateau_wide`` (whose truth is unidentifiable in
+    every year by construction) was miscounted as a claimed point-truth date,
+    driving a flat 100% false-precise-boundary rate on that family alone and
+    causing the RuntimeError below for that reason. After the fix,
+    ``tied_low_plateau_wide`` correctly contributes zero false-precise
+    boundaries (it never emits ``"point"`` status), confirmed by direct
+    inspection of ``_geometry_rows`` output for seed 30004.
+
+    The RuntimeError below still fires, but the cause has changed: this real
+    cache now shows a small (8/64), geometry-invariant false-precise-boundary
+    rate whose Wilson upper bound still exceeds the frozen 0.05 admission
+    gate. Tracing it lands entirely on ``missing_outer_months`` (seeds 30005,
+    30015, 30025, 30035), and specifically on the first year of each of that
+    family's two 2-year "missing outer months" gaps (hy_year 1993 of the
+    1993-1994 gap, 1998 of the 1998-1999 gap): the truth corpus marks *both*
+    years of each gap unidentifiable, but the detector resolves the first
+    year's boundary to a confident ``"point"`` (``status_reason="ok"``) while
+    correctly returning ``"unresolved"`` for the second. This is a genuine
+    detector-vs-corpus-labelling disagreement about exactly one of the two
+    masked years per gap, not a ``_geometry_rows``/``_geometry_metrics``
+    counting artifact -- it reproduces identically across all four seeds of
+    the family and is invariant to all 24 geometry candidates (the gate
+    rejects every point on the grid by the same 8/64 count), so no geometry
+    choice can route around it. Whether the corpus should also treat that
+    first gap year as identifiable, or the detector should decline to claim
+    a point there, is a genuine open question separate from Task 6's scoring
+    code and is out of scope for this fix pass -- this test intentionally
+    does not weaken the gate to force a selection through.
     """
     seeds = list(range(30000, 30040))
     cache = build_trough_geometry_cache(seeds, partition="calibration")
