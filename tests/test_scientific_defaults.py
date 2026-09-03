@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -159,7 +161,12 @@ def test_recurrence_calibration_artifact_matches_generated_defaults():
     assert payload["authority_scope"] == "candidate_for_established_0_2_0"
     assert payload["seeds"] == list(range(50000, 50960))
     assert promotion["candidate_fingerprint"] == payload["fingerprint"]
-    assert promotion["established_fingerprint"] == defaults.RECURRENCE_FINGERPRINT
+    # The blinded real-cohort gate was never evaluated, so the shipped scope is
+    # the candidate one and the promotion record says promotion was withheld.
+    assert promotion["promotion_status"] == "withheld"
+    assert promotion["authority_scope"] == defaults.RECURRENCE_AUTHORITY_SCOPE
+    assert defaults.RECURRENCE_AUTHORITY_SCOPE == "candidate_for_established_0_2_0"
+    assert defaults.RECURRENCE_FINGERPRINT == payload["fingerprint"]
     assert recurrence_fingerprint(
         defaults.RECURRENCE_POLICY,
         seeds=payload["seeds"],
@@ -186,6 +193,80 @@ def test_recurrence_untouched_validation_uses_frozen_policy_once():
     assert validation["metrics"]["false_resolution_wilson"][1] <= 0.05
 
 
+def test_generated_defaults_module_keeps_its_imports_in_the_header(tmp_path):
+    """Block writers must not leave a module-level import after assignments.
+
+    A block-local ``RecurrencePolicy`` import lands mid-module and the generated
+    file then fails ``ruff`` E402, so the writers hoist it into the header and
+    must stay idempotent when a block is rewritten or carried forward.
+    """
+    from scripts.run_calibration import _write_recurrence_defaults
+
+    header = Path("hydroseason/_scientific_defaults.py").read_text(encoding="utf-8")
+    assert "\nfrom hydroseason._recurrence_identifiability import RecurrencePolicy\n" in header.split(
+        "# BEGIN RECURRENCE IDENTIFIABILITY DEFAULTS"
+    )[0]
+
+    out_mod = tmp_path / "_scientific_defaults.py"
+    out_mod.write_text(header, encoding="utf-8")
+    for _ in range(2):
+        _write_recurrence_defaults(
+            out_mod,
+            policy="annual_shape_match",
+            recurrence_fingerprint_value="0" * 64,
+            authority_scope="candidate_for_established_0_2_0",
+        )
+    written = out_mod.read_text(encoding="utf-8")
+    assert written.count("from hydroseason._recurrence_identifiability import RecurrencePolicy") == 1
+
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--select", "E402,F401,F821,I001", str(out_mod)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout
+
+
+def _promotion_module_copy(tmp_path):
+    out_mod = tmp_path / "_scientific_defaults.py"
+    out_mod.write_text(Path("hydroseason/_scientific_defaults.py").read_text(encoding="utf-8"), encoding="utf-8")
+    return out_mod
+
+
+def test_promote_recurrence_defaults_withholds_promotion_without_a_blinded_cohort(tmp_path):
+    """A narrowing policy may not reach established scope on an unevaluated gate.
+
+    ``annual_shape_match`` is not ``no_narrowing``, so the blinded real-cohort
+    gate applies. With no cohort report there is nothing to evaluate, and an
+    unevaluated gate must stop promotion at candidate scope rather than pass.
+    """
+    from scripts.run_calibration import promote_recurrence_defaults
+
+    cal_bytes = RECURRENCE_CALIBRATION_REPORT.read_bytes()
+    val_bytes = RECURRENCE_VALIDATION_REPORT.read_bytes()
+    out_mod = _promotion_module_copy(tmp_path)
+
+    promotion = promote_recurrence_defaults(
+        calibration_report=RECURRENCE_CALIBRATION_REPORT,
+        validation_report=RECURRENCE_VALIDATION_REPORT,
+        out_report=tmp_path / "promotion.json",
+        out_module=out_mod,
+    )
+
+    assert RECURRENCE_CALIBRATION_REPORT.read_bytes() == cal_bytes
+    assert RECURRENCE_VALIDATION_REPORT.read_bytes() == val_bytes
+
+    assert promotion["promotion_status"] == "withheld"
+    assert promotion["authority_scope"] == "candidate_for_established_0_2_0"
+    assert promotion["blinded_cohort_gate"]["satisfied"] is False
+    assert "established_fingerprint" not in promotion
+
+    written = out_mod.read_text(encoding="utf-8")
+    assert "RECURRENCE_AUTHORITY_SCOPE = 'candidate_for_established_0_2_0'" in written
+    cal_payload = json.loads(cal_bytes.decode("utf-8"))
+    assert f"RECURRENCE_FINGERPRINT = {cal_payload['fingerprint']!r}" in written
+
+
 def test_promote_recurrence_defaults_preserves_source_reports_and_computes_fingerprint(tmp_path):
     from hydroseason._recurrence_calibration import recurrence_fingerprint
     from scripts.run_calibration import promote_recurrence_defaults
@@ -193,15 +274,18 @@ def test_promote_recurrence_defaults_preserves_source_reports_and_computes_finge
     cal_bytes = RECURRENCE_CALIBRATION_REPORT.read_bytes()
     val_bytes = RECURRENCE_VALIDATION_REPORT.read_bytes()
 
+    cohort_report = tmp_path / "cohort.json"
+    cohort_report.write_text(json.dumps({"metrics": {"direct_contradictions_k": 0}}), encoding="utf-8")
+
     out_rep = tmp_path / "promotion.json"
-    out_mod = tmp_path / "_scientific_defaults.py"
-    out_mod.write_text(Path("hydroseason/_scientific_defaults.py").read_text(encoding="utf-8"), encoding="utf-8")
+    out_mod = _promotion_module_copy(tmp_path)
 
     promotion = promote_recurrence_defaults(
         calibration_report=RECURRENCE_CALIBRATION_REPORT,
         validation_report=RECURRENCE_VALIDATION_REPORT,
         out_report=out_rep,
         out_module=out_mod,
+        cohort_report=cohort_report,
     )
 
     assert RECURRENCE_CALIBRATION_REPORT.read_bytes() == cal_bytes
@@ -214,4 +298,23 @@ def test_promote_recurrence_defaults_preserves_source_reports_and_computes_finge
         metrics=cal_payload["metrics"],
         authority_scope="established_0_2_0",
     )
+    assert promotion["promotion_status"] == "promoted"
     assert promotion["established_fingerprint"] == expected_fp
+
+
+def test_promote_recurrence_defaults_withholds_on_a_contradicting_cohort(tmp_path):
+    from scripts.run_calibration import promote_recurrence_defaults
+
+    cohort_report = tmp_path / "cohort.json"
+    cohort_report.write_text(json.dumps({"metrics": {"direct_contradictions_k": 1}}), encoding="utf-8")
+
+    promotion = promote_recurrence_defaults(
+        calibration_report=RECURRENCE_CALIBRATION_REPORT,
+        validation_report=RECURRENCE_VALIDATION_REPORT,
+        out_report=tmp_path / "promotion.json",
+        out_module=_promotion_module_copy(tmp_path),
+        cohort_report=cohort_report,
+    )
+
+    assert promotion["promotion_status"] == "withheld"
+    assert promotion["blinded_cohort_gate"]["direct_contradictions_k"] == 1

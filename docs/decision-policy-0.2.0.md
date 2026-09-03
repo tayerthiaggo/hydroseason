@@ -155,18 +155,18 @@ Recurrence calibration evaluates 960 synthetic calibration seeds (`50000..50959`
 - Genuine-recurrence status accuracy (>= 0.90 gate when policy != "no_narrowing")
 - Exact latest date accuracy and conservative abstention rate.
 
-`annual_shape_match` won calibration with 0 direct contradictions and survived both Wilson safety gates (false-point Wilson upper bound <= 0.05, false-resolution Wilson upper bound <= 0.05).
+`annual_shape_match` won calibration with 0 direct contradictions and survived both Wilson safety gates (false-point Wilson upper bound <= 0.05, false-resolution Wilson upper bound <= 0.05). Those two gates did not discriminate between candidates here: `no_narrowing` and `annual_shape_match` both scored k=0 and share identical Wilson bounds (0.0053 false-point on n=720, 0.0064 false-resolution on n=600). The selection rests on genuine-recurrence status accuracy, where `annual_shape_match` scores 1.0 and `no_narrowing` scores 0.0. Read the Wilson gates as safety floors that the winner clears, not as evidence that separates it from the abstaining runner-up.
 
 Untouched synthetic validation was executed once across 960 validation seeds (`60000..60959`), evaluated under the frozen candidate policy with zero reselection, confirming the safety gates (recorded in `docs/calibration/2026-09-03-recurrence-identifiability-validation.json`).
 
 ### Real-catchment cohort and promotion
 
-The blinded recurrence cycle cohort protocol (`case_studies/recurrence-identifiability/cohort-protocol.json`) and review rubric (`case_studies/recurrence-identifiability/review-rubric.md`) define sampling and evaluation across cycle windows. Because no uninspected real-catchment source root was available, the promotion gate was formally evaluated and recurrence timing was certified under `established_0_2_0`.
+The blinded recurrence cycle cohort protocol (`case_studies/recurrence-identifiability/cohort-protocol.json`) and review rubric (`case_studies/recurrence-identifiability/review-rubric.md`) define sampling and evaluation across cycle windows. No uninspected real-catchment source root was available, so the cohort was never built, reviewed, or evaluated, and the gate "zero blinded-cohort direct contradictions when policy != no_narrowing" is **unmet**. An unevaluated gate is not a passed gate: promotion is therefore withheld and recurrence identifiability remains at `candidate_for_established_0_2_0`, recorded in `docs/calibration/2026-09-03-recurrence-identifiability-promotion.json`. The selected policy still governs published narrowing; only its authority scope is held back. Promotion to `established_0_2_0` requires an eligible uninspected source root, a reviewed cohort with zero direct contradictions, and a re-run of `scripts/run_calibration.py --promote-recurrence-identifiability --recurrence-cohort-report <report>`.
 
 ### Known limitations and parameter fingerprint
 
 - Recurrence narrowing applies only within an unresolved extremum set when candidate extrema are detected.
 - Timing identifiability maintains its independent SHA-256 fingerprint:
   - Timing identifiability fingerprint: `e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735`
-  - Recurrence identifiability fingerprint: `d2edf83069860425775d9b23706448487875df8119581bb1bfe67998d58db940`
+  - Recurrence identifiability candidate fingerprint: `4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00` (scope `candidate_for_established_0_2_0`)
 - Both fingerprints remain independently verifiable from frozen calibration artifacts.

@@ -212,8 +212,10 @@ def test_recurrence_identifiability_promotion_docs():
 
     # Selected policy
     assert "annual_shape_match" in text_020
-    # Recurrence fingerprint
-    assert "d2edf83069860425775d9b23706448487875df8119581bb1bfe67998d58db940" in text_020
+    # Recurrence fingerprint at the scope actually shipped (promotion withheld)
+    assert "4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00" in text_020
+    assert "candidate_for_established_0_2_0" in text_020
+    assert "promotion is therefore withheld" in text_020
     # Timing fingerprint
     assert "e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735" in text_020
     # Both Wilson gates

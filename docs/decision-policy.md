@@ -28,7 +28,7 @@ synthetic calibration and untouched validation for timing identifiability
 (`docs/calibration/2026-09-01-timing-identifiability-calibration.json` and
 `docs/calibration/2026-09-01-timing-identifiability-validation.json`, false
 precise-boundary Wilson upper bound `1.2e-4 <= 0.05`); synthetic calibration,
-untouched validation, and promotion certification for recurrence identifiability
+untouched validation, and the promotion decision record for recurrence identifiability
 (`docs/calibration/2026-09-03-recurrence-identifiability-calibration.json`,
 `docs/calibration/2026-09-03-recurrence-identifiability-validation.json`, and
 `docs/calibration/2026-09-03-recurrence-identifiability-promotion.json`); the

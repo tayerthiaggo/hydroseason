@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from hydroseason._calibration import EvidenceThresholds, RecoverabilityThresholds
+from hydroseason._recurrence_identifiability import RecurrencePolicy
 from hydroseason._timing_identifiability import TimingIdentifiabilityThresholds
 
 CALIBRATION_VERSION = '0.2.0-audit.2'
@@ -20,9 +21,7 @@ TIMING_IDENTIFIABILITY_FINGERPRINT = 'e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf
 TIMING_IDENTIFIABILITY_DEFAULTS = TimingIdentifiabilityThresholds(**{'min_amplitude_to_floor_ratio': 3.0, 'min_peak_water_pixels': 5, 'max_point_span_months': 0, 'max_boundary_interval_months': 2, 'min_informative_years': 7})
 
 # BEGIN RECURRENCE IDENTIFIABILITY DEFAULTS
-from hydroseason._recurrence_identifiability import RecurrencePolicy
-
-RECURRENCE_AUTHORITY_SCOPE = 'established_0_2_0'
-RECURRENCE_FINGERPRINT = 'd2edf83069860425775d9b23706448487875df8119581bb1bfe67998d58db940'
+RECURRENCE_AUTHORITY_SCOPE = 'candidate_for_established_0_2_0'
+RECURRENCE_FINGERPRINT = '4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00'
 RECURRENCE_POLICY: RecurrencePolicy = 'annual_shape_match'
 # END RECURRENCE IDENTIFIABILITY DEFAULTS
