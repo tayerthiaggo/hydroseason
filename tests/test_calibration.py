@@ -624,6 +624,7 @@ def test_timing_fingerprint_covers_metric_implementation(monkeypatch):
 from hydroseason._calibration import (
     TROUGH_GEOMETRY_GRID,
     TroughGeometry,
+    _geometry_metrics,
     build_trough_geometry_cache,
     iter_trough_geometry_points,
     score_trough_geometry,
@@ -800,6 +801,28 @@ def test_selector_composes_with_a_real_cache_from_the_calibration_partition():
     """
     seeds = list(range(30000, 30040))
     cache = build_trough_geometry_cache(seeds, partition="calibration")
+
+    # Pin the ``tied_low_plateau_wide`` claim from the docstring above: this
+    # family's truth is unidentifiable in every year by construction, and
+    # after the point-only-publication fix it must never emit a published
+    # (point-status) boundary. Reverting that fix (scoring any populated
+    # ``trough_month`` as published, regardless of ``trough_timing_status``)
+    # makes this fail, since every "interval"-status row on this family would
+    # then count as published.
+    tied_low_plateau_wide = cache.loc[cache["family"] == "tied_low_plateau_wide"]
+    assert len(tied_low_plateau_wide) > 0
+    assert tied_low_plateau_wide["published"].sum() == 0
+
+    # Pin the exact false-precise-boundary count/denominator from the
+    # docstring for the shipped geometry (3, 5, 6): 8 false-precise
+    # boundaries out of 64 unidentifiable-year rows, all attributable to the
+    # documented ``missing_outer_months`` corpus gap. Under the reverted
+    # (pre-fix) scoring this count is 64/64 -- same error message, wildly
+    # different cause -- so this is what actually distinguishes the two.
+    points = list(iter_trough_geometry_points())
+    metrics = _geometry_metrics(cache, points.index(SHIPPED_GEOMETRY))
+    assert metrics["n_false"] == 8.0
+    assert metrics["n_unidentifiable"] == 64.0
 
     with pytest.raises(RuntimeError, match="false precise-boundary"):
         select_trough_geometry_defaults(cache)
