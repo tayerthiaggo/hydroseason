@@ -1,0 +1,26 @@
+{
+  "protocol_id": "recurrence-identifiability-cycle-cohort-v1",
+  "seed": 20260903,
+  "sampling_unit": "catchment",
+  "review_unit": "detected_cycle",
+  "quota_policy": "min_8_catchments_or_available_per_stratum",
+  "strata": ["window_span_0_11", "window_span_12_plus_complete", "window_span_12_plus_gapped"],
+  "labels": ["point_supported", "interval_supported", "unresolved", "uncertain"],
+  "excluded_sources": [
+    "case_studies/results/stress-test-full",
+    "case_studies/results/timing-identifiability",
+    "case_studies/data/extent protected catchments",
+    "130413a", "130407a", "130302a",
+    "recurrence calibration and validation synthetic corpora",
+    "trough geometry calibration and validation synthetic corpora"
+  ],
+  "packet_allowlist": [
+    "anonymous_catchment_id", "anonymous_cycle_id", "date", "extent_pct",
+    "invalid_pct", "quality_state", "n_water", "n_valid", "n_invalid", "n_aoi",
+    "window_start", "window_end"
+  ],
+  "hidden_fields": [
+    "station_id", "regime", "route", "timing_status", "peak_timing_status",
+    "trough_timing_status", "selected_policy", "fingerprint", "model_output"
+  ]
+}
