@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from hydroseason._boundary import robust_scale
+from hydroseason._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
 from hydroseason._state_input import prepare_monthly_extent
 from hydroseason._timing_identifiability import (
     TimingIdentifiabilityThresholds,
@@ -328,3 +329,65 @@ def test_window_timing_recurrence_cluster_does_not_touch_a_span_within_tolerance
     )
     assert result.peak_status == "interval"
     assert result.peak_dates == (pd.Timestamp("1990-03-01"), pd.Timestamp("1990-04-01"))
+
+
+def test_gap_fragmented_equivalent_trough_does_not_become_a_false_point():
+    index = pd.to_datetime([
+        "1992-05-01", "1992-06-01", "1992-07-01", "1992-08-01",
+        "1992-09-01", "1992-10-01", "1993-01-01", "1993-04-01",
+    ])
+    extent = np.array([40, 40, 40, 40, 40, 70, 40, 40], dtype=float)
+    rows = pd.DataFrame(
+        {
+            "extent_pct": extent,
+            "n_water": extent.astype(int),
+            "n_valid": 100,
+            "n_invalid": 0,
+            "n_aoi": 100,
+        },
+        index=index,
+    )
+    result = assess_window_timing(
+        rows["extent_pct"],
+        rows,
+        thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
+        measurement_tolerance_pct=1.0,
+        noise_pp=0.0,
+        pixel_support_status="available",
+        window_start=pd.Timestamp("1992-05-01"),
+        window_end=pd.Timestamp("1993-04-01"),
+    )
+    assert result.detectable is True
+    assert result.trough_status == "unresolved"
+    assert result.trough_dates == tuple(index.delete(5))
+
+
+def test_gap_fragmented_equivalent_peak_does_not_become_a_false_point():
+    index = pd.to_datetime([
+        "1992-05-01", "1992-06-01", "1992-07-01", "1992-08-01",
+        "1992-09-01", "1992-10-01", "1993-01-01", "1993-04-01",
+    ])
+    extent = np.array([70, 70, 70, 70, 70, 40, 70, 70], dtype=float)
+    rows = pd.DataFrame(
+        {
+            "extent_pct": extent,
+            "n_water": extent.astype(int),
+            "n_valid": 100,
+            "n_invalid": 0,
+            "n_aoi": 100,
+        },
+        index=index,
+    )
+    result = assess_window_timing(
+        rows["extent_pct"],
+        rows,
+        thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
+        measurement_tolerance_pct=1.0,
+        noise_pp=0.0,
+        pixel_support_status="available",
+        window_start=pd.Timestamp("1992-05-01"),
+        window_end=pd.Timestamp("1993-04-01"),
+    )
+    assert result.detectable is True
+    assert result.peak_status == "unresolved"
+    assert result.peak_dates == tuple(index.delete(5))

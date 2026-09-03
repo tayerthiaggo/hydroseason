@@ -1,6 +1,10 @@
 import pandas as pd
 import pytest
 
+from hydroseason._dynamic_year import (
+    DynamicHydroYearConfig,
+    detect_dynamic_hydrological_years,
+)
 from hydroseason._recurrence_calibration import (
     RecurrenceEvaluation,
     evaluate_recurrence_records,
@@ -23,6 +27,7 @@ from hydroseason._synthetic import (
     GEOMETRY_CALIBRATION_SEEDS,
     GEOMETRY_VALIDATION_SEEDS,
     VALIDATION_SEEDS,
+    generate_trough_geometry_record,
 )
 from hydroseason._timing_identifiability import (
     TimingIdentifiabilityThresholds,
@@ -375,3 +380,20 @@ def test_evaluate_recurrence_records_runs_production_assessor():
     assert pos_eval.truth_status == "point"
     assert pos_eval.predicted_status == "point"
     assert pos_eval.exact_latest_dates is True
+
+
+def test_geometry_seed_30035_no_longer_publishes_hy1993_false_point():
+    record = generate_trough_geometry_record(30035, partition="calibration")
+    annual = detect_dynamic_hydrological_years(
+        record.frame,
+        config=DynamicHydroYearConfig(
+            expected_trough_month=record.truth.climatological_trough_month,
+            trough_search_radius_months=3,
+            adaptive_trough_search_radius_months=5,
+            adaptive_min_usable_months_per_cycle=6,
+        ),
+    )
+    row = annual.loc[annual["hy_year"] == 1993].iloc[0]
+    assert row["trough_timing_status"] == "unresolved"
+    assert pd.isna(row["trough_interval_start"]) is False
+    assert pd.isna(row["trough_interval_end"]) is False
