@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Prerequisite: every task in `docs/superpowers/plans/2026-09-03-recurrence-identifiability-correction.md` is complete and recurrence scope is `established_0_2_0`. That plan's Task 6 Step 4 also gives `_write_trough_geometry_defaults()` block markers and replace-or-append behaviour; without it, re-running geometry calibration appends a second `TROUGH_GEOMETRY_DEFAULTS` instead of replacing the first. Confirm the markers exist before Task 3.
+- Prerequisite: every task in `docs/superpowers/plans/2026-09-03-recurrence-identifiability-correction.md` is complete and `RECURRENCE_POLICY` is frozen from a calibration run that passed both Wilson safety gates. Recurrence *authority scope* reaching `established_0_2_0` is **not** a prerequisite: the blinded-cohort gate that promotion depends on has no bearing on geometry detection, so geometry re-entry proceeds at `candidate_for_established_0_2_0` scope. See Step 3's fingerprint scope note for why. That plan's Task 6 Step 4 also gives `_write_trough_geometry_defaults()` block markers and replace-or-append behaviour; without it, re-running geometry calibration appends a second `TROUGH_GEOMETRY_DEFAULTS` instead of replacing the first. Confirm the markers exist before Task 3.
 - Package remains 0.2.0 during re-entry.
 - `TROUGH_GEOMETRY_AUTHORITY_SCOPE` remains exactly `candidate_for_established_0_3_0`.
 - Do not change `TROUGH_GEOMETRY_GRID`, any boundary selector, or any corpus truth label.
@@ -51,7 +51,7 @@
 - Modify: `tests/test_calibration.py`
 
 **Interfaces:**
-- Consumes: validated `assess_window_timing`, `_window_status`, `narrow_most_recent_recurrence`, `RECURRENCE_POLICY`, and `RECURRENCE_FINGERPRINT`.
+- Consumes: validated `assess_window_timing`, `_window_status`, `narrow_most_recent_recurrence`, and `RECURRENCE_POLICY`. `RECURRENCE_FINGERPRINT` is deliberately **not** consumed; see Step 3.
 - Produces: `trough_geometry_fingerprint()` that stales whenever window timing or its selected recurrence policy changes.
 
 - [ ] **Step 1: Write failing source-dependency test**
@@ -70,17 +70,25 @@ def test_trough_geometry_fingerprint_covers_window_timing_and_recurrence_policy(
         "timing_metrics._window_status",
         "recurrence_metrics.narrow_most_recent_recurrence",
         "defaults.RECURRENCE_POLICY",
-        "defaults.RECURRENCE_FINGERPRINT",
     }
     missing = sorted(item for item in required if item not in source)
     assert not missing, f"geometry fingerprint misses timing inputs: {missing}"
+    # RECURRENCE_FINGERPRINT is deliberately excluded: geometry detection depends
+    # on which policy was selected and how narrowing is implemented, both already
+    # covered above, not on recurrence's authority scope. The fingerprint adds
+    # scope on top of policy, and scope alone moves at recurrence promotion
+    # (metrics_changed: False, policy_changed: False), which would otherwise
+    # stale every geometry result over a string with no detection effect.
+    assert "defaults.RECURRENCE_FINGERPRINT" not in source, (
+        "geometry fingerprint must not depend on recurrence authority scope"
+    )
 ```
 
 - [ ] **Step 2: Run test and verify red**
 
 Run: `python -m pytest tests/test_calibration.py -q -k fingerprint_covers_window`
 
-Expected: FAIL listing all five missing inputs.
+Expected: FAIL listing all four missing inputs (the exclusion assertion passes trivially before the fingerprint function is touched).
 
 - [ ] **Step 3: Add explicit imports and hashes**
 
@@ -105,14 +113,26 @@ After selected geometry JSON, add:
     if not hasattr(defaults, "RECURRENCE_POLICY"):
         raise ValueError("recurrence defaults have not been generated.")
     hasher.update(defaults.RECURRENCE_POLICY.encode("utf-8"))
-    hasher.update(defaults.RECURRENCE_FINGERPRINT.encode("utf-8"))
 ```
+
+Do **not** add `defaults.RECURRENCE_FINGERPRINT`. Geometry behaviour depends on
+exactly two things: which recurrence policy was selected, and how narrowing is
+implemented. Both are already hashed above (`RECURRENCE_POLICY` and
+`narrow_most_recent_recurrence`'s source). `RECURRENCE_FINGERPRINT` layers
+corpus/scoring/seeds/metrics/*scope* on top of the same policy value; scope is
+its only contribution that policy does not already carry, and scope is exactly
+what changes at recurrence promotion with `metrics_changed: False,
+policy_changed: False`. Hashing it would stale every geometry result on a
+promotion that changes no detection behaviour, forcing geometry re-entry to
+wait on the blinded-cohort gate for no reason tied to geometry itself.
 
 Keep the attribute access literal: the Step 1 test greps
 `trough_geometry_fingerprint`'s source for `defaults.RECURRENCE_POLICY`, so a
 `getattr()` rewrite would pass the hash and fail the test. The guard is what
 turns a skipped prerequisite into a named error instead of an `AttributeError`
-from inside a fingerprint call.
+from inside a fingerprint call. The same test also asserts
+`defaults.RECURRENCE_FINGERPRINT` is absent from the source, so re-adding it
+later fails loudly rather than silently reintroducing the coupling.
 
 Do not add recurrence validation results; geometry fingerprint tracks selected calibration inputs, not downstream validation.
 
@@ -318,7 +338,7 @@ Do not commit generated geometry defaults/report until existing Task 8's freeze 
 
 ## Self-Review Notes
 
-- Fingerprint transitive gap: Task 1 explicitly hashes all three missing functions and both selected recurrence values.
+- Fingerprint transitive gap: Task 1 explicitly hashes all three missing functions and the one selected recurrence value that affects detection (`RECURRENCE_POLICY`); `RECURRENCE_FINGERPRINT` is deliberately excluded and the exclusion is itself asserted (see Audit Fixes).
 - Stale 8/64 assertions and narratives: Task 2 removes both named locations while preserving `tied_low_plateau_wide` protection.
 - Falsifiable 0/64 prediction: Task 2; failure stops rather than weakening gate.
 - Cache restart: Task 3 uses all 240 calibration seeds after fingerprint correction.
@@ -339,3 +359,4 @@ Do not commit generated geometry defaults/report until existing Task 8's freeze 
   instead of assuming it.
 - `defaults.RECURRENCE_POLICY` is guarded so a skipped prerequisite reports
   itself, while staying literal for the Step 1 source-dependency test.
+- **`RECURRENCE_FINGERPRINT` decoupled from the geometry hash (2026-09-04).** The correction plan's Task 11 blinded-cohort gate has no eligible uninspected source root, so promotion to `established_0_2_0` is withheld indefinitely and recurrence ships at `candidate_for_established_0_2_0` scope. Hashing `RECURRENCE_FINGERPRINT` would have forced geometry re-entry to wait behind that unresolved gate even though authority scope has no effect on geometry detection, and would stale every geometry result the moment promotion eventually lands on `metrics_changed: False, policy_changed: False` alone. Geometry now hashes `RECURRENCE_POLICY` and `narrow_most_recent_recurrence`'s source directly instead, which is what actually determines geometry behaviour. The prerequisite in Global Constraints was updated to match: frozen policy, not established scope.
