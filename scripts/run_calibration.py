@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import sys
@@ -775,6 +776,88 @@ def run_recurrence_validation(
     print(f"Wrote untouched recurrence validation report to {out_report}", flush=True)
 
 
+def promote_recurrence_defaults(
+    *,
+    calibration_report: Path,
+    validation_report: Path,
+    out_report: Path,
+    out_module: Path,
+) -> dict[str, object]:
+    cal_path = Path(calibration_report)
+    val_path = Path(validation_report)
+    if not cal_path.exists():
+        raise RuntimeError(f"calibration report does not exist at {cal_path}")
+    if not val_path.exists():
+        raise RuntimeError(f"validation report does not exist at {val_path}")
+
+    cal_bytes = cal_path.read_bytes()
+    val_bytes = val_path.read_bytes()
+    cal_sha = hashlib.sha256(cal_bytes).hexdigest()
+    val_sha = hashlib.sha256(val_bytes).hexdigest()
+
+    calibration = json.loads(cal_bytes.decode("utf-8"))
+    validation = json.loads(val_bytes.decode("utf-8"))
+
+    if calibration["selected_policy"] != validation["selected_policy"]:
+        raise RuntimeError("calibration and validation selected policies differ; refusing promotion")
+    if calibration["fingerprint"] != validation["fingerprint"]:
+        raise RuntimeError("calibration and validation fingerprints differ; refusing promotion")
+    if validation["selection_counts"] != {"reselection": 0}:
+        raise RuntimeError("validation triggered reselection; refusing promotion")
+
+    val_metrics = validation["metrics"]
+    if val_metrics["false_point_wilson"][1] > 0.05:
+        raise RuntimeError(f"validation false_point_wilson upper bound {val_metrics['false_point_wilson'][1]} > 0.05")
+    if val_metrics["false_resolution_wilson"][1] > 0.05:
+        raise RuntimeError(f"validation false_resolution_wilson upper bound {val_metrics['false_resolution_wilson'][1]} > 0.05")
+    if calibration["selected_policy"] != "no_narrowing" and val_metrics["genuine_recurrence_status_accuracy"] < 0.90:
+        raise RuntimeError(f"validation status accuracy {val_metrics['genuine_recurrence_status_accuracy']} < 0.90")
+
+    established_scope = "established_0_2_0"
+    established_fingerprint = recurrence_fingerprint(
+        calibration["selected_policy"],
+        seeds=calibration["seeds"],
+        metrics=calibration["metrics"],
+        authority_scope=established_scope,
+    )
+
+    _write_recurrence_defaults(
+        Path(out_module),
+        policy=calibration["selected_policy"],
+        recurrence_fingerprint_value=established_fingerprint,
+        authority_scope=established_scope,
+    )
+
+    promotion = {
+        "promotion_version": "0.2.0-recurrence-identifiability.1",
+        "generated": _utc_timestamp(),
+        "selected_policy": calibration["selected_policy"],
+        "candidate_authority_scope": calibration["authority_scope"],
+        "candidate_fingerprint": calibration["fingerprint"],
+        "established_authority_scope": established_scope,
+        "established_fingerprint": established_fingerprint,
+        "calibration_report": "docs/calibration/2026-09-03-recurrence-identifiability-calibration.json",
+        "validation_report": "docs/calibration/2026-09-03-recurrence-identifiability-validation.json",
+        "calibration_report_sha256": cal_sha,
+        "validation_report_sha256": val_sha,
+        "metrics_changed": False,
+        "policy_changed": False,
+    }
+
+    out_report = Path(out_report)
+    out_report.parent.mkdir(parents=True, exist_ok=True)
+    out_report.write_text(json.dumps(promotion, indent=2), encoding="utf-8")
+
+    if hashlib.sha256(cal_path.read_bytes()).hexdigest() != cal_sha:
+        raise RuntimeError("calibration report was modified during promotion")
+    if hashlib.sha256(val_path.read_bytes()).hexdigest() != val_sha:
+        raise RuntimeError("validation report was modified during promotion")
+
+    print(f"Promoted recurrence defaults to {established_scope} with fingerprint {established_fingerprint}", flush=True)
+    print(f"Wrote promotion report to {out_report}", flush=True)
+    return promotion
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run calibration/validation workflow")
     parser.add_argument("--partition", default="calibration", choices=["calibration", "validation"])
@@ -785,6 +868,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trough-geometry", action="store_true")
     parser.add_argument("--num-geometry-seeds", type=int, default=240)
     parser.add_argument("--recurrence-identifiability", action="store_true")
+    parser.add_argument("--promote-recurrence-identifiability", action="store_true")
     parser.add_argument("--num-recurrence-seeds", type=int, default=960)
     parser.add_argument("--legacy-calibration", action="store_true")
     return parser
@@ -796,6 +880,7 @@ if __name__ == "__main__":
 
     mode_flags = [
         args.recurrence_identifiability,
+        args.promote_recurrence_identifiability,
         args.trough_geometry,
         args.timing_identifiability,
         args.legacy_calibration,
@@ -805,7 +890,17 @@ if __name__ == "__main__":
             "Recurrence, geometry, timing, and legacy calibration flags are mutually exclusive."
         )
 
-    if args.recurrence_identifiability:
+    if args.promote_recurrence_identifiability:
+        promote_recurrence_defaults(
+            calibration_report=Path("docs/calibration/2026-09-03-recurrence-identifiability-calibration.json"),
+            validation_report=Path("docs/calibration/2026-09-03-recurrence-identifiability-validation.json"),
+            out_report=Path(
+                args.out_report
+                or "docs/calibration/2026-09-03-recurrence-identifiability-promotion.json"
+            ),
+            out_module=Path(args.out_module),
+        )
+    elif args.recurrence_identifiability:
         base = 60000 if args.partition == "validation" else 50000
         recurrence_seeds = list(range(base, base + args.num_recurrence_seeds))
         if args.partition == "validation":

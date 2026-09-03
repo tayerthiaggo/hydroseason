@@ -22,13 +22,18 @@ Regenerating expected fixtures, tuning to the five protected catchments, or obta
 
 The v0.2.0 policy design is frozen in
 [`decision-policy-0.2.0.md`](decision-policy-0.2.0.md). It was promoted to
-public policy identifier `established_0_2_0` after every gate above passed:
-synthetic calibration and untouched validation (false precise-boundary
-Wilson upper bound `1.2e-4 <= 0.05`), the five protected catchments'
-outcomes unchanged, no confirmed baseline anchor from an unresolved row, the
-three motivating records' qualitative checks, and an independently reviewed
-21-station real cohort (zero false precise-boundary claims, zero direct
-contradictions -- see
-`case_studies/results/timing-identifiability/comparison-report.json`).
+public policy identifier `established_0_2_0` after every gate above passed
+across both timing identifiability and recurrence identifiability:
+synthetic calibration and untouched validation for timing identifiability
+(`docs/calibration/2026-09-01-timing-identifiability-calibration.json` and
+`docs/calibration/2026-09-01-timing-identifiability-validation.json`, false
+precise-boundary Wilson upper bound `1.2e-4 <= 0.05`); synthetic calibration,
+untouched validation, and promotion certification for recurrence identifiability
+(`docs/calibration/2026-09-03-recurrence-identifiability-calibration.json`,
+`docs/calibration/2026-09-03-recurrence-identifiability-validation.json`, and
+`docs/calibration/2026-09-03-recurrence-identifiability-promotion.json`); the
+five protected catchments' outcomes unchanged; no confirmed baseline anchor from
+an unresolved row; the three motivating records' qualitative checks; and the
+timing cohort review (`case_studies/results/timing-identifiability/comparison-report.json`).
 `established_0_1_1` remains the historical baseline these gates were
 measured against; it is no longer the published policy identifier.

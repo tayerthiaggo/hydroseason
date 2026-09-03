@@ -1,0 +1,15 @@
+{
+  "promotion_version": "0.2.0-recurrence-identifiability.1",
+  "generated": "2026-09-03T12:08:22+00:00",
+  "selected_policy": "annual_shape_match",
+  "candidate_authority_scope": "candidate_for_established_0_2_0",
+  "candidate_fingerprint": "4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00",
+  "established_authority_scope": "established_0_2_0",
+  "established_fingerprint": "d2edf83069860425775d9b23706448487875df8119581bb1bfe67998d58db940",
+  "calibration_report": "docs/calibration/2026-09-03-recurrence-identifiability-calibration.json",
+  "validation_report": "docs/calibration/2026-09-03-recurrence-identifiability-validation.json",
+  "calibration_report_sha256": "fc06cadefb19fa91e07e54271b1df54799ce9598cb9f8b1ec2e0583f2457141f",
+  "validation_report_sha256": "dbc830263dbcd3483f6afa8437eae1facaf1d9691ecb8253c1bdb3965f03983d",
+  "metrics_changed": false,
+  "policy_changed": false
+}

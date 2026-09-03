@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).parents[1]
 
 
@@ -204,3 +203,32 @@ def test_recurrence_identifiability_design_freezes_the_020_correction():
     }
     missing = sorted(phrase for phrase in required if phrase not in text)
     assert not missing, f"approved recurrence design is missing: {missing}"
+
+
+def test_recurrence_identifiability_promotion_docs():
+    text_020 = (ROOT / "docs" / "decision-policy-0.2.0.md").read_text(encoding="utf-8")
+    text_main = (ROOT / "docs" / "decision-policy.md").read_text(encoding="utf-8")
+    text_mig = (ROOT / "docs" / "migrations" / "0.2.0-timing-identifiability.md").read_text(encoding="utf-8")
+
+    # Selected policy
+    assert "annual_shape_match" in text_020
+    # Recurrence fingerprint
+    assert "d2edf83069860425775d9b23706448487875df8119581bb1bfe67998d58db940" in text_020
+    # Timing fingerprint
+    assert "e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735" in text_020
+    # Both Wilson gates
+    assert "false-point Wilson upper bound <= 0.05" in text_020
+    assert "false-resolution Wilson upper bound <= 0.05" in text_020
+    # Validation report path
+    assert "2026-09-03-recurrence-identifiability-validation.json" in text_020
+    # Cohort status statement
+    assert "case_studies/recurrence-identifiability/cohort-protocol.json" in text_020
+    # Unchanged policy ID
+    assert "established_0_2_0" in text_020
+    assert "established_0_2_0" in text_main
+    # Unchanged package version
+    assert "0.2.0" in text_020
+    # Recurrence promotion in decision-policy.md
+    assert "2026-09-03-recurrence-identifiability-promotion.json" in text_main
+    # Bounds of equivalent evidence in migration notes
+    assert "bounds of equivalent evidence" in text_mig

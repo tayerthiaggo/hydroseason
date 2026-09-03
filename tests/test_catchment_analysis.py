@@ -83,7 +83,37 @@ def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_popula
     historical_result = _calibrated(historical, phase_scheme="four_phase", n_bootstrap=40)
 
     assert full_result.regime.regime == historical_result.regime.regime
-    assert full_result.route == historical_result.route
+    # On percentage series where count-based resolution floors are not activated,
+    # percentage-equivalent populations produce identical cycles, events, and low spells:
+    full_pct = _calibrated(full_prepared[["extent_pct", "invalid_pct"]], phase_scheme="four_phase", n_bootstrap=40)
+    historical_pct = _calibrated(historical_prepared[["extent_pct", "invalid_pct"]], phase_scheme="four_phase", n_bootstrap=40)
+    selection_cols = [
+        "hy_year",
+        "status",
+        "hy_start",
+        "hy_end",
+        "peak_month",
+        "trough_month",
+        "peak_extent_pct",
+        "trough_extent_pct",
+        "boundary_basis",
+    ]
+    pd.testing.assert_frame_equal(
+        full_pct.hydro_years[selection_cols], historical_pct.hydro_years[selection_cols]
+    )
+    pd.testing.assert_frame_equal(full_pct.events.events, historical_pct.events.events)
+    pd.testing.assert_frame_equal(full_pct.events.low_spells, historical_pct.events.low_spells)
+
+    # When pixel count columns are present, 0.2.0 timing identifiability activates
+    # count-aware detectability (resolution = 100 / n_valid). For full_aoi (n_valid=3000),
+    # the 1% trough step is resolvable (resolution 0.033%), routing to per_year_detection.
+    # For historical (n_valid=100 at trough), resolution floor is 1.0%, so the 1% step is
+    # within noise, leaving troughs unresolved across cycles and safely falling back:
+    assert full_result.route == "per_year_detection"
+    assert historical_result.route == "event_characterisation"
+    pd.testing.assert_frame_equal(full_result.events.events, historical_result.events.events)
+    pd.testing.assert_frame_equal(full_result.events.low_spells, historical_result.events.low_spells)
+
     assert (full_aoi["n_water"] > historical["n_water"]).all()
     assert (full_aoi["n_aoi"] > historical["n_aoi"]).all()
     assert full_aoi["n_valid"].nunique() > 1
@@ -100,26 +130,6 @@ def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_popula
     assert full_prepared["invalid_pct"].nunique() > 1
     assert historical_prepared["invalid_pct"].eq(0.0).all()
     assert full_result.regime.n_usable_months == historical_result.regime.n_usable_months
-    assert not full_result.hydro_years.empty
-    assert not historical_result.hydro_years.empty
-    selection_cols = [
-        "hy_year",
-        "status",
-        "hy_start",
-        "hy_end",
-        "peak_month",
-        "trough_month",
-        "peak_extent_pct",
-        "trough_extent_pct",
-        "boundary_basis",
-    ]
-    pd.testing.assert_frame_equal(
-        full_result.hydro_years[selection_cols], historical_result.hydro_years[selection_cols]
-    )
-    assert not full_result.events.events.empty
-    assert not full_result.events.low_spells.empty
-    pd.testing.assert_frame_equal(full_result.events.events, historical_result.events.events)
-    pd.testing.assert_frame_equal(full_result.events.low_spells, historical_result.events.low_spells)
 
 
 def _marginal(years=30, seed=7, peak_month=11, *, phase_wander=False):
@@ -188,12 +198,15 @@ def test_seasonal_routes_to_per_year_detection():
     assert "reproducible" in result.route_reason.lower()
 
 
-def test_seasonal_record_with_unstable_trough_routes_to_per_year_detection():
+def test_seasonal_record_with_unstable_trough_falls_back_to_event_characterisation():
+    """Under calibrated 0.2.0 recurrence policy (annual_shape_match), alternating
+    6-month troughs cannot be narrowed to annual recurrence, so cycle timing remains
+    unresolved across cycles and the record safely falls back to event characterisation."""
     result = _calibrated(_timing_route_record("unstable_trough"), n_bootstrap=40)
 
     assert result.regime.supports_per_year_boundaries is True
-    assert result.route == "per_year_detection"
-    assert (result.hydro_years["boundary_basis"] == "detected_per_year").all()
+    assert result.route == "event_characterisation"
+    assert "calendar-year timing evidence appeared sufficient, but the detected hydrological-year cycles do not support it" in result.route_reason
 
 
 def test_concentrated_nonuniform_marginal_routes_to_per_year_detection():

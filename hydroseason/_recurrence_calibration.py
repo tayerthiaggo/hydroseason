@@ -269,7 +269,7 @@ def recurrence_fingerprint(
     *,
     seeds: Iterable[int],
     metrics: Mapping[str, Any] | RecurrencePolicyScore,
-    authority_scope: str = RECURRENCE_AUTHORITY_SCOPE,
+    authority_scope: str = "candidate_for_established_0_2_0",
 ) -> str:
     """Hash code, seeds, metrics, policy, and authority scope into a 64-char hex SHA-256 fingerprint."""
     hasher = hashlib.sha256()

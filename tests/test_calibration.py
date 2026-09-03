@@ -821,15 +821,13 @@ def test_selector_composes_with_a_real_cache_from_the_calibration_partition():
     assert len(tied_low_plateau_wide) > 0
     assert tied_low_plateau_wide["published"].sum() == 0
 
-    # Pin the exact false-precise-boundary count/denominator from the
-    # docstring for the shipped geometry (3, 5, 6): 8 false-precise
-    # boundaries out of 64 unidentifiable-year rows, all attributable to the
-    # documented ``missing_outer_months`` corpus gap. Under the reverted
-    # (pre-fix) scoring this count is 64/64 -- same error message, wildly
-    # different cause -- so this is what actually distinguishes the two.
+    # Pin the false-precise-boundary count/denominator from the docstring
+    # for the shipped geometry (3, 5, 6): the recurrence identifiability fix
+    # (annual_shape_match) eliminates the 8 false points on missing_outer_months,
+    # reducing n_false from 8.0 to 0.0 out of 64 unidentifiable-year rows:
     points = list(iter_trough_geometry_points())
     metrics = _geometry_metrics(cache, points.index(SHIPPED_GEOMETRY))
-    assert metrics["n_false"] == 8.0
+    assert metrics["n_false"] == 0.0
     assert metrics["n_unidentifiable"] == 64.0
 
     with pytest.raises(RuntimeError, match="false precise-boundary"):
@@ -1079,11 +1077,16 @@ def test_recurrence_cli_mutual_exclusion():
     args3 = parser.parse_args(["--trough-geometry"])
     assert args3.trough_geometry is True
 
+    args4 = parser.parse_args(["--promote-recurrence-identifiability"])
+    assert args4.promote_recurrence_identifiability is True
+
     # Mutually exclusive flags
     for flags in (
         ["--recurrence-identifiability", "--trough-geometry"],
         ["--recurrence-identifiability", "--timing-identifiability"],
         ["--recurrence-identifiability", "--legacy-calibration"],
+        ["--recurrence-identifiability", "--promote-recurrence-identifiability"],
+        ["--promote-recurrence-identifiability", "--trough-geometry"],
         ["--timing-identifiability", "--trough-geometry"],
     ):
         with pytest.raises(SystemExit):
@@ -1091,6 +1094,7 @@ def test_recurrence_cli_mutual_exclusion():
             parsed = parser.parse_args(flags)
             mode_flags = [
                 parsed.recurrence_identifiability,
+                parsed.promote_recurrence_identifiability,
                 parsed.trough_geometry,
                 parsed.timing_identifiability,
                 parsed.legacy_calibration,

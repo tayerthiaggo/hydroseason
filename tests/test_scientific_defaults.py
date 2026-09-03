@@ -145,19 +145,26 @@ RECURRENCE_CALIBRATION_REPORT = Path(
     "docs/calibration/2026-09-03-recurrence-identifiability-calibration.json"
 )
 
+RECURRENCE_PROMOTION_REPORT = Path(
+    "docs/calibration/2026-09-03-recurrence-identifiability-promotion.json"
+)
+
 
 def test_recurrence_calibration_artifact_matches_generated_defaults():
     from hydroseason._recurrence_calibration import recurrence_fingerprint
 
     payload = json.loads(RECURRENCE_CALIBRATION_REPORT.read_text(encoding="utf-8"))
+    promotion = json.loads(RECURRENCE_PROMOTION_REPORT.read_text(encoding="utf-8"))
     assert payload["selected_policy"] == defaults.RECURRENCE_POLICY
-    assert payload["fingerprint"] == defaults.RECURRENCE_FINGERPRINT
-    assert payload["authority_scope"] == defaults.RECURRENCE_AUTHORITY_SCOPE
+    assert payload["authority_scope"] == "candidate_for_established_0_2_0"
     assert payload["seeds"] == list(range(50000, 50960))
+    assert promotion["candidate_fingerprint"] == payload["fingerprint"]
+    assert promotion["established_fingerprint"] == defaults.RECURRENCE_FINGERPRINT
     assert recurrence_fingerprint(
         defaults.RECURRENCE_POLICY,
         seeds=payload["seeds"],
         metrics=payload["metrics"],
+        authority_scope=defaults.RECURRENCE_AUTHORITY_SCOPE,
     ) == defaults.RECURRENCE_FINGERPRINT
 
 
@@ -177,3 +184,34 @@ def test_recurrence_untouched_validation_uses_frozen_policy_once():
     assert set(validation["candidate_metrics"]) == {calibration["selected_policy"]}
     assert validation["metrics"]["false_point_wilson"][1] <= 0.05
     assert validation["metrics"]["false_resolution_wilson"][1] <= 0.05
+
+
+def test_promote_recurrence_defaults_preserves_source_reports_and_computes_fingerprint(tmp_path):
+    from hydroseason._recurrence_calibration import recurrence_fingerprint
+    from scripts.run_calibration import promote_recurrence_defaults
+
+    cal_bytes = RECURRENCE_CALIBRATION_REPORT.read_bytes()
+    val_bytes = RECURRENCE_VALIDATION_REPORT.read_bytes()
+
+    out_rep = tmp_path / "promotion.json"
+    out_mod = tmp_path / "_scientific_defaults.py"
+    out_mod.write_text(Path("hydroseason/_scientific_defaults.py").read_text(encoding="utf-8"), encoding="utf-8")
+
+    promotion = promote_recurrence_defaults(
+        calibration_report=RECURRENCE_CALIBRATION_REPORT,
+        validation_report=RECURRENCE_VALIDATION_REPORT,
+        out_report=out_rep,
+        out_module=out_mod,
+    )
+
+    assert RECURRENCE_CALIBRATION_REPORT.read_bytes() == cal_bytes
+    assert RECURRENCE_VALIDATION_REPORT.read_bytes() == val_bytes
+
+    cal_payload = json.loads(cal_bytes.decode("utf-8"))
+    expected_fp = recurrence_fingerprint(
+        cal_payload["selected_policy"],
+        seeds=cal_payload["seeds"],
+        metrics=cal_payload["metrics"],
+        authority_scope="established_0_2_0",
+    )
+    assert promotion["established_fingerprint"] == expected_fp

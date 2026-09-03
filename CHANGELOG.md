@@ -5,7 +5,7 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-08-31
+## [0.2.0] - 2026-08-31 (corrected 2026-09-03, unlaunched)
 
 ### Added
 - **Preflight**: `preflight`, `PreflightResult`, `PreflightThresholds`,
@@ -48,6 +48,7 @@ All notable changes to HydroSeason are documented here. This project follows
 - Clarified four distinct uncertainty concepts across documentation, stating that `seasonal_cv_skill` is post-selection cross-validation skill and distinguishing empirical benchmark error bounds from real-world field validation.
 
 ### Fixed
+- **Recurrence Identifiability Certification**: Audited and corrected multi-pulse recurrence narrowing under `established_0_2_0`. Multi-pulse cycle windows now evaluate calibrated pure recurrence policy `annual_shape_match` instead of uninspected legacy heuristics, verified across 960 calibration seeds (`50000..50959`) and 960 untouched validation seeds (`60000..60959`), preserving both Wilson false-precision safety gates (<= 0.05) with zero reselection and byte-identical timing identifiability fingerprint `e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735`. Certified in `docs/calibration/2026-09-03-recurrence-identifiability-promotion.json`.
 - `uv.lock` now records `scipy` and `dask-image`. Both were already declared
   in the `raster` extra, but an environment installed from the lockfile
   omitted them, so the recurrent-water screen failed with
