@@ -38,7 +38,7 @@
 | `hydroseason/_calibration.py` | Geometry fingerprint covers direct and transitive timing inputs. | 1 |
 | `tests/test_calibration.py` | Pins fingerprint dependency and corrected 0/64 integration behavior. | 1-2 |
 | `docs/superpowers/plans/2026-09-02-trough-window-geometry.md` | Existing Tasks 8-11 resumed after this plan. | 3 |
-| `.superpowers/sdd/progress.md` | Records recurrence prerequisite and new Task 8 gate state. | 3 |
+| `.superpowers/sdd/progress-trough-geometry-paused.md` | Records recurrence prerequisite and new Task 8 gate state. | 3 |
 | `docs/calibration/trough-geometry-calibration.json` | Restarted calibration report from open partition. | 3 |
 | `hydroseason/_scientific_defaults.py` | Generated geometry tuple/fingerprint after calibration. | 3 |
 
@@ -292,7 +292,7 @@ git commit -m "test: replace stale recurrence false-point expectation"
 **Files:**
 - Modify (generated): `hydroseason/_scientific_defaults.py`
 - Create: `docs/calibration/trough-geometry-calibration.json`
-- Modify: `.superpowers/sdd/progress.md`
+- Modify: `.superpowers/sdd/progress-trough-geometry-paused.md`
 
 **Interfaces:**
 - Consumes: Tasks 1-2 and corrected recurrence evidence.
@@ -357,6 +357,16 @@ Expected: PASS.
 
 - [ ] **Step 5: Update progress ledger**
 
+**Audit correction (2026-09-04):** the plan text below (and the File
+Structure table) originally named `.superpowers/sdd/progress.md`. That
+file is the *recurrence-identifiability correction plan's* ledger (Tasks
+1-12) and has no Task 8 section -- the actual "PLAN PAUSED at Task 8
+(2026-09-03)" section this step means lives in
+`.superpowers/sdd/progress-trough-geometry-paused.md` (the *trough window
+geometry* plan's own ledger, `docs/superpowers/plans/2026-09-02-trough-window-geometry.md`).
+Append there, after the existing "PLAN PAUSED at Task 8" section, not to
+`.superpowers/sdd/progress.md`.
+
 Append under the paused Task 8 section:
 
 ```markdown
@@ -405,3 +415,4 @@ Do not commit generated geometry defaults/report until existing Task 8's freeze 
 - `defaults.RECURRENCE_POLICY` is guarded so a skipped prerequisite reports
   itself, while staying literal for the Step 1 source-dependency test.
 - **`RECURRENCE_FINGERPRINT` decoupled from the geometry hash (2026-09-04).** The correction plan's Task 11 blinded-cohort gate has no eligible uninspected source root, so promotion to `established_0_2_0` is withheld indefinitely and recurrence ships at `candidate_for_established_0_2_0` scope. Hashing `RECURRENCE_FINGERPRINT` would have forced geometry re-entry to wait behind that unresolved gate even though authority scope has no effect on geometry detection, and would stale every geometry result the moment promotion eventually lands on `metrics_changed: False, policy_changed: False` alone. Geometry now hashes `RECURRENCE_POLICY` and `narrow_most_recent_recurrence`'s source directly instead, which is what actually determines geometry behaviour. The prerequisite in Global Constraints was updated to match: frozen policy, not established scope.
+- **Task 3's ledger path corrected (2026-09-04).** File Structure and Step 5 named `.superpowers/sdd/progress.md` for the "paused Task 8" update; that file is the recurrence-correction plan's own ledger (Tasks 1-12) and has no Task 8 section. Corrected to `.superpowers/sdd/progress-trough-geometry-paused.md`, the trough-window-geometry plan's ledger, which carries the actual "PLAN PAUSED at Task 8 (2026-09-03)" section this step continues.
