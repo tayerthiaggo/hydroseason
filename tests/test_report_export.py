@@ -274,3 +274,44 @@ def test_monthly_and_hydro_years_user_export_fields(seasonal_extent):
     assert "annual_condition" in user_hy.columns
     assert user_hy["annual_condition"].notna().all()
 
+
+def _hy_frame():
+    """Minimal dynamic-detector frame: one point, one broad, one unresolved."""
+    return pd.DataFrame(
+        {
+            "hy_year": [2020, 2021, 2022],
+            "trough_month": pd.to_datetime(["2020-10-01", "2021-11-01", "2022-09-01"]),
+            "trough_interval_start": pd.to_datetime(["2020-10-01", "2021-08-01", "2022-01-01"]),
+            "trough_interval_end": pd.to_datetime(["2020-10-01", "2021-11-01", "2022-12-01"]),
+            "trough_timing_status": ["point", "broad", "unresolved"],
+            "peak_timing_status": ["point", "point", "point"],
+        }
+    )
+
+
+def test_trough_boundary_date_uses_the_window_end_when_localised():
+    from hydroseason._report_export import build_user_hydro_years_export
+    out = build_user_hydro_years_export(_hy_frame())
+    assert out.loc[0, "trough_boundary_date"] == pd.Timestamp("2020-10-01")
+    assert out.loc[1, "trough_boundary_date"] == pd.Timestamp("2021-11-01")
+
+
+def test_trough_boundary_date_falls_back_to_trough_month_when_unresolved():
+    from hydroseason._report_export import build_user_hydro_years_export
+    out = build_user_hydro_years_export(_hy_frame())
+    assert out.loc[2, "trough_boundary_date"] == pd.Timestamp("2022-09-01")
+
+
+def test_trough_boundary_date_is_populated_on_every_row():
+    from hydroseason._report_export import build_user_hydro_years_export
+    out = build_user_hydro_years_export(_hy_frame())
+    assert out["trough_boundary_date"].notna().all()
+
+
+def test_trough_date_keeps_its_point_only_meaning():
+    from hydroseason._report_export import build_user_hydro_years_export
+    out = build_user_hydro_years_export(_hy_frame())
+    assert out.loc[0, "trough_date"] == pd.Timestamp("2020-10-01")
+    assert pd.isna(out.loc[1, "trough_date"])
+    assert pd.isna(out.loc[2, "trough_date"])
+

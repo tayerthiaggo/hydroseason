@@ -80,6 +80,7 @@ HY_CSV_COLUMNS = [
     "peak_date",
     "mid_dry_date",
     "trough_date",
+    "trough_boundary_date",
     "peak_extent_pct",
     "mid_dry_extent_pct",
     "trough_extent_pct",
@@ -421,6 +422,20 @@ def build_user_hydro_years_export(hydro_years: pd.DataFrame) -> pd.DataFrame:
     }
     for target, source_names in aliases.items():
         out[target] = _first_column(hydro_years, *source_names).to_numpy()
+
+    # The cycle boundary and the scientific window serve different consumers and
+    # must not share one field. `trough_date` keeps its strict point-only
+    # meaning below; `trough_boundary_date` always carries the boundary. For a
+    # localised window the boundary is its LAST month -- the end of the dry
+    # season, which is where the cycle actually turns. Derived before the
+    # nulling below, while `trough_date` still holds `trough_month`.
+    if "trough_timing_status" in out.columns:
+        localised = out["trough_timing_status"].isin(["point", "interval", "broad"])
+        out["trough_boundary_date"] = out["trough_date"].where(
+            ~localised, out["trough_interval_end_date"]
+        )
+    else:
+        out["trough_boundary_date"] = out["trough_date"]
 
     # A public exact-date field is populated only when timing status is
     # "point": an interval or unresolved extremum has no defensible single
