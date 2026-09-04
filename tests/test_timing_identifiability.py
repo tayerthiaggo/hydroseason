@@ -391,3 +391,75 @@ def test_gap_fragmented_equivalent_peak_does_not_become_a_false_point():
     assert result.detectable is True
     assert result.peak_status == "unresolved"
     assert result.peak_dates == tuple(index.delete(5))
+
+
+def _thresholds(**overrides):
+    from hydroseason._timing_identifiability import TimingIdentifiabilityThresholds
+
+    base = {
+        "min_amplitude_to_floor_ratio": 3.0,
+        "min_peak_water_pixels": 5,
+        "max_point_span_months": 0,
+        "max_boundary_interval_months": 2,
+        "min_informative_years": 7,
+    }
+    base.update(overrides)
+    return TimingIdentifiabilityThresholds(**base)
+
+
+def _months(n):
+    import pandas as pd
+
+    return tuple(pd.Timestamp("2020-01-01") + pd.DateOffset(months=i) for i in range(n))
+
+
+def test_max_broad_interval_months_defaults_to_five():
+    assert _thresholds().max_broad_interval_months == 5
+
+
+def test_broad_tier_is_off_by_default_preserving_current_behaviour():
+    from hydroseason._timing_identifiability import _window_status
+
+    th = _thresholds()
+    # span 0 -> point, span 2 -> interval, span 3 -> unresolved (today's ladder)
+    assert _window_status(_months(1), th) == "point"
+    assert _window_status(_months(3), th) == "interval"
+    assert _window_status(_months(4), th) == "unresolved"
+    assert _window_status(_months(6), th) == "unresolved"
+
+
+def test_broad_tier_when_enabled_covers_four_to_six_months():
+    from hydroseason._timing_identifiability import _window_status
+
+    th = _thresholds()
+    assert _window_status(_months(1), th, allow_broad=True) == "point"
+    assert _window_status(_months(3), th, allow_broad=True) == "interval"
+    assert _window_status(_months(4), th, allow_broad=True) == "broad"
+    assert _window_status(_months(6), th, allow_broad=True) == "broad"
+    assert _window_status(_months(7), th, allow_broad=True) == "unresolved"
+
+
+def test_empty_dates_are_unresolved_under_both_modes():
+    from hydroseason._timing_identifiability import _window_status
+
+    th = _thresholds()
+    assert _window_status((), th) == "unresolved"
+    assert _window_status((), th, allow_broad=True) == "unresolved"
+
+
+def test_broad_cap_must_not_be_below_the_interval_cap():
+    import pytest
+
+    with pytest.raises(ValueError, match="max_broad_interval_months"):
+        _thresholds(max_broad_interval_months=1)
+
+
+def test_status_rank_orders_broad_between_interval_and_unresolved():
+    from hydroseason._dynamic_year import _TIMING_STATUS_RANK
+
+    assert (
+        _TIMING_STATUS_RANK["unresolved"]
+        < _TIMING_STATUS_RANK["broad"]
+        < _TIMING_STATUS_RANK["interval"]
+        < _TIMING_STATUS_RANK["point"]
+    )

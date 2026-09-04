@@ -33,7 +33,12 @@ from ._timing_identifiability import (
     assess_window_timing,
 )
 
-_TIMING_STATUS_RANK: dict[TimingStatus, int] = {"unresolved": 0, "interval": 1, "point": 2}
+_TIMING_STATUS_RANK: dict[TimingStatus, int] = {
+    "unresolved": 0,
+    "broad": 1,
+    "interval": 2,
+    "point": 3,
+}
 
 # Fallback values substituted for the deprecated recovery-window fields when a
 # caller has not supplied them. These match the historical defaults (2 and 4)

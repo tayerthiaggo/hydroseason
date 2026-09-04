@@ -21,7 +21,7 @@ from ._recurrence_identifiability import (
 )
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
-TimingStatus = Literal["point", "interval", "unresolved"]
+TimingStatus = Literal["point", "interval", "broad", "unresolved"]
 PixelSupportStatus = Literal["available", "unavailable"]
 
 
@@ -32,6 +32,7 @@ class TimingIdentifiabilityThresholds:
     max_point_span_months: int
     max_boundary_interval_months: int
     min_informative_years: int
+    max_broad_interval_months: int = 5
 
     def __post_init__(self) -> None:
         if not isinstance(self.min_amplitude_to_floor_ratio, Real) or not np.isfinite(
@@ -43,6 +44,7 @@ class TimingIdentifiabilityThresholds:
             "max_point_span_months",
             "max_boundary_interval_months",
             "min_informative_years",
+            "max_broad_interval_months",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, Integral) or value < 0:
@@ -50,6 +52,10 @@ class TimingIdentifiabilityThresholds:
         if self.max_boundary_interval_months < self.max_point_span_months:
             raise ValueError(
                 "max_boundary_interval_months must be at least max_point_span_months."
+            )
+        if self.max_broad_interval_months < self.max_boundary_interval_months:
+            raise ValueError(
+                "max_broad_interval_months must be at least max_boundary_interval_months."
             )
 
 
@@ -144,14 +150,27 @@ def _timing_status(months: tuple[int, ...], thresholds: TimingIdentifiabilityThr
 
 
 def _window_status(
-    dates: tuple[pd.Timestamp, ...], thresholds: TimingIdentifiabilityThresholds
+    dates: tuple[pd.Timestamp, ...],
+    thresholds: TimingIdentifiabilityThresholds,
+    *,
+    allow_broad: bool = False,
 ) -> TimingStatus:
+    """Classify a window's extremum dates by how tightly they are localised.
+
+    ``allow_broad`` is opt-in so that callers which have not been reviewed for
+    the wider tier keep today's exact three-way ladder: with it False, every
+    input returns what this function returned before the tier existed.
+    """
     span = linear_span_months(dates)
-    if span is None or span > thresholds.max_boundary_interval_months:
+    if span is None:
         return "unresolved"
     if span <= thresholds.max_point_span_months:
         return "point"
-    return "interval"
+    if span <= thresholds.max_boundary_interval_months:
+        return "interval"
+    if allow_broad and span <= thresholds.max_broad_interval_months:
+        return "broad"
+    return "unresolved"
 
 
 def _resolved_recurrence_policy(
