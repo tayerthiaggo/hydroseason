@@ -786,26 +786,25 @@ def test_selector_composes_with_a_real_cache_from_the_calibration_partition():
     boundaries (it never emits ``"point"`` status), confirmed by direct
     inspection of ``_geometry_rows`` output for seed 30004.
 
-    The RuntimeError below still fires, but the cause has changed: this real
-    cache now shows a small (8/64), geometry-invariant false-precise-boundary
-    rate whose Wilson upper bound still exceeds the frozen 0.05 admission
-    gate. Tracing it lands entirely on ``missing_outer_months`` (seeds 30005,
-    30015, 30025, 30035), and specifically on the first year of each of that
-    family's two 2-year "missing outer months" gaps (hy_year 1993 of the
-    1993-1994 gap, 1998 of the 1998-1999 gap): the truth corpus marks *both*
-    years of each gap unidentifiable, but the detector resolves the first
-    year's boundary to a confident ``"point"`` (``status_reason="ok"``) while
-    correctly returning ``"unresolved"`` for the second. This is a genuine
-    detector-vs-corpus-labelling disagreement about exactly one of the two
-    masked years per gap, not a ``_geometry_rows``/``_geometry_metrics``
-    counting artifact -- it reproduces identically across all four seeds of
-    the family and is invariant to all 24 geometry candidates (the gate
-    rejects every point on the grid by the same 8/64 count), so no geometry
-    choice can route around it. Whether the corpus should also treat that
-    first gap year as identifiable, or the detector should decline to claim
-    a point there, is a genuine open question separate from Task 6's scoring
-    code and is out of scope for this fix pass -- this test intentionally
-    does not weaken the gate to force a selection through.
+    The recurrence-identifiability correction (``annual_shape_match``
+    replacing the uncalibrated ``_most_recent_recurrence_cluster``) removes
+    the geometry-invariant false points formerly contributed by the first
+    year of each two-year ``missing_outer_months`` gap: false-precise-boundary
+    count on this cache drops from 8/64 to 0/64, identically across all 24
+    geometry candidates.
+
+    The RuntimeError below still fires, but for a different, verified reason.
+    With 0 false points, the Wilson upper bound is not 0.0 -- at this
+    cache's fixed n=64, a Wilson interval on k=0 has upper bound ~0.0566,
+    which is intrinsically above the frozen 0.05 admission gate (the
+    breakeven point for k=0 is n=73; see ``wilson_interval``). This is a
+    property of the confidence interval's conservatism at this sample size,
+    not a defect in the recurrence fix, the geometry selector, or any
+    individual candidate -- it is identical across all 24 points on the
+    grid. Task 3's real calibration run (240 seeds, ~6x this cache's rows)
+    clears the gate with wide margin (~0.0099); this smoke test intentionally
+    keeps the smaller, faster 40-seed scale and therefore keeps expecting
+    the gate to reject, now for the corrected reason.
     """
     seeds = list(range(30000, 30040))
     cache = build_trough_geometry_cache(seeds, partition="calibration")
@@ -837,17 +836,17 @@ def test_selector_composes_with_a_real_cache_from_the_calibration_partition():
 def test_geometry_runner_writes_defaults_and_a_report(tmp_path, monkeypatch):
     """Exercise the runner's report/defaults-writing plumbing end to end.
 
-    The real calibration corpus (seeds 30000+) is known -- per Task 6's own
+    The real calibration corpus (seeds 30000+) is known -- per
     ``test_selector_composes_with_a_real_cache_from_the_calibration_partition``
-    -- to make ``select_trough_geometry_defaults`` raise ``RuntimeError`` on
-    every occurrence of the ``missing_outer_months`` family, regardless of
-    geometry candidate or seed-range size: it is an accepted, geometry-
-    invariant 8/64 false-precise-boundary rate, not a bug this task should
-    route around. So this test stands up the runner against a hand-built
-    cache (mirroring Task 6's own tie-break fixtures) where selection
-    succeeds by construction, to isolate and verify the plumbing this task
-    actually adds -- report payload shape and defaults-module writing --
-    from that already-documented, not-this-task's-problem selector outcome.
+    -- to raise ``RuntimeError`` from the selector's own Wilson admission
+    gate at this cache's 40-seed/64-row scale, even with zero false-precise
+    boundaries (0/64's Wilson upper bound, ~0.0566, is intrinsically above
+    the 0.05 gate; see that test's docstring). So this test stands up the
+    runner against a hand-built cache (mirroring Task 6's own tie-break
+    fixtures) where selection succeeds by construction, to isolate and
+    verify the plumbing this task actually adds -- report payload shape and
+    defaults-module writing -- from that cache-scale-driven, not-this-task's-
+    problem selector outcome.
     """
     module = _load_run_calibration_module()
 
