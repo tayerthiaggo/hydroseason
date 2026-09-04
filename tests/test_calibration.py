@@ -828,6 +828,7 @@ def test_selector_composes_with_a_real_cache_from_the_calibration_partition():
     metrics = _geometry_metrics(cache, points.index(SHIPPED_GEOMETRY))
     assert metrics["n_false"] == 0.0
     assert metrics["n_unidentifiable"] == 64.0
+    assert max(_geometry_metrics(cache, i)["n_false"] for i in range(len(points))) == 0.0
 
     with pytest.raises(RuntimeError, match="false precise-boundary"):
         select_trough_geometry_defaults(cache)
@@ -893,8 +894,10 @@ def test_geometry_runner_writes_defaults_and_a_report(tmp_path, monkeypatch):
     assert "TROUGH_GEOMETRY_FINGERPRINT" in text
 
 
-def test_geometry_validation_refuses_when_defaults_are_not_generated(tmp_path):
+def test_geometry_validation_refuses_when_defaults_are_not_generated(tmp_path, monkeypatch):
     module = _load_run_calibration_module()
+
+    monkeypatch.delattr(defaults, "TROUGH_GEOMETRY_DEFAULTS", raising=False)
 
     with pytest.raises(RuntimeError, match="not generated"):
         module.run_trough_geometry_validation(
@@ -1112,6 +1115,9 @@ def test_trough_geometry_fingerprint_covers_window_timing_and_recurrence_policy(
         "timing_metrics.assess_window_timing",
         "timing_metrics._window_status",
         "recurrence_metrics.narrow_most_recent_recurrence",
+        "recurrence_metrics._clusters",
+        "recurrence_metrics._resolved",
+        "recurrence_metrics._covers",
         "defaults.RECURRENCE_POLICY",
     }
     missing = sorted(item for item in required if item not in source)
@@ -1125,3 +1131,15 @@ def test_trough_geometry_fingerprint_covers_window_timing_and_recurrence_policy(
     assert "defaults.RECURRENCE_FINGERPRINT" not in source, (
         "geometry fingerprint must not depend on recurrence authority scope"
     )
+
+
+def test_trough_geometry_fingerprint_changes_when_recurrence_policy_changes(monkeypatch):
+    baseline = trough_geometry_fingerprint(SHIPPED_GEOMETRY)
+    monkeypatch.setattr(defaults, "RECURRENCE_POLICY", "no_narrowing", raising=False)
+    assert trough_geometry_fingerprint(SHIPPED_GEOMETRY) != baseline
+
+
+def test_trough_geometry_fingerprint_raises_when_recurrence_policy_is_missing(monkeypatch):
+    monkeypatch.delattr(defaults, "RECURRENCE_POLICY", raising=False)
+    with pytest.raises(ValueError, match="recurrence defaults"):
+        trough_geometry_fingerprint(SHIPPED_GEOMETRY)

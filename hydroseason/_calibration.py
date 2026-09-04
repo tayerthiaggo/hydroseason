@@ -2050,7 +2050,14 @@ def select_trough_geometry_defaults(
 
 
 def trough_geometry_fingerprint(geometry: TroughGeometry | None = None) -> str:
-    """Fingerprint geometry calibration inputs only; validation truth excluded."""
+    """Fingerprint geometry calibration inputs only; validation truth excluded.
+
+    Also covers window-timing behavior and the frozen recurrence policy's
+    value and implementation, including the ``_clusters``/``_resolved``/
+    ``_covers`` helpers that actually decide narrowing -- ``inspect.getsource``
+    does not recurse into callees, so hashing
+    ``narrow_most_recent_recurrence`` alone would miss changes to those.
+    """
     import inspect
 
     from . import (
@@ -2077,6 +2084,9 @@ def trough_geometry_fingerprint(geometry: TroughGeometry | None = None) -> str:
         timing_metrics.assess_window_timing,
         timing_metrics._window_status,
         recurrence_metrics.narrow_most_recent_recurrence,
+        recurrence_metrics._clusters,
+        recurrence_metrics._resolved,
+        recurrence_metrics._covers,
         _geometry_rows,
         _geometry_metrics,
         build_trough_geometry_cache,
