@@ -1101,3 +1101,28 @@ def test_recurrence_cli_mutual_exclusion():
             ]
             if sum(bool(f) for f in mode_flags) > 1:
                 parser.error("mutually exclusive")
+
+
+def test_trough_geometry_fingerprint_covers_window_timing_and_recurrence_policy():
+    import inspect
+
+    from hydroseason import _calibration
+
+    source = inspect.getsource(_calibration.trough_geometry_fingerprint)
+    required = {
+        "timing_metrics.assess_window_timing",
+        "timing_metrics._window_status",
+        "recurrence_metrics.narrow_most_recent_recurrence",
+        "defaults.RECURRENCE_POLICY",
+    }
+    missing = sorted(item for item in required if item not in source)
+    assert not missing, f"geometry fingerprint misses timing inputs: {missing}"
+    # RECURRENCE_FINGERPRINT is deliberately excluded: geometry detection depends
+    # on which policy was selected and how narrowing is implemented, both already
+    # covered above, not on recurrence's authority scope. The fingerprint adds
+    # scope on top of policy, and scope alone moves at recurrence promotion
+    # (metrics_changed: False, policy_changed: False), which would otherwise
+    # stale every geometry result over a string with no detection effect.
+    assert "defaults.RECURRENCE_FINGERPRINT" not in source, (
+        "geometry fingerprint must not depend on recurrence authority scope"
+    )

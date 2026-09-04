@@ -2055,8 +2055,10 @@ def trough_geometry_fingerprint(geometry: TroughGeometry | None = None) -> str:
 
     from . import (
         _dynamic_year as dynamic_year,
+        _recurrence_identifiability as recurrence_metrics,
         _scientific_defaults as defaults,
         _synthetic,
+        _timing_identifiability as timing_metrics,
     )
 
     selected = geometry or getattr(defaults, "TROUGH_GEOMETRY_DEFAULTS", None)
@@ -2072,6 +2074,9 @@ def trough_geometry_fingerprint(geometry: TroughGeometry | None = None) -> str:
         dynamic_year._find_robust_trough_opportunities,
         dynamic_year._adaptive_edge_retry_years,
         dynamic_year._search_edge_diagnostics,
+        timing_metrics.assess_window_timing,
+        timing_metrics._window_status,
+        recurrence_metrics.narrow_most_recent_recurrence,
         _geometry_rows,
         _geometry_metrics,
         build_trough_geometry_cache,
@@ -2081,6 +2086,9 @@ def trough_geometry_fingerprint(geometry: TroughGeometry | None = None) -> str:
     hasher.update(json.dumps(TROUGH_GEOMETRY_GRID, sort_keys=True).encode("utf-8"))
     hasher.update(json.dumps(list(_synthetic.GEOMETRY_CALIBRATION_SEEDS)).encode("utf-8"))
     hasher.update(json.dumps(asdict(selected), sort_keys=True).encode("utf-8"))
+    if not hasattr(defaults, "RECURRENCE_POLICY"):
+        raise ValueError("recurrence defaults have not been generated.")
+    hasher.update(defaults.RECURRENCE_POLICY.encode("utf-8"))
     hasher.update(TROUGH_GEOMETRY_AUTHORITY_SCOPE.encode("utf-8"))
     return hasher.hexdigest()
 
