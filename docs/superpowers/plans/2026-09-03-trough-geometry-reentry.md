@@ -166,19 +166,63 @@ git commit -m "fix: fingerprint recurrence inputs in geometry calibration"
 
 - [ ] **Step 1: Rewrite stale test narrative before assertions**
 
+**Audit correction (2026-09-04):** this step's originally specified
+assertions (Step 2 below, pre-correction) predicted that with `n_false == 0.0`
+the selector would succeed. That prediction was wrong, verified by
+independently rerunning the real cache: `wilson_interval(0, 64)[1]` is
+`~0.0566`, which is intrinsically above the frozen `0.05` gate at this
+cache's fixed `n_unidentifiable == 64` -- the Wilson upper bound for `k=0`
+does not clear `0.05` until `n >= 73` (`wilson_interval(0, 73)[1]` is
+`0.0499...`; `wilson_interval(0, 74)[1]` is `0.0493...`). This holds
+identically across all 24 geometry candidates (confirmed: every one measures
+`n_false == 0.0` on this cache), so it is a property of the test's 40-seed
+scale, not a defect in the recurrence fix or any candidate. Task 3's real
+240-seed calibration run has roughly 6x this cache's rows and clears the
+gate with wide margin (`wilson_interval(0, 384)[1]` is `~0.0099`); only this
+smoke test's scale is too small for the selector to ever admit a candidate
+at `k=0`. Per user decision: keep the test's original RuntimeError-raising
+shape and correct the narrative to state the true, now-verified cause,
+rather than growing the seed range to force success inside this test.
+
 Keep the test name `test_selector_composes_with_a_real_cache_from_the_calibration_partition`. Replace its 8/64 paragraphs with:
 
 ```python
-    The recurrence-identifiability correction removes the geometry-invariant
-    false points formerly contributed by the first year of each two-year
-    ``missing_outer_months`` gap.  This test keeps the original 40-seed
-    integration scale and now requires zero false point publications across
-    the 64 truth-unidentifiable rows.  The Wilson admission gate remains
-    unchanged; the selector must succeed rather than being wrapped in an
-    expected RuntimeError.
+    The recurrence-identifiability correction (``annual_shape_match``
+    replacing the uncalibrated ``_most_recent_recurrence_cluster``) removes
+    the geometry-invariant false points formerly contributed by the first
+    year of each two-year ``missing_outer_months`` gap: false-precise-boundary
+    count on this cache drops from 8/64 to 0/64, identically across all 24
+    geometry candidates.
+
+    The RuntimeError below still fires, but for a different, verified reason.
+    With 0 false points, the Wilson upper bound is not 0.0 -- at this
+    cache's fixed n=64, a Wilson interval on k=0 has upper bound ~0.0566,
+    which is intrinsically above the frozen 0.05 admission gate (the
+    breakeven point for k=0 is n=73; see ``wilson_interval``). This is a
+    property of the confidence interval's conservatism at this sample size,
+    not a defect in the recurrence fix, the geometry selector, or any
+    individual candidate -- it is identical across all 24 points on the
+    grid. Task 3's real calibration run (240 seeds, ~6x this cache's rows)
+    clears the gate with wide margin (~0.0099); this smoke test intentionally
+    keeps the smaller, faster 40-seed scale and therefore keeps expecting
+    the gate to reject, now for the corrected reason.
 ```
 
-In `test_geometry_runner_writes_defaults_and_a_report`, remove the paragraph calling 8/64 accepted/documented. State that real calibration is now independently covered by the integration test and this test isolates writer plumbing with a hand-built cache.
+In `test_geometry_runner_writes_defaults_and_a_report`, replace the paragraph calling 8/64 accepted/documented with:
+
+```python
+    The real calibration corpus (seeds 30000+) is known -- per
+    ``test_selector_composes_with_a_real_cache_from_the_calibration_partition``
+    -- to raise ``RuntimeError`` from the selector's own Wilson admission
+    gate at this cache's 40-seed/64-row scale, even with zero false-precise
+    boundaries (0/64's Wilson upper bound, ~0.0566, is intrinsically above
+    the 0.05 gate; see that test's docstring). So this test stands up the
+    runner against a hand-built cache (mirroring Task 6's own tie-break
+    fixtures) where selection succeeds by construction, to isolate and
+    verify the plumbing this task actually adds -- report payload shape and
+    defaults-module writing -- from that cache-scale-driven, not-this-task's-
+    problem selector outcome.
+```
 
 - [ ] **Step 2: Replace failing assertions exactly**
 
@@ -197,19 +241,20 @@ with:
 ```python
     assert metrics["n_false"] == 0.0
     assert metrics["n_unidentifiable"] == 64.0
-    geometry, score = select_trough_geometry_defaults(cache)
-    assert geometry in set(iter_trough_geometry_points())
-    assert score.false_precise_boundary_n == 64
-    assert score.false_precise_boundary_rate == 0.0
-    assert score.false_precise_boundary_wilson[1] <= 0.05
+
+    with pytest.raises(RuntimeError, match="false precise-boundary"):
+        select_trough_geometry_defaults(cache)
 ```
 
-This is the frozen prediction, and it has been measured on the family that
-carries all eight rows: disabling recurrence narrowing takes that family from
-`n_false == 8.0` to `0.0` (see Global Constraints). A nonzero result here
-therefore means a *different* family started contributing, not that the
-diagnosis was wrong. If `n_false` is nonzero, stop and report family/seed/year
-residuals; do not loosen the assertion or the gate.
+Only the pinned `n_false` value changes (`8.0` -> `0.0`); the RuntimeError
+expectation is unchanged in shape, now correctly reasoned per Step 1's
+corrected docstring. This is the frozen prediction, and it has been measured
+on the family that carries all eight rows: disabling recurrence narrowing
+takes that family from `n_false == 8.0` to `0.0` (see Global Constraints). A
+nonzero result here therefore means a *different* family started
+contributing, not that the diagnosis was wrong. If `n_false` is nonzero,
+stop and report family/seed/year residuals; do not loosen the assertion or
+the gate.
 
 - [ ] **Step 3: Run the real-cache integration test**
 
