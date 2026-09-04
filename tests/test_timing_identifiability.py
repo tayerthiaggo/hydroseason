@@ -536,3 +536,57 @@ def test_post_peak_search_handles_a_peak_in_the_final_month():
     )
     assert ev.trough_dates == (pd.Timestamp("2020-04-01"),)
     assert ev.trough_status == "point"
+
+
+def test_cycle_trough_reports_broad_for_a_sustained_minimum():
+    import pandas as pd
+    from hydroseason._timing_identifiability import assess_window_timing
+
+    index = pd.date_range("2020-01-01", periods=10, freq="MS")
+    # Peak in Feb, then a five-month flat minimum Jun-Oct.
+    values = pd.Series(
+        [0.40, 0.90, 0.50, 0.30, 0.12, 0.050, 0.048, 0.047, 0.046, 0.045],
+        index=index, dtype=float,
+    )
+    rows = pd.DataFrame(index=index)
+    ev = assess_window_timing(
+        values, rows, thresholds=_thresholds(), measurement_tolerance_pct=0.0,
+        noise_pp=0.01, pixel_support_status="unavailable",
+        trough_search="post_peak",
+    )
+    assert ev.trough_status == "broad"
+    assert ev.trough_dates[0] == pd.Timestamp("2020-06-01")
+    assert ev.trough_dates[-1] == pd.Timestamp("2020-10-01")
+
+
+def test_calendar_window_never_reports_broad():
+    import pandas as pd
+    from hydroseason._timing_identifiability import assess_window_timing
+
+    index = pd.date_range("2020-01-01", periods=10, freq="MS")
+    values = pd.Series(
+        [0.40, 0.90, 0.50, 0.30, 0.12, 0.050, 0.048, 0.047, 0.046, 0.045],
+        index=index, dtype=float,
+    )
+    rows = pd.DataFrame(index=index)
+    ev = assess_window_timing(
+        values, rows, thresholds=_thresholds(), measurement_tolerance_pct=0.0,
+        noise_pp=0.01, pixel_support_status="unavailable",
+    )
+    assert ev.trough_status != "broad"
+
+
+def test_peak_status_is_never_broad_even_on_a_flat_peak():
+    import pandas as pd
+    from hydroseason._timing_identifiability import assess_window_timing
+
+    index = pd.date_range("2020-01-01", periods=8, freq="MS")
+    # Five-month flat maximum, sharp minimum at the end.
+    values = pd.Series([0.90, 0.899, 0.898, 0.897, 0.896, 0.50, 0.20, 0.02], index=index, dtype=float)
+    rows = pd.DataFrame(index=index)
+    ev = assess_window_timing(
+        values, rows, thresholds=_thresholds(), measurement_tolerance_pct=0.0,
+        noise_pp=0.01, pixel_support_status="unavailable",
+        trough_search="post_peak",
+    )
+    assert ev.peak_status != "broad"

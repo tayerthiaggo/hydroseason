@@ -272,8 +272,9 @@ def assess_window_timing(
         trough_dates = equivalent_extremum_dates(
             trough_values, kind="min", tolerance=detectability_floor_pp
         )
+        allow_broad = trough_search == "post_peak"
         peak_status = _window_status(peak_dates, thresholds)
-        trough_status = _window_status(trough_dates, thresholds)
+        trough_status = _window_status(trough_dates, thresholds, allow_broad=allow_broad)
         if peak_status == "unresolved":
             recurrence_start, recurrence_end = _recurrence_bounds()
             narrowed = narrow_most_recent_recurrence(
@@ -297,7 +298,7 @@ def assess_window_timing(
                 policy=effective_recurrence_policy,
             )
             if narrowed != trough_dates:
-                narrowed_status = _window_status(narrowed, thresholds)
+                narrowed_status = _window_status(narrowed, thresholds, allow_broad=allow_broad)
                 if narrowed_status != "unresolved":
                     trough_dates, trough_status = narrowed, narrowed_status
     else:

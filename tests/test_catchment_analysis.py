@@ -479,3 +479,17 @@ def test_catchment_analysis_exposes_decision_policy():
     result = _calibrated(_seasonal(), n_bootstrap=40)
     assert result.decision_policy == "established_0_2_0"
     assert result.public_route == "per_year_detection"
+
+
+def test_routing_counts_broad_trough_cycles_as_informative():
+    """`broad` must satisfy the cycle-timing gate.
+
+    The gate counts ``trough_timing_status != "unresolved"``, so a sustained
+    minimum is informative for routing. This pins that predicate against a
+    future "fix" that narrows it to point/interval.
+    """
+    import pandas as pd
+    from hydroseason._catchment import _CYCLE_TIMING_INFORMATIVE_STATUSES
+
+    assert "broad" in _CYCLE_TIMING_INFORMATIVE_STATUSES
+    assert "unresolved" not in _CYCLE_TIMING_INFORMATIVE_STATUSES

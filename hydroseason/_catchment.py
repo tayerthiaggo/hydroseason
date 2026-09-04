@@ -33,6 +33,8 @@ from .hydrological_state import HydrologicalStateResult, analyze_hydrological_st
 
 __all__ = ["CatchmentAnalysis", "Route", "analyze_catchment"]
 
+_CYCLE_TIMING_INFORMATIVE_STATUSES: frozenset[str] = frozenset({"point", "interval", "broad"})
+
 
 @dataclass(frozen=True)
 class CatchmentAnalysis:
@@ -351,8 +353,16 @@ def analyze_catchment(
         # routed to per_year_detection on a calendar-year "supported" verdict
         # while every cycle it actually detected is unresolved.
         min_informative = config.timing_identifiability_thresholds.min_informative_years
-        n_peak_cycles = int((years["peak_timing_status"] != "unresolved").sum()) if "peak_timing_status" in years.columns else 0
-        n_trough_cycles = int((years["trough_timing_status"] != "unresolved").sum()) if "trough_timing_status" in years.columns else 0
+        n_peak_cycles = (
+            int(years["peak_timing_status"].isin(_CYCLE_TIMING_INFORMATIVE_STATUSES).sum())
+            if "peak_timing_status" in years.columns
+            else 0
+        )
+        n_trough_cycles = (
+            int(years["trough_timing_status"].isin(_CYCLE_TIMING_INFORMATIVE_STATUSES).sum())
+            if "trough_timing_status" in years.columns
+            else 0
+        )
         cycles_support_timing = min(n_peak_cycles, n_trough_cycles) >= min_informative
 
         if not cycles_support_timing:

@@ -73,3 +73,25 @@ def test_checked_resolution_results_match_fresh_offline_computation():
     assert check_resolution_study(
         output_dir=REPO_ROOT / "case_studies" / "results" / "resolution"
     )
+
+
+def test_fitzroy_trough_recovery_after_recession_limb_fix():
+    """Pin the recovery this work exists to deliver.
+
+    Before: 8 of 21 cycles resolved at 30m, with windows up to 13 months that
+    spanned the wet-season peak. After: the whole-cycle contamination is gone
+    and a sustained minimum is reported as `broad` rather than discarded.
+    """
+    from hydroseason import analyze_catchment, load_extent_csv
+    from scripts.run_resolution_case_study import DEFAULT_DATA_DIR
+
+    df = load_extent_csv(
+        DEFAULT_DATA_DIR / "fitzroy_river_wa_30m.csv", date_col="date", value_col="extent_pct"
+    )
+    analysis = analyze_catchment(df, phase_scheme="two_phase")
+    years = analysis.hydro_years
+    resolved = years["trough_timing_status"].isin(["point", "interval", "broad"]).sum()
+
+    assert analysis.route == "per_year_detection"
+    assert resolved >= 18, f"expected >=18 of 21 cycles resolved, got {resolved}"
+    assert (years["trough_timing_status"] == "unresolved").sum() <= 3
