@@ -463,3 +463,76 @@ def test_status_rank_orders_broad_between_interval_and_unresolved():
         < _TIMING_STATUS_RANK["interval"]
         < _TIMING_STATUS_RANK["point"]
     )
+
+
+def _two_dry_seasons():
+    """A trough-to-trough cycle: dry tail, wet peak, then this cycle's dry season."""
+    import pandas as pd
+
+    index = pd.date_range("2005-11-01", periods=12, freq="MS")
+    values = [0.028, 0.083, 0.703, 0.276, 0.610, 0.132, 0.089, 0.068, 0.055, 0.046, 0.033, 0.019]
+    return pd.Series(values, index=index, dtype=float)
+
+
+def test_window_search_includes_the_previous_dry_season_tail():
+    import pandas as pd
+    from hydroseason._timing_identifiability import assess_window_timing
+
+    values = _two_dry_seasons()
+    rows = pd.DataFrame(index=values.index)
+    ev = assess_window_timing(
+        values, rows, thresholds=_thresholds(), measurement_tolerance_pct=0.0,
+        noise_pp=0.0148, pixel_support_status="unavailable",
+    )
+    # Spans from 2005-11 across the January peak to 2006-10.
+    assert ev.trough_dates[0] == pd.Timestamp("2005-11-01")
+    assert ev.trough_dates[-1] == pd.Timestamp("2006-10-01")
+    assert ev.trough_status == "unresolved"
+
+
+def test_post_peak_search_excludes_the_previous_dry_season_tail():
+    import pandas as pd
+    from hydroseason._timing_identifiability import assess_window_timing
+
+    values = _two_dry_seasons()
+    rows = pd.DataFrame(index=values.index)
+    ev = assess_window_timing(
+        values, rows, thresholds=_thresholds(), measurement_tolerance_pct=0.0,
+        noise_pp=0.0148, pixel_support_status="unavailable",
+        trough_search="post_peak",
+    )
+    # Peak is 2006-01; no candidate may precede it.
+    assert all(d >= pd.Timestamp("2006-01-01") for d in ev.trough_dates)
+    assert ev.trough_dates[-1] == pd.Timestamp("2006-10-01")
+
+
+def test_post_peak_search_leaves_the_peak_branch_untouched():
+    import pandas as pd
+    from hydroseason._timing_identifiability import assess_window_timing
+
+    values = _two_dry_seasons()
+    rows = pd.DataFrame(index=values.index)
+    kw = dict(
+        thresholds=_thresholds(), measurement_tolerance_pct=0.0,
+        noise_pp=0.0148, pixel_support_status="unavailable",
+    )
+    base = assess_window_timing(values, rows, **kw)
+    limb = assess_window_timing(values, rows, trough_search="post_peak", **kw)
+    assert limb.peak_dates == base.peak_dates
+    assert limb.peak_status == base.peak_status
+
+
+def test_post_peak_search_handles_a_peak_in_the_final_month():
+    import pandas as pd
+    from hydroseason._timing_identifiability import assess_window_timing
+
+    index = pd.date_range("2020-01-01", periods=4, freq="MS")
+    values = pd.Series([0.05, 0.04, 0.03, 0.90], index=index, dtype=float)
+    rows = pd.DataFrame(index=index)
+    ev = assess_window_timing(
+        values, rows, thresholds=_thresholds(), measurement_tolerance_pct=0.0,
+        noise_pp=0.001, pixel_support_status="unavailable",
+        trough_search="post_peak",
+    )
+    assert ev.trough_dates == (pd.Timestamp("2020-04-01"),)
+    assert ev.trough_status == "point"

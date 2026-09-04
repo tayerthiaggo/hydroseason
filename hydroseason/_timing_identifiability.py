@@ -194,6 +194,7 @@ def assess_window_timing(
     recurrence_policy: RecurrencePolicy | None = None,
     window_start: pd.Timestamp | None = None,
     window_end: pd.Timestamp | None = None,
+    trough_search: Literal["window", "post_peak"] = "window",
 ) -> WindowTimingEvidence:
     """Assess peak/trough detectability and timing status for one bounded window.
 
@@ -202,6 +203,11 @@ def assess_window_timing(
     the optional pixel-count columns. Uses the identical detectability floor and
     status thresholds as :func:`assess_timing_identifiability`, so a
     hydrological-year cycle and a calendar year are judged by the same rule.
+
+    ``trough_search="post_peak"`` restricts trough candidates to the recession
+    limb, starting at the LAST equivalent peak month. Only a trough-to-trough
+    cycle may use it: a calendar year can legitimately hold its trough before
+    its peak. The default preserves the original whole-window search.
     """
     measurement_tolerance_pp = _validate_tolerance(measurement_tolerance_pct)
     n_usable = int(len(values))
@@ -251,7 +257,21 @@ def assess_window_timing(
     )
     if detectable:
         peak_dates = equivalent_extremum_dates(values, kind="max", tolerance=detectability_floor_pp)
-        trough_dates = equivalent_extremum_dates(values, kind="min", tolerance=detectability_floor_pp)
+        # A trough-to-trough cycle opens just after the PREVIOUS trough, so that
+        # dry season's tail sits at the window start and otherwise qualifies as
+        # an equivalent minimum -- producing windows that span the wet-season
+        # peak. Start at the LAST equivalent peak month so no candidate can
+        # precede any plausible peak. The detectability floor is deliberately
+        # left as computed over the full window: it is the conservative choice
+        # and keeps the floor identical between the two search modes.
+        trough_values = (
+            values.loc[peak_dates[-1]:]
+            if trough_search == "post_peak" and peak_dates
+            else values
+        )
+        trough_dates = equivalent_extremum_dates(
+            trough_values, kind="min", tolerance=detectability_floor_pp
+        )
         peak_status = _window_status(peak_dates, thresholds)
         trough_status = _window_status(trough_dates, thresholds)
         if peak_status == "unresolved":

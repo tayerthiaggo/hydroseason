@@ -107,10 +107,11 @@ def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_popula
     # When pixel count columns are present, 0.2.0 timing identifiability activates
     # count-aware detectability (resolution = 100 / n_valid). For full_aoi (n_valid=3000),
     # the 1% trough step is resolvable (resolution 0.033%), routing to per_year_detection.
-    # For historical (n_valid=100 at trough), resolution floor is 1.0%, so the 1% step is
-    # within noise, leaving troughs unresolved across cycles and safely falling back:
+    # Task 2 restricts trough candidates to the post-peak limb in cycles, removing the
+    # contamination from the previous dry season's tail and making troughs resolvable
+    # even for historical (n_valid=100 at trough):
     assert full_result.route == "per_year_detection"
-    assert historical_result.route == "event_characterisation"
+    assert historical_result.route == "per_year_detection"
     pd.testing.assert_frame_equal(full_result.events.events, historical_result.events.events)
     pd.testing.assert_frame_equal(full_result.events.low_spells, historical_result.events.low_spells)
 

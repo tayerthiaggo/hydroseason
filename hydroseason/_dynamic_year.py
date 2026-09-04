@@ -674,6 +674,7 @@ def _cycle_timing_evidence(
         recurrence_policy=config.recurrence_policy,
         window_start=pd.Timestamp(cycle.index[0]),
         window_end=pd.Timestamp(cycle.index[-1]),
+        trough_search="post_peak",
     )
 
 
