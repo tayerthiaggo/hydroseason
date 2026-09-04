@@ -33,6 +33,14 @@ from .hydrological_state import HydrologicalStateResult, analyze_hydrological_st
 
 __all__ = ["CatchmentAnalysis", "Route", "analyze_catchment"]
 
+# The four statuses TimingStatus can take are {"point", "interval", "broad",
+# "unresolved"} -- but a row can also carry NaN, when the cycle was never
+# evaluated at all (a blank cycle, or one with no previous boundary /
+# insufficient coverage; see `_dynamic_year._blank_cycle`). `.isin(...)`
+# against this set deliberately excludes NaN rows from the informative count,
+# same as it excludes "unresolved": an unassessed cycle is the absence of
+# evidence, not positive evidence of identifiable timing, so it must not
+# count toward the informative-cycle threshold that gates routing.
 _CYCLE_TIMING_INFORMATIVE_STATUSES: frozenset[str] = frozenset({"point", "interval", "broad"})
 
 

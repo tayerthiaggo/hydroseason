@@ -376,12 +376,14 @@ def _phase_shapes(
 
 
 def _timing_interval_shapes(analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
-    """Shade an extremum's equivalent-month span when its timing is an interval.
+    """Shade an extremum's equivalent-month span for "interval" and "broad" timing.
 
-    A broad low-water plateau or diffuse peak has no defensible single date, so
-    it is never marked with a point (see ``_marker_traces``); shading the span
-    it was actually resolved to shows the real evidence instead of a fabricated
-    exact date.
+    Both statuses carry real interval bounds and no defensible single date, so
+    neither is marked with a point (see ``_marker_traces``, gated on "point"
+    only); shading the span it was actually resolved to shows the real
+    evidence instead of a fabricated exact date. A broad low-water plateau is
+    a genuine finding -- a sustained dry-season minimum -- not a failure to
+    resolve, so it is shaded exactly like an interval.
     """
     rows = getattr(analysis, "hydro_years", pd.DataFrame())
     if rows is None or rows.empty:
@@ -395,7 +397,7 @@ def _timing_interval_shapes(analysis: CatchmentAnalysis) -> list[dict[str, Any]]
         if status_col not in rows.columns:
             continue
         for _, row in rows.iterrows():
-            if row.get(status_col) != "interval":
+            if row.get(status_col) not in ("interval", "broad"):
                 continue
             start = _iso_date(row.get(start_col))
             end = _iso_date(row.get(end_col))

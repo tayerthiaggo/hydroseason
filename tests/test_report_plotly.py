@@ -320,6 +320,43 @@ def test_interval_timing_status_shades_its_span_instead_of_a_marker():
     assert shape["name"].startswith("timing_interval:trough:")
 
 
+def test_broad_timing_status_shades_its_span_like_an_interval():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-07-01", "2020-08-01", "2020-09-01", "2020-10-01"]),
+            "extent_pct": [30.0, 1.0, 0.98, 1.02, 1.04],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding", "receding", "receding", "receding"],
+            "hy_year": [2020, 2020, 2020, 2020, 2020],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "confidence": ["low"],
+                "boundary_status": ["provisional"],
+                "peak_timing_status": ["point"],
+                "trough_timing_status": ["broad"],
+                "trough_interval_start": [pd.Timestamp("2020-07-01")],
+                "trough_interval_end": [pd.Timestamp("2020-10-01")],
+            }
+        )
+    )
+    figure = timeline_figure(monthly, analysis)
+    interval_shapes = [
+        shape for shape in figure["layout"]["shapes"]
+        if shape.get("name", "").startswith("timing_interval:")
+    ]
+    assert len(interval_shapes) == 1
+    shape = interval_shapes[0]
+    assert shape["x0"] == "2020-07-01"
+    assert shape["x1"] == "2020-10-01"
+    assert shape["name"].startswith("timing_interval:trough:")
+
+
 def test_timeline_adds_rainfall_only_when_supplied(seasonal_data, seasonal_data_with_rainfall):
     monthly_no_rain, analysis = seasonal_data
     monthly_rain, _ = seasonal_data_with_rainfall

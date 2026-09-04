@@ -138,7 +138,9 @@ def _fmt_timing_extremum(
 
     A row without a timing-status column (e.g. the fixed-window detector) keeps
     the original unconditional date. Otherwise: an exact date only for "point";
-    a bounded range for "interval"; an explicit withholding for "unresolved".
+    a bounded range for "interval" and "broad" (both carry real interval bounds,
+    a sustained plateau is not a failure to resolve); an explicit withholding
+    for "unresolved".
     """
     status = _row_value(row, *status_names)
     if status is None:
@@ -146,7 +148,7 @@ def _fmt_timing_extremum(
     status = str(status)
     if status == "point":
         return _fmt_date(_row_value(row, *date_names), year=year)
-    if status == "interval":
+    if status in ("interval", "broad"):
         start = _fmt_date(_row_value(row, *interval_start_names), year=year)
         end = _fmt_date(_row_value(row, *interval_end_names), year=year)
         return f"{start} – {end}"

@@ -484,12 +484,44 @@ def test_catchment_analysis_exposes_decision_policy():
 def test_routing_counts_broad_trough_cycles_as_informative():
     """`broad` must satisfy the cycle-timing gate.
 
-    The gate counts ``trough_timing_status != "unresolved"``, so a sustained
-    minimum is informative for routing. This pins that predicate against a
-    future "fix" that narrows it to point/interval.
+    The gate counts membership in ``_CYCLE_TIMING_INFORMATIVE_STATUSES``, so a
+    sustained minimum is informative for routing. This pins that predicate
+    against a future "fix" that narrows it to point/interval.
     """
     import pandas as pd
     from hydroseason._catchment import _CYCLE_TIMING_INFORMATIVE_STATUSES
 
     assert "broad" in _CYCLE_TIMING_INFORMATIVE_STATUSES
     assert "unresolved" not in _CYCLE_TIMING_INFORMATIVE_STATUSES
+
+
+def test_routing_does_not_count_unassessed_nan_status_cycles_as_informative():
+    """A cycle with a missing/NaN timing status must not count as informative.
+
+    `_dynamic_year._blank_cycle` sets ``peak_timing_status`` /
+    ``trough_timing_status`` to NaN for cycles that could not be evaluated at
+    all (blank cycles, ``no_previous_boundary``, ``insufficient_cycle_coverage``),
+    and those rows reach the routing frame. The counting site switched from
+    ``!= "unresolved"`` (which counts NaN as informative, since NaN != any
+    string) to ``.isin(_CYCLE_TIMING_INFORMATIVE_STATUSES)`` (which does not,
+    since NaN is not a member of any set). That is a real behaviour change,
+    not the no-op an earlier task claimed -- and it is the correct behaviour:
+    a cycle that was never assessed is the absence of evidence, not positive
+    evidence of identifiable timing, so it should not count toward the
+    informative-cycle threshold. This pins that.
+    """
+    from hydroseason._catchment import _CYCLE_TIMING_INFORMATIVE_STATUSES
+
+    years = pd.DataFrame(
+        {
+            "trough_timing_status": ["point", "interval", "broad", np.nan],
+        }
+    )
+
+    old_predicate = years["trough_timing_status"] != "unresolved"
+    new_predicate = years["trough_timing_status"].isin(_CYCLE_TIMING_INFORMATIVE_STATUSES)
+
+    assert int(old_predicate.sum()) == 4  # NaN != "unresolved" is True: the old bug.
+    assert int(new_predicate.sum()) == 3  # NaN is excluded: the corrected behaviour.
+    assert bool(old_predicate.iloc[3]) is True
+    assert bool(new_predicate.iloc[3]) is False
