@@ -276,11 +276,18 @@ def test_monthly_and_hydro_years_user_export_fields(seasonal_extent):
 
 
 def _hy_frame():
-    """Minimal dynamic-detector frame: one point, one broad, one unresolved."""
+    """Minimal dynamic-detector frame: one point, one broad, one unresolved.
+
+    The broad row's `trough_month` deliberately differs from its
+    `trough_interval_end` so that a test asserting the window end cannot pass
+    by accident (see test_trough_boundary_date_uses_the_window_end_when_localised).
+    The point row keeps `trough_month` equal to `trough_interval_end`, which
+    is correct for a point window.
+    """
     return pd.DataFrame(
         {
             "hy_year": [2020, 2021, 2022],
-            "trough_month": pd.to_datetime(["2020-10-01", "2021-11-01", "2022-09-01"]),
+            "trough_month": pd.to_datetime(["2020-10-01", "2021-08-01", "2022-09-01"]),
             "trough_interval_start": pd.to_datetime(["2020-10-01", "2021-08-01", "2022-01-01"]),
             "trough_interval_end": pd.to_datetime(["2020-10-01", "2021-11-01", "2022-12-01"]),
             "trough_timing_status": ["point", "broad", "unresolved"],
@@ -292,7 +299,13 @@ def _hy_frame():
 def test_trough_boundary_date_uses_the_window_end_when_localised():
     from hydroseason._report_export import build_user_hydro_years_export
     out = build_user_hydro_years_export(_hy_frame())
+    # Point row: window start == end == trough_month, so this also pins the
+    # point-window case even though it can't distinguish it from a bug that
+    # left trough_date untouched.
     assert out.loc[0, "trough_boundary_date"] == pd.Timestamp("2020-10-01")
+    # Broad row: trough_month (2021-08-01) differs from trough_interval_end
+    # (2021-11-01), so this only passes if the code actually switches to the
+    # window end rather than leaving trough_date (== trough_month) untouched.
     assert out.loc[1, "trough_boundary_date"] == pd.Timestamp("2021-11-01")
 
 
@@ -302,10 +315,38 @@ def test_trough_boundary_date_falls_back_to_trough_month_when_unresolved():
     assert out.loc[2, "trough_boundary_date"] == pd.Timestamp("2022-09-01")
 
 
-def test_trough_boundary_date_is_populated_on_every_row():
+def test_trough_boundary_date_is_populated_when_a_trough_was_detected():
+    """Every row in `_hy_frame` has a known timing status (point/broad/
+    unresolved), i.e. a trough opportunity was found -- so the boundary is
+    populated on all of them. This does NOT hold for a blank cycle with no
+    detected trough at all; see
+    test_trough_boundary_date_is_nat_for_a_blank_cycle for that case.
+    """
     from hydroseason._report_export import build_user_hydro_years_export
     out = build_user_hydro_years_export(_hy_frame())
     assert out["trough_boundary_date"].notna().all()
+
+
+def test_trough_boundary_date_is_nat_for_a_blank_cycle():
+    """A `_blank_cycle` row -- a hydrological year where no trough
+    opportunity was found at all -- carries `trough_timing_status` as float
+    NaN (not the string "unresolved") and `trough_month` as NaT. There is no
+    boundary to report for it, so `trough_boundary_date` must stay NaT rather
+    than inventing a value.
+    """
+    from hydroseason._report_export import build_user_hydro_years_export
+    frame = pd.DataFrame(
+        {
+            "hy_year": [2004],
+            "trough_month": pd.to_datetime([pd.NaT]),
+            "trough_interval_start": pd.to_datetime([pd.NaT]),
+            "trough_interval_end": pd.to_datetime([pd.NaT]),
+            "trough_timing_status": [np.nan],
+            "peak_timing_status": ["point"],
+        }
+    )
+    out = build_user_hydro_years_export(frame)
+    assert pd.isna(out.loc[0, "trough_boundary_date"])
 
 
 def test_trough_date_keeps_its_point_only_meaning():
