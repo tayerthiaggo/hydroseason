@@ -1143,3 +1143,46 @@ def test_trough_geometry_fingerprint_raises_when_recurrence_policy_is_missing(mo
     monkeypatch.delattr(defaults, "RECURRENCE_POLICY", raising=False)
     with pytest.raises(ValueError, match="recurrence defaults"):
         trough_geometry_fingerprint(SHIPPED_GEOMETRY)
+
+
+def test_no_timing_grid_point_is_silently_dropped_by_the_broad_invariant():
+    """The grid builder swallows ValueError, so a widened grid could shrink silently.
+
+    `iter_timing_identifiability_points` constructs positionally and skips any
+    tuple that fails validation. `max_broad_interval_months` defaults to 5, so a
+    grid whose `max_boundary_interval_months` exceeds 5 would drop those points
+    without any signal. This pins the grid against that default.
+    """
+    from itertools import product
+
+    from hydroseason._calibration import (
+        TIMING_IDENTIFIABILITY_GRID,
+        iter_timing_identifiability_points,
+    )
+    from hydroseason._timing_identifiability import TimingIdentifiabilityThresholds
+
+    expected = len(list(product(*(TIMING_IDENTIFIABILITY_GRID[key] for key in (
+        "min_amplitude_to_floor_ratio",
+        "min_peak_water_pixels",
+        "max_point_span_months",
+        "max_boundary_interval_months",
+        "min_informative_years",
+    )))))
+    produced = list(iter_timing_identifiability_points())
+    default_broad = TimingIdentifiabilityThresholds.__dataclass_fields__[
+        "max_broad_interval_months"
+    ].default
+    dropped_by_broad = [
+        point for point in product(*(TIMING_IDENTIFIABILITY_GRID[key] for key in (
+            "min_amplitude_to_floor_ratio",
+            "min_peak_water_pixels",
+            "max_point_span_months",
+            "max_boundary_interval_months",
+            "min_informative_years",
+        ))) if point[3] > default_broad
+    ]
+    assert not dropped_by_broad, (
+        "grid points exceed the default max_broad_interval_months and would be "
+        f"silently skipped: {dropped_by_broad}"
+    )
+    assert len(produced) <= expected

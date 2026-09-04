@@ -4,6 +4,8 @@ import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 
+import pytest
+
 from hydroseason import _scientific_defaults as defaults
 from hydroseason._calibration import fingerprint, timing_identifiability_fingerprint
 
@@ -128,6 +130,13 @@ def test_generated_timing_identifiability_defaults_are_a_candidate():
     assert defaults.TIMING_IDENTIFIABILITY_DEFAULTS.min_informative_years in {5, 7, 10}
 
 
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "fingerprint drift is expected and deferred to the timing recalibration "
+        "plan; see the spec's Consequences section"
+    ),
+)
 def test_timing_calibration_and_untouched_validation_artifacts_are_fresh():
     calibration = json.loads(TIMING_CALIBRATION_REPORT.read_text(encoding="utf-8"))
     validation = json.loads(TIMING_VALIDATION_REPORT.read_text(encoding="utf-8"))

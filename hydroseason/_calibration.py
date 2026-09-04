@@ -1379,7 +1379,9 @@ def build_timing_identifiability_cache(
     observation preparation or annual extrema calculation.
     """
     rows: list[dict[str, object]] = []
-    permissive = TimingIdentifiabilityThresholds(0.0, 0, 11, 11, 0)
+    permissive = TimingIdentifiabilityThresholds(
+        0.0, 0, 11, 11, 0, max_broad_interval_months=11
+    )
     for seed in seeds:
         record = generate_timing_identifiability_record(int(seed), partition=partition)
         evidence = assess_timing_identifiability(record.frame, thresholds=permissive)
