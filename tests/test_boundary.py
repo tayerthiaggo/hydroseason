@@ -318,3 +318,66 @@ def test_a_missing_invalid_value_is_not_treated_as_anomalous():
     from hydroseason._boundary import peak_quality_verdict
 
     assert peak_quality_verdict(float("nan"), 5, {5: 10.0}) == "normal"
+
+
+def test_a_month_above_its_own_norm_but_below_the_backstop_is_anomalous():
+    """The relative branch must be able to fire on its own.
+
+    55% is under the 80% absolute backstop, so only the month-of-year
+    comparison can produce this verdict. Every other anomalous test value also
+    trips the backstop, which would let the self-calibrating branch -- the
+    entire point of this feature -- break without any test failing.
+    """
+    from hydroseason._boundary import peak_quality_verdict
+
+    assert peak_quality_verdict(55.0, 3, {3: 47.3}) == "anomalous"
+
+
+def test_a_month_below_its_own_norm_is_normal():
+    """Pins the other side of the relative comparison."""
+    from hydroseason._boundary import peak_quality_verdict
+
+    assert peak_quality_verdict(40.0, 3, {3: 47.3}) == "normal"
+
+
+def test_the_threshold_is_the_ninetieth_percentile_not_the_mean_or_max():
+    """A month with spread separates p90 from every other summary statistic.
+
+    ``_climatology_frame`` holds each calendar month constant, so a percentile
+    over it returns that constant whatever percentile is asked for. Ten
+    Januaries at 0..9 give p90 = 8.1, distinct from the mean and median (4.5)
+    and from the max (9.0).
+    """
+    from hydroseason._boundary import month_of_year_invalid_climatology
+
+    idx = pd.date_range("2010-01-01", periods=120, freq="MS")
+    invalid = [float(date.year - 2010) if date.month == 1 else 2.0 for date in idx]
+    frame = pd.DataFrame({"extent_pct": 10.0, "invalid_pct": invalid}, index=idx)
+
+    clim = month_of_year_invalid_climatology(frame, fallback_pct=20.0)
+
+    assert clim[1] == pytest.approx(8.1)
+
+
+def test_an_empty_frame_falls_back_for_every_month():
+    from hydroseason._boundary import month_of_year_invalid_climatology
+
+    clim = month_of_year_invalid_climatology(pd.DataFrame(), fallback_pct=17.0)
+
+    assert clim == {month: 17.0 for month in range(1, 13)}
+
+
+def test_a_frame_without_an_invalid_column_falls_back_for_every_month():
+    from hydroseason._boundary import month_of_year_invalid_climatology
+
+    frame = _climatology_frame().drop(columns=["invalid_pct"])
+    clim = month_of_year_invalid_climatology(frame, fallback_pct=17.0)
+
+    assert clim == {month: 17.0 for month in range(1, 13)}
+
+
+def test_a_month_absent_from_the_climatology_is_not_anomalous():
+    """A missing threshold is missing evidence, not evidence of a bad peak."""
+    from hydroseason._boundary import peak_quality_verdict
+
+    assert peak_quality_verdict(50.0, 7, {1: 10.0}) == "normal"
