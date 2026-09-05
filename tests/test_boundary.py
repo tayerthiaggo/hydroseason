@@ -257,3 +257,64 @@ def test_fidelity_guard_prevents_materially_higher_coherent_candidate():
         pd.Timestamp("2020-09-01"),
         pd.Timestamp("2021-07-01"),  # forced back to true minimum
     ]
+
+
+def _climatology_frame():
+    """Ten years where March is reliably clear and January reliably cloudy."""
+    idx = pd.date_range("2010-01-01", periods=120, freq="MS")
+    invalid = []
+    for date in idx:
+        if date.month == 1:
+            invalid.append(30.0)
+        elif date.month == 3:
+            invalid.append(4.0)
+        else:
+            invalid.append(2.0)
+    return pd.DataFrame({"extent_pct": 10.0, "invalid_pct": invalid}, index=idx)
+
+
+def test_climatology_reports_a_threshold_per_calendar_month():
+    from hydroseason._boundary import month_of_year_invalid_climatology
+
+    clim = month_of_year_invalid_climatology(_climatology_frame(), fallback_pct=20.0)
+
+    assert set(clim) == set(range(1, 13))
+    assert clim[1] == pytest.approx(30.0, abs=0.5)
+    assert clim[3] == pytest.approx(4.0, abs=0.5)
+
+
+def test_climatology_falls_back_when_a_month_has_too_little_history():
+    from hydroseason._boundary import month_of_year_invalid_climatology
+
+    frame = _climatology_frame().iloc[:24]  # only two samples per month
+    clim = month_of_year_invalid_climatology(frame, min_years=5, fallback_pct=20.0)
+
+    assert clim[1] == 20.0
+    assert clim[3] == 20.0
+
+
+def test_a_cloudy_month_that_is_normal_for_itself_is_not_anomalous():
+    from hydroseason._boundary import peak_quality_verdict
+
+    # 30% invalid in a January whose own p90 is 30% -- an ordinary January.
+    assert peak_quality_verdict(30.0, 1, {1: 30.0}) == "normal"
+
+
+def test_a_month_far_above_its_own_norm_is_anomalous():
+    from hydroseason._boundary import peak_quality_verdict
+
+    # 87.2% invalid in a March whose p90 is 47.3% -- the reviewed Daly 2011 case.
+    assert peak_quality_verdict(87.2, 3, {3: 47.3}) == "anomalous"
+
+
+def test_the_absolute_backstop_catches_a_month_that_is_always_obscured():
+    from hydroseason._boundary import peak_quality_verdict
+
+    # A month whose own p90 is 90% cannot excuse an unobservable observation.
+    assert peak_quality_verdict(85.0, 7, {7: 90.0}, absolute_backstop_pct=80.0) == "anomalous"
+
+
+def test_a_missing_invalid_value_is_not_treated_as_anomalous():
+    from hydroseason._boundary import peak_quality_verdict
+
+    assert peak_quality_verdict(float("nan"), 5, {5: 10.0}) == "normal"

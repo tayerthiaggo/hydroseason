@@ -8,7 +8,8 @@ import pandas as pd
 
 __all__ = ["SIGNAL_FLOOR_FRACTION", "RobustBoundaryConfig", "BoundarySelection",
            "robust_scale", "select_window_minimum", "select_cycle_peak",
-           "select_boundary_sequence"]
+           "select_boundary_sequence", "month_of_year_invalid_climatology",
+           "peak_quality_verdict"]
 
 WindowStatus = Literal["full", "left_truncated", "right_truncated", "internal_gap"]
 SelectionStatus = Literal[
@@ -35,6 +36,72 @@ class RobustBoundaryConfig:
             raise ValueError("support_threshold must be in [0, 1]")
         if self.anomaly_noise_scales <= 0:
             raise ValueError("anomaly_noise_scales must be positive")
+
+
+PEAK_QUALITY_PERCENTILE = 90.0
+PEAK_QUALITY_ABSOLUTE_BACKSTOP_PCT = 80.0
+PEAK_QUALITY_MIN_YEARS = 5
+
+
+def month_of_year_invalid_climatology(
+    frame: pd.DataFrame,
+    *,
+    min_years: int = PEAK_QUALITY_MIN_YEARS,
+    fallback_pct: float,
+) -> dict[int, float]:
+    """Per-calendar-month invalid-fraction threshold for this record.
+
+    A flat threshold cannot separate cloud from anomaly in a monsoonal
+    catchment: the annual maximum occurs during the monsoon, and the monsoon is
+    the cloud, so peak months carry 2.5-3x the invalid fraction of other months
+    and a fixed cap flags the median January. Judging each month against its own
+    month-of-year distribution asks the question that actually matters -- is
+    this unusually cloudy *for a January* -- and self-calibrates per record.
+
+    Months with fewer than ``min_years`` observations fall back to
+    ``fallback_pct``: a percentile over a handful of samples is not a
+    climatology.
+    """
+    if frame.empty or "invalid_pct" not in frame.columns:
+        return {month: float(fallback_pct) for month in range(1, 13)}
+    invalid = pd.to_numeric(frame["invalid_pct"], errors="coerce").dropna()
+    thresholds: dict[int, float] = {}
+    for month in range(1, 13):
+        samples = invalid.loc[invalid.index.month == month]
+        if len(samples) < min_years:
+            thresholds[month] = float(fallback_pct)
+        else:
+            thresholds[month] = float(np.percentile(samples, PEAK_QUALITY_PERCENTILE))
+    return thresholds
+
+
+def peak_quality_verdict(
+    invalid_pct: float,
+    month: int,
+    climatology: dict[int, float],
+    *,
+    absolute_backstop_pct: float = PEAK_QUALITY_ABSOLUTE_BACKSTOP_PCT,
+) -> str:
+    """Whether a peak observation is anomalous, not merely cloudy.
+
+    Two independent ways to fail. Exceeding the month's own threshold catches
+    an observation that is unusual for its season. The absolute backstop
+    catches a month so obscured that there is effectively no observation --
+    which a purely relative rule would excuse in a catchment whose wet-season
+    months are always heavily clouded.
+
+    A missing ``invalid_pct`` is not evidence of a bad observation and is
+    reported ``normal``; ``quality_state`` already handles unknown coverage.
+    """
+    if invalid_pct is None or not np.isfinite(invalid_pct):
+        return "normal"
+    value = float(invalid_pct)
+    if value >= float(absolute_backstop_pct):
+        return "anomalous"
+    threshold = climatology.get(int(month))
+    if threshold is None:
+        return "normal"
+    return "anomalous" if value > float(threshold) else "normal"
 
 
 @dataclass(frozen=True)
