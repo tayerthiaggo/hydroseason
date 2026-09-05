@@ -770,9 +770,10 @@ def _assemble_dynamic_years(
         # anomalous for its own month, or obscured past the absolute backstop,
         # says the cycle itself cannot be trusted.
         peak_quality = peak_quality_verdict(
-            frame.loc[peak, "invalid_pct"] if "invalid_pct" in frame.columns else np.nan,
+            peak_invalid,
             int(pd.Timestamp(peak).month),
             peak_invalid_climatology,
+            floor_pct=config.max_invalid_pct,
         )
         peak_anomalous = peak_quality == "anomalous"
         timing = _cycle_timing_evidence(

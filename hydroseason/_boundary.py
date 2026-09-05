@@ -80,6 +80,7 @@ def peak_quality_verdict(
     month: int,
     climatology: dict[int, float],
     *,
+    floor_pct: float = 0.0,
     absolute_backstop_pct: float = PEAK_QUALITY_ABSOLUTE_BACKSTOP_PCT,
 ) -> str:
     """Whether a peak observation is anomalous, not merely cloudy.
@@ -92,12 +93,31 @@ def peak_quality_verdict(
 
     A missing ``invalid_pct`` is not evidence of a bad observation and is
     reported ``normal``; ``quality_state`` already handles unknown coverage.
+
+    Two known limits, both accepted deliberately.
+
+    A p90 always has roughly a tenth of its samples above it, so within a month
+    that is routinely cloudy this flags that month's cloudiest years even when
+    the spread is noise. Measured: a February averaging 35% invalid with 3pp of
+    jitter flags 2 of 20 years, the worst at 41.8% against a 36.9% threshold.
+    ``floor_pct`` removes this entirely below the floor -- a record whose months
+    are all 1-5% invalid flags nothing -- but cannot remove it above one, where
+    the ranking is all the statistic has to go on.
+
+    The threshold is estimated from the same record it judges, including the
+    observation under test, so several equally-bad years raise the threshold
+    that would have caught them. Measured: one February at 70% invalid against a
+    20% norm is anomalous; three such Februaries lift that month's p90 to 70%
+    and all three read normal. ``absolute_backstop_pct`` is the net for this
+    case, and it is why the backstop is absolute rather than relative.
     """
     if invalid_pct is None or not np.isfinite(invalid_pct):
         return "normal"
     value = float(invalid_pct)
     if value >= float(absolute_backstop_pct):
         return "anomalous"
+    if value <= float(floor_pct):
+        return "normal"
     threshold = climatology.get(int(month))
     if threshold is None:
         return "normal"

@@ -1043,4 +1043,27 @@ def test_peak_selection_status_is_unchanged_by_the_new_verdict():
     assert (interior["peak_quality"] == "normal").all()
 
 
+def test_a_record_with_no_quality_problem_flags_no_anomalous_peaks():
+    """A p90 has a tenth of its samples above it, whatever the units.
+
+    Before the floor, this record -- every month between 1% and 5% invalid,
+    which is flawless data -- had 10% of its months flagged anomalous purely
+    for being that calendar month's cloudiest. Nothing here is anomalous.
+    """
+    rng = np.random.default_rng(0)
+    idx = pd.date_range("2005-01-01", periods=240, freq="MS")
+    values = 20.0 + 15.0 * np.cos(2 * np.pi * (idx.month - 2) / 12)
+    frame = pd.DataFrame(
+        {"extent_pct": values, "invalid_pct": rng.uniform(1.0, 5.0, len(idx))},
+        index=idx,
+    )
+
+    result = detect_dynamic_hydrological_years(
+        frame, config=DynamicHydroYearConfig(expected_trough_month=8)
+    )
+
+    assert (result["peak_quality"] == "normal").all()
+    assert not result["status_reason"].eq("peak_quality_anomalous").any()
+
+
 

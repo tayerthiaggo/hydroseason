@@ -381,3 +381,35 @@ def test_a_month_absent_from_the_climatology_is_not_anomalous():
     from hydroseason._boundary import peak_quality_verdict
 
     assert peak_quality_verdict(50.0, 7, {1: 10.0}) == "normal"
+
+
+def test_a_value_at_or_below_the_floor_is_never_anomalous():
+    """Without a floor, p90 flags a tenth of a pristine record by construction.
+
+    15% invalid against a 4% March norm is a large relative exceedance but a
+    trivial absolute one. The floor is what stops the rule firing on records
+    that have no data-quality problem at all.
+    """
+    from hydroseason._boundary import peak_quality_verdict
+
+    assert peak_quality_verdict(15.0, 3, {3: 4.0}, floor_pct=20.0) == "normal"
+    assert peak_quality_verdict(15.0, 3, {3: 4.0}, floor_pct=0.0) == "anomalous"
+
+
+def test_the_floor_cannot_disable_the_absolute_backstop():
+    """A month with no observation stays anomalous whatever the floor says."""
+    from hydroseason._boundary import peak_quality_verdict
+
+    assert peak_quality_verdict(85.0, 3, {3: 90.0}, floor_pct=95.0) == "anomalous"
+
+
+def test_the_backstop_default_is_active_without_being_passed():
+    """Pins the module default, not just the parameter.
+
+    Every anomalous value in the other tests also exceeds its month threshold,
+    so PEAK_QUALITY_ABSOLUTE_BACKSTOP_PCT could be raised to 100 -- disabling
+    the safety net entirely -- without any test failing. This one fails if it is.
+    """
+    from hydroseason._boundary import peak_quality_verdict
+
+    assert peak_quality_verdict(85.0, 7, {7: 95.0}, floor_pct=20.0) == "anomalous"
