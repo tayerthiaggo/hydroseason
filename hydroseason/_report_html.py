@@ -211,7 +211,10 @@ _STATUS_REASON_TEXT = {
     ),
     "boundary_low_quality": "Boundary months failed the data-quality threshold.",
     "boundary_provisional": "Boundary is provisional and was not confirmed.",
-    "peak_low_quality": "The peak month failed the data-quality threshold.",
+    "peak_quality_anomalous": (
+        "The peak month was far more obscured than that month usually is, so "
+        "the cycle's peak could not be trusted."
+    ),
     "insufficient_cycle_coverage": (
         "The record's start didn't have enough usable months before the "
         "first trough to assemble a full cycle, so this year's detail "

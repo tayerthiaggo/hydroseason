@@ -490,7 +490,7 @@ def test_secondary_extrema_survives_extrema_filtered_out_of_the_usable_series():
     ``_assemble_dynamic_years`` builds ``usable`` by filtering the cycle down
     to ``candidate_usable`` months, but selects ``peak`` from the unfiltered
     cycle (it may legitimately be a ``low_quality`` month -- the caller even
-    records ``peak_low_quality`` for exactly that case) and takes ``trough``
+    records ``peak_quality`` for exactly that case) and takes ``trough``
     as the cycle's end month. Neither is guaranteed to survive the usability
     filter, so looking them up with an exact ``Index.get_loc`` raises
     ``KeyError`` and takes down the whole analysis.

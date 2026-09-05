@@ -324,9 +324,14 @@ Water-mask gaps, cloud/shadow contamination, and missing months can shift
 wet/dry boundaries. **Strongly consider gapfilling** (e.g. [WaterMask-TSFill](https://github.com/tayerthiaggo/WaterMask-TSFill))
 on raw/incomplete masks before running hydro-year detection. The robust
 detector still reports an observed extremum when its month exceeds
-`max_invalid_pct=20.0`% invalid coverage, but marks that extremum
-`low_quality` and the annual cycle `provisional`; low-quality cycles cannot
-anchor historical condition baselines.
+`max_invalid_pct=20.0`% invalid coverage. For the TROUGH this still marks
+that extremum `low_quality` and the annual cycle `provisional`; low-quality
+trough cycles cannot anchor historical condition baselines. The PEAK is
+judged differently: it is compared against its own calendar month's typical
+invalid coverage (see `peak_quality` below), so routine wet-season cloud over
+the peak no longer marks the cycle `provisional` on its own — only a peak
+that is anomalous for its own month, or obscured past an absolute backstop,
+does.
 
 For review-oriented mapping where every finite observation should
 contribute to the cycle search, pass `quality_policy="flag"` (the main

@@ -413,3 +413,18 @@ def test_the_backstop_default_is_active_without_being_passed():
     from hydroseason._boundary import peak_quality_verdict
 
     assert peak_quality_verdict(85.0, 7, {7: 95.0}, floor_pct=20.0) == "anomalous"
+
+
+def test_a_non_datetime_index_falls_back_for_every_month_instead_of_raising():
+    """The function is public: a caller-supplied frame need not be date-indexed.
+
+    ``invalid.index.month`` raises ``AttributeError`` on a non-``DatetimeIndex``.
+    Falling back to ``fallback_pct`` for every month keeps the function total.
+    """
+    from hydroseason._boundary import month_of_year_invalid_climatology
+
+    frame = pd.DataFrame({"invalid_pct": [5.0, 6.0, 7.0]}, index=[0, 1, 2])
+
+    clim = month_of_year_invalid_climatology(frame, fallback_pct=17.0)
+
+    assert clim == {month: 17.0 for month in range(1, 13)}

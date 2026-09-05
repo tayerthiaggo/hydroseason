@@ -61,8 +61,15 @@ def month_of_year_invalid_climatology(
     Months with fewer than ``min_years`` observations fall back to
     ``fallback_pct``: a percentile over a handful of samples is not a
     climatology.
+
+    A non-``DatetimeIndex`` frame has no calendar month to group by, so every
+    month falls back to ``fallback_pct`` rather than raising.
     """
-    if frame.empty or "invalid_pct" not in frame.columns:
+    if (
+        frame.empty
+        or "invalid_pct" not in frame.columns
+        or not isinstance(frame.index, pd.DatetimeIndex)
+    ):
         return {month: float(fallback_pct) for month in range(1, 13)}
     invalid = pd.to_numeric(frame["invalid_pct"], errors="coerce").dropna()
     thresholds: dict[int, float] = {}

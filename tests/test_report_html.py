@@ -75,7 +75,7 @@ def test_year_cards_render_one_card_per_hydrological_year():
                 "drawdown_pct": 0.68,
                 "confidence": "medium",
                 "status": "partial",
-                "status_reason": "peak_low_quality",
+                "status_reason": "peak_quality_anomalous",
             }
         ]
     )

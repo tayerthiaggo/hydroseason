@@ -126,9 +126,18 @@ Each year's trough opportunity carries diagnostics that separate what was
   gate to decide whether a cycle may anchor a historical baseline — only
   `confirmed` cycles are eligible.
 - `peak_selection_status` / `peak_selection_support`: the same quality
-  diagnostics for the observed within-cycle maximum. A `low_quality` peak is
-  retained, but forces the annual row to `status="partial"` and
-  `boundary_status="provisional"`.
+  diagnostics for the observed within-cycle maximum, retained for
+  auditability. A `low_quality` peak selection status no longer by itself
+  forces the annual row to `status="partial"` or
+  `boundary_status="provisional"` -- that gate is `peak_quality` (below),
+  which judges the peak's `invalid_pct` against its own calendar month's
+  norm rather than a flat cap.
+- `peak_quality`: `normal` or `anomalous`, from comparing the peak's
+  `invalid_pct` against a per-calendar-month climatology built from the
+  record itself (with a floor at `max_invalid_pct` below which nothing is
+  anomalous, and an absolute backstop above which everything is). Only
+  `anomalous` forces `status="partial"` and `boundary_status="provisional"`
+  via `status_reason="peak_quality_anomalous"`.
 - `peak_timing_status` / `trough_timing_status` / `timing_status`: whether
   that cycle's peak/trough resolves to an exact month (`point`), a bounded
   interval (`interval`), or cannot be resolved (`unresolved`), using the same
@@ -165,6 +174,7 @@ annual = detect_dynamic_hydrological_years(monthly, config=config)
 annual[[
     "raw_trough_month", "trough_month", "window_status",
     "selection_status", "selection_support", "boundary_status",
+    "peak_quality",
 ]]
 ```
 
@@ -180,7 +190,10 @@ observations inside the mask.
 
 Observed extrema from low-quality months remain visible for auditability, but
 they are flagged `low_quality`, reduce support, and cannot produce a confirmed
-annual boundary. Use `quality_policy="flag"` when finite observations with
+annual boundary -- true for the TROUGH. The PEAK's admissibility no longer
+depends on this flat threshold; it is instead judged by `peak_quality`
+against its own calendar month's norm (see above). Use `quality_policy="flag"`
+when finite observations with
 partial invalid coverage should remain `candidate_usable`/`usable_month` for
 cycle identification; their invalid counts still lower confidence. A 100%
 invalid month (or a month with no observed extent) remains ineligible. Aggregate

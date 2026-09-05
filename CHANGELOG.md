@@ -5,6 +5,19 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
+### Changed
+- The flat 20% peak-quality cap is retired. A cycle's peak `invalid_pct` is
+  now judged against a per-record, per-calendar-month p90 climatology
+  (`peak_quality`: `normal`/`anomalous`), with an absolute floor at
+  `max_invalid_pct` below which nothing is anomalous and an absolute
+  backstop at 80% above which everything is. Only `peak_quality="anomalous"`
+  now downgrades a cycle to `status="partial"` /
+  `boundary_status="provisional"`, with the new `status_reason` value
+  `peak_quality_anomalous`. Across the three case-study catchments (daly,
+  fitzroy, gilbert; 63 cycles total), 10 cycles move `partial` -> `complete`
+  and none move the other way.
+- `peak_quality` is now exported in `HY_CSV_COLUMNS` and `STABLE_HY_COLUMNS`.
+
 ## [0.2.0] - 2026-08-31 (corrected 2026-09-03, unlaunched)
 
 ### Added

@@ -64,6 +64,7 @@ not define hydrological years. Date columns are month starts.
 | `drawdown_pct` | Peak-to-trough extent range when available. |
 | `confidence` | Overall confidence assigned to the row. |
 | `status` / `boundary_status` | Result status and whether boundaries are exact, provisional, or otherwise constrained. |
+| `peak_quality` | The peak observation judged against its own month-of-year norm: `normal` or `anomalous`. Only `anomalous` downgrades the cycle. |
 | `boundary_basis` | Whether the boundary was detected per year or imposed from a fixed climatological window. |
 | `regime` / `route` | Record-level routing metadata. |
 | `timing_status` | Aggregate timing identifiability for the row (`point`, `interval`, or `unresolved`): the weaker of `peak_timing_status` and `trough_timing_status`. `boundary_status` describes selection/data admissibility; `timing_status` describes temporal identifiability -- the two are independent. |
