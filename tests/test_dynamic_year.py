@@ -994,8 +994,53 @@ def test_cycle_timing_passes_full_bounds_when_edge_months_are_unusable(monkeypat
     assert any((end.year - start.year) * 12 + end.month - start.month >= 12 for start, end in seen)
 
 
+def _monsoon_frame(peak_invalid, *, years=6):
+    """Annual cycles peaking in February, with a chosen invalid% on every peak.
+
+    Every February carries the same invalid fraction, so heavy-but-consistent
+    wet-season cloud is normal for the month by construction.
+    """
+    idx = pd.date_range("2015-01-01", periods=years * 12, freq="MS")
+    values = 20.0 + 15.0 * np.cos(2 * np.pi * (idx.month - 2) / 12)
+    invalid = np.where(idx.month == 2, peak_invalid, 2.0).astype(float)
+    return pd.DataFrame({"extent_pct": values, "invalid_pct": invalid}, index=idx)
 
 
+def test_routine_wet_season_cloud_does_not_downgrade_the_cycle():
+    """35% every February is normal for a February and must not mark cycles partial."""
+    result = detect_dynamic_hydrological_years(
+        _monsoon_frame(35.0), config=DynamicHydroYearConfig(expected_trough_month=8)
+    )
+    interior = result.iloc[1:-1]
+
+    assert (interior["status"] == "complete").all()
+    assert (interior["boundary_status"] == "confirmed").all()
+    assert (interior["peak_quality"] == "normal").all()
+
+
+def test_a_peak_far_above_its_month_norm_still_downgrades_the_cycle():
+    """One February at 85% against a 20% norm is anomalous, not seasonal."""
+    frame = _monsoon_frame(20.0)
+    frame.loc["2018-02-01", "invalid_pct"] = 85.0
+    result = detect_dynamic_hydrological_years(
+        frame, config=DynamicHydroYearConfig(expected_trough_month=8)
+    ).set_index("hy_year")
+
+    assert result.loc[2018, "peak_quality"] == "anomalous"
+    assert result.loc[2018, "status"] == "partial"
+    assert result.loc[2018, "status_reason"] == "peak_quality_anomalous"
+
+
+def test_peak_selection_status_is_unchanged_by_the_new_verdict():
+    """The raw selector verdict keeps its own meaning and is still reported."""
+    frame = _monsoon_frame(35.0)
+    result = detect_dynamic_hydrological_years(
+        frame, config=DynamicHydroYearConfig(expected_trough_month=8)
+    )
+    interior = result.iloc[1:-1]
+
+    assert (interior["peak_selection_status"] == "low_quality").all()
+    assert (interior["peak_quality"] == "normal").all()
 
 
 

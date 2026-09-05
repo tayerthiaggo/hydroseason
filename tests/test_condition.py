@@ -236,3 +236,28 @@ def test_existing_columns_unchanged_for_full_record_mode():
     assert (result["recharge_condition_qualified"] == result["recharge_condition"]).all()
     assert (result["refuge_condition_qualified"] == result["refuge_condition"]).all()
     assert (result["annual_condition_qualified"] == result["annual_condition"]).all()
+
+
+def test_anomalous_peak_excluded_from_baseline_blocks_activation():
+    """An anomalous peak must never anchor a historical condition baseline.
+
+    Cycle completeness no longer depends on routine peak cloud, so such cycles
+    reach this function marked complete with a confirmed boundary. The guard is
+    therefore stated explicitly here instead of being inherited from the cycle
+    having been marked partial upstream.
+    """
+    annual = _annual().iloc[:5].copy()
+    annual["boundary_status"] = "confirmed"
+    annual["peak_quality"] = "normal"
+    annual.loc[annual["hy_year"] == 2002, "peak_quality"] = "anomalous"
+    result = classify_annual_surface_water_condition(annual)
+    assert set(result["annual_condition"]) == {"insufficient_baseline"}
+
+
+def test_baseline_ignores_peak_quality_when_the_column_is_absent():
+    """Callers that never ran the robust detector keep the original behaviour."""
+    annual = _annual().iloc[:5].copy()
+    annual["boundary_status"] = "confirmed"
+    assert "peak_quality" not in annual.columns
+    result = classify_annual_surface_water_condition(annual)
+    assert (result["annual_condition"] != "insufficient_baseline").any()

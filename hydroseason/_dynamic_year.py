@@ -9,6 +9,8 @@ import pandas as pd
 
 from ._boundary import (
     RobustBoundaryConfig,
+    month_of_year_invalid_climatology,
+    peak_quality_verdict,
     robust_scale,
     select_boundary_sequence,
     select_cycle_peak,
@@ -417,7 +419,7 @@ ANNUAL_COLUMNS = [
     "window_status", "selection_status", "selection_support", "selection_quality",
     "window_n_expected", "window_n_usable", "phase_shift_months",
     "raw_peak_month", "raw_peak_extent_pct",
-    "peak_selection_status", "peak_selection_support",
+    "peak_selection_status", "peak_selection_support", "peak_quality",
     "detectability_floor_pp", "amplitude_to_floor_ratio", "peak_n_water",
     "peak_timing_status", "peak_interval_start", "peak_interval_end",
     "trough_timing_status", "trough_interval_start", "trough_interval_end",
@@ -693,6 +695,9 @@ def _assemble_dynamic_years(
     min_usable_months_by_year: dict[int, int] | None = None,
 ) -> pd.DataFrame:
     amplitude_pp, noise_pp = robust_scale(frame)
+    peak_invalid_climatology = month_of_year_invalid_climatology(
+        frame, fallback_pct=config.max_invalid_pct
+    )
     pixel_support_status = _pixel_support_status(frame)
     rows = []
     previous = None
@@ -756,7 +761,20 @@ def _assemble_dynamic_years(
         pulses = int((rise & ~rise.shift(fill_value=False)).sum())
         secondary = _secondary_extrema(usable, peak, trough) if pattern is not None and pattern.pattern == "bimodal_or_complex" else (None, np.nan, None, np.nan)
         peak_invalid = frame.loc[peak, "invalid_pct"]
-        peak_low_quality = peak_selection.selection_status == "low_quality"
+        # A cycle is cut trough-to-trough, so the peak is INTERIOR to it and
+        # routine cloud over the peak is not a boundary fault. In a monsoonal
+        # catchment the annual maximum lands in the cloudiest month by
+        # construction -- peak months carry 2.5-3x the invalid fraction of other
+        # months, and cloudy peaks are ~2x LARGER than clean ones, so heavy
+        # cloud corroborates the wet season. Only an observation that is
+        # anomalous for its own month, or obscured past the absolute backstop,
+        # says the cycle itself cannot be trusted.
+        peak_quality = peak_quality_verdict(
+            frame.loc[peak, "invalid_pct"] if "invalid_pct" in frame.columns else np.nan,
+            int(pd.Timestamp(peak).month),
+            peak_invalid_climatology,
+        )
+        peak_anomalous = peak_quality == "anomalous"
         timing = _cycle_timing_evidence(
             cycle, usable, config=config, noise_pp=noise_pp,
             pixel_support_status=pixel_support_status,
@@ -764,7 +782,7 @@ def _assemble_dynamic_years(
         timing_status = _aggregate_timing_status(timing.peak_status, timing.trough_status)
         boundary_status = (
             "provisional"
-            if peak_low_quality
+            if peak_anomalous
             or used_record_start
             or opportunity["boundary_status"] != "confirmed"
             or timing_status == "unresolved"
@@ -773,8 +791,8 @@ def _assemble_dynamic_years(
         status_reason = (
             "record_start_boundary"
             if used_record_start
-            else "peak_low_quality"
-            if peak_low_quality
+            else "peak_quality_anomalous"
+            if peak_anomalous
             else "unresolved_timing"
             if timing_status == "unresolved"
             else "ok"
@@ -807,6 +825,7 @@ def _assemble_dynamic_years(
             raw_peak_extent_pct=peak_selection.raw_extent_pct,
             peak_selection_status=peak_selection.selection_status,
             peak_selection_support=peak_selection.support,
+            peak_quality=peak_quality,
             detectability_floor_pp=timing.detectability_floor_pp,
             amplitude_to_floor_ratio=timing.amplitude_to_floor_ratio,
             peak_n_water=timing.peak_n_water if timing.peak_n_water is not None else np.nan,

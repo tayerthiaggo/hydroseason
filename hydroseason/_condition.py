@@ -88,6 +88,15 @@ def classify_annual_surface_water_condition(
     # and keep the original ``status``-only behaviour.
     if "boundary_status" in out.columns:
         reference_mask &= out["boundary_status"].eq("confirmed")
+    # A cycle may only anchor the baseline if its peak observation is sound.
+    # Cycle completeness is deliberately independent of ROUTINE peak cloud (the
+    # peak is interior to a trough-to-trough cycle), so cycles with cloudy but
+    # seasonally-normal peaks now arrive here complete and confirmed. The guard
+    # must therefore be explicit rather than inherited from the cycle having
+    # been marked partial. Conditional, matching the boundary gate above:
+    # callers that never ran the robust detector carry no such column.
+    if "peak_quality" in out.columns:
+        reference_mask &= out["peak_quality"].ne("anomalous")
     # A cycle may only anchor the baseline if its extremum timing is a
     # defensible exact date, not merely a bounded interval: a broad plateau's
     # internal operational date must never confirm a historical condition.

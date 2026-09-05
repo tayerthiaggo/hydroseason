@@ -82,7 +82,16 @@ def test_manual_review_peaks_match_observed_maxima(catchment):
 
 
 @pytest.mark.parametrize("catchment", sorted(CASES))
-def test_manual_review_high_invalid_peaks_are_explicitly_provisional(catchment):
+def test_manual_review_high_invalid_peaks_are_provisional_only_when_anomalous(catchment):
+    """The flat ">20% invalid is always provisional" rule was retired deliberately.
+
+    A cycle is cut trough-to-trough, so its peak is interior, and in a
+    monsoonal catchment the annual maximum lands in the cloudiest month by
+    construction. A flat 20% cap flagged a third of all cycles for having
+    their peak where peaks belong. See
+    .superpowers/sdd/task-2-brief.md for the plan that retires this rule:
+    only peaks anomalous for their own month-of-year now downgrade the cycle.
+    """
     data_name, expected_trough_month = CASES[catchment]
     monthly = pd.read_csv(ROOT / "case_studies" / "data" / "extent" / data_name,
                           parse_dates=["date"]).set_index("date")
@@ -95,6 +104,16 @@ def test_manual_review_high_invalid_peaks_are_explicitly_provisional(catchment):
     )
     selected = actual.loc[actual["peak_invalid_pct"].gt(20.0)]
     assert not selected.empty
+    # The raw selector still flags these against the flat screen...
     assert selected["peak_selection_status"].eq("low_quality").all()
-    assert selected["boundary_status"].eq("provisional").all()
-    assert selected["status"].eq("partial").all()
+    # ...but a peak that is merely cloudy for its season no longer marks the
+    # cycle unsound. The annual maximum occurs during the monsoon, so a flat
+    # 20% cap flags the median wet-season month rather than an anomaly. Only
+    # peaks anomalous for their own month-of-year are provisional now.
+    anomalous = selected.loc[selected["peak_quality"].eq("anomalous")]
+    normal = selected.loc[selected["peak_quality"].eq("normal")]
+    assert not normal.empty, "expected some >20% peaks to be seasonally normal"
+    assert not anomalous.empty, "expected some >20% peaks to be anomalous"
+    assert normal["boundary_status"].eq("confirmed").all()
+    assert normal["status"].eq("complete").all()
+    assert anomalous["boundary_status"].eq("provisional").all()
