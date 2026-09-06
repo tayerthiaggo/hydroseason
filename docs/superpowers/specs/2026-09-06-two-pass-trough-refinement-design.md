@@ -354,6 +354,9 @@ the already large `_dynamic_year.py`:
   acceptance only.
 - `hydroseason/_trough_refinement_calibration.py`: candidate policy values,
   metrics, fingerprints, calibration selection, and validation evaluation.
+- `hydroseason/_trough_refinement_defaults.py`: generated selected candidate
+  tuple and fingerprint; it carries candidate authority and never changes the
+  public pass-1 default.
 - `hydroseason/_synthetic.py`: independent trough-refinement corpus and truth
   labels.
 - `scripts/run_calibration.py`: explicit calibration, validation, comparison,
