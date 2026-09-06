@@ -190,7 +190,8 @@ all candidates are fitted using scale-free weighted absolute loss and the
 minimum-loss preliminary shape is selected. The scale hierarchy is then:
 
 1. `1.4826 * MAD` of the preliminary shape's residuals;
-2. `1.4826 * MAD(first differences) / sqrt(2)` within contiguous observed blocks;
+2. `1.4826 * MAD(first differences of preliminary residuals) / sqrt(2)`
+   within contiguous observed blocks;
 3. the existing local measurement/detectability floor, including one-pixel
    resolution where counts exist;
 4. an exact-fit path when all three are zero.

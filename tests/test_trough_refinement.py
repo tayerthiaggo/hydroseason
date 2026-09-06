@@ -43,6 +43,21 @@ def _simple_span() -> pd.DataFrame:
     return _prepared([90.0, 60.0, 20.0, 10.0, 30.0, 70.0, 85.0])
 
 
+def _mark_low_quality(
+    frame: pd.DataFrame,
+    date: str,
+    *,
+    observed_fraction: float = 0.5,
+) -> pd.DataFrame:
+    changed = frame.copy()
+    timestamp = pd.Timestamp(date)
+    changed.loc[timestamp, "observed_fraction"] = observed_fraction
+    changed.loc[timestamp, "invalid_pct"] = 100.0 * (1.0 - observed_fraction)
+    changed.loc[timestamp, "quality_state"] = "low"
+    changed.loc[timestamp, "candidate_usable"] = True
+    return changed
+
+
 def test_missing_peak_makes_refinement_unavailable():
     result = refine_trough_span(
         _simple_span(),
@@ -119,3 +134,234 @@ def test_exact_flat_span_uses_deterministic_zero_scale_path():
     assert first.boundary_candidates == tuple(
         pd.date_range("2020-02-01", "2020-04-01", freq="MS")
     )
+
+
+def test_large_early_pulse_returns_to_low_state_before_recovery():
+    result = refine_trough_span(
+        _prepared([90.0, 60.0, 20.0, 55.0, 10.0, 18.0, 35.0, 60.0, 85.0]),
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-09-01"),
+        policy=_policy(profile_loss_cutoff=0.0, pulse_z=1.0),
+    )
+
+    assert result.status == "confirmed"
+    assert result.boundary == pd.Timestamp("2020-05-01")
+    assert result.recovery_start == pd.Timestamp("2020-06-01")
+    assert result.pulse_months == (pd.Timestamp("2020-04-01"),)
+
+
+def test_two_rewetting_pulses_stay_inside_one_cycle():
+    result = refine_trough_span(
+        _prepared(
+            [90.0, 60.0, 20.0, 55.0, 15.0, 45.0, 10.0, 18.0, 40.0, 70.0, 90.0]
+        ),
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-11-01"),
+        policy=_policy(profile_loss_cutoff=0.0, pulse_z=1.0),
+    )
+
+    assert result.status == "confirmed"
+    assert result.boundary == pd.Timestamp("2020-07-01")
+    assert result.recovery_start == pd.Timestamp("2020-08-01")
+    assert result.pulse_months == (
+        pd.Timestamp("2020-04-01"),
+        pd.Timestamp("2020-06-01"),
+    )
+
+
+def test_separated_endpoint_clusters_choose_later_after_observed_return():
+    result = refine_trough_span(
+        _prepared([90.0, 50.0, 10.0, 50.0, 10.0, 30.0, 80.0]),
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.0, pulse_z=1.0),
+    )
+
+    assert result.status == "confirmed"
+    assert result.boundary_candidates == (pd.Timestamp("2020-05-01"),)
+    assert result.boundary == pd.Timestamp("2020-05-01")
+    assert result.pulse_months == (pd.Timestamp("2020-04-01"),)
+
+
+def test_separated_endpoint_clusters_are_never_bridged_without_clear_pulse():
+    result = refine_trough_span(
+        _prepared([90.0, 50.0, 10.0, 50.0, 10.0, 30.0, 80.0]),
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.0, pulse_z=4.0),
+    )
+
+    assert result.status == "unresolved"
+    assert result.reason == "disjoint_modes"
+    assert result.boundary is None
+    assert result.boundary_candidates == (
+        pd.Timestamp("2020-03-01"),
+        pd.Timestamp("2020-05-01"),
+    )
+
+
+def test_gap_after_observed_low_state_keeps_provisional_boundary():
+    frame = _prepared([90.0, 50.0, 20.0, 10.0, 0.0, 40.0, 80.0])
+    frame.loc["2020-05-01", ["extent_pct", "observed_fraction"]] = float("nan")
+    frame.loc["2020-05-01", "quality_state"] = "missing"
+    frame.loc["2020-05-01", "candidate_usable"] = False
+
+    result = refine_trough_span(
+        frame,
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.0),
+    )
+
+    assert result.status == "provisional"
+    assert result.reason == "recovery_crosses_gap"
+    assert result.boundary == pd.Timestamp("2020-04-01")
+    assert result.recovery_start is None
+
+
+def test_gap_overlapping_possible_low_state_is_unresolved():
+    frame = _prepared([90.0, 50.0, 10.0, 0.0, 10.0, 35.0, 80.0])
+    frame.loc["2020-04-01", ["extent_pct", "observed_fraction"]] = float("nan")
+    frame.loc["2020-04-01", "quality_state"] = "missing"
+    frame.loc["2020-04-01", "candidate_usable"] = False
+
+    result = refine_trough_span(
+        frame,
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.1),
+    )
+
+    assert result.status == "unresolved"
+    assert result.reason == "gap_overlaps_low_state"
+    assert result.boundary is None
+
+
+def test_low_quality_month_essential_to_recovery_is_provisional():
+    frame = _mark_low_quality(
+        _prepared([90.0, 60.0, 30.0, 10.0, 20.0, 45.0, 80.0]),
+        "2020-05-01",
+    )
+
+    result = refine_trough_span(
+        frame,
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.0),
+    )
+
+    assert result.boundary_candidates == (
+        pd.Timestamp("2020-04-01"),
+        pd.Timestamp("2020-05-01"),
+    )
+    assert result.boundary == pd.Timestamp("2020-05-01")
+    assert result.status == "provisional"
+    assert result.reason == "essential_low_quality_recovery"
+
+
+def test_low_quality_recession_month_does_not_prevent_confirmation():
+    frame = _mark_low_quality(
+        _prepared([90.0, 60.0, 30.0, 10.0, 20.0, 45.0, 80.0]),
+        "2020-02-01",
+    )
+
+    result = refine_trough_span(
+        frame,
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.0),
+    )
+
+    assert result.status == "confirmed"
+    assert result.boundary == pd.Timestamp("2020-04-01")
+
+
+def test_low_quality_trough_that_changes_under_support_bounds_is_unresolved():
+    frame = _mark_low_quality(
+        _prepared([90.0, 60.0, 30.0, 10.0, 20.0, 45.0, 80.0]),
+        "2020-04-01",
+    )
+
+    result = refine_trough_span(
+        frame,
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.0),
+    )
+
+    assert result.status == "unresolved"
+    assert result.reason == "unstable_quality_sensitivity"
+    assert result.boundary is None
+
+
+def test_interval_peak_propagation_is_explicitly_provisional():
+    left = PeakBoundary(
+        selected=pd.Timestamp("2020-01-01"),
+        candidates=(pd.Timestamp("2020-01-01"), pd.Timestamp("2020-02-01")),
+        timing_status="interval",
+        quality="normal",
+    )
+
+    result = refine_trough_span(
+        _prepared([90.0, 60.0, 30.0, 10.0, 20.0, 45.0, 80.0]),
+        left_peak=left,
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.0),
+    )
+
+    assert result.status == "provisional"
+    assert result.reason == "interval_peak"
+    assert result.boundary == pd.Timestamp("2020-04-01")
+
+
+def test_interval_peak_with_unstable_trough_does_not_replace_pass_one():
+    frame = _prepared([90.0, 85.0, 15.0, 61.0, 60.0, 31.0, 56.0, 19.0, 88.0])
+    left = PeakBoundary(
+        selected=pd.Timestamp("2020-01-01"),
+        candidates=(pd.Timestamp("2020-01-01"), pd.Timestamp("2020-02-01")),
+        timing_status="interval",
+        quality="normal",
+    )
+
+    result = refine_trough_span(
+        frame,
+        left_peak=left,
+        right_peak=_point_peak("2020-09-01"),
+        policy=_policy(profile_loss_cutoff=0.0),
+    )
+
+    assert result.status == "unresolved"
+    assert result.reason == "unstable_peak_sensitivity"
+    assert result.boundary is None
+
+
+def test_low_quality_identifiable_peak_is_explicitly_provisional():
+    result = refine_trough_span(
+        _prepared([90.0, 60.0, 30.0, 10.0, 20.0, 45.0, 80.0]),
+        left_peak=_point_peak("2020-01-01", quality="low"),
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.0),
+    )
+
+    assert result.status == "provisional"
+    assert result.reason == "low_quality_peak"
+    assert result.boundary == pd.Timestamp("2020-04-01")
+
+
+def test_selected_but_timing_unresolved_peak_disables_refinement():
+    right = PeakBoundary(
+        selected=pd.Timestamp("2020-07-01"),
+        candidates=(),
+        timing_status="unresolved",
+        quality="normal",
+    )
+
+    result = refine_trough_span(
+        _prepared([90.0, 60.0, 30.0, 10.0, 20.0, 45.0, 80.0]),
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=right,
+        policy=_policy(),
+    )
+
+    assert result.status == "unavailable"
+    assert result.reason == "missing_or_unresolved_peak"
