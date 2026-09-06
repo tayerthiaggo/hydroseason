@@ -65,6 +65,29 @@ def _candidate_frame(start="2018-01-01", periods=60):
     return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
 
 
+def test_default_detection_does_not_apply_unvalidated_trough_refinement():
+    """Removing candidate authority must leave the established pass-1 boundary."""
+    raw = _candidate_frame()
+    raw.loc["2020-06-01":"2020-12-01", "extent_pct"] = [
+        30.0,
+        20.0,
+        10.0,
+        1.0,
+        1.0,
+        1.0,
+        15.0,
+    ]
+
+    result = detect_dynamic_hydrological_years(
+        raw,
+        config=DynamicHydroYearConfig(expected_trough_month=9),
+    )
+
+    row = result.loc[result["hy_year"] == 2020].iloc[0]
+    assert row["raw_trough_month"] == pd.Timestamp("2020-09-01")
+    assert row["trough_month"] == pd.Timestamp("2020-09-01")
+
+
 def _post_trough_peak_frame(start="2017-01-01", periods=84):
     """Monotonic decline from an October peak to the following September trough.
 
