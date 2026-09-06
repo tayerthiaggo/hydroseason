@@ -220,8 +220,8 @@ This is an empirical repeated-case coverage target, not a posterior probability
 for an individual record.
 
 For the chosen operational endpoint, `low_state_start` comes from its
-minimum-loss candidate block. Exact start-date ties select the latest start to
-avoid overstating low-state occupancy. Endpoint ties follow the scientific
+minimum-loss candidate block. Exact start-date ties select the earliest supported
+start so an observed flat low state is not collapsed to one month. Endpoint ties follow the scientific
 convention and select the latest supported endpoint.
 
 ### 4.4 Quality and peak sensitivity

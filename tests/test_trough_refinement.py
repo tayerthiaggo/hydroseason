@@ -67,3 +67,55 @@ def test_open_span_awaits_next_peak():
     assert result.status == "awaiting_next_peak"
     assert result.reason == "open_span"
     assert result.boundary is None
+
+
+def test_point_trough_is_last_low_month_before_continuous_recovery():
+    result = refine_trough_span(
+        _prepared([90.0, 60.0, 30.0, 10.0, 20.0, 45.0, 80.0]),
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.0),
+    )
+
+    assert result.status == "confirmed"
+    assert result.boundary_candidates == (pd.Timestamp("2020-04-01"),)
+    assert result.boundary == pd.Timestamp("2020-04-01")
+    assert result.low_state_start == pd.Timestamp("2020-04-01")
+    assert result.low_state_end == pd.Timestamp("2020-04-01")
+    assert result.recovery_start == pd.Timestamp("2020-05-01")
+
+
+def test_boundary_interval_uses_latest_supported_endpoint():
+    result = refine_trough_span(
+        _prepared([90.0, 50.0, 10.0, 10.0, 10.0, 30.0, 80.0]),
+        left_peak=_point_peak("2020-01-01"),
+        right_peak=_point_peak("2020-07-01"),
+        policy=_policy(profile_loss_cutoff=0.0),
+    )
+
+    assert result.status == "confirmed"
+    assert result.boundary_candidates == tuple(
+        pd.date_range("2020-03-01", "2020-05-01", freq="MS")
+    )
+    assert result.boundary == pd.Timestamp("2020-05-01")
+    assert result.low_state_start == pd.Timestamp("2020-03-01")
+    assert result.low_state_end == pd.Timestamp("2020-05-01")
+    assert result.recovery_start == pd.Timestamp("2020-06-01")
+
+
+def test_exact_flat_span_uses_deterministic_zero_scale_path():
+    kwargs = {
+        "left_peak": _point_peak("2020-01-01"),
+        "right_peak": _point_peak("2020-05-01"),
+        "policy": _policy(profile_loss_cutoff=0.0),
+    }
+
+    first = refine_trough_span(_prepared([10.0] * 5), **kwargs)
+    second = refine_trough_span(_prepared([10.0] * 5), **kwargs)
+
+    assert first == second
+    assert first.local_scale_pp == 0.0
+    assert first.best_loss == 0.0
+    assert first.boundary_candidates == tuple(
+        pd.date_range("2020-02-01", "2020-04-01", freq="MS")
+    )
