@@ -100,6 +100,35 @@ def test_point_trough_is_last_low_month_before_continuous_recovery():
     assert result.recovery_start == pd.Timestamp("2020-05-01")
 
 
+def test_continuous_fitzroy_recovery_assigns_january_to_next_cycle():
+    result = refine_trough_span(
+        _prepared(
+            [
+                34.863511,
+                1.885925,
+                1.515238,
+                1.287817,
+                1.221751,
+                1.038752,
+                0.794876,
+                0.743982,
+                0.699226,
+                0.540206,
+                0.568017,
+                35.0,
+            ],
+            start="2021-03-01",
+        ),
+        left_peak=_point_peak("2021-03-01"),
+        right_peak=_point_peak("2022-02-01"),
+        policy=_policy(profile_loss_cutoff=0.05),
+    )
+
+    assert result.boundary == pd.Timestamp("2021-12-01")
+    assert result.boundary_candidates[-1] == pd.Timestamp("2021-12-01")
+    assert result.recovery_start == pd.Timestamp("2022-01-01")
+
+
 def test_boundary_interval_uses_latest_supported_endpoint():
     result = refine_trough_span(
         _prepared([90.0, 50.0, 10.0, 10.0, 10.0, 30.0, 80.0]),
@@ -219,6 +248,32 @@ def test_gap_after_observed_low_state_keeps_provisional_boundary():
     assert result.recovery_start is None
 
 
+def test_daly_gap_keeps_full_pre_gap_low_state_and_uses_november_boundary():
+    frame = _prepared(
+        [10.0, 5.0, 1.0, 0.1188, 0.1194, 0.1218, 0.0, 0.8, 8.0, 40.0, 90.0],
+        start="2005-06-01",
+    )
+    frame.loc["2005-11-01", "extent_pct"] = 0.1218
+    frame.loc["2005-12-01", ["extent_pct", "observed_fraction"]] = float("nan")
+    frame.loc["2005-12-01", "quality_state"] = "missing"
+    frame.loc["2005-12-01", "candidate_usable"] = False
+
+    result = refine_trough_span(
+        frame,
+        left_peak=_point_peak("2005-06-01"),
+        right_peak=_point_peak("2006-04-01"),
+        policy=_policy(profile_loss_cutoff=0.05),
+    )
+
+    assert result.status == "provisional"
+    assert result.reason == "recovery_crosses_gap"
+    assert result.boundary_candidates == tuple(
+        pd.date_range("2005-09-01", "2005-11-01", freq="MS")
+    )
+    assert result.boundary == pd.Timestamp("2005-11-01")
+    assert result.recovery_start is None
+
+
 def test_gap_overlapping_possible_low_state_is_unresolved():
     frame = _prepared([90.0, 50.0, 10.0, 0.0, 10.0, 35.0, 80.0])
     frame.loc["2020-04-01", ["extent_pct", "observed_fraction"]] = float("nan")
@@ -315,7 +370,9 @@ def test_interval_peak_propagation_is_explicitly_provisional():
 
 
 def test_interval_peak_with_unstable_trough_does_not_replace_pass_one():
-    frame = _prepared([90.0, 85.0, 15.0, 61.0, 60.0, 31.0, 56.0, 19.0, 88.0])
+    frame = _prepared(
+        [90.0, 64.068, 21.097, 72.208, 74.673, 26.379, 62.498, 38.963, 88.0]
+    )
     left = PeakBoundary(
         selected=pd.Timestamp("2020-01-01"),
         candidates=(pd.Timestamp("2020-01-01"), pd.Timestamp("2020-02-01")),

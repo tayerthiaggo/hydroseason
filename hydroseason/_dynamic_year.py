@@ -34,6 +34,12 @@ from ._timing_identifiability import (
     WindowTimingEvidence,
     assess_window_timing,
 )
+from ._trough_refinement import (
+    PeakBoundary,
+    TroughRefinementPolicy,
+    TroughRefinementResult,
+    refine_trough_span,
+)
 
 _TIMING_STATUS_RANK: dict[TimingStatus, int] = {
     "unresolved": 0,
@@ -101,6 +107,7 @@ class DynamicHydroYearConfig:
         TIMING_IDENTIFIABILITY_DEFAULTS
     )
     recurrence_policy: RecurrencePolicy | None = None
+    trough_refinement_policy: TroughRefinementPolicy | None = None
     detector: Literal["robust_extrema"] = "robust_extrema"
     phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET
     phase_model: LegacyPhaseModel | None = None
@@ -427,6 +434,16 @@ ANNUAL_COLUMNS = [
     "trough_search_radius_used", "boundary_at_search_edge",
     "boundary_search_edge_side", "outside_window_observed",
     "outside_window_lower", "retry_outcome",
+    "pass1_trough_month", "pass1_trough_interval_start",
+    "pass1_trough_interval_end", "pass1_trough_timing_status",
+    "trough_challenger_month", "trough_challenger_interval_start",
+    "trough_challenger_interval_end", "trough_challenger_timing_status",
+    "trough_challenger_low_state_start", "trough_challenger_low_state_end",
+    "trough_refinement_status", "trough_refinement_reason",
+    "trough_refinement_applied", "recovery_start_month",
+    "trough_local_scale_pp", "trough_profile_best_loss",
+    "trough_profile_cutoff", "trough_effective_support",
+    "trough_pulse_months", "trough_refinement_policy_version",
 ]
 
 
@@ -582,7 +599,18 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         years_index = result["hy_year"].astype(int)
         result.loc[years_index.isin(retry_attempted), "retry_outcome"] = "rolled_back"
         result.loc[years_index.isin(retry_applied), "retry_outcome"] = "applied"
-    return result
+    result = _initialise_trough_refinement_evidence(
+        result, policy=config.trough_refinement_policy
+    )
+    if config.trough_refinement_policy is None:
+        return result
+    return _apply_trough_refinement(
+        frame,
+        opportunities,
+        result,
+        config,
+        pattern,
+    )
 
 
 def _adaptive_retry_years(result: pd.DataFrame) -> set[int]:
@@ -688,8 +716,189 @@ def _aggregate_timing_status(
     )
 
 
+def _assemble_dynamic_cycle(
+    frame: pd.DataFrame,
+    previous: pd.Series,
+    opportunity: pd.Series,
+    config: DynamicHydroYearConfig,
+    pattern: SeasonalPatternResult | None,
+    *,
+    min_usable_months: int,
+    used_record_start: bool,
+    amplitude_pp: float,
+    noise_pp: float,
+    peak_invalid_climatology: pd.Series,
+    pixel_support_status: PixelSupportStatus,
+) -> dict:
+    """Assemble one cycle from two explicit boundaries without shared mutation."""
+    row = _blank_cycle(opportunity)
+    start = pd.Timestamp(previous["trough_month"]) + pd.DateOffset(months=1)
+    end = pd.Timestamp(opportunity["trough_month"])
+    cycle = frame.loc[start:end]
+    usable = cycle.loc[cycle["candidate_usable"], "extent_pct"]
+    if len(usable) < min_usable_months:
+        row.update(
+            status="partial",
+            status_reason="insufficient_cycle_coverage",
+            hy_start=start,
+            hy_end=end,
+            cycle_months=len(cycle),
+            n_usable_months=len(usable),
+        )
+        return row
+
+    previous_trough = pd.Timestamp(previous["trough_month"])
+    peak_selection = select_cycle_peak(
+        cycle,
+        start=previous_trough,
+        end=end,
+        noise_pp=noise_pp,
+        amplitude_pp=amplitude_pp,
+    )
+    if peak_selection.selected_month is None:
+        row.update(
+            status="partial",
+            status_reason="insufficient_cycle_coverage",
+            hy_start=start,
+            hy_end=end,
+            cycle_months=len(cycle),
+            n_usable_months=len(usable),
+        )
+        return row
+
+    peak = pd.Timestamp(peak_selection.selected_month)
+    post_peak = usable.loc[peak:end]
+    trough = end
+    peak_value = float(frame.loc[peak, "extent_pct"])
+    trough_value = float(frame.loc[trough, "extent_pct"])
+    target = (peak_value + trough_value) / 2.0
+    half_candidates = post_peak.loc[post_peak <= target]
+    half = pd.Timestamp(half_candidates.index[0]) if len(half_candidates) else pd.NaT
+    midpoint = _nearest_month(post_peak.index, peak, trough)
+    post = cycle.loc[peak:end, ["extent_pct", "candidate_usable"]]
+    delta = post["extent_pct"].diff()
+    month_number = post.index.year * 12 + post.index.month
+    adjacent = pd.Series(
+        np.diff(month_number, prepend=month_number[0] - 1) == 1,
+        index=post.index,
+    )
+    rise = (
+        post["candidate_usable"]
+        & post["candidate_usable"].shift(fill_value=False)
+        & adjacent
+        & delta.gt(noise_pp)
+    )
+    pulses = int((rise & ~rise.shift(fill_value=False)).sum())
+    secondary = (
+        _secondary_extrema(usable, peak, trough)
+        if pattern is not None and pattern.pattern == "bimodal_or_complex"
+        else (None, np.nan, None, np.nan)
+    )
+    peak_invalid = frame.loc[peak, "invalid_pct"]
+    # Peak cloud is judged against its own month because monsoonal maxima often
+    # coincide with the cloudiest season. Only anomalous obscuration weakens it.
+    peak_quality = peak_quality_verdict(
+        peak_invalid,
+        int(peak.month),
+        peak_invalid_climatology,
+        floor_pct=config.max_invalid_pct,
+    )
+    peak_anomalous = peak_quality == "anomalous"
+    timing = _cycle_timing_evidence(
+        cycle,
+        usable,
+        config=config,
+        noise_pp=noise_pp,
+        pixel_support_status=pixel_support_status,
+    )
+    timing_status = _aggregate_timing_status(timing.peak_status, timing.trough_status)
+    boundary_status = (
+        "provisional"
+        if peak_anomalous
+        or used_record_start
+        or opportunity["boundary_status"] != "confirmed"
+        or timing_status == "unresolved"
+        else "confirmed"
+    )
+    status_reason = (
+        "record_start_boundary"
+        if used_record_start
+        else "peak_quality_anomalous"
+        if peak_anomalous
+        else "unresolved_timing"
+        if timing_status == "unresolved"
+        else "ok"
+        if boundary_status == "confirmed"
+        else "boundary_provisional"
+    )
+    confidence = _confidence(cycle, boundary_status)
+    if timing_status == "unresolved":
+        confidence = "low"
+    midpoint_invalid = frame.loc[midpoint, "invalid_pct"]
+    row.update(
+        status="complete" if boundary_status == "confirmed" else "partial",
+        status_reason=status_reason,
+        hy_start=start,
+        hy_end=end,
+        cycle_months=len(cycle),
+        peak_month=peak,
+        peak_extent_pct=peak_value,
+        peak_invalid_pct=float(peak_invalid) if pd.notna(peak_invalid) else np.nan,
+        temporal_mid_dry_month=midpoint,
+        temporal_mid_dry_extent_pct=float(frame.loc[midpoint, "extent_pct"]),
+        temporal_mid_dry_invalid_pct=(
+            float(midpoint_invalid) if pd.notna(midpoint_invalid) else np.nan
+        ),
+        mid_dry_invalid_pct=(
+            float(midpoint_invalid) if pd.notna(midpoint_invalid) else np.nan
+        ),
+        half_loss_month=half,
+        half_loss_extent_pct=(
+            float(frame.loc[half, "extent_pct"]) if pd.notna(half) else np.nan
+        ),
+        half_loss_target_pct=target,
+        trough_month=trough,
+        trough_extent_pct=trough_value,
+        trough_invalid_pct=opportunity["trough_invalid_pct"],
+        boundary_status=boundary_status,
+        drawdown_pct=peak_value - trough_value,
+        persistence_ratio=trough_value / peak_value if peak_value > 0 else np.nan,
+        recession_months=_month_delta(trough, peak),
+        half_loss_months=_month_delta(half, peak) if pd.notna(half) else np.nan,
+        n_rewetting_pulses=pulses,
+        n_usable_months=len(usable),
+        confidence=confidence,
+        secondary_peak_month=secondary[0],
+        secondary_peak_extent_pct=secondary[1],
+        secondary_trough_month=secondary[2],
+        secondary_trough_extent_pct=secondary[3],
+        raw_peak_month=(
+            peak_selection.raw_month
+            if peak_selection.raw_month is not None
+            else pd.NaT
+        ),
+        raw_peak_extent_pct=peak_selection.raw_extent_pct,
+        peak_selection_status=peak_selection.selection_status,
+        peak_selection_support=peak_selection.support,
+        peak_quality=peak_quality,
+        detectability_floor_pp=timing.detectability_floor_pp,
+        amplitude_to_floor_ratio=timing.amplitude_to_floor_ratio,
+        peak_n_water=(timing.peak_n_water if timing.peak_n_water is not None else np.nan),
+        peak_timing_status=timing.peak_status,
+        peak_interval_start=timing.peak_dates[0] if timing.peak_dates else pd.NaT,
+        peak_interval_end=timing.peak_dates[-1] if timing.peak_dates else pd.NaT,
+        trough_timing_status=timing.trough_status,
+        trough_interval_start=timing.trough_dates[0] if timing.trough_dates else pd.NaT,
+        trough_interval_end=timing.trough_dates[-1] if timing.trough_dates else pd.NaT,
+        timing_status=timing_status,
+    )
+    return row
+
+
 def _assemble_dynamic_years(
-    frame: pd.DataFrame, opportunities: pd.DataFrame, config: DynamicHydroYearConfig,
+    frame: pd.DataFrame,
+    opportunities: pd.DataFrame,
+    config: DynamicHydroYearConfig,
     pattern: SeasonalPatternResult | None,
     *,
     min_usable_months_by_year: dict[int, int] | None = None,
@@ -703,141 +912,431 @@ def _assemble_dynamic_years(
     previous = None
     for position, (_, opportunity) in enumerate(opportunities.iterrows()):
         row = _blank_cycle(opportunity)
-        min_usable_months = (min_usable_months_by_year or {}).get(
-            int(opportunity["hy_year"]), config.min_usable_months_per_cycle
-        )
-        used_record_start = False
         if pd.isna(opportunity["trough_month"]):
             previous = None
             rows.append(row)
             continue
+
+        used_record_start = False
         if previous is None:
-            if position == 0:
-                synthetic_previous = opportunity.copy()
-                synthetic_previous["trough_month"] = (
-                    frame.index.min() - pd.DateOffset(months=1)
-                )
-                previous = synthetic_previous
-                used_record_start = True
-            else:
+            if position:
                 row.update(status="partial", status_reason="no_previous_boundary")
                 previous = opportunity
                 rows.append(row)
                 continue
-        start = pd.Timestamp(previous["trough_month"]) + pd.DateOffset(months=1)
-        end = pd.Timestamp(opportunity["trough_month"])
-        cycle = frame.loc[start:end]
-        usable = cycle.loc[cycle["candidate_usable"], "extent_pct"]
-        if len(usable) < min_usable_months:
-            row.update(status="partial", status_reason="insufficient_cycle_coverage", hy_start=start, hy_end=end, cycle_months=len(cycle), n_usable_months=len(usable))
-            previous = opportunity
-            rows.append(row)
-            continue
-        previous_trough = pd.Timestamp(previous["trough_month"])
-        peak_selection = select_cycle_peak(
-            cycle, start=previous_trough, end=end, noise_pp=noise_pp, amplitude_pp=amplitude_pp,
-        )
-        if peak_selection.selected_month is None:
-            row.update(status="partial", status_reason="insufficient_cycle_coverage", hy_start=start, hy_end=end, cycle_months=len(cycle), n_usable_months=len(usable))
-            previous = opportunity
-            rows.append(row)
-            continue
-        peak = pd.Timestamp(peak_selection.selected_month)
-        post_peak = usable.loc[peak:end]
-        trough = end
-        peak_value, trough_value = float(frame.loc[peak, "extent_pct"]), float(frame.loc[trough, "extent_pct"])
-        target = (peak_value + trough_value) / 2.0
-        half_candidates = post_peak.loc[post_peak <= target]
-        half = pd.Timestamp(half_candidates.index[0]) if len(half_candidates) else pd.NaT
-        midpoint = _nearest_month(post_peak.index, peak, trough)
-        post = cycle.loc[peak:end, ["extent_pct", "candidate_usable"]]
-        delta = post["extent_pct"].diff()
-        month_number = post.index.year * 12 + post.index.month
-        adjacent = pd.Series(
-            np.diff(month_number, prepend=month_number[0] - 1) == 1,
-            index=post.index,
-        )
-        rise = post["candidate_usable"] & post["candidate_usable"].shift(fill_value=False) & adjacent & delta.gt(noise_pp)
-        pulses = int((rise & ~rise.shift(fill_value=False)).sum())
-        secondary = _secondary_extrema(usable, peak, trough) if pattern is not None and pattern.pattern == "bimodal_or_complex" else (None, np.nan, None, np.nan)
-        peak_invalid = frame.loc[peak, "invalid_pct"]
-        # A cycle is cut trough-to-trough, so the peak is INTERIOR to it and
-        # routine cloud over the peak is not a boundary fault. In a monsoonal
-        # catchment the annual maximum lands in the cloudiest month by
-        # construction -- peak months carry 2.5-3x the invalid fraction of other
-        # months, and cloudy peaks are ~2x LARGER than clean ones, so heavy
-        # cloud corroborates the wet season. Only an observation that is
-        # anomalous for its own month, or obscured past the absolute backstop,
-        # says the cycle itself cannot be trusted.
-        peak_quality = peak_quality_verdict(
-            peak_invalid,
-            int(pd.Timestamp(peak).month),
-            peak_invalid_climatology,
-            floor_pct=config.max_invalid_pct,
-        )
-        peak_anomalous = peak_quality == "anomalous"
-        timing = _cycle_timing_evidence(
-            cycle, usable, config=config, noise_pp=noise_pp,
+            previous = opportunity.copy()
+            previous["trough_month"] = frame.index.min() - pd.DateOffset(months=1)
+            used_record_start = True
+
+        row = _assemble_dynamic_cycle(
+            frame,
+            previous,
+            opportunity,
+            config,
+            pattern,
+            min_usable_months=(min_usable_months_by_year or {}).get(
+                int(opportunity["hy_year"]), config.min_usable_months_per_cycle
+            ),
+            used_record_start=used_record_start,
+            amplitude_pp=amplitude_pp,
+            noise_pp=noise_pp,
+            peak_invalid_climatology=peak_invalid_climatology,
             pixel_support_status=pixel_support_status,
-        )
-        timing_status = _aggregate_timing_status(timing.peak_status, timing.trough_status)
-        boundary_status = (
-            "provisional"
-            if peak_anomalous
-            or used_record_start
-            or opportunity["boundary_status"] != "confirmed"
-            or timing_status == "unresolved"
-            else "confirmed"
-        )
-        status_reason = (
-            "record_start_boundary"
-            if used_record_start
-            else "peak_quality_anomalous"
-            if peak_anomalous
-            else "unresolved_timing"
-            if timing_status == "unresolved"
-            else "ok"
-            if boundary_status == "confirmed"
-            else "boundary_provisional"
-        )
-        confidence = _confidence(cycle, boundary_status)
-        if timing_status == "unresolved":
-            confidence = "low"
-        row.update(
-            status="complete" if boundary_status == "confirmed" else "partial",
-            status_reason=status_reason,
-            hy_start=start, hy_end=end, cycle_months=len(cycle),
-            peak_month=peak, peak_extent_pct=peak_value,
-            peak_invalid_pct=float(peak_invalid) if pd.notna(peak_invalid) else np.nan,
-            temporal_mid_dry_month=midpoint, temporal_mid_dry_extent_pct=float(frame.loc[midpoint, "extent_pct"]),
-            temporal_mid_dry_invalid_pct=float(frame.loc[midpoint, "invalid_pct"]) if midpoint in frame.index and "invalid_pct" in frame.columns and pd.notna(frame.loc[midpoint, "invalid_pct"]) else np.nan,
-            mid_dry_invalid_pct=float(frame.loc[midpoint, "invalid_pct"]) if midpoint in frame.index and "invalid_pct" in frame.columns and pd.notna(frame.loc[midpoint, "invalid_pct"]) else np.nan,
-            half_loss_month=half, half_loss_extent_pct=float(frame.loc[half, "extent_pct"]) if pd.notna(half) else np.nan,
-            half_loss_target_pct=target, trough_month=trough, trough_extent_pct=trough_value,
-            trough_invalid_pct=opportunity["trough_invalid_pct"], boundary_status=boundary_status,
-            drawdown_pct=peak_value - trough_value,
-            persistence_ratio=trough_value / peak_value if peak_value > 0 else np.nan,
-            recession_months=_month_delta(trough, peak),
-            half_loss_months=_month_delta(half, peak) if pd.notna(half) else np.nan,
-            n_rewetting_pulses=pulses, n_usable_months=len(usable), confidence=confidence,
-            secondary_peak_month=secondary[0], secondary_peak_extent_pct=secondary[1],
-            secondary_trough_month=secondary[2], secondary_trough_extent_pct=secondary[3],
-            raw_peak_month=peak_selection.raw_month if peak_selection.raw_month is not None else pd.NaT,
-            raw_peak_extent_pct=peak_selection.raw_extent_pct,
-            peak_selection_status=peak_selection.selection_status,
-            peak_selection_support=peak_selection.support,
-            peak_quality=peak_quality,
-            detectability_floor_pp=timing.detectability_floor_pp,
-            amplitude_to_floor_ratio=timing.amplitude_to_floor_ratio,
-            peak_n_water=timing.peak_n_water if timing.peak_n_water is not None else np.nan,
-            peak_timing_status=timing.peak_status,
-            peak_interval_start=timing.peak_dates[0] if timing.peak_dates else pd.NaT,
-            peak_interval_end=timing.peak_dates[-1] if timing.peak_dates else pd.NaT,
-            trough_timing_status=timing.trough_status,
-            trough_interval_start=timing.trough_dates[0] if timing.trough_dates else pd.NaT,
-            trough_interval_end=timing.trough_dates[-1] if timing.trough_dates else pd.NaT,
-            timing_status=timing_status,
         )
         previous = opportunity
         rows.append(row)
     return pd.DataFrame(rows, columns=ANNUAL_COLUMNS)
+
+
+_REFINEMENT_EVIDENCE_COLUMNS = (
+    "trough_challenger_month",
+    "trough_challenger_interval_start",
+    "trough_challenger_interval_end",
+    "trough_challenger_timing_status",
+    "trough_challenger_low_state_start",
+    "trough_challenger_low_state_end",
+    "trough_refinement_status",
+    "trough_refinement_reason",
+    "trough_refinement_applied",
+    "recovery_start_month",
+    "trough_local_scale_pp",
+    "trough_profile_best_loss",
+    "trough_profile_cutoff",
+    "trough_effective_support",
+    "trough_pulse_months",
+    "trough_refinement_policy_version",
+)
+
+_FROZEN_PEAK_COLUMNS = (
+    "peak_month",
+    "peak_extent_pct",
+    "peak_invalid_pct",
+    "raw_peak_month",
+    "raw_peak_extent_pct",
+    "peak_selection_status",
+    "peak_selection_support",
+    "peak_quality",
+    "peak_timing_status",
+    "peak_interval_start",
+    "peak_interval_end",
+)
+
+
+def _initialise_trough_refinement_evidence(
+    result: pd.DataFrame,
+    *,
+    policy: TroughRefinementPolicy | None,
+) -> pd.DataFrame:
+    output = result.copy()
+    output["pass1_trough_month"] = output["trough_month"]
+    output["pass1_trough_interval_start"] = output["trough_interval_start"]
+    output["pass1_trough_interval_end"] = output["trough_interval_end"]
+    output["pass1_trough_timing_status"] = output["trough_timing_status"]
+    for column in _REFINEMENT_EVIDENCE_COLUMNS:
+        output[column] = pd.Series(
+            [None] * len(output), index=output.index, dtype=object
+        )
+    output["trough_refinement_status"] = "unavailable"
+    output["trough_refinement_reason"] = "not_requested"
+    output["trough_refinement_applied"] = False
+    if policy is not None:
+        output["trough_profile_cutoff"] = policy.profile_loss_cutoff
+        output["trough_refinement_policy_version"] = policy.version
+    return output.loc[:, ANNUAL_COLUMNS]
+
+
+def _row_peak_boundary(row: pd.Series) -> PeakBoundary:
+    if pd.isna(row["peak_month"]):
+        return PeakBoundary.missing()
+    selected = pd.Timestamp(row["peak_month"])
+    timing_status = row["peak_timing_status"]
+    if timing_status not in _TIMING_STATUS_RANK:
+        timing_status = "unresolved"
+    if timing_status == "point":
+        candidates = (selected,)
+    elif pd.notna(row["peak_interval_start"]) and pd.notna(row["peak_interval_end"]):
+        candidates = tuple(
+            pd.date_range(
+                pd.Timestamp(row["peak_interval_start"]),
+                pd.Timestamp(row["peak_interval_end"]),
+                freq="MS",
+            )
+        )
+    else:
+        candidates = ()
+    quality = "normal" if row["peak_quality"] == "normal" else "low"
+    return PeakBoundary(
+        selected=selected,
+        candidates=candidates,
+        timing_status=timing_status,
+        quality=quality,
+    )
+
+
+def _candidate_timing_status(
+    candidates: tuple[pd.Timestamp, ...],
+    thresholds: TimingIdentifiabilityThresholds,
+) -> TimingStatus:
+    if not candidates:
+        return "unresolved"
+    span = _month_delta(candidates[-1], candidates[0])
+    if span <= thresholds.max_point_span_months:
+        return "point"
+    if span <= thresholds.max_boundary_interval_months:
+        return "interval"
+    if span <= thresholds.max_broad_interval_months:
+        return "broad"
+    return "unresolved"
+
+
+def _record_trough_challenger(
+    rows: pd.DataFrame,
+    position: int,
+    refinement: TroughRefinementResult,
+    config: DynamicHydroYearConfig,
+) -> None:
+    candidates = refinement.boundary_candidates
+    timing_status = _candidate_timing_status(
+        candidates, config.timing_identifiability_thresholds
+    )
+    values: dict[str, object] = {
+        "trough_challenger_month": refinement.boundary or pd.NaT,
+        "trough_challenger_interval_start": candidates[0] if candidates else pd.NaT,
+        "trough_challenger_interval_end": candidates[-1] if candidates else pd.NaT,
+        "trough_challenger_timing_status": timing_status,
+        "trough_challenger_low_state_start": refinement.low_state_start or pd.NaT,
+        "trough_challenger_low_state_end": refinement.low_state_end or pd.NaT,
+        "trough_refinement_status": refinement.status,
+        "trough_refinement_reason": refinement.reason,
+        "trough_refinement_applied": False,
+        "recovery_start_month": refinement.recovery_start or pd.NaT,
+        "trough_local_scale_pp": refinement.local_scale_pp,
+        "trough_profile_best_loss": refinement.best_loss,
+        "trough_effective_support": refinement.effective_support,
+        "trough_pulse_months": refinement.pulse_months,
+        "trough_refinement_policy_version": refinement.policy_version,
+    }
+    for column, value in values.items():
+        rows.at[position, column] = value
+
+
+def _scalar_equal(left: object, right: object) -> bool:
+    if pd.isna(left) and pd.isna(right):
+        return True
+    return bool(left == right)
+
+
+def _peak_evidence_unchanged(candidate: dict, frozen: pd.Series) -> bool:
+    return all(
+        _scalar_equal(candidate[column], frozen[column])
+        for column in _FROZEN_PEAK_COLUMNS
+    )
+
+
+def _pass1_cycle_admissible(row: pd.Series, minimum_usable: int) -> bool:
+    return bool(
+        pd.notna(row["trough_month"])
+        and pd.notna(row["peak_month"])
+        and row["peak_timing_status"] != "unresolved"
+        and row["trough_timing_status"] != "unresolved"
+        and int(row["n_usable_months"]) >= minimum_usable
+        and row["status_reason"]
+        not in {"insufficient_cycle_coverage", "no_previous_boundary"}
+    )
+
+
+def _minimum_usable_for_row(row: pd.Series, config: DynamicHydroYearConfig) -> int:
+    if row["retry_outcome"] == "applied":
+        return int(config.adaptive_min_usable_months_per_cycle)
+    return config.min_usable_months_per_cycle
+
+
+def _mark_pass1_fallback(rows: pd.DataFrame, position: int) -> None:
+    rows.at[position, "boundary_status"] = "provisional"
+    if rows.at[position, "status"] == "complete":
+        rows.at[position, "status"] = "partial"
+        rows.at[position, "status_reason"] = "trough_refinement_fallback"
+    rows.at[position, "confidence"] = "low"
+
+
+def _strictly_ordered_boundaries(
+    opportunities: pd.DataFrame,
+    *,
+    position: int,
+    boundary: pd.Timestamp,
+) -> bool:
+    dates: list[pd.Timestamp] = []
+    for candidate_position, value in enumerate(opportunities["trough_month"]):
+        if candidate_position == position:
+            value = boundary
+        if pd.notna(value):
+            dates.append(pd.Timestamp(value))
+    return len(dates) == len(set(dates)) and all(
+        left < right for left, right in zip(dates, dates[1:], strict=False)
+    )
+
+
+def _candidate_opportunity(
+    opportunity: pd.Series,
+    refinement: TroughRefinementResult,
+    frame: pd.DataFrame,
+    config: DynamicHydroYearConfig,
+) -> pd.Series:
+    candidate = opportunity.copy()
+    boundary = pd.Timestamp(refinement.boundary)
+    observed = frame.loc[boundary]
+    candidate["trough_month"] = boundary
+    candidate["trough_extent_pct"] = float(observed["extent_pct"])
+    candidate["trough_invalid_pct"] = (
+        float(observed["invalid_pct"])
+        if pd.notna(observed["invalid_pct"])
+        else np.nan
+    )
+    candidate["low_run_start_month"] = refinement.low_state_start or pd.NaT
+    candidate["low_run_end_month"] = refinement.low_state_end or pd.NaT
+    candidate["boundary_status"] = (
+        "confirmed" if refinement.status == "confirmed" else "provisional"
+    )
+    candidate["status"] = (
+        "complete" if refinement.status == "confirmed" else "partial"
+    )
+    candidate["status_reason"] = (
+        "ok" if refinement.status == "confirmed" else "boundary_provisional"
+    )
+    expected = pd.Timestamp(int(candidate["hy_year"]), config.expected_trough_month, 1)
+    candidate["phase_shift_months"] = _month_delta(boundary, expected)
+    return candidate
+
+
+def _preserve_refinement_columns(candidate: dict, previous: pd.Series) -> None:
+    for column in (
+        "pass1_trough_month",
+        "pass1_trough_interval_start",
+        "pass1_trough_interval_end",
+        "pass1_trough_timing_status",
+        *_REFINEMENT_EVIDENCE_COLUMNS,
+    ):
+        candidate[column] = previous[column]
+    candidate["retry_outcome"] = previous["retry_outcome"]
+
+
+def _apply_trough_refinement(
+    frame: pd.DataFrame,
+    opportunities: pd.DataFrame,
+    pass1_rows: pd.DataFrame,
+    config: DynamicHydroYearConfig,
+    pattern: SeasonalPatternResult | None,
+) -> pd.DataFrame:
+    """Apply each shared boundary only after atomic two-cycle recomputation."""
+    policy = config.trough_refinement_policy
+    if policy is None:
+        return pass1_rows
+
+    frozen_rows = pass1_rows.copy(deep=True).reset_index(drop=True)
+    rows = pass1_rows.copy(deep=True).reset_index(drop=True)
+    working_opportunities = opportunities.copy(deep=True).reset_index(drop=True)
+    amplitude_pp, noise_pp = robust_scale(frame)
+    peak_invalid_climatology = month_of_year_invalid_climatology(
+        frame, fallback_pct=config.max_invalid_pct
+    )
+    pixel_support_status = _pixel_support_status(frame)
+
+    for position in range(len(rows)):
+        left_peak = _row_peak_boundary(frozen_rows.iloc[position])
+        right_peak = (
+            _row_peak_boundary(frozen_rows.iloc[position + 1])
+            if position + 1 < len(rows)
+            else None
+        )
+        refinement = refine_trough_span(
+            frame,
+            left_peak=left_peak,
+            right_peak=right_peak,
+            policy=policy,
+        )
+        _record_trough_challenger(rows, position, refinement, config)
+
+        if refinement.status not in {"confirmed", "provisional"}:
+            minimum = _minimum_usable_for_row(rows.iloc[position], config)
+            adjacent_ok = _pass1_cycle_admissible(rows.iloc[position], minimum)
+            if position + 1 < len(rows) and refinement.status != "awaiting_next_peak":
+                following = rows.iloc[position + 1]
+                adjacent_ok = adjacent_ok and _pass1_cycle_admissible(
+                    following, _minimum_usable_for_row(following, config)
+                )
+            if adjacent_ok:
+                _mark_pass1_fallback(rows, position)
+            continue
+
+        boundary = pd.Timestamp(refinement.boundary)
+        if (
+            left_peak.selected is None
+            or right_peak is None
+            or right_peak.selected is None
+            or not left_peak.selected < boundary < right_peak.selected
+            or not _strictly_ordered_boundaries(
+                working_opportunities, position=position, boundary=boundary
+            )
+        ):
+            rows.at[position, "trough_refinement_reason"] = "atomic_rollback_ordering"
+            _mark_pass1_fallback(rows, position)
+            continue
+
+        changed_opportunity = _candidate_opportunity(
+            working_opportunities.iloc[position], refinement, frame, config
+        )
+        if position == 0:
+            previous_opportunity = changed_opportunity.copy()
+            previous_opportunity["trough_month"] = (
+                frame.index.min() - pd.DateOffset(months=1)
+            )
+            used_record_start = True
+        else:
+            previous_opportunity = working_opportunities.iloc[position - 1]
+            used_record_start = False
+        if pd.isna(previous_opportunity["trough_month"]):
+            rows.at[position, "trough_refinement_reason"] = "atomic_rollback_barrier"
+            _mark_pass1_fallback(rows, position)
+            continue
+
+        current_minimum = _minimum_usable_for_row(rows.iloc[position], config)
+        following_minimum = _minimum_usable_for_row(rows.iloc[position + 1], config)
+        current_candidate = _assemble_dynamic_cycle(
+            frame,
+            previous_opportunity,
+            changed_opportunity,
+            config,
+            pattern,
+            min_usable_months=current_minimum,
+            used_record_start=used_record_start,
+            amplitude_pp=amplitude_pp,
+            noise_pp=noise_pp,
+            peak_invalid_climatology=peak_invalid_climatology,
+            pixel_support_status=pixel_support_status,
+        )
+        following_candidate = _assemble_dynamic_cycle(
+            frame,
+            changed_opportunity,
+            working_opportunities.iloc[position + 1],
+            config,
+            pattern,
+            min_usable_months=following_minimum,
+            used_record_start=False,
+            amplitude_pp=amplitude_pp,
+            noise_pp=noise_pp,
+            peak_invalid_climatology=peak_invalid_climatology,
+            pixel_support_status=pixel_support_status,
+        )
+        candidates = (current_candidate, following_candidate)
+        frozen = (frozen_rows.iloc[position], frozen_rows.iloc[position + 1])
+        minimums = (current_minimum, following_minimum)
+        acceptable = all(
+            pd.notna(candidate["peak_month"])
+            and candidate["peak_timing_status"] != "unresolved"
+            and int(candidate["n_usable_months"]) >= minimum
+            and candidate["status_reason"]
+            not in {"insufficient_cycle_coverage", "no_previous_boundary"}
+            and _peak_evidence_unchanged(candidate, frozen_row)
+            for candidate, frozen_row, minimum in zip(
+                candidates, frozen, minimums, strict=True
+            )
+        )
+        if not acceptable:
+            rows.at[position, "trough_refinement_reason"] = "atomic_rollback_cycle"
+            _mark_pass1_fallback(rows, position)
+            continue
+
+        _preserve_refinement_columns(current_candidate, rows.iloc[position])
+        _preserve_refinement_columns(following_candidate, rows.iloc[position + 1])
+        current_candidate["trough_interval_start"] = refinement.boundary_candidates[0]
+        current_candidate["trough_interval_end"] = refinement.boundary_candidates[-1]
+        current_candidate["trough_timing_status"] = _candidate_timing_status(
+            refinement.boundary_candidates, config.timing_identifiability_thresholds
+        )
+        current_candidate["timing_status"] = _aggregate_timing_status(
+            current_candidate["peak_timing_status"],
+            current_candidate["trough_timing_status"],
+        )
+        current_candidate["boundary_status"] = (
+            "confirmed" if refinement.status == "confirmed" else "provisional"
+        )
+        if refinement.status == "provisional":
+            current_candidate["status"] = "partial"
+            current_candidate["status_reason"] = "boundary_provisional"
+        current_candidate["n_rewetting_pulses"] = len(refinement.pulse_months)
+        if refinement.pulse_months:
+            strongest = max(
+                refinement.pulse_months,
+                key=lambda month: float(frame.loc[month, "extent_pct"]),
+            )
+            current_candidate["secondary_peak_month"] = strongest
+            current_candidate["secondary_peak_extent_pct"] = float(
+                frame.loc[strongest, "extent_pct"]
+            )
+        current_candidate["trough_refinement_applied"] = True
+
+        rows.iloc[position] = pd.Series(current_candidate)
+        rows.iloc[position + 1] = pd.Series(following_candidate)
+        working_opportunities.iloc[position] = changed_opportunity
+
+    return rows.loc[:, ANNUAL_COLUMNS]

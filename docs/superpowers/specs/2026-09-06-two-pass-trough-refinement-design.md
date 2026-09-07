@@ -200,11 +200,13 @@ No record-wide wet-season amplitude enters the scale. The Huber transition
 constant is global, selected only on the synthetic/design calibration partition,
 then frozen, sensitivity-tested, fingerprinted, and versioned.
 
-Huber fitting uses deterministic iteratively reweighted isotonic regression. It
-stops when fitted-value change is within `sqrt(machine epsilon)` relative to the
-larger of local scale and local extent, with an absolute floor of machine epsilon.
-The iteration limit is 200. These are numerical safeguards, not hydrological
-selection parameters, and are fingerprinted but never tuned against truth.
+Huber fitting uses deterministic generalized pooled-adjacent-violators blocks.
+Each block location is its weighted Huber M-estimate; the shared valley level is
+selected exactly across the finite branch breakpoints. The preliminary absolute-
+loss fit uses weighted medians through the same block solver. Huber roots use a
+fixed 64-step bisection bracketed by the block observations. These are numerical
+safeguards, not hydrological selection parameters, and are fingerprinted but
+never tuned against truth.
 
 ### 4.3 Endpoint profile and uncertainty
 
@@ -215,7 +217,12 @@ support. Because residuals are already scaled locally, this quantity is
 dimensionless.
 
 An endpoint is statistically plausible when its normalized profile delta is at
-or below one globally calibrated cutoff. Calibration targets 95% inclusion of a
+or below one globally calibrated cutoff and it is not later than the latest
+exactly best-supported endpoint. A later near-equivalent endpoint is already on
+the best valley shape's recovery limb; this one-sided departure constraint keeps
+January in the next hydrological year when December-January-February is a
+continuous observed recovery. Exact flat-bottom endpoint ties remain low state
+and therefore retain their latest month. Calibration targets 95% inclusion of a
 known synthetic boundary or at least one reviewer-acceptable boundary month.
 This is an empirical repeated-case coverage target, not a posterior probability
 for an individual record.

@@ -79,7 +79,6 @@ class _CandidateFit:
     converged: bool
 
 
-_MAX_IRLS_ITERATIONS = 200
 _RELATIVE_CONVERGENCE = float(np.sqrt(np.finfo(float).eps))
 
 
@@ -146,39 +145,53 @@ def _fit_valley_l2(
     start: int,
     end: int,
 ) -> np.ndarray:
-    """Fit one fixed low-state block under squared loss."""
-    lower = float(np.min(values))
-    upper = float(np.max(values))
-    if lower == upper:
-        return np.full(values.size, lower, dtype=float)
+    """Fit one fixed low-state block under squared loss.
 
-    ratio = (np.sqrt(5.0) - 1.0) / 2.0
+    Each unconstrained branch is isotonic before it is clamped to the shared
+    low-state level. Between its fitted branch values, the objective is a
+    quadratic whose minimiser is the weighted mean of the active observations.
+    Evaluating those finite breakpoint regimes is exact and avoids a nested
+    numerical search for every candidate block.
+    """
+    branch = np.full(values.size, np.nan, dtype=float)
+    if start:
+        branch[:start] = _weighted_pava(
+            values[:start][::-1],
+            weights[:start][::-1],
+            increasing=True,
+        )[::-1]
+    if end + 1 < values.size:
+        branch[end + 1:] = _weighted_pava(
+            values[end + 1:],
+            weights[end + 1:],
+            increasing=True,
+        )
 
-    def objective(level: float) -> tuple[float, np.ndarray]:
-        fitted = _valley_for_level(values, weights, start, end, level)
-        return float(np.sum(weights * np.square(values - fitted))), fitted
+    active_weight = float(np.sum(weights[start:end + 1]))
+    active_sum = float(np.sum(weights[start:end + 1] * values[start:end + 1]))
+    branch_positions = np.flatnonzero(np.isfinite(branch))
+    breakpoints = sorted({float(branch[position]) for position in branch_positions})
+    regimes: list[tuple[float, float]] = []
+    lower = -np.inf
+    for upper in (*breakpoints, np.inf):
+        mean = active_sum / active_weight
+        regimes.append((max(lower, min(mean, upper)), active_weight))
+        if not np.isfinite(upper):
+            break
+        entering = branch_positions[branch[branch_positions] == upper]
+        active_weight += float(np.sum(weights[entering]))
+        active_sum += float(np.sum(weights[entering] * values[entering]))
+        lower = upper
 
-    left = lower
-    right = upper
-    x1 = right - ratio * (right - left)
-    x2 = left + ratio * (right - left)
-    f1, _ = objective(x1)
-    f2, _ = objective(x2)
-    for _ in range(96):
-        if f1 <= f2:
-            right = x2
-            x2 = x1
-            f2 = f1
-            x1 = right - ratio * (right - left)
-            f1, _ = objective(x1)
-        else:
-            left = x1
-            x1 = x2
-            f1 = f2
-            x2 = left + ratio * (right - left)
-            f2, _ = objective(x2)
-    _, fitted = objective((left + right) / 2.0)
-    return fitted
+    best_loss = np.inf
+    best_fitted = np.empty(values.size, dtype=float)
+    for level, _active_weight in regimes:
+        fitted = np.where(np.isfinite(branch), np.maximum(branch, level), level)
+        loss = float(np.sum(weights * np.square(values - fitted)))
+        if loss < best_loss:
+            best_loss = loss
+            best_fitted = fitted
+    return best_fitted
 
 
 def _fit_valley_l1(
@@ -187,32 +200,20 @@ def _fit_valley_l1(
     start: int,
     end: int,
 ) -> _CandidateFit:
-    fitted = _fit_valley_l2(values, weights, start, end)
-    epsilon = max(
-        np.finfo(float).eps,
-        float(np.ptp(values)) * _RELATIVE_CONVERGENCE,
+    fitted, loss = _fit_valley_convex(
+        values,
+        weights,
+        start,
+        end,
+        scale=0.0,
+        huber_k=1.0,
     )
-    converged = False
-    for _ in range(_MAX_IRLS_ITERATIONS):
-        residual = values - fitted
-        effective = weights / np.maximum(np.abs(residual), epsilon)
-        updated = _fit_valley_l2(values, effective, start, end)
-        tolerance = max(
-            np.finfo(float).eps,
-            _RELATIVE_CONVERGENCE
-            * max(1.0, float(np.max(np.abs(values)))),
-        )
-        if float(np.max(np.abs(updated - fitted))) <= tolerance:
-            fitted = updated
-            converged = True
-            break
-        fitted = updated
     return _CandidateFit(
         start_position=start,
         end_position=end,
         fitted=fitted,
-        loss=float(np.sum(weights * np.abs(values - fitted))),
-        converged=converged,
+        loss=loss,
+        converged=True,
     )
 
 
@@ -225,51 +226,172 @@ def _fit_valley_huber(
     scale: float,
     huber_k: float,
 ) -> _CandidateFit:
-    fitted = _fit_valley_l2(values, weights, start, end)
-    if scale == 0.0:
-        residual = values - fitted
-        return _CandidateFit(
-            start_position=start,
-            end_position=end,
-            fitted=fitted,
-            loss=float(np.sum(weights * np.abs(residual))),
-            converged=True,
-        )
-
-    converged = False
-    cutoff = huber_k * scale
-    for _ in range(_MAX_IRLS_ITERATIONS):
-        residual = values - fitted
-        magnitude = np.abs(residual)
-        robust = np.ones(values.size, dtype=float)
-        outside = magnitude > cutoff
-        robust[outside] = cutoff / magnitude[outside]
-        updated = _fit_valley_l2(values, weights * robust, start, end)
-        tolerance = max(
-            np.finfo(float).eps,
-            _RELATIVE_CONVERGENCE
-            * max(scale, float(np.max(np.abs(values))), 1.0),
-        )
-        if float(np.max(np.abs(updated - fitted))) <= tolerance:
-            fitted = updated
-            converged = True
-            break
-        fitted = updated
-
-    standardized = (values - fitted) / scale
-    magnitude = np.abs(standardized)
-    loss = np.where(
-        magnitude <= huber_k,
-        0.5 * np.square(standardized),
-        huber_k * magnitude - 0.5 * huber_k**2,
+    fitted, loss = _fit_valley_convex(
+        values,
+        weights,
+        start,
+        end,
+        scale=scale,
+        huber_k=huber_k,
     )
     return _CandidateFit(
         start_position=start,
         end_position=end,
         fitted=fitted,
-        loss=float(np.sum(weights * loss)),
-        converged=converged,
+        loss=loss,
+        converged=True,
     )
+
+
+def _weighted_median(values: np.ndarray, weights: np.ndarray) -> float:
+    order = np.argsort(values, kind="stable")
+    ordered_values = values[order]
+    cumulative = np.cumsum(weights[order])
+    midpoint = float(cumulative[-1]) / 2.0
+    position = int(np.searchsorted(cumulative, midpoint, side="left"))
+    if (
+        position + 1 < len(ordered_values)
+        and cumulative[position] == midpoint
+    ):
+        return float((ordered_values[position] + ordered_values[position + 1]) / 2.0)
+    return float(ordered_values[position])
+
+
+def _robust_location(
+    values: np.ndarray,
+    weights: np.ndarray,
+    *,
+    scale: float,
+    huber_k: float,
+) -> float:
+    if scale == 0.0:
+        return _weighted_median(values, weights)
+    lower = float(np.min(values))
+    upper = float(np.max(values))
+    if lower == upper:
+        return lower
+    for _ in range(64):
+        midpoint = (lower + upper) / 2.0
+        score = float(
+            np.sum(
+                weights
+                * np.clip((midpoint - values) / scale, -huber_k, huber_k)
+            )
+        )
+        if score < 0.0:
+            lower = midpoint
+        else:
+            upper = midpoint
+    return (lower + upper) / 2.0
+
+
+def _robust_isotonic(
+    values: np.ndarray,
+    weights: np.ndarray,
+    *,
+    scale: float,
+    huber_k: float,
+) -> np.ndarray:
+    """Generalised PAVA for a separable weighted L1/Huber objective."""
+    blocks: list[tuple[list[int], float]] = []
+    for position in range(len(values)):
+        blocks.append(([position], float(values[position])))
+        while len(blocks) >= 2 and blocks[-2][1] > blocks[-1][1]:
+            positions = blocks[-2][0] + blocks[-1][0]
+            index = np.asarray(positions, dtype=int)
+            location = _robust_location(
+                values[index],
+                weights[index],
+                scale=scale,
+                huber_k=huber_k,
+            )
+            blocks[-2:] = [(positions, location)]
+    fitted = np.empty(len(values), dtype=float)
+    for positions, location in blocks:
+        fitted[positions] = location
+    return fitted
+
+
+def _convex_loss(
+    values: np.ndarray,
+    fitted: np.ndarray,
+    weights: np.ndarray,
+    *,
+    scale: float,
+    huber_k: float,
+) -> float:
+    residual = values - fitted
+    if scale == 0.0:
+        return float(np.sum(weights * np.abs(residual)))
+    magnitude = np.abs(residual / scale)
+    losses = np.where(
+        magnitude <= huber_k,
+        0.5 * np.square(magnitude),
+        huber_k * magnitude - 0.5 * huber_k**2,
+    )
+    return float(np.sum(weights * losses))
+
+
+def _fit_valley_convex(
+    values: np.ndarray,
+    weights: np.ndarray,
+    start: int,
+    end: int,
+    *,
+    scale: float,
+    huber_k: float,
+) -> tuple[np.ndarray, float]:
+    """Solve a fixed-block valley under weighted L1 or Huber loss."""
+    branch = np.full(values.size, np.nan, dtype=float)
+    if start:
+        branch[:start] = _robust_isotonic(
+            values[:start][::-1],
+            weights[:start][::-1],
+            scale=scale,
+            huber_k=huber_k,
+        )[::-1]
+    if end + 1 < values.size:
+        branch[end + 1:] = _robust_isotonic(
+            values[end + 1:],
+            weights[end + 1:],
+            scale=scale,
+            huber_k=huber_k,
+        )
+
+    active = np.zeros(values.size, dtype=bool)
+    active[start:end + 1] = True
+    branch_positions = np.flatnonzero(np.isfinite(branch))
+    breakpoints = sorted({float(branch[position]) for position in branch_positions})
+    levels: list[float] = []
+    lower = -np.inf
+    for upper in (*breakpoints, np.inf):
+        location = _robust_location(
+            values[active],
+            weights[active],
+            scale=scale,
+            huber_k=huber_k,
+        )
+        levels.append(max(lower, min(location, upper)))
+        if not np.isfinite(upper):
+            break
+        active |= np.isfinite(branch) & (branch == upper)
+        lower = upper
+
+    best_loss = np.inf
+    best_fitted = np.empty(values.size, dtype=float)
+    for level in levels:
+        fitted = np.where(np.isfinite(branch), np.maximum(branch, level), level)
+        loss = _convex_loss(
+            values,
+            fitted,
+            weights,
+            scale=scale,
+            huber_k=huber_k,
+        )
+        if loss < best_loss:
+            best_loss = loss
+            best_fitted = fitted
+    return best_fitted, best_loss
 
 
 def _median_absolute_deviation(values: np.ndarray) -> float:
@@ -619,9 +741,21 @@ def _refine_selected_span(
         np.finfo(float).eps,
         _RELATIVE_CONVERGENCE * max(1.0, abs(best_loss)),
     )
+    # The final departure is the latest exactly best-supported endpoint. A
+    # later, merely near-equivalent endpoint is already on the best shape's
+    # recovery limb; admitting it would pull the operational boundary through
+    # an observed continuous rise (for example Fitzroy Dec -> Jan -> Feb).
+    # Exact flat-bottom ties remain low state and therefore retain their latest
+    # month, while the profile set may honestly extend earlier.
+    departure_position = max(
+        position
+        for position, candidate in endpoint_fits.items()
+        if candidate.loss <= best_loss + loss_tolerance
+    )
     plausible_positions = sorted(
         position
         for position, candidate in endpoint_fits.items()
+        if position <= departure_position
         if (candidate.loss - best_loss) / effective_support
         <= policy.profile_loss_cutoff + loss_tolerance
     )

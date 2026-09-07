@@ -3,12 +3,21 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from hydroseason import DynamicHydroYearConfig, detect_dynamic_hydrological_years
+from hydroseason import (
+    DynamicHydroYearConfig,
+    TroughRefinementPolicy,
+    detect_dynamic_hydrological_years,
+)
 
 ROOT = Path(__file__).parents[1]
 CASES = {
     "fitzroy_river_wa": ("fitzroy_river_wa_30m.csv", 11),
     "gilbert_river_qld": ("gilbert_river_qld_30m.csv", 10),
+}
+
+REFINEMENT_CASES = {
+    "fitzroy": ("fitzroy_kimberley_monthly.csv", 11),
+    "gilbert": ("gilbert_river_monthly.csv", 10),
 }
 
 
@@ -126,3 +135,34 @@ def test_manual_review_high_invalid_peaks_are_provisional_only_when_anomalous(ca
     assert normal["status_reason"].ne("peak_quality_anomalous").all()
     assert anomalous["status_reason"].eq("peak_quality_anomalous").all()
     assert anomalous["boundary_status"].eq("provisional").all()
+
+
+@pytest.mark.parametrize("catchment", sorted(REFINEMENT_CASES))
+def test_refinement_preserves_protected_peak_and_cycle_structure(catchment):
+    data_name, expected_trough_month = REFINEMENT_CASES[catchment]
+    monthly = pd.read_csv(
+        ROOT / "tests" / "fixtures" / data_name,
+        parse_dates=["date"],
+    ).set_index("date")
+    baseline = detect_dynamic_hydrological_years(
+        monthly,
+        config=DynamicHydroYearConfig(expected_trough_month=expected_trough_month),
+    )
+    refined = detect_dynamic_hydrological_years(
+        monthly,
+        config=DynamicHydroYearConfig(
+            expected_trough_month=expected_trough_month,
+            trough_refinement_policy=TroughRefinementPolicy(1.345, 0.05, 2.0),
+        ),
+    )
+
+    assert tuple(refined["peak_month"]) == tuple(baseline["peak_month"])
+    assert refined["peak_month"].isna().sum() == baseline["peak_month"].isna().sum()
+    boundaries = refined["trough_month"].dropna()
+    assert boundaries.is_unique
+    assert boundaries.is_monotonic_increasing
+
+    if catchment == "fitzroy":
+        row = refined.loc[refined["hy_year"] == 2021].iloc[0]
+        assert row["trough_month"] == pd.Timestamp("2021-12-01")
+        assert row["recovery_start_month"] == pd.Timestamp("2022-01-01")
