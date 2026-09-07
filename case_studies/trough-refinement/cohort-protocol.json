@@ -1,0 +1,48 @@
+{
+  "protocol_id": "trough-refinement-span-cohort-v1",
+  "seed": 20260906,
+  "sampling_unit": "catchment",
+  "review_unit": "annual_cycle_span",
+  "quota_policy": "min_8_catchments_or_available_per_stratum",
+  "strata": [
+    "normal_seasonal",
+    "low_variability",
+    "missing_data",
+    "low_quality",
+    "two_pulse"
+  ],
+  "labels": [
+    "point_supported",
+    "interval_supported",
+    "no_boundary_supported",
+    "uncertain"
+  ],
+  "min_algorithm_point_predictions": 73,
+  "double_review_min_fraction": 0.2,
+  "double_review_min_spans": 30,
+  "excluded_sources": [
+    "case_studies/results/stress-test-full",
+    "stress_test_final",
+    "hydroseason_tests/outputs",
+    "case_studies/results/timing-identifiability",
+    "case_studies/results/recurrence-identifiability",
+    "case_studies/data/extent protected catchments",
+    "130413a", "130407a", "130302a",
+    "daly", "fitzroy", "gilbert", "lachlan", "moonie",
+    "recurrence calibration and validation synthetic corpora",
+    "trough geometry calibration and validation synthetic corpora",
+    "trough refinement calibration and validation synthetic corpora"
+  ],
+  "packet_allowlist": [
+    "anonymous_catchment_id", "anonymous_span_id", "date", "extent_pct",
+    "invalid_pct", "quality_state", "n_water", "n_valid", "n_invalid", "n_aoi",
+    "span_start", "span_end"
+  ],
+  "hidden_fields": [
+    "station_id", "regime", "route", "timing_status", "peak_timing_status",
+    "trough_timing_status", "selected_policy", "fingerprint", "model_output",
+    "pass1_boundary", "pass2_boundary", "refinement_status", "refinement_reason",
+    "boundary_candidates", "low_state_start", "low_state_end", "recovery_start",
+    "pulse_months"
+  ]
+}
