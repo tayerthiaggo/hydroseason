@@ -29,6 +29,7 @@ nav:
   - Migrations:
       - 0.2.0 Timing Identifiability: migrations/0.2.0-timing-identifiability.md
       - 0.2.0 Boundary Geometry Diagnostics: migrations/0.2.0-boundary-geometry-diagnostics.md
+      - Trough Refinement (Candidate): migrations/trough-refinement-candidate.md
   - Case Studies:
       - Overview: case-studies/index.md
       - Main Catchment Workflow: case-studies/main-workflow.md

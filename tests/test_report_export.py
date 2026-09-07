@@ -356,3 +356,110 @@ def test_trough_date_keeps_its_point_only_meaning():
     assert pd.isna(out.loc[1, "trough_date"])
     assert pd.isna(out.loc[2, "trough_date"])
 
+
+
+# --- trough refinement candidate evidence (Task 7) -----------------------
+
+
+def _refinement_hy_frame():
+    """One cycle per refinement outcome the export must distinguish.
+
+    2020 applied+confirmed, 2021 challenger ran but pass 1 won (provisional),
+    2022 the policy never ran (unavailable), 2023 it ran and resolved nothing
+    (unresolved). `unavailable` and `unresolved` are different claims and the
+    export must not collapse them.
+    """
+    return pd.DataFrame(
+        {
+            "hy_year": [2020, 2021, 2022, 2023],
+            "trough_month": pd.to_datetime(
+                ["2020-10-01", "2021-08-01", "2022-09-01", "2023-07-01"]
+            ),
+            "trough_interval_start": pd.to_datetime(
+                ["2020-09-01", "2021-08-01", "2022-09-01", "2023-01-01"]
+            ),
+            "trough_interval_end": pd.to_datetime(
+                ["2020-10-01", "2021-08-01", "2022-09-01", "2023-12-01"]
+            ),
+            "trough_timing_status": ["interval", "point", "point", "unresolved"],
+            "peak_timing_status": ["point"] * 4,
+            "pass1_trough_month": pd.to_datetime(
+                ["2020-09-01", "2021-08-01", "2022-09-01", "2023-07-01"]
+            ),
+            "trough_challenger_month": pd.to_datetime(
+                ["2020-10-01", "2021-11-01", [pd.NaT][0], [pd.NaT][0]]
+            ),
+            "trough_refinement_status": [
+                "confirmed", "provisional", "unavailable", "unresolved",
+            ],
+            "trough_refinement_reason": [
+                "", "low_quality_peak", "not_requested", "recovery_crosses_gap",
+            ],
+            "trough_refinement_applied": [True, False, False, False],
+            "trough_pulse_months": [
+                "2020-06-01", "", "", "",
+            ],
+            "trough_refinement_policy_version": [
+                "trough_refinement_candidate_0_1"] * 4,
+        }
+    )
+
+
+def test_hydro_years_export_carries_refinement_evidence_columns(seasonal_extent):
+    analysis = analyze_catchment(seasonal_extent)
+    out = build_hydro_years_export(analysis, name="demo")
+    for column in (
+        "trough_refinement_status",
+        "trough_refinement_reason",
+        "trough_refinement_applied",
+        "trough_refinement_policy_version",
+    ):
+        assert column in out.columns
+
+
+def test_refinement_evidence_stays_out_of_the_stable_compact_bundle():
+    """The policy is a candidate, so the compact CSV contract cannot move."""
+    from hydroseason._report_export import STABLE_HY_COLUMNS
+
+    for column in (
+        "trough_refinement_status",
+        "trough_refinement_applied",
+        "trough_challenger_month",
+        "pass1_trough_month",
+    ):
+        assert column not in STABLE_HY_COLUMNS
+
+
+def test_unavailable_and_unresolved_refinement_are_not_collapsed():
+    frame = _refinement_hy_frame()
+    statuses = set(frame["trough_refinement_status"])
+    assert {"unavailable", "unresolved"} <= statuses
+    unavailable = frame.loc[frame["trough_refinement_status"] == "unavailable"]
+    unresolved = frame.loc[frame["trough_refinement_status"] == "unresolved"]
+    assert unavailable["trough_refinement_reason"].iloc[0] == "not_requested"
+    assert unresolved["trough_refinement_reason"].iloc[0] != "not_requested"
+
+
+def test_challenger_evidence_is_retained_when_pass_one_wins():
+    """A rejected challenger is evidence, not noise -- it must survive export."""
+    frame = _refinement_hy_frame()
+    row = frame.loc[frame["hy_year"] == 2021].iloc[0]
+    assert row["trough_refinement_applied"] is False or not row["trough_refinement_applied"]
+    assert pd.notna(row["trough_challenger_month"])
+    assert row["trough_refinement_reason"] == "low_quality_peak"
+
+
+def test_interval_status_still_blanks_the_point_only_trough_date():
+    from hydroseason._report_export import build_user_hydro_years_export
+
+    out = build_user_hydro_years_export(_refinement_hy_frame())
+    assert pd.isna(out.loc[0, "trough_date"])          # interval
+    assert out.loc[1, "trough_date"] == pd.Timestamp("2021-08-01")  # point
+    assert pd.isna(out.loc[3, "trough_date"])          # unresolved
+
+
+def test_operational_boundary_is_the_interval_end_not_the_interval_start():
+    from hydroseason._report_export import build_user_hydro_years_export
+
+    out = build_user_hydro_years_export(_refinement_hy_frame())
+    assert out.loc[0, "trough_boundary_date"] == pd.Timestamp("2020-10-01")
