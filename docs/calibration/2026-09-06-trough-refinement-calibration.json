@@ -1,0 +1,62 @@
+{
+  "calibration_version": "0.2.0-trough-refinement.1",
+  "partition": "calibration",
+  "generated": "2026-09-07T03:38:37+00:00",
+  "authority_scope": "trough_refinement_candidate_0_1",
+  "selected_policy": {
+    "huber_k": 1.345,
+    "profile_loss_cutoff": 0.05,
+    "pulse_z": 1.5,
+    "version": "trough_refinement_candidate_0_1"
+  },
+  "fingerprint": "049f16f04035d6d1dadf805192bce57b7c0750cab283c9410881d9302cb9ea2d",
+  "environment": {
+    "python": "3.14.5",
+    "numpy": "2.4.6",
+    "pandas": "3.0.3"
+  },
+  "n_seeds": 5000,
+  "seed_range": [
+    70000,
+    74999
+  ],
+  "selection_counts": {
+    "grid": 128,
+    "admissible": 128,
+    "selected": 1
+  },
+  "metrics": {
+    "boundary_set_inclusion": 1.0,
+    "false_precise_boundary_rate": 0.0,
+    "false_precise_boundary_wilson": [
+      0.0,
+      0.003255911031075175
+    ],
+    "false_precise_boundary_n": 1176,
+    "median_distance_months": 0.0,
+    "p90_distance_months": 0.0,
+    "pass1_median_distance_months": 0.0,
+    "pass1_p90_distance_months": 1.0,
+    "coverage": 1.0,
+    "abstention_rate": 0.0,
+    "peak_changes": 0,
+    "duplicate_or_nonmonotonic": 0,
+    "wrong_cycle": 0,
+    "new_uncomputable": 0,
+    "mean_interval_width_months": 0.46129707112970714,
+    "mean_boundary_change_months": 0.6406903765690377
+  },
+  "gates": {
+    "boundary_set_inclusion_at_least_0_95": true,
+    "false_precise_wilson_upper_at_most_0_05": true,
+    "median_distance_at_most_1_month": true,
+    "p90_distance_at_most_2_months": true,
+    "zero_peak_changes": true,
+    "zero_duplicate_or_nonmonotonic": true,
+    "zero_wrong_cycle": true,
+    "zero_new_uncomputable": true,
+    "pass2_median_matches_or_beats_pass1": true,
+    "pass2_p90_matches_or_beats_pass1": true
+  },
+  "elapsed_seconds": 989.717
+}

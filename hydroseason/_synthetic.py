@@ -983,3 +983,241 @@ def generate_trough_geometry_record(
     )
     scenario = ScenarioMetadata("none", "none", 0.0, 0, 0.0)
     return SyntheticRecord(frame=frame, truth=truth, scenario=scenario, family=family, seed=seed)
+
+
+# ---------------------------------------------------------------------------
+# Retrospective peak-to-peak trough-refinement corpus
+#
+# This corpus has its own seed namespace and truth type. It must not be folded
+# into the established evidence, timing, or search-geometry generators because
+# doing so would silently alter their frozen family allocation and fingerprints.
+# ---------------------------------------------------------------------------
+
+TROUGH_REFINEMENT_CALIBRATION_SEEDS = range(70000, 75000)
+TROUGH_REFINEMENT_VALIDATION_SEEDS = range(80000, 85000)
+
+_TROUGH_REFINEMENT_FAMILIES = (
+    "ordinary_seasonal",
+    "gradual_recovery",
+    "long_flat_low_state",
+    "low_variability",
+    "false_early_rise",
+    "one_pulse",
+    "two_pulses",
+    "disjoint_modes",
+    "gap_after_low_state",
+    "gap_overlapping_low_state",
+    "low_quality_interior",
+    "low_quality_peaks",
+    "interval_peaks",
+    "missing_peaks",
+    "short_cycle",
+    "long_cycle",
+    "open_span",
+)
+
+
+@dataclass(frozen=True)
+class TroughRefinementTruth:
+    """Detector-visible truth for one generated peak-to-peak span."""
+
+    boundary_start: pd.Timestamp | None
+    boundary_end: pd.Timestamp | None
+    low_state_start: pd.Timestamp | None
+    low_state_end: pd.Timestamp | None
+    pulse_months: tuple[pd.Timestamp, ...]
+    expected_status: str
+
+    @property
+    def resolvable(self) -> bool:
+        return self.boundary_start is not None and self.boundary_end is not None
+
+
+@dataclass(frozen=True)
+class TroughRefinementSyntheticRecord:
+    frame: pd.DataFrame
+    truth: TroughRefinementTruth
+    family: str
+    seed: int
+    left_peak: object
+    right_peak: object | None
+    pass1_boundary: pd.Timestamp | None
+
+
+def _trough_refinement_values(length: int, low_position: int) -> np.ndarray:
+    recession = np.linspace(90.0, 8.0, low_position + 1)
+    recovery = np.linspace(20.0, 88.0, length - low_position - 1)
+    return np.concatenate((recession, recovery))
+
+
+def generate_trough_refinement_record(
+    seed: int,
+    *,
+    partition: Literal["calibration", "validation"],
+) -> TroughRefinementSyntheticRecord:
+    """Build one independent, truth-labelled peak-to-peak trough span."""
+    from ._state_input import prepare_monthly_extent
+    from ._trough_refinement import PeakBoundary
+
+    if partition not in {"calibration", "validation"}:
+        raise ValueError("partition must be 'calibration' or 'validation'.")
+    valid_seeds = (
+        TROUGH_REFINEMENT_CALIBRATION_SEEDS
+        if partition == "calibration"
+        else TROUGH_REFINEMENT_VALIDATION_SEEDS
+    )
+    if seed not in valid_seeds:
+        raise ValueError(f"seed {seed} is outside the {partition} partition.")
+
+    family = _TROUGH_REFINEMENT_FAMILIES[seed % len(_TROUGH_REFINEMENT_FAMILIES)]
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0x54524F55]))
+    length = 7 if family == "short_cycle" else 20 if family == "long_cycle" else 13
+    low_position = length // 2
+    index = pd.date_range("2000-01-01", periods=length, freq="MS")
+    values = _trough_refinement_values(length, low_position)
+    invalid = np.zeros(length, dtype=float)
+    missing: list[int] = []
+    low_start = low_end = low_position
+    pulse_positions: tuple[int, ...] = ()
+    truth_resolvable = True
+    expected_status = "confirmed"
+
+    if family == "gradual_recovery":
+        values[low_position:] = np.linspace(8.0, 88.0, length - low_position)
+        values[low_position + 1] = 8.4
+        values[low_position + 2] = 10.0
+    elif family == "long_flat_low_state":
+        low_start, low_end = low_position - 1, low_position + 1
+        values[low_start:low_end + 1] = 8.0
+    elif family == "low_variability":
+        values = 10.0 + rng.normal(0.0, 0.02, length)
+        truth_resolvable = False
+        expected_status = "unavailable"
+    elif family == "false_early_rise":
+        values[low_position - 2:low_position + 2] = [8.0, 18.0, 7.5, 20.0]
+        low_position += 0
+        pulse_positions = (low_position - 1,)
+    elif family == "one_pulse":
+        values[low_position - 2:low_position + 2] = [8.0, 42.0, 7.5, 20.0]
+        pulse_positions = (low_position - 1,)
+    elif family == "two_pulses":
+        values[low_position - 4:low_position + 2] = [8.5, 45.0, 8.0, 38.0, 7.5, 20.0]
+        pulse_positions = (low_position - 3, low_position - 1)
+    elif family == "disjoint_modes":
+        values[low_position - 2:low_position + 2] = [7.5, 25.0, 7.5, 20.0]
+    elif family == "gap_after_low_state":
+        low_start, low_end = low_position - 2, low_position
+        values[low_start:low_end + 1] = [8.0, 8.1, 8.2]
+        missing = [low_position + 1]
+        expected_status = "provisional"
+    elif family == "gap_overlapping_low_state":
+        values[low_position - 1:low_position + 2] = [8.0, 8.0, 8.0]
+        missing = [low_position]
+        truth_resolvable = False
+        expected_status = "unresolved"
+    elif family == "low_quality_interior":
+        invalid[low_position - 3] = 55.0
+    elif family == "low_quality_peaks":
+        invalid[[0, length - 1]] = 55.0
+        expected_status = "provisional"
+    elif family == "interval_peaks":
+        values[1] = values[0] - 0.1
+        values[-2] = values[-1] - 0.1
+        expected_status = "provisional"
+    elif family == "missing_peaks":
+        truth_resolvable = False
+        expected_status = "unavailable"
+    elif family == "open_span":
+        truth_resolvable = False
+        expected_status = "awaiting_next_peak"
+
+    # Small detector-visible variability is independent of policy and never
+    # changes the generator's declared low-state location.
+    if family not in {
+        "long_flat_low_state",
+        "low_variability",
+        "gap_after_low_state",
+        "gap_overlapping_low_state",
+    }:
+        noise = rng.normal(0.0, 0.03, length)
+        noise[[0, length - 1, low_position]] = 0.0
+        if family == "disjoint_modes":
+            noise[low_position - 2] = 0.0
+        values = np.clip(values + noise, 0.0, 100.0)
+
+    n_aoi = np.full(length, 10000, dtype=int)
+    n_valid = np.rint(n_aoi * (1.0 - invalid / 100.0)).astype(int)
+    for position in missing:
+        n_valid[position] = 0
+    n_invalid = n_aoi - n_valid
+    n_water = np.rint(np.clip(values, 0.0, 100.0) * n_valid / 100.0).astype(int)
+    raw = pd.DataFrame(
+        {
+            "n_water": n_water,
+            "n_valid": n_valid,
+            "n_invalid": n_invalid,
+            "n_aoi": n_aoi,
+        },
+        index=index,
+    )
+    frame = prepare_monthly_extent(raw, quality_policy="flag")
+
+    left_date = pd.Timestamp(index[0])
+    right_date = pd.Timestamp(index[-1])
+    if family == "missing_peaks":
+        left_peak = PeakBoundary.missing()
+    elif family == "low_variability":
+        left_peak = PeakBoundary(left_date, (left_date,), "unresolved", "normal")
+    elif family == "interval_peaks":
+        left_peak = PeakBoundary(
+            left_date,
+            (left_date, pd.Timestamp(index[1])),
+            "interval",
+            "normal",
+        )
+    else:
+        quality = "low" if family == "low_quality_peaks" else "normal"
+        left_peak = PeakBoundary(left_date, (left_date,), "point", quality)
+
+    if family == "open_span":
+        right_peak = None
+    elif family == "interval_peaks":
+        right_peak = PeakBoundary(
+            right_date,
+            (pd.Timestamp(index[-2]), right_date),
+            "interval",
+            "normal",
+        )
+    else:
+        quality = "low" if family == "low_quality_peaks" else "normal"
+        right_peak = PeakBoundary(right_date, (right_date,), "point", quality)
+
+    if truth_resolvable:
+        boundary_start = pd.Timestamp(index[low_start])
+        boundary_end = pd.Timestamp(index[low_end])
+        low_state_start = boundary_start
+        low_state_end = boundary_end
+        pass1_position = max(1, low_start - (1 if seed % 3 == 0 else 0))
+        pass1_boundary = pd.Timestamp(index[pass1_position])
+    else:
+        boundary_start = boundary_end = None
+        low_state_start = low_state_end = None
+        pass1_boundary = pd.Timestamp(index[low_position])
+
+    truth = TroughRefinementTruth(
+        boundary_start=boundary_start,
+        boundary_end=boundary_end,
+        low_state_start=low_state_start,
+        low_state_end=low_state_end,
+        pulse_months=tuple(pd.Timestamp(index[position]) for position in pulse_positions),
+        expected_status=expected_status,
+    )
+    return TroughRefinementSyntheticRecord(
+        frame=frame,
+        truth=truth,
+        family=family,
+        seed=seed,
+        left_peak=left_peak,
+        right_peak=right_peak,
+        pass1_boundary=pass1_boundary,
+    )
