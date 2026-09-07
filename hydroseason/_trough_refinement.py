@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from typing import Literal
 
 import numpy as np
@@ -200,18 +201,18 @@ def _fit_valley_l1(
     start: int,
     end: int,
 ) -> _CandidateFit:
-    fitted, loss = _fit_valley_convex(
-        values,
-        weights,
+    fitted_values, loss = _fit_valley_convex_cached(
+        tuple(float(value) for value in values),
+        tuple(float(weight) for weight in weights),
         start,
         end,
-        scale=0.0,
-        huber_k=1.0,
+        0.0,
+        1.0,
     )
     return _CandidateFit(
         start_position=start,
         end_position=end,
-        fitted=fitted,
+        fitted=np.asarray(fitted_values, dtype=float),
         loss=loss,
         converged=True,
     )
@@ -226,18 +227,18 @@ def _fit_valley_huber(
     scale: float,
     huber_k: float,
 ) -> _CandidateFit:
-    fitted, loss = _fit_valley_convex(
-        values,
-        weights,
+    fitted_values, loss = _fit_valley_convex_cached(
+        tuple(float(value) for value in values),
+        tuple(float(weight) for weight in weights),
         start,
         end,
-        scale=scale,
-        huber_k=huber_k,
+        float(scale),
+        float(huber_k),
     )
     return _CandidateFit(
         start_position=start,
         end_position=end,
-        fitted=fitted,
+        fitted=np.asarray(fitted_values, dtype=float),
         loss=loss,
         converged=True,
     )
@@ -270,19 +271,44 @@ def _robust_location(
     upper = float(np.max(values))
     if lower == upper:
         return lower
-    for _ in range(64):
-        midpoint = (lower + upper) / 2.0
-        score = float(
-            np.sum(
-                weights
-                * np.clip((midpoint - values) / scale, -huber_k, huber_k)
+    radius = scale * huber_k
+    breakpoints = sorted(
+        {float(value - radius) for value in values}
+        | {float(value + radius) for value in values}
+    )
+    tolerance = np.finfo(float).eps * max(1.0, abs(lower), abs(upper), radius)
+    for interval_start, interval_end in zip(
+        breakpoints, breakpoints[1:], strict=False
+    ):
+        midpoint = (interval_start + interval_end) / 2.0
+        below = values < midpoint - radius
+        above = values > midpoint + radius
+        active = ~(below | above)
+        active_weight = float(np.sum(weights[active]))
+        if active_weight == 0.0:
+            continue
+        root = (
+            float(np.sum(weights[active] * values[active]))
+            + scale
+            * huber_k
+            * (float(np.sum(weights[above])) - float(np.sum(weights[below])))
+        ) / active_weight
+        if interval_start - tolerance <= root <= interval_end + tolerance:
+            return max(interval_start, min(root, interval_end))
+
+    # A root may lie exactly on a breakpoint where the adjacent active sets
+    # change. Choose the breakpoint with the smallest score deterministically.
+    return min(
+        breakpoints,
+        key=lambda point: abs(
+            float(
+                np.sum(
+                    weights
+                    * np.clip((point - values) / scale, -huber_k, huber_k)
+                )
             )
-        )
-        if score < 0.0:
-            lower = midpoint
-        else:
-            upper = midpoint
-    return (lower + upper) / 2.0
+        ),
+    )
 
 
 def _robust_isotonic(
@@ -392,6 +418,26 @@ def _fit_valley_convex(
             best_loss = loss
             best_fitted = fitted
     return best_fitted, best_loss
+
+
+@lru_cache(maxsize=8192)
+def _fit_valley_convex_cached(
+    values: tuple[float, ...],
+    weights: tuple[float, ...],
+    start: int,
+    end: int,
+    scale: float,
+    huber_k: float,
+) -> tuple[tuple[float, ...], float]:
+    fitted, loss = _fit_valley_convex(
+        np.asarray(values, dtype=float),
+        np.asarray(weights, dtype=float),
+        start,
+        end,
+        scale=scale,
+        huber_k=huber_k,
+    )
+    return tuple(float(value) for value in fitted), loss
 
 
 def _median_absolute_deviation(values: np.ndarray) -> float:
@@ -741,21 +787,9 @@ def _refine_selected_span(
         np.finfo(float).eps,
         _RELATIVE_CONVERGENCE * max(1.0, abs(best_loss)),
     )
-    # The final departure is the latest exactly best-supported endpoint. A
-    # later, merely near-equivalent endpoint is already on the best shape's
-    # recovery limb; admitting it would pull the operational boundary through
-    # an observed continuous rise (for example Fitzroy Dec -> Jan -> Feb).
-    # Exact flat-bottom ties remain low state and therefore retain their latest
-    # month, while the profile set may honestly extend earlier.
-    departure_position = max(
-        position
-        for position, candidate in endpoint_fits.items()
-        if candidate.loss <= best_loss + loss_tolerance
-    )
     plausible_positions = sorted(
         position
         for position, candidate in endpoint_fits.items()
-        if position <= departure_position
         if (candidate.loss - best_loss) / effective_support
         <= policy.profile_loss_cutoff + loss_tolerance
     )
@@ -786,6 +820,19 @@ def _refine_selected_span(
         )
 
     final_cluster = clusters[-1]
+    cluster_best_loss = min(endpoint_fits[position].loss for position in final_cluster)
+    # Inside the selected final cluster, a later merely near-equivalent endpoint
+    # is already on the best shape's recovery limb. Cap that cluster at its
+    # latest exact optimum (Fitzroy Dec -> Jan -> Feb), but do not discard a
+    # later separated cluster reached after an observed pulse returns to low.
+    departure_position = max(
+        position
+        for position in final_cluster
+        if endpoint_fits[position].loss <= cluster_best_loss + loss_tolerance
+    )
+    final_cluster = [
+        position for position in final_cluster if position <= departure_position
+    ]
     boundary_position = final_cluster[-1]
     boundary = pd.Timestamp(span.index[boundary_position])
     boundary_fit = endpoint_fits[boundary_position]
