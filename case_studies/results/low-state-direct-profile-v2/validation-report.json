@@ -1,0 +1,42 @@
+{
+  "frozen_candidate": {
+    "candidate_name": "direct_profile_combined",
+    "description": "direct_profile.refine_trough_span_direct_profile with scale_mode='combined', frozen after Stage B Step 4 development gates cleared (findings.md), before any reserved-evidence access.",
+    "frozen_parameters": {
+      "delta_pp": 0.4,
+      "l_uncertainty_k": 2.0,
+      "n_steps_per_scale": 4,
+      "scale_mode": "combined"
+    },
+    "development_result_reference": "findings.md: unconditional_support_coverage=0.986, median_error_months=0.0, p90_error_months=1.0 over the frozen 384-case development matrix",
+    "frozen_before": "Step 5: reserved synthetic seeds (100000+) and reserved held-out families",
+    "note": "No parameter in frozen_parameters may change after this file is written without a new candidate identity. This file is written once, before validate_direct_profile.py is ever run."
+  },
+  "reserved_seeds": [
+    100000,
+    100001,
+    100002,
+    100003,
+    100004,
+    100005,
+    100006,
+    100007
+  ],
+  "held_out_families": [
+    "held_out_asymmetric_recession",
+    "held_out_high_dependence",
+    "held_out_high_noise"
+  ],
+  "gates": {
+    "existing": {
+      "coverage_at_least_0_95": false,
+      "median_at_most_1": true,
+      "p90_at_most_2": false
+    },
+    "direct_profile_combined": {
+      "coverage_at_least_0_95": true,
+      "median_at_most_1": true,
+      "p90_at_most_2": true
+    }
+  }
+}

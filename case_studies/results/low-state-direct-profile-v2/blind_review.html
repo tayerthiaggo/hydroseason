@@ -1,0 +1,1311 @@
+<title>Low-State Boundary Review</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#f4f6f4; --surface:#ffffff; --surface-2:#eef1ef;
+    --ink:#152420; --ink-muted:#54635d; --ink-faint:#8b9791;
+    --border:#dde3df; --border-strong:#c7d0cb;
+    --accent-a:#1f6fb2; --accent-a-soft:#1f6fb21a;
+    --accent-b:#c1652b; --accent-b-soft:#c1652b1a;
+    --good:#2e7d5b; --warn:#a8791f; --bad:#b23b3b;
+    --chip-bg:#eef1ef;
+    --focus:#1f6fb2;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#141b18; --surface:#1b2420; --surface-2:#212b26;
+      --ink:#e9efec; --ink-muted:#a3b0aa; --ink-faint:#6d7a74;
+      --border:#2b3733; --border-strong:#3a4844;
+      --accent-a:#4a8fc4; --accent-a-soft:#4a8fc426;
+      --accent-b:#cf7a3c; --accent-b-soft:#cf7a3c26;
+      --good:#4fa87f; --warn:#c99a3f; --bad:#d16a6a;
+      --chip-bg:#212b26;
+      --focus:#6ba9dc;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#141b18; --surface:#1b2420; --surface-2:#212b26;
+    --ink:#e9efec; --ink-muted:#a3b0aa; --ink-faint:#6d7a74;
+    --border:#2b3733; --border-strong:#3a4844;
+    --accent-a:#4a8fc4; --accent-a-soft:#4a8fc426;
+    --accent-b:#cf7a3c; --accent-b-soft:#cf7a3c26;
+    --good:#4fa87f; --warn:#c99a3f; --bad:#d16a6a;
+    --chip-bg:#212b26;
+    --focus:#6ba9dc;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans", system-ui, sans-serif;
+    font-size:15px; line-height:1.5;
+  }
+  h1,h2,h3{ font-family:"Fraunces", Georgia, serif; text-wrap:balance; margin:0; }
+  .mono{ font-family:"IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+  .page{ max-width:1040px; margin:0 auto; padding:28px 20px 80px; }
+
+  /* ---------- header ---------- */
+  header.top{
+    display:flex; flex-wrap:wrap; gap:20px 32px; align-items:flex-end;
+    justify-content:space-between; padding-bottom:20px; border-bottom:1px solid var(--border-strong);
+    margin-bottom:28px;
+  }
+  header.top .titleblock h1{ font-size:28px; font-weight:600; }
+  header.top .titleblock p{ margin:6px 0 0; color:var(--ink-muted); max-width:60ch; }
+  header.top .eyebrow{
+    font-family:"IBM Plex Mono", monospace; font-size:11px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--ink-faint); margin-bottom:8px; display:block;
+  }
+  .progress-tile{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:14px 18px; min-width:180px;
+  }
+  .progress-tile .num{ font-family:"Fraunces",serif; font-size:30px; font-weight:600; line-height:1; }
+  .progress-tile .num span{ font-size:17px; color:var(--ink-muted); font-weight:500;}
+  .progress-tile .label{ font-size:12px; color:var(--ink-muted); margin-top:4px; }
+  .progress-bar{ height:6px; border-radius:4px; background:var(--surface-2); margin-top:10px; overflow:hidden; }
+  .progress-bar > i{ display:block; height:100%; background:var(--good); width:0%; transition:width .25s ease; }
+
+  /* ---------- legend / instructions ---------- */
+  .howto{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px;
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:16px 18px; margin-bottom:28px;
+  }
+  .howto div{ font-size:13.5px; color:var(--ink-muted); }
+  .howto strong{ color:var(--ink); font-weight:600; display:block; margin-bottom:3px; font-size:13px;}
+  .swatch{ display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; position:relative; top:1px; }
+
+  /* ---------- cards ---------- */
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:20px 22px 18px; margin-bottom:18px;
+  }
+  .card-head{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:2px;}
+  .card-head h2{ font-size:17px; font-weight:600; }
+  .card-head .range{ font-size:12.5px; color:var(--ink-faint); }
+  .card .chart-wrap{ margin:14px 0 10px; overflow-x:auto; }
+  svg.chart{ display:block; width:100%; height:190px; }
+  svg.chart text{ fill:var(--ink-faint); font-family:"IBM Plex Mono", monospace; }
+  svg.chart .gridline{ stroke:var(--border); stroke-width:1; }
+  svg.chart .axis{ stroke:var(--border-strong); stroke-width:1; }
+  svg.chart .series{ fill:none; stroke:var(--ink-muted); stroke-width:1.75; }
+  svg.chart .dot{ fill:var(--ink-muted); }
+  svg.chart .band-a{ fill:var(--accent-a-soft); }
+  svg.chart .band-b{ fill:var(--accent-b-soft); }
+  svg.chart .marker-a{ stroke:var(--accent-a); stroke-width:2; }
+  svg.chart .marker-b{ stroke:var(--accent-b); stroke-width:2; }
+  svg.chart .marker-label-a{ fill:var(--accent-a); font-weight:600; }
+  svg.chart .marker-label-b{ fill:var(--accent-b); font-weight:600; }
+
+  .outcomes{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+  @media (max-width:560px){ .outcomes{ grid-template-columns:1fr; } }
+  .outcome{ border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .outcome .who{ display:flex; align-items:center; gap:7px; font-weight:600; font-size:13px; margin-bottom:6px; }
+  .outcome.a .who{ color:var(--accent-a); }
+  .outcome.b .who{ color:var(--accent-b); }
+  .outcome .who i.swatch{ width:9px; height:9px; border-radius:50%; }
+  .outcome .date{ font-family:"IBM Plex Mono",monospace; font-size:15px; font-weight:500; }
+  .outcome .meta{ font-size:12px; color:var(--ink-muted); margin-top:4px; }
+  .chip{
+    display:inline-block; font-size:10.5px; letter-spacing:.03em; text-transform:uppercase;
+    background:var(--chip-bg); color:var(--ink-muted); border-radius:4px; padding:2px 6px; margin-top:5px;
+  }
+
+  .markrow{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .markbtn{
+    font-family:"IBM Plex Sans"; font-size:13px; font-weight:500; cursor:pointer;
+    background:var(--surface-2); color:var(--ink); border:1px solid var(--border); border-radius:20px;
+    padding:6px 14px; transition:background .12s, color .12s, border-color .12s;
+  }
+  .markbtn:hover{ border-color:var(--border-strong); }
+  .markbtn:focus-visible{ outline:2px solid var(--focus); outline-offset:2px; }
+  .markbtn[data-active="true"][data-mark="A"]{ background:var(--accent-a); border-color:var(--accent-a); color:#fff; }
+  .markbtn[data-active="true"][data-mark="B"]{ background:var(--accent-b); border-color:var(--accent-b); color:#fff; }
+  .markbtn[data-active="true"][data-mark="both_ok"]{ background:var(--good); border-color:var(--good); color:#fff; }
+  .markbtn[data-active="true"][data-mark="both_wrong"]{ background:var(--bad); border-color:var(--bad); color:#fff; }
+  .markbtn[data-active="true"][data-mark="unsure"]{ background:var(--ink-faint); border-color:var(--ink-faint); color:#fff; }
+  .note-input{
+    flex:1 1 220px; min-width:160px; font-family:"IBM Plex Sans"; font-size:13px;
+    background:var(--surface); border:1px solid var(--border); border-radius:20px;
+    padding:6px 14px; color:var(--ink);
+  }
+  .note-input:focus-visible{ outline:2px solid var(--focus); outline-offset:1px; }
+
+  /* ---------- summary panel ---------- */
+  .summary{
+    position:sticky; bottom:16px; margin-top:26px;
+    background:var(--surface); border:1px solid var(--border-strong); border-radius:12px;
+    padding:16px 20px; box-shadow:0 8px 24px -12px rgba(0,0,0,.25);
+  }
+  .summary h3{ font-size:14px; font-weight:600; margin-bottom:8px; }
+  .summary pre{
+    font-family:"IBM Plex Mono",monospace; font-size:12px; line-height:1.6; color:var(--ink-muted);
+    white-space:pre-wrap; word-break:break-word; max-height:180px; overflow-y:auto;
+    background:var(--surface-2); border-radius:8px; padding:10px 12px; margin:0;
+  }
+  .summary .hint{ font-size:12px; color:var(--ink-faint); margin-top:8px; }
+</style>
+
+<div class="page">
+
+  <header class="top">
+    <div class="titleblock">
+      <span class="eyebrow">HydroSeason &middot; low-state endpoint refinement &middot; Stage B/5 spot check</span>
+      <h1>Which boundary looks right?</h1>
+      <p>17 annual cycles where two candidate low-state end-dates disagree, across 5 catchments already used in development plus Kakadu National Park (untouched by this work). Labels A/B are consistent per case but intentionally not identified &mdash; read the curve, not the name.</p>
+    </div>
+    <div class="progress-tile">
+      <div class="num" id="progress-num">0<span> / 17 marked</span></div>
+      <div class="progress-bar"><i id="progress-bar"></i></div>
+      <div class="label">saved in this browser as you go</div>
+    </div>
+  </header>
+
+  <div class="howto">
+    <div><strong><span class="swatch" style="background:var(--ink-muted)"></span>Observed extent_pct</strong>monthly water-extent series for the cycle, log scale so the recession tail isn&rsquo;t crushed near zero.</div>
+    <div><strong><span class="swatch" style="background:var(--accent-a)"></span>Candidate A</strong>vertical line at its proposed final low-state month; shaded band is its full timing-support set.</div>
+    <div><strong><span class="swatch" style="background:var(--accent-b)"></span>Candidate B</strong>same, second candidate. When A and B agree on a month the case isn&rsquo;t shown here at all.</div>
+    <div><strong>Your call</strong>pick the button that matches your read, add a note if useful. Everything saves locally as you click through.</div>
+  </div>
+
+  <main id="cards"></main>
+
+  <div class="summary">
+    <h3>Your calls so far</h3>
+    <pre id="summary-text">(nothing marked yet)</pre>
+    <div class="hint">Copy this block back into the chat when you&rsquo;re done &mdash; that&rsquo;s how the decode happens.</div>
+  </div>
+
+</div>
+
+<script id="chart-data" type="application/json">
+[
+  {
+    "span_id": "daly_river_nt_2008",
+    "left_peak": "2008-03-01",
+    "right_peak": "2009-02-01",
+    "dates": [
+      "2008-03-01",
+      "2008-04-01",
+      "2008-05-01",
+      "2008-06-01",
+      "2008-07-01",
+      "2008-08-01",
+      "2008-09-01",
+      "2008-10-01",
+      "2008-11-01",
+      "2008-12-01",
+      "2009-01-01",
+      "2009-02-01"
+    ],
+    "values": [
+      1.0843,
+      0.3053,
+      0.2647,
+      0.2278,
+      0.1854,
+      0.144,
+      0.143,
+      0.112,
+      0.1148,
+      0.1929,
+      0.4989,
+      1.5878
+    ],
+    "A": {
+      "date": "2008-11-01",
+      "support": [
+        "2008-10-01",
+        "2008-11-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    },
+    "B": {
+      "date": "2008-10-01",
+      "support": [
+        "2008-10-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    }
+  },
+  {
+    "span_id": "daly_river_nt_2012",
+    "left_peak": "2012-03-01",
+    "right_peak": "2013-04-01",
+    "dates": [
+      "2012-03-01",
+      "2012-04-01",
+      "2012-05-01",
+      "2012-06-01",
+      "2012-07-01",
+      "2012-08-01",
+      "2012-09-01",
+      "2012-10-01",
+      "2012-11-01",
+      "2012-12-01",
+      "2013-01-01",
+      "2013-02-01",
+      "2013-03-01",
+      "2013-04-01"
+    ],
+    "values": [
+      1.0994,
+      0.2722,
+      0.1543,
+      0.2509,
+      0.2243,
+      0.1907,
+      0.1541,
+      0.1913,
+      0.1251,
+      0.1535,
+      0.168,
+      0.3339,
+      0.2426,
+      0.416
+    ],
+    "A": {
+      "date": null,
+      "support": [
+        "2012-11-01",
+        "2012-12-01",
+        "2013-01-01"
+      ],
+      "status": "unresolved",
+      "reason": "unstable_quality_sensitivity"
+    },
+    "B": {
+      "date": "2013-02-01",
+      "support": [
+        "2012-09-01",
+        "2012-10-01",
+        "2012-11-01",
+        "2012-12-01",
+        "2013-01-01",
+        "2013-02-01"
+      ],
+      "status": "provisional",
+      "reason": "low_quality_peak"
+    }
+  },
+  {
+    "span_id": "daly_river_nt_2014",
+    "left_peak": "2014-02-01",
+    "right_peak": "2015-01-01",
+    "dates": [
+      "2014-02-01",
+      "2014-03-01",
+      "2014-04-01",
+      "2014-05-01",
+      "2014-06-01",
+      "2014-07-01",
+      "2014-08-01",
+      "2014-09-01",
+      "2014-10-01",
+      "2014-11-01",
+      "2014-12-01",
+      "2015-01-01"
+    ],
+    "values": [
+      0.5551,
+      0.2787,
+      0.1635,
+      0.1949,
+      0.1992,
+      0.1861,
+      0.1604,
+      0.1405,
+      0.1273,
+      0.1329,
+      0.1628,
+      0.6477
+    ],
+    "A": {
+      "date": null,
+      "support": [
+        "2014-10-01",
+        "2014-11-01"
+      ],
+      "status": "unresolved",
+      "reason": "unstable_quality_sensitivity"
+    },
+    "B": {
+      "date": "2014-12-01",
+      "support": [
+        "2014-10-01",
+        "2014-11-01",
+        "2014-12-01"
+      ],
+      "status": "provisional",
+      "reason": "essential_low_quality_recovery"
+    }
+  },
+  {
+    "span_id": "daly_river_nt_2015",
+    "left_peak": "2015-01-01",
+    "right_peak": "2016-01-01",
+    "dates": [
+      "2015-01-01",
+      "2015-02-01",
+      "2015-03-01",
+      "2015-04-01",
+      "2015-05-01",
+      "2015-06-01",
+      "2015-07-01",
+      "2015-08-01",
+      "2015-09-01",
+      "2015-10-01",
+      "2015-11-01",
+      "2015-12-01",
+      "2016-01-01"
+    ],
+    "values": [
+      0.6477,
+      0.2875,
+      0.2096,
+      0.2153,
+      0.1866,
+      0.1704,
+      0.1643,
+      0.1494,
+      0.1366,
+      0.1285,
+      0.131,
+      0.3338,
+      0.5638
+    ],
+    "A": {
+      "date": "2015-10-01",
+      "support": [
+        "2015-10-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    },
+    "B": {
+      "date": "2015-11-01",
+      "support": [
+        "2015-11-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    }
+  },
+  {
+    "span_id": "daly_river_nt_2019",
+    "left_peak": "2019-04-01",
+    "right_peak": "2020-01-01",
+    "dates": [
+      "2019-04-01",
+      "2019-05-01",
+      "2019-06-01",
+      "2019-07-01",
+      "2019-08-01",
+      "2019-09-01",
+      "2019-10-01",
+      "2019-11-01",
+      "2019-12-01",
+      "2020-01-01"
+    ],
+    "values": [
+      0.1939,
+      0.1548,
+      0.1619,
+      0.1473,
+      0.1356,
+      0.1353,
+      0.1255,
+      0.1173,
+      0.1178,
+      0.5116
+    ],
+    "A": {
+      "date": "2019-12-01",
+      "support": [
+        "2019-12-01"
+      ],
+      "status": "provisional",
+      "reason": "interval_peak"
+    },
+    "B": {
+      "date": "2019-11-01",
+      "support": [
+        "2019-11-01"
+      ],
+      "status": "provisional",
+      "reason": "interval_peak"
+    }
+  },
+  {
+    "span_id": "fitzroy_river_wa_2006",
+    "left_peak": "2006-01-01",
+    "right_peak": "2007-03-01",
+    "dates": [
+      "2006-01-01",
+      "2006-02-01",
+      "2006-03-01",
+      "2006-04-01",
+      "2006-05-01",
+      "2006-06-01",
+      "2006-07-01",
+      "2006-08-01",
+      "2006-09-01",
+      "2006-10-01",
+      "2006-11-01",
+      "2006-12-01",
+      "2007-01-01",
+      "2007-02-01",
+      "2007-03-01"
+    ],
+    "values": [
+      0.703,
+      0.276,
+      0.6102,
+      0.1319,
+      0.089,
+      0.0685,
+      0.0553,
+      0.0463,
+      0.0331,
+      0.0191,
+      0.0263,
+      0.0272,
+      0.1274,
+      0.0981,
+      0.2859
+    ],
+    "A": {
+      "date": "2006-12-01",
+      "support": [
+        "2006-12-01"
+      ],
+      "status": "provisional",
+      "reason": "low_quality_peak"
+    },
+    "B": {
+      "date": "2006-10-01",
+      "support": [
+        "2006-10-01"
+      ],
+      "status": "provisional",
+      "reason": "low_quality_peak"
+    }
+  },
+  {
+    "span_id": "fitzroy_river_wa_2008",
+    "left_peak": "2008-02-01",
+    "right_peak": "2009-02-01",
+    "dates": [
+      "2008-02-01",
+      "2008-03-01",
+      "2008-04-01",
+      "2008-05-01",
+      "2008-06-01",
+      "2008-07-01",
+      "2008-08-01",
+      "2008-09-01",
+      "2008-10-01",
+      "2008-11-01",
+      "2008-12-01",
+      "2009-01-01",
+      "2009-02-01"
+    ],
+    "values": [
+      0.2751,
+      0.2015,
+      0.1359,
+      0.0783,
+      0.1005,
+      0.0564,
+      0.0394,
+      0.0371,
+      0.0284,
+      0.0249,
+      0.0391,
+      0.1997,
+      1.1675
+    ],
+    "A": {
+      "date": "2008-11-01",
+      "support": [
+        "2008-11-01"
+      ],
+      "status": "provisional",
+      "reason": "low_quality_peak"
+    },
+    "B": {
+      "date": "2008-12-01",
+      "support": [
+        "2008-11-01",
+        "2008-12-01"
+      ],
+      "status": "provisional",
+      "reason": "low_quality_peak"
+    }
+  },
+  {
+    "span_id": "fitzroy_river_wa_2015",
+    "left_peak": "2015-01-01",
+    "right_peak": "2016-02-01",
+    "dates": [
+      "2015-01-01",
+      "2015-02-01",
+      "2015-03-01",
+      "2015-04-01",
+      "2015-05-01",
+      "2015-06-01",
+      "2015-07-01",
+      "2015-08-01",
+      "2015-09-01",
+      "2015-10-01",
+      "2015-11-01",
+      "2015-12-01",
+      "2016-01-01",
+      "2016-02-01"
+    ],
+    "values": [
+      0.3185,
+      0.2148,
+      0.1643,
+      0.0997,
+      0.0795,
+      0.07,
+      0.045,
+      0.0462,
+      0.0375,
+      0.034,
+      0.0341,
+      0.0447,
+      0.0795,
+      0.1323
+    ],
+    "A": {
+      "date": "2015-10-01",
+      "support": [
+        "2015-10-01"
+      ],
+      "status": "provisional",
+      "reason": "interval_peak"
+    },
+    "B": {
+      "date": "2015-12-01",
+      "support": [
+        "2015-11-01",
+        "2015-12-01"
+      ],
+      "status": "provisional",
+      "reason": "interval_peak"
+    }
+  },
+  {
+    "span_id": "fitzroy_river_wa_2018",
+    "left_peak": "2018-02-01",
+    "right_peak": "2019-02-01",
+    "dates": [
+      "2018-02-01",
+      "2018-03-01",
+      "2018-04-01",
+      "2018-05-01",
+      "2018-06-01",
+      "2018-07-01",
+      "2018-08-01",
+      "2018-09-01",
+      "2018-10-01",
+      "2018-11-01",
+      "2018-12-01",
+      "2019-01-01",
+      "2019-02-01"
+    ],
+    "values": [
+      0.7346,
+      0.2222,
+      0.1585,
+      0.1055,
+      0.0948,
+      0.0789,
+      0.0622,
+      0.0526,
+      0.0415,
+      0.0351,
+      0.0368,
+      0.0734,
+      0.0885
+    ],
+    "A": {
+      "date": "2018-12-01",
+      "support": [
+        "2018-12-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    },
+    "B": {
+      "date": "2018-11-01",
+      "support": [
+        "2018-11-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    }
+  },
+  {
+    "span_id": "fitzroy_river_wa_2020",
+    "left_peak": "2020-03-01",
+    "right_peak": "2021-03-01",
+    "dates": [
+      "2020-03-01",
+      "2020-04-01",
+      "2020-05-01",
+      "2020-06-01",
+      "2020-07-01",
+      "2020-08-01",
+      "2020-09-01",
+      "2020-10-01",
+      "2020-11-01",
+      "2020-12-01",
+      "2021-01-01",
+      "2021-02-01",
+      "2021-03-01"
+    ],
+    "values": [
+      0.3811,
+      0.173,
+      0.108,
+      0.0996,
+      0.0723,
+      0.0643,
+      0.0465,
+      0.0346,
+      0.0489,
+      0.4035,
+      0.2491,
+      0.9933,
+      1.0198
+    ],
+    "A": {
+      "date": "2020-10-01",
+      "support": [
+        "2020-10-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    },
+    "B": {
+      "date": "2020-11-01",
+      "support": [
+        "2020-10-01",
+        "2020-11-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    }
+  },
+  {
+    "span_id": "fitzroy_river_wa_2021",
+    "left_peak": "2021-03-01",
+    "right_peak": "2022-02-01",
+    "dates": [
+      "2021-03-01",
+      "2021-04-01",
+      "2021-05-01",
+      "2021-06-01",
+      "2021-07-01",
+      "2021-08-01",
+      "2021-09-01",
+      "2021-10-01",
+      "2021-11-01",
+      "2021-12-01",
+      "2022-01-01",
+      "2022-02-01"
+    ],
+    "values": [
+      1.0198,
+      0.253,
+      0.1471,
+      0.1089,
+      0.1011,
+      0.0766,
+      0.0579,
+      0.0457,
+      0.0533,
+      0.0465,
+      0.0661,
+      0.5547
+    ],
+    "A": {
+      "date": "2021-12-01",
+      "support": [
+        "2021-12-01",
+        "2022-01-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    },
+    "B": {
+      "date": "2021-10-01",
+      "support": [
+        "2021-10-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    }
+  },
+  {
+    "span_id": "gilbert_river_qld_2005",
+    "left_peak": "2005-01-01",
+    "right_peak": "2006-02-01",
+    "dates": [
+      "2005-01-01",
+      "2005-02-01",
+      "2005-03-01",
+      "2005-04-01",
+      "2005-05-01",
+      "2005-06-01",
+      "2005-07-01",
+      "2005-08-01",
+      "2005-09-01",
+      "2005-10-01",
+      "2005-11-01",
+      "2005-12-01",
+      "2006-01-01",
+      "2006-02-01"
+    ],
+    "values": [
+      1.6336,
+      0.5081,
+      0.1992,
+      0.1559,
+      0.1531,
+      0.1534,
+      0.1322,
+      0.1264,
+      0.1163,
+      0.1055,
+      0.0958,
+      0.1442,
+      0.1297,
+      0.7821
+    ],
+    "A": {
+      "date": "2005-12-01",
+      "support": [
+        "2005-11-01",
+        "2005-12-01"
+      ],
+      "status": "provisional",
+      "reason": "essential_low_quality_recovery"
+    },
+    "B": {
+      "date": null,
+      "support": [
+        "2005-11-01"
+      ],
+      "status": "unresolved",
+      "reason": "unstable_quality_sensitivity"
+    }
+  },
+  {
+    "span_id": "gilbert_river_qld_2009",
+    "left_peak": "2009-01-01",
+    "right_peak": "2010-02-01",
+    "dates": [
+      "2009-01-01",
+      "2009-02-01",
+      "2009-03-01",
+      "2009-04-01",
+      "2009-05-01",
+      "2009-06-01",
+      "2009-07-01",
+      "2009-08-01",
+      "2009-09-01",
+      "2009-10-01",
+      "2009-11-01",
+      "2009-12-01",
+      "2010-01-01",
+      "2010-02-01"
+    ],
+    "values": [
+      7.6187,
+      4.5833,
+      0.4436,
+      0.2492,
+      0.1965,
+      0.1819,
+      0.1777,
+      0.1711,
+      0.1388,
+      0.1162,
+      0.113,
+      0.1302,
+      1.5661,
+      2.846
+    ],
+    "A": {
+      "date": "2009-12-01",
+      "support": [
+        "2009-11-01",
+        "2009-12-01"
+      ],
+      "status": "provisional",
+      "reason": "low_quality_peak"
+    },
+    "B": {
+      "date": "2009-11-01",
+      "support": [
+        "2009-11-01"
+      ],
+      "status": "provisional",
+      "reason": "low_quality_peak"
+    }
+  },
+  {
+    "span_id": "gilbert_river_qld_2019",
+    "left_peak": "2019-02-01",
+    "right_peak": "2020-02-01",
+    "dates": [
+      "2019-02-01",
+      "2019-03-01",
+      "2019-04-01",
+      "2019-05-01",
+      "2019-06-01",
+      "2019-07-01",
+      "2019-08-01",
+      "2019-09-01",
+      "2019-10-01",
+      "2019-11-01",
+      "2019-12-01",
+      "2020-01-01",
+      "2020-02-01"
+    ],
+    "values": [
+      0.7706,
+      0.3278,
+      0.2377,
+      0.1972,
+      0.1687,
+      0.1689,
+      0.1481,
+      0.1403,
+      0.1176,
+      0.1051,
+      0.1161,
+      0.3961,
+      2.0705
+    ],
+    "A": {
+      "date": "2019-11-01",
+      "support": [
+        "2019-11-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    },
+    "B": {
+      "date": "2019-12-01",
+      "support": [
+        "2019-11-01",
+        "2019-12-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    }
+  },
+  {
+    "span_id": "gilbert_river_qld_2020",
+    "left_peak": "2020-02-01",
+    "right_peak": "2021-01-01",
+    "dates": [
+      "2020-02-01",
+      "2020-03-01",
+      "2020-04-01",
+      "2020-05-01",
+      "2020-06-01",
+      "2020-07-01",
+      "2020-08-01",
+      "2020-09-01",
+      "2020-10-01",
+      "2020-11-01",
+      "2020-12-01",
+      "2021-01-01"
+    ],
+    "values": [
+      2.0705,
+      0.3143,
+      0.2131,
+      0.1678,
+      0.1788,
+      0.1624,
+      0.1596,
+      0.1394,
+      0.1206,
+      0.1223,
+      0.1739,
+      8.2909
+    ],
+    "A": {
+      "date": "2020-10-01",
+      "support": [
+        "2020-10-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    },
+    "B": {
+      "date": "2020-11-01",
+      "support": [
+        "2020-11-01"
+      ],
+      "status": "confirmed",
+      "reason": "accepted"
+    }
+  },
+  {
+    "span_id": "kakadu_national_park_2021",
+    "left_peak": "2021-02-01",
+    "right_peak": "2022-01-01",
+    "dates": [
+      "2021-02-01",
+      "2021-03-01",
+      "2021-04-01",
+      "2021-05-01",
+      "2021-06-01",
+      "2021-07-01",
+      "2021-08-01",
+      "2021-09-01",
+      "2021-10-01",
+      "2021-11-01",
+      "2021-12-01",
+      "2022-01-01"
+    ],
+    "values": [
+      15.8464,
+      8.0313,
+      6.4937,
+      5.1361,
+      5.0871,
+      5.424,
+      5.4276,
+      5.208,
+      5.0319,
+      5.1372,
+      9.1032,
+      20.3432
+    ],
+    "A": {
+      "date": null,
+      "support": [
+        "2021-05-01",
+        "2021-06-01",
+        "2021-07-01",
+        "2021-08-01",
+        "2021-09-01",
+        "2021-10-01",
+        "2021-11-01"
+      ],
+      "status": "unresolved",
+      "reason": "unstable_quality_sensitivity"
+    },
+    "B": {
+      "date": "2021-10-01",
+      "support": [
+        "2021-10-01"
+      ],
+      "status": "provisional",
+      "reason": "low_quality_peak"
+    }
+  },
+  {
+    "span_id": "kakadu_national_park_2024",
+    "left_peak": "2024-03-01",
+    "right_peak": "2025-03-01",
+    "dates": [
+      "2024-03-01",
+      "2024-04-01",
+      "2024-05-01",
+      "2024-06-01",
+      "2024-07-01",
+      "2024-08-01",
+      "2024-09-01",
+      "2024-10-01",
+      "2024-11-01",
+      "2024-12-01",
+      "2025-01-01",
+      "2025-02-01",
+      "2025-03-01"
+    ],
+    "values": [
+      14.1047,
+      8.4768,
+      6.0799,
+      6.3793,
+      6.2501,
+      6.1006,
+      5.7376,
+      5.2625,
+      5.1669,
+      7.8356,
+      9.6378,
+      9.7054,
+      10.2899
+    ],
+    "A": {
+      "date": null,
+      "support": [
+        "2024-10-01",
+        "2024-11-01"
+      ],
+      "status": "unresolved",
+      "reason": "unstable_quality_sensitivity"
+    },
+    "B": {
+      "date": "2024-12-01",
+      "support": [
+        "2024-11-01",
+        "2024-12-01"
+      ],
+      "status": "provisional",
+      "reason": "interval_peak"
+    }
+  }
+]
+
+</script>
+
+<script>
+(function(){
+  "use strict";
+  var DATA = JSON.parse(document.getElementById("chart-data").textContent);
+  var STORE_KEY = "hydroseason-blind-review-v1";
+
+  function loadMarks(){
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch(e){ return {}; }
+  }
+  function saveMarks(marks){
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(marks)); } catch(e){ /* private mode: mark still works this session */ }
+  }
+  var marks = loadMarks();
+
+  function fmtMonth(iso){
+    var d = new Date(iso + "T00:00:00Z");
+    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return months[d.getUTCMonth()] + " " + d.getUTCFullYear();
+  }
+  function fmtRange(a,b){ return fmtMonth(a) + " → " + fmtMonth(b); }
+
+  function svgEl(tag, attrs){
+    var el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  // Log-scale line chart with support bands + boundary markers for one span.
+  function buildChart(rec){
+    var W = 720, H = 190, padL = 48, padR = 14, padT = 16, padB = 26;
+    var innerW = W - padL - padR, innerH = H - padT - padB;
+    var n = rec.dates.length;
+    var floor = Math.max(1e-4, Math.min.apply(null, rec.values) * 0.6);
+    var vmax = Math.max.apply(null, rec.values) * 1.15;
+    var vals = rec.values.map(function(v){ return Math.max(v, floor); });
+
+    function x(i){ return padL + (innerW * i) / (n - 1); }
+    function y(v){
+      var lo = Math.log10(floor), hi = Math.log10(vmax);
+      var t = (Math.log10(v) - lo) / (hi - lo);
+      return padT + innerH * (1 - t);
+    }
+    function xForDate(iso){
+      var idx = rec.dates.indexOf(iso);
+      if (idx === -1) return null;
+      return x(idx);
+    }
+
+    var svg = svgEl("svg", {class:"chart", viewBox:"0 0 " + W + " " + H, role:"img",
+      "aria-label":"Monthly water extent for " + rec.span_id});
+
+    // gridlines at nice log ticks
+    var ticks = [];
+    for (var p = -4; p <= 2; p++){
+      [1,3].forEach(function(m){
+        var v = m * Math.pow(10,p);
+        if (v > floor && v < vmax) ticks.push(v);
+      });
+    }
+    ticks.forEach(function(v){
+      var gy = y(v);
+      svg.appendChild(svgEl("line", {class:"gridline", x1:padL, x2:W-padR, y1:gy, y2:gy}));
+      var label = v >= 1 ? v.toFixed(0) : v.toFixed(v >= 0.1 ? 1 : (v >= 0.01 ? 2 : 3));
+      var t = svgEl("text", {x:padL-6, y:gy+3, "text-anchor":"end", "font-size":"9.5"});
+      t.textContent = label + "%";
+      svg.appendChild(t);
+    });
+
+    // support bands (draw before the line so the line sits on top)
+    ["A","B"].forEach(function(who){
+      var outcome = rec[who];
+      if (!outcome.support || outcome.support.length < 2) return;
+      var x0 = xForDate(outcome.support[0]);
+      var x1 = xForDate(outcome.support[outcome.support.length-1]);
+      if (x0 == null || x1 == null) return;
+      svg.appendChild(svgEl("rect", {
+        class: "band-" + who.toLowerCase(),
+        x:x0 - (innerW/(n-1))/2, y:padT, width:(x1-x0) + innerW/(n-1), height:innerH, rx:2
+      }));
+    });
+
+    // axis + x labels: evenly spaced indices, always incl. first/last, never
+    // two ticks close enough to collide (min gap in months scales with n).
+    svg.appendChild(svgEl("line", {class:"axis", x1:padL, x2:W-padR, y1:padT+innerH, y2:padT+innerH}));
+    var maxTicks = Math.min(6, n);
+    var minGap = Math.max(1, Math.floor((n - 1) / (maxTicks - 1)));
+    var tickIdx = [];
+    for (var i = 0; i < n; i += minGap) tickIdx.push(i);
+    if (tickIdx[tickIdx.length - 1] !== n - 1){
+      if (n - 1 - tickIdx[tickIdx.length - 1] < minGap) tickIdx.pop();
+      tickIdx.push(n - 1);
+    }
+    tickIdx.forEach(function(i){
+      var anchor = i === 0 ? "start" : (i === n - 1 ? "end" : "middle");
+      var lbl = svgEl("text", {x:x(i), y:H-8, "text-anchor":anchor, "font-size":"9.5"});
+      lbl.textContent = fmtMonth(rec.dates[i]);
+      svg.appendChild(lbl);
+    });
+
+    // the observed series
+    var pts = vals.map(function(v,i){ return x(i) + "," + y(v); }).join(" ");
+    svg.appendChild(svgEl("polyline", {class:"series", points:pts}));
+    vals.forEach(function(v,i){
+      svg.appendChild(svgEl("circle", {class:"dot", cx:x(i), cy:y(v), r:2.25}));
+    });
+
+    // boundary marker lines, drawn last so they read on top
+    ["A","B"].forEach(function(who){
+      var outcome = rec[who];
+      if (!outcome.date) return;
+      var mx = xForDate(outcome.date);
+      if (mx == null) return;
+      svg.appendChild(svgEl("line", {
+        class:"marker-" + who.toLowerCase(), x1:mx, x2:mx, y1:padT-2, y2:padT+innerH
+      }));
+      var lbl = svgEl("text", {
+        class:"marker-label-" + who.toLowerCase(),
+        x:mx, y:padT-5, "text-anchor":"middle", "font-size":"10.5"
+      });
+      lbl.textContent = who;
+      svg.appendChild(lbl);
+    });
+
+    return svg;
+  }
+
+  function outcomeBlock(who, outcome){
+    var div = document.createElement("div");
+    div.className = "outcome " + who.toLowerCase();
+    var dateText = outcome.date ? fmtMonth(outcome.date) : "no boundary";
+    var supportText = outcome.support.length > 1
+      ? fmtRange(outcome.support[0], outcome.support[outcome.support.length-1]) + " (" + outcome.support.length + " mo)"
+      : (outcome.support.length === 1 ? fmtMonth(outcome.support[0]) : "—");
+    div.innerHTML =
+      '<div class="who"><i class="swatch"></i>Candidate ' + who + '</div>' +
+      '<div class="date">' + dateText + '</div>' +
+      '<div class="meta">support: ' + supportText + '</div>' +
+      '<span class="chip">' + outcome.status + '</span> ' +
+      '<span class="chip">' + outcome.reason.replace(/_/g,' ') + '</span>';
+    return div;
+  }
+
+  var MARK_LABELS = {A:"A is better", B:"B is better", both_ok:"Both reasonable", both_wrong:"Both wrong", unsure:"Unsure"};
+
+  function render(){
+    var container = document.getElementById("cards");
+    container.innerHTML = "";
+    DATA.forEach(function(rec){
+      var card = document.createElement("section");
+      card.className = "card";
+
+      var head = document.createElement("div");
+      head.className = "card-head";
+      head.innerHTML = '<h2>' + rec.span_id.replace(/_/g,' ') + '</h2>' +
+        '<span class="range mono">peak ' + fmtMonth(rec.left_peak) + ' → peak ' + fmtMonth(rec.right_peak) + '</span>';
+      card.appendChild(head);
+
+      var chartWrap = document.createElement("div");
+      chartWrap.className = "chart-wrap";
+      chartWrap.appendChild(buildChart(rec));
+      card.appendChild(chartWrap);
+
+      var outcomes = document.createElement("div");
+      outcomes.className = "outcomes";
+      outcomes.appendChild(outcomeBlock("A", rec.A));
+      outcomes.appendChild(outcomeBlock("B", rec.B));
+      card.appendChild(outcomes);
+
+      var markrow = document.createElement("div");
+      markrow.className = "markrow";
+      Object.keys(MARK_LABELS).forEach(function(key){
+        var btn = document.createElement("button");
+        btn.className = "markbtn";
+        btn.type = "button";
+        btn.dataset.mark = key;
+        btn.textContent = MARK_LABELS[key];
+        btn.dataset.active = (marks[rec.span_id] && marks[rec.span_id].mark === key) ? "true" : "false";
+        btn.addEventListener("click", function(){
+          marks[rec.span_id] = marks[rec.span_id] || {};
+          marks[rec.span_id].mark = key;
+          saveMarks(marks);
+          renderMarksOnly();
+        });
+        markrow.appendChild(btn);
+      });
+      var note = document.createElement("input");
+      note.type = "text";
+      note.className = "note-input";
+      note.placeholder = "optional note";
+      note.value = (marks[rec.span_id] && marks[rec.span_id].note) || "";
+      note.addEventListener("input", function(){
+        marks[rec.span_id] = marks[rec.span_id] || {};
+        marks[rec.span_id].note = note.value;
+        saveMarks(marks);
+        renderSummary();
+      });
+      markrow.appendChild(note);
+      card.appendChild(markrow);
+
+      container.appendChild(card);
+    });
+  }
+
+  function renderMarksOnly(){
+    document.querySelectorAll(".card").forEach(function(card, idx){
+      var rec = DATA[idx];
+      var state = marks[rec.span_id] || {};
+      card.querySelectorAll(".markbtn").forEach(function(btn){
+        btn.dataset.active = (state.mark === btn.dataset.mark) ? "true" : "false";
+      });
+    });
+    renderSummary();
+  }
+
+  function renderSummary(){
+    var lines = [];
+    var count = 0;
+    DATA.forEach(function(rec){
+      var state = marks[rec.span_id];
+      if (!state || !state.mark) return;
+      count++;
+      var line = rec.span_id + ": " + MARK_LABELS[state.mark];
+      if (state.note) line += "  (" + state.note + ")";
+      lines.push(line);
+    });
+    document.getElementById("summary-text").textContent = lines.length ? lines.join("\n") : "(nothing marked yet)";
+    document.getElementById("progress-num").innerHTML = count + "<span> / " + DATA.length + " marked</span>";
+    document.getElementById("progress-bar").style.width = (100 * count / DATA.length) + "%";
+  }
+
+  render();
+  renderSummary();
+})();
+</script>

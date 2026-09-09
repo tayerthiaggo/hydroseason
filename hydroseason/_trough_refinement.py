@@ -20,12 +20,28 @@ RefinementStatus = Literal[
 PeakQuality = Literal["normal", "low", "unknown", "missing"]
 
 
+TroughRefinementCandidate = Literal["shape_fit", "direct_profile_combined"]
+
+
 @dataclass(frozen=True)
 class TroughRefinementPolicy:
     huber_k: float
     profile_loss_cutoff: float
     pulse_z: float
-    version: str = "trough_refinement_candidate_0_1"
+    version: str = "trough_refinement_candidate_0_2"
+    candidate: TroughRefinementCandidate = "shape_fit"
+    # direct_profile_combined only (numerics spec
+    # docs/superpowers/specs/2026-09-09-low-state-direct-profile-numerics.md):
+    # delta_pp has no default and must be supplied explicitly by the caller,
+    # never silently defaulted -- see the endpoint contract's requirement
+    # that the equivalence margin be fixed independently of what it scores,
+    # and the fact that a sensible value depends on the catchment's own
+    # trough-region extent scale (validated only against development
+    # catchments in the 0.01-2% range; a catchment far outside that needs
+    # its own choice, not this policy's default).
+    delta_pp: float | None = None
+    l_uncertainty_k: float = 2.0
+    scale_mode: Literal["residual", "combined"] = "combined"
 
     def __post_init__(self) -> None:
         if self.huber_k <= 0.0:
@@ -36,6 +52,14 @@ class TroughRefinementPolicy:
             raise ValueError("pulse_z must be positive.")
         if not self.version:
             raise ValueError("version must not be empty.")
+        if self.candidate not in ("shape_fit", "direct_profile_combined"):
+            raise ValueError(f"unknown candidate: {self.candidate!r}")
+        if self.candidate == "direct_profile_combined":
+            if self.delta_pp is None or not np.isfinite(self.delta_pp) or self.delta_pp <= 0.0:
+                raise ValueError(
+                    "delta_pp must be a positive, finite value for the "
+                    "direct_profile_combined candidate."
+                )
 
 
 @dataclass(frozen=True)
@@ -69,6 +93,7 @@ class TroughRefinementResult:
     best_loss: float
     effective_support: float
     policy_version: str
+    loss_basis: Literal["standardized_huber", "exact_l1", "unavailable"] = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -459,19 +484,27 @@ def _local_scale(
     values: np.ndarray,
     preliminary: _CandidateFit,
     frame: pd.DataFrame,
+    *,
+    measurement_tolerance_pp: float,
 ) -> float:
+    """Combine the residual-noise estimate with two physical lower bounds.
+
+    The residual/difference estimator can be a small positive number below
+    one-pixel resolution or below an explicit measurement tolerance -- both
+    are physical floors on what the observation process can distinguish, so
+    they are enforced unconditionally, not only when the estimator is zero.
+    """
     residuals = values - preliminary.fitted
     residual_scale = 1.4826 * _median_absolute_deviation(residuals)
     if residual_scale > 0.0:
-        return residual_scale
-    difference_scale = (
-        1.4826
-        * _median_absolute_deviation(np.diff(residuals))
-        / np.sqrt(2.0)
-    )
-    if difference_scale > 0.0:
-        return float(difference_scale)
-    return _measurement_floor(frame)
+        estimator = residual_scale
+    else:
+        estimator = (
+            1.4826
+            * _median_absolute_deviation(np.diff(residuals))
+            / np.sqrt(2.0)
+        )
+    return max(estimator, _measurement_floor(frame), measurement_tolerance_pp)
 
 
 def _support_weights(frame: pd.DataFrame) -> np.ndarray:
@@ -558,6 +591,7 @@ def _refine_gap_after_low_state(
     observed: np.ndarray,
     *,
     policy: TroughRefinementPolicy,
+    measurement_tolerance_pp: float,
 ) -> TroughRefinementResult:
     missing = np.flatnonzero(~observed)
     groups = np.split(missing, np.flatnonzero(np.diff(missing) != 1) + 1)
@@ -589,7 +623,12 @@ def _refine_gap_after_low_state(
         preliminary,
         key=lambda candidate: (candidate.loss, candidate.start_position),
     )
-    scale = _local_scale(before_values, preliminary_best, before)
+    scale = _local_scale(
+        before_values,
+        preliminary_best,
+        before,
+        measurement_tolerance_pp=measurement_tolerance_pp,
+    )
     candidates = [
         _fit_valley_huber(
             before_values,
@@ -618,16 +657,65 @@ def _refine_gap_after_low_state(
         key=lambda candidate: candidate.start_position,
     )
 
-    post_value = float(values_series.iloc[gap_end + 1])
     low_level = float(best.fitted[last])
+    loss_basis: Literal["standardized_huber", "exact_l1"] = (
+        "exact_l1" if scale == 0.0 else "standardized_huber"
+    )
+
+    # This function only ever fits the pre-gap segment: it assumes the low
+    # state is fully contained before the gap. That assumption has no guard
+    # of its own -- verify it before trusting the pre-gap boundary. If any
+    # fully-observed post-gap month sits materially below the pre-gap fitted
+    # low level, the true low state is not confined to before the gap (it
+    # continues, or lies entirely, after it), and answering from the pre-gap
+    # segment alone would place the boundary on the wrong limb.
+    after_values = values_series.iloc[gap_end + 1:].to_numpy(dtype=float)
     if scale == 0.0:
-        post_low_loss = 0.0 if post_value == low_level else float("inf")
-    else:
-        post_low_loss = _huber_value(
-            (post_value - low_level) / scale,
-            policy.huber_k,
+        below_tolerance = max(
+            np.finfo(float).eps,
+            _RELATIVE_CONVERGENCE * max(1.0, abs(low_level), float(np.min(after_values))),
         )
-    if post_low_loss <= policy.profile_loss_cutoff + loss_tolerance:
+        low_state_continues_past_gap = bool(np.any(after_values < low_level - below_tolerance))
+    else:
+        below = after_values[after_values < low_level]
+        below_losses = np.array(
+            [_huber_value((value - low_level) / scale, policy.huber_k) for value in below]
+        )
+        low_state_continues_past_gap = bool(
+            below_losses.size
+            and np.any(below_losses > policy.profile_loss_cutoff + loss_tolerance)
+        )
+    if low_state_continues_past_gap:
+        return _empty_result("unresolved", "gap_before_low_state", policy)
+
+    # Whole-segment equivalence check, not just the first post-gap value:
+    # a later observed return to the pre-gap low (e.g. a brief post-gap
+    # excursion followed by an equivalent low) means the low state is not
+    # confined to the pre-gap segment either -- the pre-gap-only support set
+    # this function would otherwise emit is unsupported (see C1, 2026-09-08
+    # review). The first-position case keeps its original, more specific
+    # reason; any later match must abstain rather than silently narrow the
+    # committed support to the pre-gap cluster alone.
+    if scale == 0.0:
+        # An exact-zero scale means no positive measurement/residual floor is
+        # available: use a magnitude-relative numerical-equality tolerance,
+        # not machine epsilon alone (not a physical uncertainty estimate) and
+        # not the dimensionless profile_loss_cutoff (a different loss unit).
+        equality_tolerance = max(
+            np.finfo(float).eps,
+            _RELATIVE_CONVERGENCE
+            * max(1.0, float(np.max(np.abs(after_values))), abs(low_level)),
+        )
+        # True despite the name: the post-gap value is indistinguishable
+        # from the pre-gap low level, i.e. the series has NOT yet recovered.
+        at_low_level = np.abs(after_values - low_level) <= equality_tolerance
+    else:
+        at_low_losses = np.array(
+            [_huber_value((value - low_level) / scale, policy.huber_k) for value in after_values]
+        )
+        at_low_level = at_low_losses <= policy.profile_loss_cutoff + loss_tolerance
+
+    if bool(at_low_level[0]):
         return TroughRefinementResult(
             status="unresolved",
             reason="gap_overlaps_low_state",
@@ -643,6 +731,25 @@ def _refine_gap_after_low_state(
             best_loss=best_loss,
             effective_support=float(np.sum(before_weights)),
             policy_version=policy.version,
+            loss_basis=loss_basis,
+        )
+    if bool(np.any(at_low_level[1:])):
+        return TroughRefinementResult(
+            status="unresolved",
+            reason="post_gap_return_to_low_state",
+            boundary=None,
+            boundary_candidates=tuple(
+                pd.Timestamp(date) for date in before.index[best.start_position:]
+            ),
+            low_state_start=pd.Timestamp(before.index[best.start_position]),
+            low_state_end=pd.Timestamp(before.index[last]),
+            recovery_start=None,
+            pulse_months=(),
+            local_scale_pp=scale,
+            best_loss=best_loss,
+            effective_support=float(np.sum(before_weights)),
+            policy_version=policy.version,
+            loss_basis=loss_basis,
         )
 
     boundary = pd.Timestamp(before.index[last])
@@ -661,6 +768,7 @@ def _refine_gap_after_low_state(
         best_loss=best_loss,
         effective_support=float(np.sum(before_weights)),
         policy_version=policy.version,
+        loss_basis=loss_basis,
     )
 
 
@@ -691,6 +799,37 @@ def _refine_selected_span(
     left_peak: PeakBoundary,
     right_peak: PeakBoundary | None,
     policy: TroughRefinementPolicy,
+    measurement_tolerance_pp: float,
+) -> TroughRefinementResult:
+    """Dispatch to the policy's candidate algorithm.
+
+    This is the single seam ``refine_trough_span``'s nominal call, its
+    per-scenario ensemble loop, and ``_quality_sensitivity`` all go through
+    -- so any candidate wired in here automatically gets the same real
+    peak/quality sensitivity ensemble as ``shape_fit``, with no
+    monkeypatching required (contrast the Stage B research module's
+    ``_with_sensitivity`` wrapper, which this design replaces).
+    """
+    if policy.candidate == "direct_profile_combined":
+        from ._trough_refinement_direct_profile import refine_selected_span_direct_profile
+
+        return refine_selected_span_direct_profile(
+            frame, left_peak=left_peak, right_peak=right_peak, policy=policy,
+            measurement_tolerance_pp=measurement_tolerance_pp,
+        )
+    return _refine_selected_span_shape_fit(
+        frame, left_peak=left_peak, right_peak=right_peak, policy=policy,
+        measurement_tolerance_pp=measurement_tolerance_pp,
+    )
+
+
+def _refine_selected_span_shape_fit(
+    frame: pd.DataFrame,
+    *,
+    left_peak: PeakBoundary,
+    right_peak: PeakBoundary | None,
+    policy: TroughRefinementPolicy,
+    measurement_tolerance_pp: float,
 ) -> TroughRefinementResult:
     """Challenge one pass-1 trough inside an ordered peak-to-peak span."""
     if right_peak is None:
@@ -716,7 +855,19 @@ def _refine_selected_span(
             policy,
         )
 
-    span = frame.loc[left_date:right_date].copy()
+    # Reindex onto the complete monthly calendar for this span, rather than a
+    # positional `.loc` slice: a month absent from `frame`'s own index (a
+    # true calendar gap, or a sensitivity scenario that perturbs a row) must
+    # appear as an explicit unobserved row here, not silently vanish and let
+    # its neighbours look consecutive.
+    span = frame.reindex(pd.date_range(left_date, right_date, freq="MS")).copy()
+    if "quality_state" in span.columns:
+        span["quality_state"] = span["quality_state"].fillna("missing")
+    if "candidate_usable" in span.columns:
+        span["candidate_usable"] = span["candidate_usable"].fillna(False).astype(bool)
+    if "observed_fraction" in span.columns:
+        span["observed_fraction"] = span["observed_fraction"].fillna(0.0)
+
     values_series = pd.to_numeric(span["extent_pct"], errors="coerce")
     weights = _support_weights(span)
     observed = values_series.notna().to_numpy() & (weights > 0.0)
@@ -729,6 +880,7 @@ def _refine_selected_span(
             weights,
             observed,
             policy=policy,
+            measurement_tolerance_pp=measurement_tolerance_pp,
         )
 
     values = values_series.to_numpy(dtype=float)
@@ -748,7 +900,9 @@ def _refine_selected_span(
             candidate.start_position,
         ),
     )
-    scale = _local_scale(values, preliminary_best, span)
+    scale = _local_scale(
+        values, preliminary_best, span, measurement_tolerance_pp=measurement_tolerance_pp
+    )
     candidates = [
         _fit_valley_huber(
             values,
@@ -783,16 +937,30 @@ def _refine_selected_span(
 
     best_loss = min(candidate.loss for candidate in endpoint_fits.values())
     effective_support = float(np.sum(weights))
-    loss_tolerance = max(
+    tolerance = max(
         np.finfo(float).eps,
         _RELATIVE_CONVERGENCE * max(1.0, abs(best_loss)),
     )
-    plausible_positions = sorted(
-        position
-        for position, candidate in endpoint_fits.items()
-        if (candidate.loss - best_loss) / effective_support
-        <= policy.profile_loss_cutoff + loss_tolerance
+    loss_basis: Literal["standardized_huber", "exact_l1"] = (
+        "exact_l1" if scale == 0.0 else "standardized_huber"
     )
+    if scale == 0.0:
+        # No positive scale: the Huber loss degenerates to raw L1 pp-loss, so
+        # the dimensionless profile_loss_cutoff must not be applied to it
+        # (that mixes units -- see the audit's zero-scale reproduction).
+        # Plausibility is exact-minimum support up to numerical tolerance.
+        plausible_positions = sorted(
+            position
+            for position, candidate in endpoint_fits.items()
+            if candidate.loss <= best_loss + tolerance
+        )
+    else:
+        plausible_positions = sorted(
+            position
+            for position, candidate in endpoint_fits.items()
+            if (candidate.loss - best_loss) / effective_support
+            <= policy.profile_loss_cutoff + tolerance
+        )
     clusters: list[list[int]] = []
     for position in plausible_positions:
         if not clusters or position != clusters[-1][-1] + 1:
@@ -821,19 +989,18 @@ def _refine_selected_span(
 
     final_cluster = clusters[-1]
     cluster_best_loss = min(endpoint_fits[position].loss for position in final_cluster)
-    # Inside the selected final cluster, a later merely near-equivalent endpoint
-    # is already on the best shape's recovery limb. Cap that cluster at its
-    # latest exact optimum (Fitzroy Dec -> Jan -> Feb), but do not discard a
-    # later separated cluster reached after an observed pulse returns to low.
+    # The operational boundary is the latest exact optimum inside the final
+    # cluster (Fitzroy Dec -> Jan -> Feb): a later merely near-equivalent
+    # endpoint is already on the best shape's recovery limb, so it decides
+    # which single date the cycle uses. It must not delete later
+    # statistically plausible endpoints from the reported support set --
+    # `boundary_candidates` below keeps the full, untruncated final cluster.
     departure_position = max(
         position
         for position in final_cluster
-        if endpoint_fits[position].loss <= cluster_best_loss + loss_tolerance
+        if endpoint_fits[position].loss <= cluster_best_loss + tolerance
     )
-    final_cluster = [
-        position for position in final_cluster if position <= departure_position
-    ]
-    boundary_position = final_cluster[-1]
+    boundary_position = departure_position
     boundary = pd.Timestamp(span.index[boundary_position])
     boundary_fit = endpoint_fits[boundary_position]
     boundary_candidates = tuple(
@@ -893,6 +1060,7 @@ def _refine_selected_span(
         best_loss=best_loss,
         effective_support=effective_support,
         policy_version=policy.version,
+        loss_basis=loss_basis,
     )
 
 
@@ -957,13 +1125,16 @@ def _combine_sensitivity_results(
             boundary=None,
             recovery_start=None,
         )
+    # `combined`'s last date is the union's latest *support-set* member, which
+    # need not be any scenario's actual selected boundary. The operational
+    # date must be a real scenario's operational choice, so keep
+    # `selected.boundary` as-is here and only widen the reported support set.
     selected = max(scenarios, key=lambda result: pd.Timestamp(result.boundary))
     return replace(
         selected,
-        boundary=combined[-1],
         boundary_candidates=tuple(combined),
         recovery_start=(
-            combined[-1] + pd.DateOffset(months=1)
+            selected.boundary + pd.DateOffset(months=1)
             if all(result.recovery_start is not None for result in scenarios)
             else None
         ),
@@ -975,12 +1146,31 @@ def _combine_sensitivity_results(
     )
 
 
+def _masked_missing(frame: pd.DataFrame, dates: list[pd.Timestamp]) -> pd.DataFrame:
+    """Mark ``dates`` as unobserved in place, retaining the row.
+
+    Used only to build a removal-sensitivity scenario. Dropping the row
+    instead would delete it from the index and silently turn a
+    calendar-adjacent read (``_refine_selected_span``'s reindexed span) into
+    a false-consecutive one -- exactly the calendar-gap defect this
+    preserves against.
+    """
+    changed = frame.copy()
+    changed.loc[dates, "extent_pct"] = np.nan
+    changed.loc[dates, "observed_fraction"] = 0.0
+    changed.loc[dates, "quality_state"] = "missing"
+    changed.loc[dates, "candidate_usable"] = False
+    return changed
+
+
 def _quality_sensitivity(
     frame: pd.DataFrame,
     left_peak: PeakBoundary,
     right_peak: PeakBoundary,
     policy: TroughRefinementPolicy,
     nominal: TroughRefinementResult,
+    *,
+    measurement_tolerance_pp: float,
 ) -> TroughRefinementResult:
     if nominal.boundary is None:
         return nominal
@@ -997,8 +1187,8 @@ def _quality_sensitivity(
     scenario_frames: list[pd.DataFrame] = []
     removable_low = [date for date in low_dates if date not in {left_date, right_date}]
     if removable_low:
-        scenario_frames.append(frame.drop(index=removable_low))
-        scenario_frames.extend(frame.drop(index=date) for date in removable_low)
+        scenario_frames.append(_masked_missing(frame, removable_low))
+        scenario_frames.extend(_masked_missing(frame, [date]) for date in removable_low)
     for date in low_dates:
         observed_fraction = float(span.loc[date, "observed_fraction"])
         value = float(span.loc[date, "extent_pct"])
@@ -1012,7 +1202,7 @@ def _quality_sensitivity(
         date for date in unknown_dates if date not in {left_date, right_date}
     ]
     if removable_unknown:
-        scenario_frames.append(frame.drop(index=removable_unknown))
+        scenario_frames.append(_masked_missing(frame, removable_unknown))
 
     results = [nominal]
     for scenario_frame in scenario_frames:
@@ -1022,6 +1212,7 @@ def _quality_sensitivity(
                 left_peak=left_peak,
                 right_peak=right_peak,
                 policy=policy,
+                measurement_tolerance_pp=measurement_tolerance_pp,
             )
         )
     combined = _combine_sensitivity_results(
@@ -1054,8 +1245,11 @@ def refine_trough_span(
     left_peak: PeakBoundary,
     right_peak: PeakBoundary | None,
     policy: TroughRefinementPolicy,
+    measurement_tolerance_pp: float = 0.0,
 ) -> TroughRefinementResult:
     """Challenge a trough and propagate all identifiable peak-date evidence."""
+    if not np.isfinite(measurement_tolerance_pp) or measurement_tolerance_pp < 0.0:
+        raise ValueError("measurement_tolerance_pp must be finite and non-negative.")
     if right_peak is None:
         return _empty_result("awaiting_next_peak", "open_span", policy)
     if (
@@ -1085,6 +1279,7 @@ def refine_trough_span(
         left_peak=nominal_left,
         right_peak=nominal_right,
         policy=policy,
+        measurement_tolerance_pp=measurement_tolerance_pp,
     )
     nominal = _quality_sensitivity(
         frame,
@@ -1092,6 +1287,7 @@ def refine_trough_span(
         nominal_right,
         policy,
         nominal,
+        measurement_tolerance_pp=measurement_tolerance_pp,
     )
     if left_peak.timing_status == "point" and right_peak.timing_status == "point":
         if nominal.status == "unresolved":
@@ -1122,6 +1318,7 @@ def refine_trough_span(
                 left_peak=scenario_left,
                 right_peak=scenario_right,
                 policy=policy,
+                measurement_tolerance_pp=measurement_tolerance_pp,
             )
             result = _quality_sensitivity(
                 frame,
@@ -1129,6 +1326,7 @@ def refine_trough_span(
                 scenario_right,
                 policy,
                 result,
+                measurement_tolerance_pp=measurement_tolerance_pp,
             )
             if result.boundary is None or result.status not in {"confirmed", "provisional"}:
                 return (

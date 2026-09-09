@@ -139,6 +139,37 @@ def test_opted_in_trough_refinement_applies_boundary_without_changing_peaks():
     assert following["hy_start"] == pd.Timestamp("2020-12-01")
 
 
+def test_direct_profile_combined_candidate_applies_boundary_without_changing_peaks():
+    """The opt-in direct_profile_combined candidate must plug into the same
+    pass-1/pass-2 wiring as shape_fit: unchanged peaks, atomic acceptance,
+    generic trough_refinement_* export columns populated the same way."""
+    raw = _candidate_frame()
+    raw.loc["2020-06-01":"2020-12-01", "extent_pct"] = [
+        30.0, 20.0, 10.0, 1.0, 1.0, 1.0, 15.0,
+    ]
+    baseline = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9),
+    )
+    refined = detect_dynamic_hydrological_years(
+        raw,
+        config=DynamicHydroYearConfig(
+            expected_trough_month=9,
+            trough_refinement_policy=TroughRefinementPolicy(
+                huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=2.0,
+                version="direct_profile_combined_v1",
+                candidate="direct_profile_combined", delta_pp=0.5,
+            ),
+        ),
+    )
+
+    assert tuple(refined["peak_month"]) == tuple(baseline["peak_month"])
+    row = refined.loc[refined["hy_year"] == 2020].iloc[0]
+    assert row["pass1_trough_month"] == pd.Timestamp("2020-09-01")
+    assert row["trough_refinement_policy_version"] == "direct_profile_combined_v1"
+    assert row["trough_refinement_status"] in {"confirmed", "provisional"}
+    assert bool(row["trough_refinement_applied"])
+
+
 def test_open_peak_span_retains_pass1_as_provisional_fallback():
     raw = _candidate_frame()
     result = detect_dynamic_hydrological_years(
@@ -170,7 +201,7 @@ def test_trough_refinement_rolls_back_both_cycles_when_coverage_would_fail(
         config=DynamicHydroYearConfig(expected_trough_month=9),
     )
 
-    def challenge(_frame, *, left_peak, right_peak, policy):
+    def challenge(_frame, *, left_peak, right_peak, policy, measurement_tolerance_pp=0.0):
         if left_peak.selected == pd.Timestamp("2019-02-01"):
             boundary = pd.Timestamp("2020-01-01")
             return TroughRefinementResult(

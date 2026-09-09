@@ -1,0 +1,42 @@
+{
+  "span_2015": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "span_2016": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "span_2017": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "span_2018": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  },
+  "span_2019": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "span_2020": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "span_2021": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  },
+  "span_2022": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  },
+  "span_2023": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "span_2024": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  }
+}

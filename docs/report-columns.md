@@ -70,6 +70,7 @@ not define hydrological years. Date columns are month starts.
 | `timing_status` | Aggregate timing identifiability for the row (`point`, `interval`, or `unresolved`): the weaker of `peak_timing_status` and `trough_timing_status`. `boundary_status` describes selection/data admissibility; `timing_status` describes temporal identifiability -- the two are independent. |
 | `peak_timing_status` / `trough_timing_status` | Whether the peak/trough resolves to an exact month (`point`), a bounded interval (`interval`), or cannot be resolved (`unresolved`). |
 | `peak_date` / `trough_date` | Populated only when the corresponding `*_timing_status` is `point`; blank for `interval` or `unresolved` so a broad plateau or diffuse peak is never presented as a fabricated exact date. |
+| `trough_boundary_date` | The **operational** boundary used for cycle segmentation, populated whenever a trough was detected regardless of timing status (blank only for a blank cycle with no trough opportunity at all). This is always `trough_month`, the actual date used to define `hy_start`/`hy_end` -- it is **not** the same as `trough_interval_end_date`: a refined boundary can sit strictly inside its own support interval, so the two must not be assumed equal. Use `trough_date` for a strict point-only claim and `trough_boundary_date` for "what date this cycle actually uses". |
 | `peak_interval_start_date` / `peak_interval_end_date` / `trough_interval_start_date` / `trough_interval_end_date` | Populated whenever the corresponding `*_timing_status` is `interval` (bounds of the defensible interval), also populated for `point` (a single-month interval). Blank for `unresolved`. |
 | `peak_interval_start_date` / `peak_interval_end_date` / `trough_interval_start_date` / `trough_interval_end_date` | Bounds of equivalent evidence for that extremum across the cycle window. Populated for `point` and `interval`; also populated for `unresolved` when candidate extrema exist to preserve complete equivalent evidence (never an exact published point). |
 | `detectability_floor_pp` | The record's detectability floor for that cycle, in percentage points: `max(measurement_tolerance_pct, robust_noise_pp, peak_resolution_pp, trough_resolution_pp, machine epsilon)`. |
@@ -105,14 +106,26 @@ interval is Wilson and is labelled an understatement, because cycles inside one
 catchment are serially dependent; across a cohort it is a catchment-level
 bootstrap.
 
-### Trough refinement evidence (candidate — not authoritative)
+### Trough refinement evidence (candidate — not authoritative) { #trough-refinement-evidence-candidate--not-authoritative }
 
 These columns appear on the diagnostic hydrological-year frame and in
 `build_hydro_years_export`. They record what the two-pass trough refinement
-challenger found. **The policy is a candidate, not promoted**: its authority
-scope is `candidate_for_established_0_2_0`, it is off unless a caller passes
-`trough_refinement_policy`, and it is not present in the compact CSV bundle —
-`STABLE_HY_COLUMNS` is unchanged.
+challenger found. **Every policy here is a candidate, not promoted**: it is
+off unless a caller passes `trough_refinement_policy`, and it is not present
+in the compact CSV bundle — `STABLE_HY_COLUMNS` is unchanged.
+
+Two candidate algorithms exist behind `TroughRefinementPolicy.candidate`,
+selecting which challenger produces every column below — the column set
+itself is identical either way:
+
+- `"shape_fit"` (default; authority scope `trough_refinement_candidate_0_2`):
+  maps a finite set of best-fitting valley shapes to an exact-loss-optimum
+  endpoint.
+- `"direct_profile_combined"` (authority scope `direct_profile_combined_v1`,
+  requires `delta_pp`): profiles the equivalence-state departure directly
+  over a bounded low-state reference-level grid. See
+  [the migration doc](migrations/trough-refinement-candidate.md#direct_profile_combined)
+  for what it changes and its own evidence status.
 
 | Column | Meaning |
 |---|---|
@@ -121,11 +134,12 @@ scope is `candidate_for_established_0_2_0`, it is off unless a caller passes
 | `trough_challenger_low_state_start` / `trough_challenger_low_state_end` | The fitted low-state occupancy span. Distinct from endpoint uncertainty: a long flat low is not the same claim as an imprecisely located one. |
 | `recovery_start_month` | First month of sustained recovery out of the low state. |
 | `trough_refinement_status` | `confirmed`, `provisional`, `unresolved`, `unavailable`, or `awaiting_next_peak`. |
-| `trough_refinement_reason` | Why that status was reached, e.g. `low_quality_peak`, `recovery_crosses_gap`, `gap_overlaps_low_state`, `unstable_peak_sensitivity`, `unstable_quality_sensitivity`, `not_requested`. |
+| `trough_refinement_reason` | Why that status was reached, e.g. `low_quality_peak`, `recovery_crosses_gap`, `gap_overlaps_low_state`, `gap_before_low_state` (a fully-observed post-gap month sits materially below the pre-gap fitted low level, so the low state is not confined to before the gap and the pre-gap segment cannot answer for it), `unstable_peak_sensitivity`, `unstable_quality_sensitivity`, `not_requested`. |
 | `trough_refinement_applied` | Whether the challenger's boundary was actually adopted. |
 | `trough_pulse_months` | Months detected as rewetting pulses inside the span. |
 | `trough_local_scale_pp` / `trough_profile_best_loss` / `trough_profile_cutoff` / `trough_effective_support` | Fit diagnostics: local noise scale, achieved loss, the frozen admissibility cutoff, and effective observation support. |
 | `trough_refinement_policy_version` | The frozen policy version that produced these values. |
+| `trough_loss_basis` | Which loss the fit actually used: `standardized_huber` when a positive scale (residual noise, pixel floor, or an explicit measurement tolerance) was available, or `exact_l1` when no positive scale exists at all. `exact_l1` reports a deterministic exact-minimum support set up to numerical tolerance -- it carries **no claimed confidence level**; it is not a calibrated interval and must not be read as one. `unavailable` when the challenger did not run. |
 
 `unavailable` and `unresolved` are **different claims and are never
 collapsed**. `unavailable` means the challenger did not run for this cycle

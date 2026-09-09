@@ -1,0 +1,70 @@
+{
+  "daly_river_nt_2008": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "daly_river_nt_2012": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "daly_river_nt_2014": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "daly_river_nt_2015": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  },
+  "daly_river_nt_2019": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "fitzroy_river_wa_2006": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "fitzroy_river_wa_2008": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  },
+  "fitzroy_river_wa_2015": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  },
+  "fitzroy_river_wa_2018": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "fitzroy_river_wa_2020": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  },
+  "fitzroy_river_wa_2021": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "gilbert_river_qld_2005": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  },
+  "gilbert_river_qld_2009": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "gilbert_river_qld_2019": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  },
+  "gilbert_river_qld_2020": {
+    "A": "existing",
+    "B": "direct_profile_combined"
+  },
+  "kakadu_national_park_2021": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  },
+  "kakadu_national_park_2024": {
+    "A": "direct_profile_combined",
+    "B": "existing"
+  }
+}

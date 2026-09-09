@@ -1,0 +1,10 @@
+catchment,hy_year,left_peak,right_peak,is_nine_daly_example,baseline_boundary,baseline_support,baseline_support_width_months,baseline_status,baseline_reason,candidate_boundary,candidate_support,candidate_support_width_months,candidate_status,candidate_reason,dates_agree
+daly_river_nt,2005,2005-01,2006-04,True,,2006-01,0,unresolved,unstable_quality_sensitivity,,2006-01,0,unresolved,unstable_quality_sensitivity,True
+daly_river_nt,2008,2008-03,2009-02,True,2008-10,2008-10,0,confirmed,accepted,2008-11,"2008-10,2008-11",1,confirmed,accepted,False
+daly_river_nt,2011,2011-03,2012-03,True,,2012-01,0,unresolved,unstable_quality_sensitivity,,"2011-08,2011-09,2011-10,2011-11,2011-12,2012-01",5,unresolved,unstable_quality_sensitivity,True
+daly_river_nt,2012,2012-03,2013-04,True,2013-02,"2012-09,2012-10,2012-11,2012-12,2013-01,2013-02",5,provisional,low_quality_peak,,"2012-11,2012-12,2013-01",2,unresolved,unstable_quality_sensitivity,False
+daly_river_nt,2014,2014-02,2015-01,True,2014-12,"2014-10,2014-11,2014-12",2,provisional,essential_low_quality_recovery,,"2014-10,2014-11",1,unresolved,unstable_quality_sensitivity,False
+daly_river_nt,2016,2016-01,2017-02,True,2016-12,"2016-11,2016-12",1,provisional,essential_low_quality_recovery,2016-12,"2016-11,2016-12",1,provisional,essential_low_quality_recovery,True
+daly_river_nt,2018,2018-02,2019-04,True,,2018-11,0,unresolved,unstable_quality_sensitivity,,"2018-11,2018-12",1,unresolved,unstable_quality_sensitivity,True
+daly_river_nt,2019,2019-04,2020-01,True,2019-11,2019-11,0,provisional,interval_peak,2019-12,2019-12,0,provisional,interval_peak,False
+daly_river_nt,2020,2020-01,2021-02,True,,2021-01,0,unresolved,unstable_quality_sensitivity,,2021-01,0,unresolved,unstable_quality_sensitivity,True

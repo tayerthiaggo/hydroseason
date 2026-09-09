@@ -91,4 +91,15 @@ overnight-wofs.ps1
 pipelines/
 preview_report/
 docs/plans/
-docs/superpowers/
+!docs/superpowers/
+docs/superpowers/*
+!docs/superpowers/plans/
+docs/superpowers/plans/*
+!docs/superpowers/plans/2026-09-06-two-pass-trough-refinement.md
+!docs/superpowers/plans/2026-09-09-low-state-direct-profile-coding.md
+!docs/superpowers/specs/
+docs/superpowers/specs/*
+!docs/superpowers/specs/2026-09-06-two-pass-trough-refinement-design.md
+!docs/superpowers/specs/2026-09-09-low-state-endpoint-contract.md
+!docs/superpowers/specs/2026-09-09-low-state-validation-protocol.md
+!docs/superpowers/specs/2026-09-09-low-state-direct-profile-numerics.md

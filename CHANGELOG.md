@@ -4,7 +4,60 @@ All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- Second trough-refinement candidate, `direct_profile_combined` (opt-in, not
+  promoted): profiles the equivalence-state low-state departure directly
+  over a bounded low-state reference-level grid, rather than mapping a
+  finite set of best trough fits through one fixed reference level. Select
+  via `TroughRefinementPolicy(candidate="direct_profile_combined", delta_pp=...)`
+  (`delta_pp` has no default — see the policy field's docstring) or the
+  frozen `TROUGH_REFINEMENT_DIRECT_PROFILE_POLICY` default. `shape_fit`
+  (`trough_refinement_candidate_0_2`) remains the default candidate and is
+  unaffected. `_refine_selected_span` is now a small dispatcher keyed on
+  `TroughRefinementPolicy.candidate`, so both candidates run through the
+  same peak/quality sensitivity ensemble with no monkeypatching. See
+  `docs/migrations/trough-refinement-candidate.md#direct_profile_combined-a-second-candidate-algorithm`
+  for wiring, evidence, and why promotion is still unavailable.
 
+### Fixed
+- Trough refinement candidate (`trough_refinement_candidate_0_2`, opt-in,
+  still not promoted): corrected a calendar-gap defect where a genuinely
+  missing month could be silently treated as if it never existed during
+  quality-removal sensitivity scenarios, an amplitude-dependent loss-unit
+  bug at zero measurement scale, deletion of statistically plausible later
+  boundary candidates from the reported support set, a sensitivity-combine
+  bug that could report an operational boundary that no scenario actually
+  selected, and a gap-handling defect that could answer from the wrong
+  (pre-gap) segment when the true low state lay after a data gap. Corrected
+  `trough_boundary_date` in the compact export to always report the actual
+  operational boundary rather than the support interval's end date, which
+  differ once a boundary is refined. See
+  `docs/migrations/trough-refinement-candidate.md` for full before/after
+  evidence.
+- Replaced misleading trough-refinement validation metrics
+  (`boundary_set_inclusion` measured interval overlap, not full inclusion;
+  a synthetic truth-derived comparator was labelled as if it were real
+  pass-1 output; `peak_changed`/`duplicate_or_nonmonotonic`/
+  `new_uncomputable` were hardcoded constants, not measurements) with
+  honestly named, correctly measured equivalents, and added a new
+  full-pipeline evaluator (`scripts/evaluate_final_pipeline.py`) that
+  actually runs the detector twice (refinement off/on) on complete
+  synthetic records.
+- Following a further Codex review of the above (`case_studies/results/
+  final-review-2026-09-08/reviews/codex-final.md`): the gap-handling fix
+  above only checked the first post-gap value for a return to the pre-gap
+  low, so a later equivalent-low return was still silently excluded from
+  the reported support set; the per-cycle diff tool dropped rows whose only
+  change was outside a small hand-picked counter set (e.g.
+  `recovery_start_month`); the pipeline-evaluator source fingerprint hashed
+  a hand-picked function list rather than its actual dependency closure,
+  so a real scoring-affecting change could go undetected; and
+  `abstention_rate` was silently resolvable-truth-only, with no separate
+  all-case measure published as the plan required. See
+  `case_studies/results/final-review-2026-09-08/reviews/
+  fixes-for-codex-astra-6.md` for the full account and verification.
+
+## [0.2.0] - 2026-08-31
 ### Changed
 - The flat 20% peak-quality cap is retired. A cycle's peak `invalid_pct` is
   now judged against a per-record, per-calendar-month p90 climatology

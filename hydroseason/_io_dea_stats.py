@@ -814,6 +814,7 @@ def build_planning_footprint_from_historical_mask(
     """
     import numpy as np
     import xarray as xr
+    from affine import Affine
 
     from hydroseason._spatial_plan import active_windows_from_mask
 
@@ -823,7 +824,20 @@ def build_planning_footprint_from_historical_mask(
         raise ValueError(f"safety_cells must be non-negative, got {safety_cells!r}")
 
     exact_values = np.asarray(historical_mask.mask, dtype=bool)
-    native_mask = xr.DataArray(exact_values, dims=("y", "x"))
+    height, width = exact_values.shape
+    transform = Affine(*historical_mask.transform)
+    # Without coords + an explicit rio CRS/transform, rioxarray's accessors
+    # (used by wet_aoi_polygon downstream, via _wet_aoi_from_planning_
+    # footprint) fall back to the identity transform and crs=None -- placing
+    # the vectorised wet AOI at the wrong location and raising on the first
+    # .to_crs() call. See test_planning_footprint_native_mask_is_georeferenced.
+    native_mask = xr.DataArray(
+        exact_values, dims=("y", "x"),
+        coords={
+            "y": transform.f + (np.arange(height) + 0.5) * transform.e,
+            "x": transform.c + (np.arange(width) + 0.5) * transform.a,
+        },
+    ).rio.write_crs(historical_mask.crs).rio.write_transform(transform)
     native_mask.name = "historical_native_mask"
 
     coarse_mask = (

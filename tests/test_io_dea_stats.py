@@ -1081,6 +1081,53 @@ def test_planning_footprint_from_historical_mask_native_mask_is_exact():
     assert historical_mask.mask_sha256 in footprint.digest or footprint.digest
 
 
+def test_planning_footprint_native_mask_is_georeferenced():
+    """native_mask must carry the historical mask's own CRS/transform.
+
+    Regression for a real bug hit against live DEA data: native_mask was
+    built as a bare ``xr.DataArray(exact_values, dims=("y", "x"))`` with no
+    coordinates and no rio CRS/transform. Downstream,
+    ``_wet_aoi_from_planning_footprint`` -> ``wet_aoi_polygon`` reads
+    ``ever_wet.rio.crs``/``.rio.transform()``; with neither set, rioxarray
+    silently falls back to the identity transform (a
+    ``NotGeoreferencedWarning``) and a ``crs=None`` GeoDataFrame -- so the
+    vectorised wet-AOI polygon that later feeds ``_clip_to_aoi`` is placed at
+    the wrong location AND raises ``ValueError: Cannot transform naive
+    geometries`` the moment anything calls ``.to_crs()`` on it (as
+    ``_resolve_aoi_inside_mask`` always does). Any catchment without an
+    already-populated wet_aoi cache hits this on first fetch.
+    """
+    from affine import Affine
+
+    grid = np.zeros((16, 16), dtype=np.int32)
+    grid[3, 2] = 1
+    stats = _stats_dataset(grid, time_span="1987-01-01T00:00:00Z/2025-12-31T00:00:00Z")
+    historical_mask = build_historical_water_mask(stats, _historical_aoi())
+
+    footprint = build_planning_footprint_from_historical_mask(
+        historical_mask, factor=4, safety_cells=1,
+    )
+
+    from hydroseason._wet_aoi import _crs_epsg
+
+    assert footprint.native_mask.rio.crs is not None
+    # `.to_epsg()` can return None on a machine with a stale local PROJ
+    # database even for a CRS that round-trips its EPSG code in WKT; use the
+    # same WKT-regex fallback production already relies on for this exact
+    # reason (hydroseason._wet_aoi.wet_aoi_polygon).
+    assert _crs_epsg(footprint.native_mask.rio.crs) == 3577
+    assert footprint.native_mask.rio.transform() == Affine(*historical_mask.transform)
+
+    from hydroseason._io_wofs_acquire import _wet_aoi_from_planning_footprint
+
+    wet_aoi = _wet_aoi_from_planning_footprint(footprint)
+    assert wet_aoi.crs is not None
+    # Must not silently drop to identity: a real EPSG:3577 wet-AOI polygon
+    # reprojects to WGS84 lon/lat without error.
+    reprojected = wet_aoi.to_crs("EPSG:4326")
+    assert not reprojected.geometry.is_empty.all()
+
+
 def test_planning_footprint_safety_dilation_cannot_mutate_exact_mask():
     """The defining guarantee: expanding coarse_mask with safety_cells may
     grow the planning footprint, but HistoricalWaterMask.mask, pixel_count,

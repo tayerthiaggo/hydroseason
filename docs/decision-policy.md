@@ -2,6 +2,14 @@
 
 HydroSeason 0.2.0 publishes regime, route, timing-identifiability status, and hydrological years under `established_0_2_0`, using circular timing statistics of annual extrema, circular Kuiper uniformity testing, and calibrated per-year timing-identifiability thresholds. See [the 0.2.0 design](decision-policy-0.2.0.md) and [migration notes](migrations/0.2.0-timing-identifiability.md).
 
+Trough-boundary refinement is a separate, additive axis and is not part of
+`established_0_2_0`: two opt-in, unpromoted challenger candidates
+(`shape_fit`, `direct_profile_combined`) exist behind an explicit
+`trough_refinement_policy`, off by default. See
+[the migration note](migrations/trough-refinement-candidate.md) — the same
+promotion gate below applies to either candidate before it could become
+authoritative.
+
 ## Protected baseline
 
 Daly, Fitzroy, and Gilbert are protected as seasonal/per-year case studies with their checked annual dates. Lachlan and Moonie are protected as aseasonal/event case studies. Fixtures are evidence of regression, not permission to change the result.
@@ -22,6 +30,14 @@ Regenerating expected fixtures, tuning to the five protected catchments, or obta
 
 The v0.2.0 policy design is frozen in
 [`decision-policy-0.2.0.md`](decision-policy-0.2.0.md). It was promoted to
+public policy identifier `established_0_2_0` after every gate above passed:
+synthetic calibration and untouched validation (false precise-boundary
+Wilson upper bound `1.2e-4 <= 0.05`), the five protected catchments'
+outcomes unchanged, no confirmed baseline anchor from an unresolved row, the
+three motivating records' qualitative checks, and an independently reviewed
+21-station real cohort (zero false precise-boundary claims, zero direct
+contradictions -- see
+`case_studies/results/timing-identifiability/comparison-report.json`).
 public policy identifier `established_0_2_0` after every gate above passed
 across both timing identifiability and recurrence identifiability:
 synthetic calibration and untouched validation for timing identifiability

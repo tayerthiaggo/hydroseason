@@ -2,11 +2,11 @@
 """Frozen Pass-2 candidate; not established without the blinded real-cohort gate."""
 from hydroseason._trough_refinement import TroughRefinementPolicy
 
-TROUGH_REFINEMENT_AUTHORITY_SCOPE = 'trough_refinement_candidate_0_1'
-TROUGH_REFINEMENT_FINGERPRINT = '049f16f04035d6d1dadf805192bce57b7c0750cab283c9410881d9302cb9ea2d'
+TROUGH_REFINEMENT_AUTHORITY_SCOPE = 'trough_refinement_candidate_0_2'
+TROUGH_REFINEMENT_FINGERPRINT = 'f2b010cf7906fff94b63713e0569364fff181a30782cf9bf7d5e1aa2fee8e41f'
 TROUGH_REFINEMENT_POLICY = TroughRefinementPolicy(
     huber_k=1.345,
     profile_loss_cutoff=0.05,
     pulse_z=1.5,
-    version='trough_refinement_candidate_0_1',
+    version='trough_refinement_candidate_0_2',
 )
