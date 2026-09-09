@@ -126,6 +126,54 @@ def test_package_ships_the_calibration_report():
     assert Path("docs/calibration/2026-08-21-calibration-report.json").is_file()
 
 
+def test_trough_refinement_report_is_not_stale():
+    """Mirrors test_calibration_report_is_not_stale: without this guard, a
+    source edit inside trough_refinement_fingerprint's hashed dependency
+    closure (e.g. hydroseason/_trough_refinement.py or
+    hydroseason/_state_input.py) can silently invalidate the shipped
+    component-calibration fingerprint with no test catching it (Opus
+    checkpoint 2 finding G1, 2026-09-08).
+    """
+    from hydroseason import _trough_refinement_defaults as defaults
+    from hydroseason._trough_refinement_calibration import trough_refinement_fingerprint
+
+    assert defaults.TROUGH_REFINEMENT_FINGERPRINT == trough_refinement_fingerprint(
+        defaults.TROUGH_REFINEMENT_POLICY
+    ), (
+        "trough-refinement calibration inputs changed since "
+        "_trough_refinement_defaults.py was generated; re-run "
+        "scripts/run_calibration.py --trough-refinement --fixed-trough-policy "
+        "for both partitions and refresh the dated docs/calibration copies"
+    )
+
+
+
+
+def test_published_pipeline_evaluation_is_not_stale():
+    """Mirrors test_trough_refinement_report_is_not_stale, for the synthetic
+    detector-off/on pipeline bundle: without this guard, a source edit inside
+    _pipeline_manifest_hash's hashed dependency closure can silently
+    invalidate the published case-study pipeline.json with no test catching
+    it (Codex fix-review C3, 2026-09-09).
+    """
+    import json
+
+    from hydroseason._trough_refinement import TroughRefinementPolicy
+    from scripts.evaluate_final_pipeline import _pipeline_manifest_hash
+
+    published = json.loads(
+        Path(
+            "case_studies/results/final-review-2026-09-08/validation/pipeline.json"
+        ).read_text(encoding="utf-8")
+    )
+    policy = TroughRefinementPolicy(**published["policy"])
+
+    assert published["manifest_hash"] == _pipeline_manifest_hash(policy), (
+        "pipeline evaluation inputs changed since "
+        "case_studies/results/final-review-2026-09-08/validation/pipeline.json "
+        "was generated; re-run scripts/evaluate_final_pipeline.py and refresh "
+        "that published bundle"
+    )
 
 
 def test_release_runtime_has_no_uncalibrated_bridge():

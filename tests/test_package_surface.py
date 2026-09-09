@@ -18,7 +18,7 @@ def test_package_import_exposes_only_migration_safe_surface():
         "HistoricalMaskCoverageWarning", "HistoricalMaskRefreshedWarning",
         "build_historical_water_mask", "load_or_build_historical_water_mask",
         "generate_html_report", "CatchmentReportPaths", "generate_catchment_report",
-        "DynamicHydroYearConfig", "HydrologicalStateResult",
+        "DynamicHydroYearConfig", "TroughRefinementPolicy", "HydrologicalStateResult",
         "SeasonalPatternResult", "aggregate_basin_monthly_extent",
         "analyze_hydrological_state", "classify_annual_surface_water_condition",
         "classify_seasonal_pattern", "compute_monthly_surface_water_condition",

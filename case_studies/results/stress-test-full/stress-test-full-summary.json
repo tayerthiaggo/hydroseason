@@ -1,0 +1,24 @@
+{
+  "errors": [],
+  "n_analyzed": 34,
+  "n_bundles": 34,
+  "n_errors": 0,
+  "pixel_support_status_counts": {
+    "unavailable": 34
+  },
+  "policy": "established_0_2_0",
+  "regime_counts": {
+    "aseasonal": 6,
+    "marginal": 27,
+    "seasonal": 1
+  },
+  "route_counts": {
+    "event_characterisation": 14,
+    "per_year_detection": 20
+  },
+  "timing_evidence_counts": {
+    "insufficient": 12,
+    "supported": 20,
+    "unsupported": 2
+  }
+}

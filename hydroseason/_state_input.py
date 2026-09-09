@@ -58,12 +58,18 @@ def prepare_monthly_extent(
         frame[value_col] = np.where(counts["n_valid"] > 0, 100.0 * counts["n_water"] / counts["n_valid"], np.nan)
         frame["invalid_pct"] = np.where(counts["n_aoi"] > 0, 100.0 * counts["n_invalid"] / counts["n_aoi"], np.nan)
 
-    frame[value_col] = pd.to_numeric(frame[value_col], errors="coerce")
+    # Force float64 even when the source column is all-integer percentages
+    # (e.g. a hand-built [60, 80, 60, ...] fixture with no fractional
+    # values and no count-derived NaN to force an upcast): downstream
+    # refinement code mutates this column in place with NaN and fractional
+    # replacements, which pandas' strict dtype checking refuses to write
+    # into an int64 column.
+    frame[value_col] = pd.to_numeric(frame[value_col], errors="coerce").astype(float)
     if ((frame[value_col] < 0) | (frame[value_col] > 100)).dropna().any():
         raise ValueError("extent_pct must be between 0 and 100.")
     if "invalid_pct" not in frame:
         frame["invalid_pct"] = np.nan
-    frame["invalid_pct"] = pd.to_numeric(frame["invalid_pct"], errors="coerce")
+    frame["invalid_pct"] = pd.to_numeric(frame["invalid_pct"], errors="coerce").astype(float)
     if ((frame["invalid_pct"] < 0) | (frame["invalid_pct"] > 100)).dropna().any():
         raise ValueError("invalid_pct must be between 0 and 100.")
 

@@ -92,7 +92,7 @@ def test_distance_scores_against_truth_interval_not_forced_point():
     ) == 2
 
 
-def _literal_cache(*, false_points: int = 0, structural: int = 0) -> pd.DataFrame:
+def _literal_cache(*, false_points: int = 0, wrong_cycle: int = 0) -> pd.DataFrame:
     policies = list(iter_trough_refinement_policies())[:2]
     rows = []
     for policy_index, _policy in enumerate(policies):
@@ -113,7 +113,7 @@ def _literal_cache(*, false_points: int = 0, structural: int = 0) -> pd.DataFram
                     "truth_resolvable": truth_resolvable,
                     "truth_start": truth_start,
                     "truth_end": truth_end,
-                    "pass1_boundary": pd.Timestamp("2020-05-01"),
+                    "synthetic_reference_boundary": pd.Timestamp("2020-05-01"),
                     "predicted_boundary": predicted,
                     "predicted_start": predicted,
                     "predicted_end": predicted,
@@ -121,12 +121,14 @@ def _literal_cache(*, false_points: int = 0, structural: int = 0) -> pd.DataFram
                     "refinement_status": (
                         "confirmed" if pd.notna(predicted) else "unresolved"
                     ),
-                    "peak_changed": False,
-                    "duplicate_or_nonmonotonic": (
-                        policy_index == 1 and seed < structural
-                    ),
-                    "wrong_cycle": False,
-                    "new_uncomputable": False,
+                    # Not measured by this per-span harness; always None in
+                    # real output (see score_trough_refinement_policy).
+                    "peak_changed": None,
+                    "duplicate_or_nonmonotonic": None,
+                    "new_uncomputable": None,
+                    # Genuinely measured: predicted boundary strictly
+                    # between the two bounding peaks.
+                    "wrong_cycle": policy_index == 1 and seed < wrong_cycle,
                     "applied": pd.notna(predicted),
                 }
             )
@@ -139,19 +141,62 @@ def test_score_reports_false_precision_wilson_and_abstention_separately():
 
     assert score.false_precise_boundary_rate == 0.0
     assert score.false_precise_boundary_wilson[1] < 0.10
-    assert score.boundary_set_inclusion == 1.0
+    assert score.boundary_set_overlap == 1.0
+    # Singleton predictions (predicted_start == predicted_end == truth_end)
+    # overlap but do not enclose the full [truth_start, truth_end] set.
+    assert score.truth_set_containment == 0.0
+    assert score.truth_set_containment_n == 80
     assert score.median_distance_months == 0.0
     assert score.p90_distance_months == 0.0
     assert score.coverage == 1.0
     assert score.abstention_rate == 0.0
 
 
-def test_selector_rejects_structural_candidate_even_when_accuracy_ties():
-    cache = _literal_cache(structural=1)
+def test_all_case_abstention_uses_every_row_not_only_resolvable_truth():
+    """Codex final review C6: `coverage`/`abstention_rate` are conditional
+    on resolvable truth only. The plan's Task 3 separately requires an
+    all-case measure over every cache row, resolvable or not -- it must
+    not be inferable from the resolvable-only summary alone, because the
+    two denominators (and therefore the two rates) genuinely differ.
+    """
+    policy = list(iter_trough_refinement_policies())[0]
+    cache = _literal_cache()
+    score = score_trough_refinement_policy(cache, policy)
+
+    n_for_policy = int((cache["policy_index"] == 0).sum())
+    assert score.resolvable_truth_n == 80
+    assert score.all_case_total_n == n_for_policy == 160
+    # All 80 resolvable rows are applied; none of the 80 unresolvable rows
+    # are (predicted_boundary is NaT for them in _literal_cache).
+    assert score.all_case_applied_n == 80
+    assert score.all_case_coverage == 0.5
+    assert score.all_case_abstention_rate == 0.5
+    # The two rates disagree -- this is the point of the metric.
+    assert score.all_case_abstention_rate != score.abstention_rate
+
+
+def test_component_only_metrics_are_reported_as_unavailable_not_zero():
+    """peak_changes/duplicate_or_nonmonotonic/new_uncomputable are never
+    measured by this per-span harness; they must be `None`, not a
+    tautological 0/False that reads as "measured and clean".
+    """
+    policy = list(iter_trough_refinement_policies())[0]
+    score = score_trough_refinement_policy(_literal_cache(), policy)
+
+    assert score.peak_changes is None
+    assert score.duplicate_or_nonmonotonic is None
+    assert score.new_uncomputable is None
+
+
+def test_selector_rejects_wrong_cycle_even_when_accuracy_ties():
+    """wrong_cycle IS genuinely measured by this harness and remains a
+    real admissibility gate, unlike the always-None component metrics.
+    """
+    cache = _literal_cache(wrong_cycle=1)
     selected, score = select_trough_refinement_policy(cache)
 
     assert selected == list(iter_trough_refinement_policies())[0]
-    assert score.duplicate_or_nonmonotonic == 0
+    assert score.wrong_cycle == 0
 
 
 def test_selector_refuses_when_every_candidate_fails_false_precision_gate():
@@ -201,7 +246,7 @@ def test_calibration_runner_writes_separate_candidate_defaults(
 
     payload = json.loads(report.read_text(encoding="utf-8"))
     assert payload["partition"] == "calibration"
-    assert payload["authority_scope"] == "trough_refinement_candidate_0_1"
+    assert payload["authority_scope"] == "trough_refinement_candidate_0_2"
     assert len(payload["fingerprint"]) == 64
     text = module.read_text(encoding="utf-8")
     assert "TROUGH_REFINEMENT_POLICY" in text
@@ -262,3 +307,44 @@ def test_parser_makes_trough_refinement_an_explicit_mode():
     assert parsed.trough_refinement
     assert parsed.partition == "validation"
     assert parsed.num_trough_refinement_seeds == 5000
+
+
+def test_fixed_trough_policy_calibration_never_calls_selector(tmp_path, monkeypatch):
+    policy = list(iter_trough_refinement_policies())[0]
+    monkeypatch.setattr(
+        calibration_cli,
+        "build_trough_refinement_cache",
+        lambda *args, **kwargs: _literal_cache(),
+    )
+    monkeypatch.setattr(
+        calibration_cli,
+        "select_trough_refinement_policy",
+        lambda *args, **kwargs: pytest.fail(
+            "--fixed-trough-policy must never call select_trough_refinement_policy"
+        ),
+    )
+    report = tmp_path / "calibration.json"
+    module = tmp_path / "_trough_refinement_defaults.py"
+
+    calibration_cli.run_trough_refinement_calibration_fixed(
+        seeds=[TROUGH_REFINEMENT_CALIBRATION_SEEDS.start],
+        out_report=report,
+        out_module=module,
+        policy=policy,
+        workers=1,
+    )
+
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert payload["selection_counts"] == {"reselection": 0}
+    assert payload["selected_policy"]["huber_k"] == policy.huber_k
+
+
+def test_fixed_trough_policy_flag_parses_alongside_trough_refinement():
+    # The "--fixed-trough-policy requires --trough-refinement" cross-flag
+    # constraint is enforced in __main__ (parser.error), not by argparse
+    # itself, so this only pins that both flags parse together correctly.
+    parsed = calibration_cli._build_parser().parse_args(
+        ["--trough-refinement", "--fixed-trough-policy"]
+    )
+    assert parsed.fixed_trough_policy
+    assert parsed.trough_refinement

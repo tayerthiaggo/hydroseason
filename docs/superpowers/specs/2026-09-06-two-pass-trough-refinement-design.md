@@ -203,10 +203,11 @@ then frozen, sensitivity-tested, fingerprinted, and versioned.
 Huber fitting uses deterministic generalized pooled-adjacent-violators blocks.
 Each block location is its weighted Huber M-estimate; the shared valley level is
 selected exactly across the finite branch breakpoints. The preliminary absolute-
-loss fit uses weighted medians through the same block solver. Huber roots use a
-fixed 64-step bisection bracketed by the block observations. These are numerical
-safeguards, not hydrological selection parameters, and are fingerprinted but
-never tuned against truth.
+loss fit uses weighted medians through the same block solver. Huber block roots
+are solved exactly between the finite observation-plus/minus-transition
+breakpoints. Floating-point tie tolerances are numerical safeguards, not
+hydrological selection parameters, and are fingerprinted but never tuned against
+truth.
 
 ### 4.3 Endpoint profile and uncertainty
 
@@ -217,11 +218,13 @@ support. Because residuals are already scaled locally, this quantity is
 dimensionless.
 
 An endpoint is statistically plausible when its normalized profile delta is at
-or below one globally calibrated cutoff and it is not later than the latest
-exactly best-supported endpoint. A later near-equivalent endpoint is already on
-the best valley shape's recovery limb; this one-sided departure constraint keeps
-January in the next hydrological year when December-January-February is a
-continuous observed recovery. Exact flat-bottom endpoint ties remain low state
+or below one globally calibrated cutoff. Within the selected final contiguous
+cluster, evidence is capped at that cluster's latest exactly best-supported
+endpoint. A later near-equivalent endpoint is already on the best valley shape's
+recovery limb; this one-sided departure constraint keeps January in the next
+hydrological year when December-January-February is a continuous observed
+recovery. It does not suppress a separated later cluster selected after a pulse
+clearly returns to low state. Exact flat-bottom endpoint ties remain low state
 and therefore retain their latest month. Calibration targets 95% inclusion of a
 known synthetic boundary or at least one reviewer-acceptable boundary month.
 This is an empirical repeated-case coverage target, not a posterior probability

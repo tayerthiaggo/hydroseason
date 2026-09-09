@@ -28,6 +28,7 @@ from ._phase_scheme import (
 )
 from ._regime import WaterRegimeAssessment, assess_water_regime
 from ._state_input import QualityPolicy, prepare_monthly_extent
+from ._trough_refinement import TroughRefinementPolicy
 from .hydro_year import HydroYearConfig, detect_hydrological_years
 from .hydrological_state import HydrologicalStateResult, analyze_hydrological_state
 
@@ -215,6 +216,7 @@ def analyze_catchment(
     phase_model: LegacyPhaseModel | None = None,
     n_bootstrap: int = 200,
     random_state: int = 0,
+    trough_refinement_policy: TroughRefinementPolicy | None = None,
 ) -> CatchmentAnalysis:
     """Assess regime, then run the analysis that regime supports.
 
@@ -308,6 +310,7 @@ def analyze_catchment(
                 measurement_tolerance_pct=measurement_tolerance_pct,
                 detector="robust_extrema",
                 phase_scheme=canonical_scheme,
+                trough_refinement_policy=trough_refinement_policy,
             )
             state = analyze_hydrological_state(
                 state_extent,

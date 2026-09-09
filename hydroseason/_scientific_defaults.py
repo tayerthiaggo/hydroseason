@@ -2,7 +2,7 @@
 """Calibrated scientific defaults frozen from calibration partitions."""
 from __future__ import annotations
 
-from hydroseason._calibration import EvidenceThresholds, RecoverabilityThresholds
+from hydroseason._calibration import EvidenceThresholds, RecoverabilityThresholds, TroughGeometry
 from hydroseason._recurrence_identifiability import RecurrencePolicy
 from hydroseason._timing_identifiability import TimingIdentifiabilityThresholds
 
@@ -25,3 +25,9 @@ RECURRENCE_AUTHORITY_SCOPE = 'candidate_for_established_0_2_0'
 RECURRENCE_FINGERPRINT = '4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00'
 RECURRENCE_POLICY: RecurrencePolicy = 'annual_shape_match'
 # END RECURRENCE IDENTIFIABILITY DEFAULTS
+
+# BEGIN TROUGH GEOMETRY DEFAULTS
+TROUGH_GEOMETRY_AUTHORITY_SCOPE = 'candidate_for_established_0_3_0'
+TROUGH_GEOMETRY_FINGERPRINT = '885af0c5e2e3c9edddc3d7a85762d43a3a7e5bb1483f57264d6efad3c9980022'
+TROUGH_GEOMETRY_DEFAULTS = TroughGeometry(**{'trough_search_radius_months': 4, 'adaptive_trough_search_radius_months': 4, 'adaptive_min_usable_months_per_cycle': 8})
+# END TROUGH GEOMETRY DEFAULTS

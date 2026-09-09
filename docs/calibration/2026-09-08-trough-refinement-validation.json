@@ -1,0 +1,76 @@
+{
+  "calibration_version": "0.2.0-trough-refinement.1",
+  "partition": "validation",
+  "generated": "2026-09-08T12:29:57+00:00",
+  "authority_scope": "trough_refinement_candidate_0_2",
+  "selected_policy": {
+    "huber_k": 1.345,
+    "profile_loss_cutoff": 0.05,
+    "pulse_z": 1.5,
+    "version": "trough_refinement_candidate_0_2"
+  },
+  "fingerprint": "0f4d5432617064cf3c918bee397efdf0c2e0de036bf702b34ed0021b1944c716",
+  "environment": {
+    "python": "3.12.13",
+    "numpy": "2.4.6",
+    "pandas": "3.0.3"
+  },
+  "n_seeds": 5000,
+  "seed_range": [
+    80000,
+    84999
+  ],
+  "selection_counts": {
+    "reselection": 0
+  },
+  "metrics": {
+    "boundary_set_overlap": 0.9230970442061208,
+    "truth_set_containment": 0.9230970442061208,
+    "truth_set_containment_n": 3823,
+    "false_precise_boundary_rate": 0.0,
+    "false_precise_boundary_wilson": [
+      0.0,
+      0.0032531537506572546
+    ],
+    "false_precise_boundary_n": 1177,
+    "median_distance_months": 0.0,
+    "p90_distance_months": 0.0,
+    "synthetic_reference_median_distance_months": 0.0,
+    "synthetic_reference_p90_distance_months": 1.0,
+    "coverage": 0.9230970442061208,
+    "abstention_rate": 0.07690295579387918,
+    "resolvable_truth_n": 3823,
+    "all_case_coverage": 0.7058,
+    "all_case_abstention_rate": 0.2942,
+    "all_case_applied_n": 3529,
+    "all_case_total_n": 5000,
+    "peak_changes": null,
+    "duplicate_or_nonmonotonic": null,
+    "new_uncomputable": null,
+    "wrong_cycle": 0,
+    "mean_interval_width_months": 0.4998583168036271,
+    "mean_boundary_change_months": 0.6664777557381695
+  },
+  "gates": {
+    "boundary_set_overlap_at_least_0_95": false,
+    "false_precise_wilson_upper_at_most_0_05": true,
+    "median_distance_at_most_1_month": true,
+    "p90_distance_at_most_2_months": true,
+    "zero_wrong_cycle": true,
+    "zero_peak_changes": {
+      "status": null,
+      "reason": "not_evaluated_in_span_harness"
+    },
+    "zero_duplicate_or_nonmonotonic": {
+      "status": null,
+      "reason": "not_evaluated_in_span_harness"
+    },
+    "zero_new_uncomputable": {
+      "status": null,
+      "reason": "not_evaluated_in_span_harness"
+    },
+    "median_matches_or_beats_synthetic_reference": true,
+    "p90_matches_or_beats_synthetic_reference": true
+  },
+  "elapsed_seconds": 41.132
+}

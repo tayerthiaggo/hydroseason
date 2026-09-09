@@ -188,6 +188,8 @@ def main() -> None:
     args = parser.parse_args()
 
     protocol = validate_protocol(json.loads(args.protocol.read_text(encoding="utf-8")))
+    assert_source_eligible(args.source_root, protocol["excluded_sources"])
+    print(f"Validated protocol {protocol['protocol_id']} and eligible source {args.source_root}")
     manifest = build_cohort(
         source_root=args.source_root,
         protocol=protocol,

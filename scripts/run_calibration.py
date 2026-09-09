@@ -1041,25 +1041,34 @@ def _trough_refinement_report_payload(
             if key not in {"policy", "selection_counts"}
         },
         "gates": {
-            "boundary_set_inclusion_at_least_0_95": (
-                score.boundary_set_inclusion >= 0.95
+            "boundary_set_overlap_at_least_0_95": (
+                score.boundary_set_overlap >= 0.95
             ),
             "false_precise_wilson_upper_at_most_0_05": (
                 score.false_precise_boundary_wilson[1] <= 0.05
             ),
             "median_distance_at_most_1_month": score.median_distance_months <= 1.0,
             "p90_distance_at_most_2_months": score.p90_distance_months <= 2.0,
-            "zero_peak_changes": score.peak_changes == 0,
-            "zero_duplicate_or_nonmonotonic": (
-                score.duplicate_or_nonmonotonic == 0
-            ),
             "zero_wrong_cycle": score.wrong_cycle == 0,
-            "zero_new_uncomputable": score.new_uncomputable == 0,
-            "pass2_median_matches_or_beats_pass1": (
-                score.median_distance_months <= score.pass1_median_distance_months
+            # Not gated: this per-span harness never measures these
+            # integration-level properties (always None). A `null` status
+            # here is honest "not evaluated", never a tautological pass.
+            "zero_peak_changes": {
+                "status": None, "reason": "not_evaluated_in_span_harness",
+            },
+            "zero_duplicate_or_nonmonotonic": {
+                "status": None, "reason": "not_evaluated_in_span_harness",
+            },
+            "zero_new_uncomputable": {
+                "status": None, "reason": "not_evaluated_in_span_harness",
+            },
+            "median_matches_or_beats_synthetic_reference": (
+                score.median_distance_months
+                <= score.synthetic_reference_median_distance_months
             ),
-            "pass2_p90_matches_or_beats_pass1": (
-                score.p90_distance_months <= score.pass1_p90_distance_months
+            "p90_matches_or_beats_synthetic_reference": (
+                score.p90_distance_months
+                <= score.synthetic_reference_p90_distance_months
             ),
         },
         "elapsed_seconds": round(elapsed, 3),
@@ -1125,6 +1134,49 @@ def run_trough_refinement_calibration(
     print(f"Wrote trough-refinement calibration report to {out_report}", flush=True)
 
 
+def run_trough_refinement_calibration_fixed(
+    *,
+    seeds,
+    out_report,
+    out_module,
+    policy: TroughRefinementPolicy,
+    workers: int | None = None,
+) -> None:
+    """Revalidate the frozen tuple on the calibration partition -- no grid search.
+
+    Never calls ``select_trough_refinement_policy``: the plan's global
+    constraint fixes ``(huber_k, profile_loss_cutoff, pulse_z)`` for this
+    pass, so re-selecting from the grid here would silently retune it.
+    """
+    started = time.perf_counter()
+    seeds = list(seeds)
+    worker_count = workers if workers is not None else min(os.cpu_count() or 4, 16)
+    cache = build_trough_refinement_cache(
+        seeds,
+        partition="calibration",
+        policies=[policy],
+        workers=worker_count,
+    )
+    score = score_trough_refinement_policy(cache, policy)
+    fingerprint_value = trough_refinement_fingerprint(policy)
+    payload = _trough_refinement_report_payload(
+        partition="calibration",
+        seeds=seeds,
+        score=score,
+        fingerprint_value=fingerprint_value,
+        elapsed=time.perf_counter() - started,
+        reselection=0,
+    )
+    out_report = Path(out_report)
+    out_report.parent.mkdir(parents=True, exist_ok=True)
+    out_report.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _write_trough_refinement_defaults(
+        Path(out_module), policy=policy, fingerprint_value=fingerprint_value
+    )
+    print(f"Revalidated fixed trough-refinement policy: {policy}", flush=True)
+    print(f"Wrote trough-refinement calibration report to {out_report}", flush=True)
+
+
 def run_trough_refinement_validation(
     *,
     seeds,
@@ -1183,6 +1235,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trough-refinement", action="store_true")
     parser.add_argument("--num-geometry-seeds", type=int, default=240)
     parser.add_argument("--num-trough-refinement-seeds", type=int, default=5000)
+    parser.add_argument(
+        "--fixed-trough-policy", action="store_true",
+        help=(
+            "revalidate the frozen (huber_k, profile_loss_cutoff, pulse_z) tuple "
+            "on the calibration partition instead of grid-searching; never calls "
+            "select_trough_refinement_policy. Allowed only with --trough-refinement."
+        ),
+    )
+    parser.add_argument("--workers", type=int, default=None)
     parser.add_argument("--recurrence-identifiability", action="store_true")
     parser.add_argument("--promote-recurrence-identifiability", action="store_true")
     parser.add_argument("--recurrence-cohort-report", default=None)
@@ -1208,6 +1269,9 @@ if __name__ == "__main__":
             "Recurrence, geometry, trough refinement, timing, and legacy calibration flags are mutually exclusive."
         )
 
+    if args.fixed_trough_policy and not args.trough_refinement:
+        parser.error("--fixed-trough-policy is allowed only with --trough-refinement.")
+
     if args.trough_refinement:
         source = (
             TROUGH_REFINEMENT_VALIDATION_SEEDS
@@ -1220,12 +1284,36 @@ if __name__ == "__main__":
             )
         trough_seeds = list(source)[: args.num_trough_refinement_seeds]
         if args.partition == "validation":
+            # Fixed-tuple validation is the existing behaviour already:
+            # a single frozen policy, no reselection, fingerprint-checked.
             run_trough_refinement_validation(
                 seeds=trough_seeds,
                 out_report=Path(
                     args.out_report
                     or "docs/calibration/2026-09-06-trough-refinement-validation.json"
                 ),
+                workers=args.workers,
+            )
+        elif args.fixed_trough_policy:
+            fixed_policy = TroughRefinementPolicy(
+                huber_k=1.345,
+                profile_loss_cutoff=0.05,
+                pulse_z=1.5,
+                version=TROUGH_REFINEMENT_AUTHORITY_SCOPE,
+            )
+            run_trough_refinement_calibration_fixed(
+                seeds=trough_seeds,
+                out_report=Path(
+                    args.out_report
+                    or "docs/calibration/2026-09-06-trough-refinement-calibration.json"
+                ),
+                out_module=Path(
+                    args.out_module
+                    if args.out_module != "hydroseason/_scientific_defaults.py"
+                    else "hydroseason/_trough_refinement_defaults.py"
+                ),
+                policy=fixed_policy,
+                workers=args.workers,
             )
         else:
             run_trough_refinement_calibration(
@@ -1239,6 +1327,7 @@ if __name__ == "__main__":
                     if args.out_module != "hydroseason/_scientific_defaults.py"
                     else "hydroseason/_trough_refinement_defaults.py"
                 ),
+                workers=args.workers,
             )
     elif args.promote_recurrence_identifiability:
         outcome = promote_recurrence_defaults(

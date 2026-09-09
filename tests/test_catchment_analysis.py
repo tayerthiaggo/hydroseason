@@ -6,6 +6,7 @@ import pandas as pd
 
 from hydroseason._catchment import analyze_catchment
 from hydroseason._regime import assess_water_regime
+from hydroseason._trough_refinement import TroughRefinementPolicy
 from hydroseason.hydrological_state import HydrologicalStateResult
 
 
@@ -525,3 +526,48 @@ def test_routing_does_not_count_unassessed_nan_status_cycles_as_informative():
     assert int(new_predicate.sum()) == 3  # NaN is excluded: the corrected behaviour.
     assert bool(old_predicate.iloc[3]) is True
     assert bool(new_predicate.iloc[3]) is False
+
+
+def test_explicit_none_preserves_default():
+    extent = _seasonal()
+    a = analyze_catchment(extent)
+    b = analyze_catchment(extent, trough_refinement_policy=None)
+    assert a.route == b.route
+    pd.testing.assert_frame_equal(a.hydro_years, b.hydro_years)
+    pd.testing.assert_frame_equal(a.monthly, b.monthly)
+
+
+def test_explicit_trough_refinement_policy_reaches_dynamic_config(monkeypatch):
+    """An explicit policy must reach ``DynamicHydroYearConfig`` unchanged."""
+    import hydroseason._catchment as catchment_module
+
+    seen_policies = []
+    real_config_cls = catchment_module.DynamicHydroYearConfig
+
+    def _spying_config(*args, **kwargs):
+        seen_policies.append(kwargs.get("trough_refinement_policy"))
+        return real_config_cls(*args, **kwargs)
+
+    monkeypatch.setattr(catchment_module, "DynamicHydroYearConfig", _spying_config)
+
+    policy = TroughRefinementPolicy(huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=1.5)
+    extent = _seasonal()
+    result = analyze_catchment(extent, trough_refinement_policy=policy)
+
+    assert result.route == "per_year_detection"
+    assert policy in seen_policies
+
+
+def test_event_route_never_constructs_dynamic_detector_config(monkeypatch):
+    """An event-route case must never call the dynamic detector at all."""
+    import hydroseason._catchment as catchment_module
+
+    def _fail(*args, **kwargs):
+        raise AssertionError("event route must not construct DynamicHydroYearConfig")
+
+    monkeypatch.setattr(catchment_module, "DynamicHydroYearConfig", _fail)
+
+    policy = TroughRefinementPolicy(huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=1.5)
+    result = analyze_catchment(_aseasonal(), trough_refinement_policy=policy)
+
+    assert result.route == "event_characterisation"

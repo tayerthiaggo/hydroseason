@@ -1,0 +1,16 @@
+catchment,comparison,cycles_matched_rows,cycles_added_rows,cycles_dropped_rows,cycles_peak_changes,cycles_boundary_shifted,cycles_interval_width_changed,cycles_interval_widened,cycles_interval_narrowed,cycles_status_changed,cycles_newly_uncomputable,cycles_newly_computable,cycles_quality_upgraded,cycles_quality_downgraded,cycles_before_duplicate_or_nonmonotonic_boundaries,cycles_after_duplicate_or_nonmonotonic_boundaries,months_compared
+daly_river_nt,old_default_vs_new_default,21,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252
+daly_river_nt,old_refinement_vs_corrected_refinement,21,0,0,0,3,3,3,0,0,0,0,0,0,0,0,252
+daly_river_nt,current_default_vs_corrected_refinement,21,0,0,0,4,10,3,7,15,0,0,0,13,0,0,252
+fitzroy_river_wa,old_default_vs_new_default,21,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252
+fitzroy_river_wa,old_refinement_vs_corrected_refinement,21,0,0,0,3,3,3,0,0,0,0,0,0,0,0,252
+fitzroy_river_wa,current_default_vs_corrected_refinement,21,0,0,0,3,18,2,16,12,0,0,0,7,0,0,252
+gilbert_river_qld,old_default_vs_new_default,21,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252
+gilbert_river_qld,old_refinement_vs_corrected_refinement,21,0,0,0,2,5,5,0,4,0,0,0,0,0,0,252
+gilbert_river_qld,current_default_vs_corrected_refinement,21,0,0,0,2,15,1,14,12,0,0,0,8,0,0,252
+lachlan_river_nsw,old_default_vs_new_default,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252
+lachlan_river_nsw,old_refinement_vs_corrected_refinement,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252
+lachlan_river_nsw,current_default_vs_corrected_refinement,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252
+moonie_river_qld_nsw,old_default_vs_new_default,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252
+moonie_river_qld_nsw,old_refinement_vs_corrected_refinement,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252
+moonie_river_qld_nsw,current_default_vs_corrected_refinement,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252

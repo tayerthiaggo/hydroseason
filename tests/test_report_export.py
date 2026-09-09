@@ -279,10 +279,11 @@ def _hy_frame():
     """Minimal dynamic-detector frame: one point, one broad, one unresolved.
 
     The broad row's `trough_month` deliberately differs from its
-    `trough_interval_end` so that a test asserting the window end cannot pass
-    by accident (see test_trough_boundary_date_uses_the_window_end_when_localised).
-    The point row keeps `trough_month` equal to `trough_interval_end`, which
-    is correct for a point window.
+    `trough_interval_end` -- a refined operational boundary can legitimately
+    sit strictly inside its own support interval (see
+    test_trough_boundary_date_is_the_operational_date_not_the_window_end),
+    so this fixture exercises that the two are kept genuinely independent
+    rather than one silently standing in for the other.
     """
     return pd.DataFrame(
         {
@@ -296,17 +297,20 @@ def _hy_frame():
     )
 
 
-def test_trough_boundary_date_uses_the_window_end_when_localised():
+def test_trough_boundary_date_is_the_operational_date_not_the_window_end():
+    """`trough_boundary_date` is the operational `trough_month`, always --
+    even for a localised (interval/broad) window whose support interval
+    extends past it. A refined boundary can sit strictly inside its own
+    support set; the displayed uncertainty window (`trough_interval_end`)
+    must not silently substitute for the actual cycle-membership date.
+    """
     from hydroseason._report_export import build_user_hydro_years_export
     out = build_user_hydro_years_export(_hy_frame())
-    # Point row: window start == end == trough_month, so this also pins the
-    # point-window case even though it can't distinguish it from a bug that
-    # left trough_date untouched.
+    # Point row: window start == end == trough_month.
     assert out.loc[0, "trough_boundary_date"] == pd.Timestamp("2020-10-01")
     # Broad row: trough_month (2021-08-01) differs from trough_interval_end
-    # (2021-11-01), so this only passes if the code actually switches to the
-    # window end rather than leaving trough_date (== trough_month) untouched.
-    assert out.loc[1, "trough_boundary_date"] == pd.Timestamp("2021-11-01")
+    # (2021-11-01); the boundary must stay at trough_month.
+    assert out.loc[1, "trough_boundary_date"] == pd.Timestamp("2021-08-01")
 
 
 def test_trough_boundary_date_falls_back_to_trough_month_when_unresolved():

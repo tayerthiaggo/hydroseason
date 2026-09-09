@@ -1,0 +1,284 @@
+I001 [*] Import block is un-sorted or un-formatted
+ --> .tmp-audit-full-20260906\test_recurrence_runner_writes_0\_scientific_defaults.py:2:1
+  |
+1 | # GENERATED
+2 | from hydroseason._recurrence_identifiability import RecurrencePolicy
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3 | KEEP = 1
+  |
+help: Organize imports
+  |
+2 | from hydroseason._recurrence_identifiability import RecurrencePolicy
+3 +
+4 | KEEP = 1
+  |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> case_studies\results\final-review-2026-09-08\reviews\codex-final-probes.py:3:1
+  |
+1 |   """Read-only reproductions for codex-final.md; run from the repository root."""
+2 |
+3 | / from pathlib import Path
+4 | | import sys
+  | |__________^
+5 |
+6 |   ROOT = Path(__file__).resolve().parents[4]
+  |
+help: Organize imports
+  |
+2 |
+3 + import sys
+4 | from pathlib import Path
+  - import sys
+5 |
+  |
+
+E402 Module level import not at top of file
+  --> case_studies\results\final-review-2026-09-08\reviews\codex-final-probes.py:9:1
+   |
+ 7 | sys.path.insert(0, str(ROOT))
+ 8 |
+ 9 | import numpy as np
+   | ^^^^^^^^^^^^^^^^^^
+10 | import pandas as pd
+   |
+help: Move module level imports to top of file
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> case_studies\results\final-review-2026-09-08\reviews\codex-final-probes.py:9:1
+   |
+ 7 |   sys.path.insert(0, str(ROOT))
+ 8 |
+ 9 | / import numpy as np
+10 | | import pandas as pd
+11 | |
+12 | | from hydroseason._state_input import prepare_monthly_extent
+13 | | from hydroseason._trough_refinement import (
+14 | |     PeakBoundary, TroughRefinementPolicy, refine_trough_span,
+15 | | )
+16 | | from scripts import evaluate_final_pipeline as evaluator
+   | |________________________________________________________^
+help: Organize imports
+   |
+13 | from hydroseason._trough_refinement import (
+   -     PeakBoundary, TroughRefinementPolicy, refine_trough_span,
+14 +     PeakBoundary,
+15 +     TroughRefinementPolicy,
+16 +     refine_trough_span,
+17 | )
+   |
+
+E402 Module level import not at top of file
+  --> case_studies\results\final-review-2026-09-08\reviews\codex-final-probes.py:10:1
+   |
+ 9 | import numpy as np
+10 | import pandas as pd
+   | ^^^^^^^^^^^^^^^^^^^
+11 |
+12 | from hydroseason._state_input import prepare_monthly_extent
+   |
+help: Move module level imports to top of file
+
+E402 Module level import not at top of file
+  --> case_studies\results\final-review-2026-09-08\reviews\codex-final-probes.py:12:1
+   |
+10 | import pandas as pd
+11 |
+12 | from hydroseason._state_input import prepare_monthly_extent
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+13 | from hydroseason._trough_refinement import (
+14 |     PeakBoundary, TroughRefinementPolicy, refine_trough_span,
+   |
+help: Move module level imports to top of file
+
+E402 Module level import not at top of file
+  --> case_studies\results\final-review-2026-09-08\reviews\codex-final-probes.py:13:1
+   |
+12 |   from hydroseason._state_input import prepare_monthly_extent
+13 | / from hydroseason._trough_refinement import (
+14 | |     PeakBoundary, TroughRefinementPolicy, refine_trough_span,
+15 | | )
+   | |_^
+16 |   from scripts import evaluate_final_pipeline as evaluator
+   |
+help: Move module level imports to top of file
+
+E402 Module level import not at top of file
+  --> case_studies\results\final-review-2026-09-08\reviews\codex-final-probes.py:16:1
+   |
+14 |     PeakBoundary, TroughRefinementPolicy, refine_trough_span,
+15 | )
+16 | from scripts import evaluate_final_pipeline as evaluator
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: Move module level imports to top of file
+
+E402 Module level import not at top of file
+  --> scripts\audit_recurrence_impact.py:23:1
+   |
+21 |   import pandas as pd  # noqa: E402
+22 |
+23 | / from hydroseason import (
+24 | |     _scientific_defaults as defaults,  # noqa: E402
+25 | |     analyze_catchment,  # noqa: E402
+26 | | )
+   | |_^
+27 |   from scripts.build_timing_identifiability_cohort import (  # noqa: E402
+28 |       KNOWN_DECISION_COLUMNS,
+   |
+help: Move module level imports to top of file
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> tests\test_catchment_analysis.py:492:5
+    |
+490 |       against a future "fix" that narrows it to point/interval.
+491 |       """
+492 | /     import pandas as pd
+493 | |     from hydroseason._catchment import _CYCLE_TIMING_INFORMATIVE_STATUSES
+    | |_________________________________________________________________________^
+494 |
+495 |       assert "broad" in _CYCLE_TIMING_INFORMATIVE_STATUSES
+    |
+help: Organize imports
+    |
+492 |     import pandas as pd
+493 +
+494 |     from hydroseason._catchment import _CYCLE_TIMING_INFORMATIVE_STATUSES
+    |
+
+F401 [*] `pandas` imported but unused
+   --> tests\test_catchment_analysis.py:492:22
+    |
+490 |     against a future "fix" that narrows it to point/interval.
+491 |     """
+492 |     import pandas as pd
+    |                      ^^
+493 |     from hydroseason._catchment import _CYCLE_TIMING_INFORMATIVE_STATUSES
+    |
+help: Remove unused import: `pandas`
+    |
+491 |     """
+    -     import pandas as pd
+492 |     from hydroseason._catchment import _CYCLE_TIMING_INFORMATIVE_STATUSES
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> tests\test_timing_identifiability.py:478:5
+    |
+477 |   def test_window_search_includes_the_previous_dry_season_tail():
+478 | /     import pandas as pd
+479 | |     from hydroseason._timing_identifiability import assess_window_timing
+    | |________________________________________________________________________^
+480 |
+481 |       values = _two_dry_seasons()
+    |
+help: Organize imports
+    |
+478 |     import pandas as pd
+479 +
+480 |     from hydroseason._timing_identifiability import assess_window_timing
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> tests\test_timing_identifiability.py:494:5
+    |
+493 |   def test_post_peak_search_excludes_the_previous_dry_season_tail():
+494 | /     import pandas as pd
+495 | |     from hydroseason._timing_identifiability import assess_window_timing
+    | |________________________________________________________________________^
+496 |
+497 |       values = _two_dry_seasons()
+    |
+help: Organize imports
+    |
+494 |     import pandas as pd
+495 +
+496 |     from hydroseason._timing_identifiability import assess_window_timing
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> tests\test_timing_identifiability.py:510:5
+    |
+509 |   def test_post_peak_search_leaves_the_peak_branch_untouched():
+510 | /     import pandas as pd
+511 | |     from hydroseason._timing_identifiability import assess_window_timing
+    | |________________________________________________________________________^
+512 |
+513 |       values = _two_dry_seasons()
+    |
+help: Organize imports
+    |
+510 |     import pandas as pd
+511 +
+512 |     from hydroseason._timing_identifiability import assess_window_timing
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> tests\test_timing_identifiability.py:526:5
+    |
+525 |   def test_post_peak_search_handles_a_peak_in_the_final_month():
+526 | /     import pandas as pd
+527 | |     from hydroseason._timing_identifiability import assess_window_timing
+    | |________________________________________________________________________^
+528 |
+529 |       index = pd.date_range("2020-01-01", periods=4, freq="MS")
+    |
+help: Organize imports
+    |
+526 |     import pandas as pd
+527 +
+528 |     from hydroseason._timing_identifiability import assess_window_timing
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> tests\test_timing_identifiability.py:542:5
+    |
+541 |   def test_cycle_trough_reports_broad_for_a_sustained_minimum():
+542 | /     import pandas as pd
+543 | |     from hydroseason._timing_identifiability import assess_window_timing
+    | |________________________________________________________________________^
+544 |
+545 |       index = pd.date_range("2020-01-01", periods=10, freq="MS")
+    |
+help: Organize imports
+    |
+542 |     import pandas as pd
+543 +
+544 |     from hydroseason._timing_identifiability import assess_window_timing
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> tests\test_timing_identifiability.py:563:5
+    |
+562 |   def test_calendar_window_never_reports_broad():
+563 | /     import pandas as pd
+564 | |     from hydroseason._timing_identifiability import assess_window_timing
+    | |________________________________________________________________________^
+565 |
+566 |       index = pd.date_range("2020-01-01", periods=10, freq="MS")
+    |
+help: Organize imports
+    |
+563 |     import pandas as pd
+564 +
+565 |     from hydroseason._timing_identifiability import assess_window_timing
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+   --> tests\test_timing_identifiability.py:580:5
+    |
+579 |   def test_peak_status_is_never_broad_even_on_a_flat_peak():
+580 | /     import pandas as pd
+581 | |     from hydroseason._timing_identifiability import assess_window_timing
+    | |________________________________________________________________________^
+582 |
+583 |       index = pd.date_range("2020-01-01", periods=8, freq="MS")
+    |
+help: Organize imports
+    |
+580 |     import pandas as pd
+581 +
+582 |     from hydroseason._timing_identifiability import assess_window_timing
+    |
+
+Found 18 errors.
+[*] 12 fixable with the `--fix` option.

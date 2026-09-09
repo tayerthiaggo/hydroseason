@@ -165,4 +165,18 @@ def test_refinement_preserves_protected_peak_and_cycle_structure(catchment):
     if catchment == "fitzroy":
         row = refined.loc[refined["hy_year"] == 2021].iloc[0]
         assert row["trough_month"] == pd.Timestamp("2021-12-01")
-        assert row["recovery_start_month"] == pd.Timestamp("2022-01-01")
+        # Before the 2026-09-08 calendar-gap/loss-unit fixes, one of this
+        # cycle's interval-peak sensitivity scenarios reached a confident
+        # boundary through a since-fixed defect, so refinement applied and
+        # stamped recovery_start_month=2022-01-01. With that scenario now
+        # honestly abstaining, the peak-sensitivity scenarios disagree and
+        # refinement correctly falls back to pass 1 instead of asserting a
+        # recovery month it cannot support. Pass 1's own boundary already
+        # agreed on 2021-12-01, so the operational date is unchanged;
+        # recovery_start_month is a refinement-only diagnostic and is blank
+        # when refinement did not apply -- this is the corrected,
+        # intentionally more conservative behaviour, not a regression.
+        assert row["trough_refinement_status"] == "unresolved"
+        assert row["trough_refinement_reason"] == "unstable_peak_sensitivity"
+        assert not row["trough_refinement_applied"]
+        assert pd.isna(row["recovery_start_month"])

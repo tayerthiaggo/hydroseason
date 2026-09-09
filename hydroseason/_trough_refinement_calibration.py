@@ -16,7 +16,7 @@ from ._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
 from ._synthetic import generate_trough_refinement_record
 from ._trough_refinement import TroughRefinementPolicy, refine_trough_span
 
-TROUGH_REFINEMENT_AUTHORITY_SCOPE = "trough_refinement_candidate_0_1"
+TROUGH_REFINEMENT_AUTHORITY_SCOPE = "trough_refinement_candidate_0_2"
 TROUGH_REFINEMENT_GRID = {
     "huber_k": (1.0, 1.345, 1.5, 2.0),
     "profile_loss_cutoff": (0.0, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
@@ -27,20 +27,45 @@ TROUGH_REFINEMENT_GRID = {
 @dataclass(frozen=True)
 class TroughRefinementScore:
     policy: TroughRefinementPolicy
-    boundary_set_inclusion: float
+    # Overlap: predicted and truth intervals intersect. NOT full inclusion --
+    # see `truth_set_containment` for "predicted bounds enclose both truth
+    # endpoints". The two answer different questions and must not collapse.
+    boundary_set_overlap: float
+    truth_set_containment: float
+    truth_set_containment_n: int
     false_precise_boundary_rate: float
     false_precise_boundary_wilson: tuple[float, float]
     false_precise_boundary_n: int
     median_distance_months: float
     p90_distance_months: float
-    pass1_median_distance_months: float
-    pass1_p90_distance_months: float
+    # Comparator is `_synthetic.TroughRefinementSyntheticRecord
+    # .synthetic_reference_boundary` -- a truth-derived synthetic stand-in,
+    # NOT real pass-1 detector output. Do not read these as measured
+    # improvement over HydroSeason's actual first pass.
+    synthetic_reference_median_distance_months: float
+    synthetic_reference_p90_distance_months: float
+    # `coverage`/`abstention_rate` are conditional on `truth_resolvable`:
+    # applied predictions divided by *resolvable-truth* spans only. The
+    # `all_case_*` fields below answer the separate question the plan's
+    # Task 3 requires kept distinct: applied divided by *every* span in the
+    # cache, resolvable or not (C6, 2026-09-08 review). Neither one is a
+    # gate; both are reported so a reader is never left to assume one from
+    # the other's denominator.
     coverage: float
     abstention_rate: float
-    peak_changes: int
-    duplicate_or_nonmonotonic: int
+    resolvable_truth_n: int
+    all_case_coverage: float
+    all_case_abstention_rate: float
+    all_case_applied_n: int
+    all_case_total_n: int
+    # This per-span harness never reassembles adjacent cycles, so it cannot
+    # measure these integration-level properties; they are always None
+    # ("not_evaluated_in_span_harness"), never a tautological 0/False. See
+    # scripts/evaluate_final_pipeline.py for the harness that measures them.
+    peak_changes: int | None
+    duplicate_or_nonmonotonic: int | None
+    new_uncomputable: int | None
     wrong_cycle: int
-    new_uncomputable: int
     mean_interval_width_months: float
     mean_boundary_change_months: float
     selection_counts: dict[str, int]
@@ -119,17 +144,23 @@ def _cache_row(record, policy_index: int, policy: TroughRefinementPolicy) -> dic
         "truth_resolvable": record.truth.resolvable,
         "truth_start": record.truth.boundary_start or pd.NaT,
         "truth_end": record.truth.boundary_end or pd.NaT,
-        "pass1_boundary": record.pass1_boundary or pd.NaT,
+        "synthetic_reference_boundary": record.synthetic_reference_boundary or pd.NaT,
         "predicted_boundary": predicted,
         "predicted_start": candidates[0] if candidates else pd.NaT,
         "predicted_end": candidates[-1] if candidates else pd.NaT,
         "predicted_timing_status": _timing_status(candidates),
         "refinement_status": result.status,
         "refinement_reason": result.reason,
-        "peak_changed": False,
-        "duplicate_or_nonmonotonic": False,
+        # This harness challenges one isolated span at a time -- it never
+        # reassembles adjacent cycles, so it cannot measure whether a change
+        # altered a peak, produced a duplicate/nonmonotonic boundary
+        # sequence, or made an adjacent cycle newly uncomputable. `None`
+        # here (not 0/False) is the honest "not measured", not "measured
+        # and clean". See scripts/evaluate_final_pipeline.py.
+        "peak_changed": None,
+        "duplicate_or_nonmonotonic": None,
         "wrong_cycle": wrong_cycle,
-        "new_uncomputable": False,
+        "new_uncomputable": None,
         "applied": applied,
     }
 
@@ -191,11 +222,17 @@ def score_trough_refinement_policy(
 
     resolvable = subset.loc[subset["truth_resolvable"]]
     applied = resolvable.loc[resolvable["applied"]]
-    inclusions = (
+    overlaps = (
         (applied["predicted_end"] >= applied["truth_start"])
         & (applied["predicted_start"] <= applied["truth_end"])
     )
-    inclusion = float(inclusions.sum() / len(resolvable)) if len(resolvable) else 0.0
+    overlap = float(overlaps.sum() / len(resolvable)) if len(resolvable) else 0.0
+    containments = (
+        (applied["predicted_start"] <= applied["truth_start"])
+        & (applied["predicted_end"] >= applied["truth_end"])
+    )
+    containment_n = len(resolvable)
+    containment = float(containments.sum() / containment_n) if containment_n else 0.0
     distances = np.asarray(
         [
             distance_to_truth_interval(row.predicted_boundary, row.truth_start, row.truth_end)
@@ -203,11 +240,13 @@ def score_trough_refinement_policy(
         ],
         dtype=float,
     )
-    pass1_distances = np.asarray(
+    synthetic_reference_distances = np.asarray(
         [
-            distance_to_truth_interval(row.pass1_boundary, row.truth_start, row.truth_end)
+            distance_to_truth_interval(
+                row.synthetic_reference_boundary, row.truth_start, row.truth_end
+            )
             for row in resolvable.itertuples(index=False)
-            if pd.notna(row.pass1_boundary)
+            if pd.notna(row.synthetic_reference_boundary)
         ],
         dtype=float,
     )
@@ -221,6 +260,14 @@ def score_trough_refinement_policy(
     n_unresolvable = int(len(unresolvable))
     resolved_count = int(len(applied))
     coverage = float(resolved_count / len(resolvable)) if len(resolvable) else 0.0
+    # All-case coverage/abstention: applied predictions over every span in
+    # the cache -- resolvable and unresolvable truth alike -- kept separate
+    # from the resolvable-truth-only `coverage` above (plan Task 3).
+    all_case_applied_n = int(subset["applied"].sum())
+    all_case_total_n = int(len(subset))
+    all_case_coverage = (
+        float(all_case_applied_n / all_case_total_n) if all_case_total_n else 0.0
+    )
     interval_widths = np.asarray(
         [
             abs(_month_delta(row.predicted_end, row.predicted_start))
@@ -230,15 +277,17 @@ def score_trough_refinement_policy(
     )
     changes = np.asarray(
         [
-            abs(_month_delta(row.predicted_boundary, row.pass1_boundary))
+            abs(_month_delta(row.predicted_boundary, row.synthetic_reference_boundary))
             for row in applied.itertuples(index=False)
-            if pd.notna(row.pass1_boundary)
+            if pd.notna(row.synthetic_reference_boundary)
         ],
         dtype=float,
     )
     return TroughRefinementScore(
         policy=policy,
-        boundary_set_inclusion=inclusion,
+        boundary_set_overlap=overlap,
+        truth_set_containment=containment,
+        truth_set_containment_n=containment_n,
         false_precise_boundary_rate=(
             float(n_false / n_unresolvable) if n_unresolvable else 0.0
         ),
@@ -246,14 +295,25 @@ def score_trough_refinement_policy(
         false_precise_boundary_n=n_unresolvable,
         median_distance_months=_percentile(distances, 50.0, 12.0),
         p90_distance_months=_percentile(distances, 90.0, 12.0),
-        pass1_median_distance_months=_percentile(pass1_distances, 50.0, 12.0),
-        pass1_p90_distance_months=_percentile(pass1_distances, 90.0, 12.0),
+        synthetic_reference_median_distance_months=_percentile(
+            synthetic_reference_distances, 50.0, 12.0
+        ),
+        synthetic_reference_p90_distance_months=_percentile(
+            synthetic_reference_distances, 90.0, 12.0
+        ),
         coverage=coverage,
         abstention_rate=1.0 - coverage,
-        peak_changes=int(subset["peak_changed"].sum()),
-        duplicate_or_nonmonotonic=int(subset["duplicate_or_nonmonotonic"].sum()),
+        resolvable_truth_n=int(len(resolvable)),
+        all_case_coverage=all_case_coverage,
+        all_case_abstention_rate=1.0 - all_case_coverage,
+        all_case_applied_n=all_case_applied_n,
+        all_case_total_n=all_case_total_n,
+        # Always None: this per-span harness cannot measure these
+        # integration-level properties. See the field docstring above.
+        peak_changes=None,
+        duplicate_or_nonmonotonic=None,
+        new_uncomputable=None,
         wrong_cycle=int(subset["wrong_cycle"].sum()),
-        new_uncomputable=int(subset["new_uncomputable"].sum()),
         mean_interval_width_months=(
             float(np.mean(interval_widths)) if interval_widths.size else 0.0
         ),
@@ -265,17 +325,19 @@ def score_trough_refinement_policy(
 
 
 def _admissible(score: TroughRefinementScore) -> bool:
+    # peak_changes/duplicate_or_nonmonotonic/new_uncomputable are not gated
+    # here: this per-span harness never measures them (always None), so
+    # gating on them would be tautologically satisfied, not a real
+    # structural check. wrong_cycle IS genuinely measured here and remains
+    # a hard gate.
     return bool(
-        score.boundary_set_inclusion >= 0.95
+        score.boundary_set_overlap >= 0.95
         and score.false_precise_boundary_wilson[1] <= 0.05
-        and score.peak_changes == 0
-        and score.duplicate_or_nonmonotonic == 0
         and score.wrong_cycle == 0
-        and score.new_uncomputable == 0
         and score.median_distance_months <= 1.0
         and score.p90_distance_months <= 2.0
-        and score.median_distance_months <= score.pass1_median_distance_months
-        and score.p90_distance_months <= score.pass1_p90_distance_months
+        and score.median_distance_months <= score.synthetic_reference_median_distance_months
+        and score.p90_distance_months <= score.synthetic_reference_p90_distance_months
     )
 
 
@@ -329,6 +391,8 @@ def trough_refinement_fingerprint(policy: TroughRefinementPolicy) -> str:
         _synthetic._trough_refinement_values,
         _synthetic.generate_trough_refinement_record,
         _state_input.prepare_monthly_extent,
+        _month_delta,
+        _timing_status,
         _cache_row,
         build_trough_refinement_cache,
         distance_to_truth_interval,
@@ -342,6 +406,7 @@ def trough_refinement_fingerprint(policy: TroughRefinementPolicy) -> str:
     hasher.update(
         json.dumps(list(_synthetic.TROUGH_REFINEMENT_CALIBRATION_SEEDS)).encode("utf-8")
     )
+    hasher.update(json.dumps(asdict(TIMING_IDENTIFIABILITY_DEFAULTS), sort_keys=True).encode("utf-8"))
     hasher.update(json.dumps(asdict(policy), sort_keys=True).encode("utf-8"))
     hasher.update(TROUGH_REFINEMENT_AUTHORITY_SCOPE.encode("utf-8"))
     return hasher.hexdigest()

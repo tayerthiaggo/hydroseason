@@ -443,7 +443,7 @@ ANNUAL_COLUMNS = [
     "trough_refinement_applied", "recovery_start_month",
     "trough_local_scale_pp", "trough_profile_best_loss",
     "trough_profile_cutoff", "trough_effective_support",
-    "trough_pulse_months", "trough_refinement_policy_version",
+    "trough_pulse_months", "trough_refinement_policy_version", "trough_loss_basis",
 ]
 
 
@@ -965,6 +965,7 @@ _REFINEMENT_EVIDENCE_COLUMNS = (
     "trough_effective_support",
     "trough_pulse_months",
     "trough_refinement_policy_version",
+    "trough_loss_basis",
 )
 
 _FROZEN_PEAK_COLUMNS = (
@@ -1075,6 +1076,7 @@ def _record_trough_challenger(
         "trough_effective_support": refinement.effective_support,
         "trough_pulse_months": refinement.pulse_months,
         "trough_refinement_policy_version": refinement.policy_version,
+        "trough_loss_basis": refinement.loss_basis,
     }
     for column, value in values.items():
         rows.at[position, column] = value
@@ -1213,6 +1215,7 @@ def _apply_trough_refinement(
             left_peak=left_peak,
             right_peak=right_peak,
             policy=policy,
+            measurement_tolerance_pp=config.measurement_tolerance_pct,
         )
         _record_trough_challenger(rows, position, refinement, config)
 
@@ -1335,8 +1338,25 @@ def _apply_trough_refinement(
             )
         current_candidate["trough_refinement_applied"] = True
 
-        rows.iloc[position] = pd.Series(current_candidate)
-        rows.iloc[position + 1] = pd.Series(following_candidate)
+        # Per-cell assignment, widening a column to object first only if it
+        # cannot already hold a Timestamp: a column that was all-`np.nan` in
+        # `rows` up to this point (e.g. every cycle so far had no secondary
+        # peak) is float64-typed, and pandas' strict dtype checking refuses
+        # to write a real Timestamp into a float64 cell/column rather than
+        # silently upcasting it. A `datetime64` column already holds
+        # Timestamps natively and must NOT be widened -- doing so turns
+        # every date in that column into an object-dtype value that renders
+        # as a full ISO timestamp instead of a plain date downstream.
+        for position_, candidate in (
+            (position, current_candidate), (position + 1, following_candidate)
+        ):
+            for column, value in candidate.items():
+                if isinstance(value, pd.Timestamp) and not (
+                    pd.api.types.is_datetime64_any_dtype(rows[column])
+                    or rows[column].dtype == object
+                ):
+                    rows[column] = rows[column].astype(object)
+                rows.at[position_, column] = value
         working_opportunities.iloc[position] = changed_opportunity
 
     return rows.loc[:, ANNUAL_COLUMNS]

@@ -20,9 +20,9 @@ if str(REPO_ROOT) not in sys.path:
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from hydroseason import (  # noqa: E402
-    _scientific_defaults as defaults,
-    analyze_catchment,
+from hydroseason import (
+    _scientific_defaults as defaults,  # noqa: E402
+    analyze_catchment,  # noqa: E402
 )
 from scripts.build_timing_identifiability_cohort import (  # noqa: E402
     KNOWN_DECISION_COLUMNS,

@@ -426,25 +426,16 @@ def build_user_hydro_years_export(hydro_years: pd.DataFrame) -> pd.DataFrame:
     for target, source_names in aliases.items():
         out[target] = _first_column(hydro_years, *source_names).to_numpy()
 
-    # The cycle boundary and the scientific window serve different consumers and
-    # must not share one field. `trough_date` keeps its strict point-only
-    # meaning below; `trough_boundary_date` is populated whenever a trough
-    # exists. For a localised window (point/interval/broad) the boundary is
-    # its LAST month -- the end of the dry season, which is where the cycle
-    # actually turns; for "unresolved" it falls back to `trough_month`. It is
-    # `NaT` only for a cycle with no detected trough at all (a blank cycle,
-    # where `trough_timing_status` is NaN rather than one of the status
-    # strings), matching `trough_date`'s own `NaT` for that row -- there is no
-    # boundary to report, and inventing one would be false precision.
-    # Derived before the nulling below, while `trough_date` still holds
-    # `trough_month`. `.isin(...)` on a missing or NA status is False, so a
-    # frame with no `trough_timing_status` column (the fixed-window detector)
-    # or a blank-cycle row is treated as not-localised and falls back to
-    # `trough_date` -- correctly leaving it `NaT` for a blank cycle.
-    localised = out["trough_timing_status"].isin(["point", "interval", "broad"])
-    out["trough_boundary_date"] = out["trough_date"].where(
-        ~localised, out["trough_interval_end_date"]
-    )
+    # The cycle boundary and the scientific window serve different consumers
+    # and must not share one field. `trough_date` keeps its strict
+    # point-only meaning below; `trough_boundary_date` is the actual
+    # operational date used for cycle segmentation (`trough_month`), which a
+    # refined boundary can legitimately place strictly inside its support
+    # interval -- it is NOT always the interval's last month. It is `NaT`
+    # only for a cycle with no detected trough at all (a blank cycle), same
+    # as `trough_date`'s own `NaT` for that row. Derived before the nulling
+    # below, while `trough_date` still holds `trough_month` unconditionally.
+    out["trough_boundary_date"] = out["trough_date"]
 
     # A public exact-date field is populated only when timing status is
     # "point": an interval or unresolved extremum has no defensible single

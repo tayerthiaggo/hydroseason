@@ -126,8 +126,11 @@ _ACTIONS: dict[Regime, str] = {
         "event descriptors. Peak and trough months vary interannually."
     ),
     "aseasonal": (
-        "Do not define a hydrological year. No reproducible annual cycle is "
-        "present, so any peak, trough or wet/dry split would describe noise. "
+        "Do not define a hydrological year: annual timing was not established "
+        "by the current evidence. This label covers both a record that "
+        "genuinely lacks a reproducible annual cycle and one where insufficient "
+        "concentration, power, or informative years left annual timing "
+        "unresolved -- a non-significant test does not prove uniform timing. "
         "Characterise this catchment by wet events and low-extent spell length instead."
     ),
     "insufficient_record": (
@@ -290,8 +293,11 @@ def assess_water_regime(
         )
     if decision.regime == "aseasonal":
         caveats.append(
-            "no reproducible annual cycle: peak and trough are withheld because "
-            "any value would reflect noise rather than a seasonal signal"
+            "annual timing was not established by the current evidence: peak "
+            "and trough are withheld because the record either lacks a "
+            "reproducible annual cycle or leaves it unresolved (insufficient "
+            "concentration, power, or informative years) -- a non-significant "
+            "test does not itself prove uniform timing"
         )
     if years_without:
         caveats.append(

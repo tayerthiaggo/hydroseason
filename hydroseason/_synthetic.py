@@ -1041,7 +1041,10 @@ class TroughRefinementSyntheticRecord:
     seed: int
     left_peak: object
     right_peak: object | None
-    pass1_boundary: pd.Timestamp | None
+    # Not real pass-1 output: a synthetic comparator derived from truth
+    # (truth interval start, sometimes shifted one month earlier). See
+    # `_trough_refinement_calibration._cache_row`'s use of this field.
+    synthetic_reference_boundary: pd.Timestamp | None
 
 
 def _trough_refinement_values(length: int, low_position: int) -> np.ndarray:
@@ -1197,12 +1200,12 @@ def generate_trough_refinement_record(
         boundary_end = pd.Timestamp(index[low_end])
         low_state_start = boundary_start
         low_state_end = boundary_end
-        pass1_position = max(1, low_start - (1 if seed % 3 == 0 else 0))
-        pass1_boundary = pd.Timestamp(index[pass1_position])
+        reference_position = max(1, low_start - (1 if seed % 3 == 0 else 0))
+        synthetic_reference_boundary = pd.Timestamp(index[reference_position])
     else:
         boundary_start = boundary_end = None
         low_state_start = low_state_end = None
-        pass1_boundary = pd.Timestamp(index[low_position])
+        synthetic_reference_boundary = pd.Timestamp(index[low_position])
 
     truth = TroughRefinementTruth(
         boundary_start=boundary_start,
@@ -1219,5 +1222,5 @@ def generate_trough_refinement_record(
         seed=seed,
         left_peak=left_peak,
         right_peak=right_peak,
-        pass1_boundary=pass1_boundary,
+        synthetic_reference_boundary=synthetic_reference_boundary,
     )
