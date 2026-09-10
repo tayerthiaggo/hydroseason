@@ -4,6 +4,38 @@ All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- `direct_profile_combined` let cloud-flagged months take full part in the
+  fit that chooses the low state. A corrupted observation often reads far
+  *below* the true trough (Daly River HY2005's January 2006: `0.0168` at
+  61% invalid, about a seventh of the real trough), and it won the
+  reference-level search outright — making that value the low state, so
+  every genuine trough month sat above the equivalence ceiling and none
+  could be selected. Untrusted months now carry zero weight in the profile
+  solve, so they neither define the low state, nor dominate the loss
+  comparison between candidate fits, nor drag the isotonic recovery branch.
+  Because zero weight makes an all-untrusted block free, the reference
+  level, the departure candidate and the final support cluster must each be
+  anchored by at least one trusted month. Detecting whether the untrusted
+  data could have changed the answer remains the sensitivity ensemble's job.
+- The sensitivity ensemble counted a scenario it could not evaluate as a
+  dissenting vote. Masking a cloud-flagged month against a span edge leaves
+  the pre-gap path nothing to fit, so the scenario reports nothing about
+  where the boundary lies — yet it vetoed the refinement outright: Gilbert
+  River HY2006's March 2006 (25% invalid, eight months before the trough)
+  collapsed 2 of 7 scenarios and discarded a 5-of-7 agreement on December.
+  Such rejections now carry the reason `span_not_evaluable` and are excluded
+  from the stability vote. A scenario that evaluated and then abstained on
+  the merits still dissents, and `shape_fit` never emits the reason, so its
+  behaviour is unchanged. Gilbert HY2006 now reports `2006-12`.
+- A boundary the record cannot actually resolve was reported as `confirmed`.
+  Where the month after the boundary clears the equivalence margin (so the
+  boundary stands) but still falls inside the record's own noise scale, the
+  result is now `provisional` with reason `recovery_within_noise`. The
+  operational date does not move: the equivalence margin still decides it,
+  and is deliberately not floored by the noise scale — see the migration
+  doc for why coupling them was rejected.
+
 ### Changed
 - `direct_profile_combined`'s equivalence margin is now **proportional to the
   low-state level** (`TroughRefinementPolicy.delta_rel`, a fraction) rather

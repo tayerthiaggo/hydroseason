@@ -30,6 +30,7 @@ import pandas as pd
 
 from ._trough_refinement import (
     PeakBoundary,
+    SCENARIO_NOT_EVALUABLE,
     TroughRefinementPolicy,
     TroughRefinementResult,
     _empty_result,
@@ -133,17 +134,31 @@ def final_departure_index(
     level: float,
     margin: float,
     tolerance: float,
+    reliable: np.ndarray | None = None,
 ) -> int | None:
     """``T(f, L, delta)``: last interior index inside the equivalence ceiling.
 
     Interior means excluding both span edges (index 0 and ``len - 1``). If
     the contiguous low run touching the candidate index reaches either edge,
     "final departure" is undefined for this fit and ``None`` is returned.
+
+    Only a month the pipeline trusts can be the departure. A cloud-corrupted
+    observation frequently reads far below the true trough, and the isotonic
+    recovery branch then pools it with its neighbour and drags that pair
+    under the equivalence ceiling -- so the low state appears to run through
+    a month that is really just missing data (Daly River HY2005's January
+    2006, 0.0168 at 61% invalid). Since such a month would be refused as a
+    published boundary anyway, it is not admitted as a departure candidate
+    in the first place. The run-reaches-an-edge test below still reads the
+    whole fitted curve: that is about the low state's contiguity, which
+    quality has no bearing on.
     """
     n = fitted.size
     ceiling = level + margin + tolerance
     below = np.flatnonzero(fitted <= ceiling)
     interior = below[(below > 0) & (below < n - 1)]
+    if reliable is not None and interior.size:
+        interior = interior[reliable[interior]]
     if interior.size == 0:
         return None
     candidate = int(interior[-1])
@@ -190,7 +205,12 @@ def _combined_scale(
 
 
 def _natural_reference_level(
-    values: np.ndarray, weights: np.ndarray, *, scale: float, huber_k: float,
+    values: np.ndarray,
+    weights: np.ndarray,
+    *,
+    scale: float,
+    huber_k: float,
+    reliable: np.ndarray | None = None,
 ) -> float:
     """Single global low-state reference ``L0``: the block level of the
     best-fitting unconstrained valley shape (today's production search,
@@ -199,11 +219,26 @@ def _natural_reference_level(
     contract's common-reference rule: the reference must not be re-derived
     per candidate block, or a sequence of small increases could chain into
     a drifting low state.
+
+    ``reliable`` marks months the pipeline is willing to trust. A candidate
+    block must contain at least one of them, because the level it yields
+    *defines* the low state that every other month is then judged against.
+    Without that constraint a single cloud-corrupted month can win the
+    search outright and become the low state: Daly River HY2005's January
+    2006 reads 0.0168 at 61% invalid, roughly a seventh of the true trough,
+    and did exactly that -- pushing every genuine trough month above the
+    equivalence ceiling so none of them could be selected. An unreliable
+    month may still be scored against the reference level; it may not set
+    it. When nothing is reliable there is no better anchor available, so the
+    search runs unconstrained.
     """
     n = values.size
+    anchored = reliable if reliable is not None and bool(np.any(reliable)) else None
     best = None
     for start in range(1, n - 1):
         for end in range(start, n - 1):
+            if anchored is not None and not bool(np.any(anchored[start:end + 1])):
+                continue
             fit = _fit_valley_huber(values, weights, start, end, scale=scale, huber_k=huber_k)
             if not fit.converged:
                 continue
@@ -242,6 +277,7 @@ def solve_direct_profile(
     huber_k: float,
     profile_loss_cutoff: float,
     l_uncertainty_k: float,
+    reliable: np.ndarray | None = None,
 ) -> _DirectProfileSolution:
     """Grid-search ``(start, end)`` against one shared ``L`` grid; profile
     ``Q(d) = T(f, L, delta)`` over the joint (position, reference-level)
@@ -258,9 +294,26 @@ def solve_direct_profile(
     numerical_tolerance = 64 * np.finfo(float).eps * max(
         float(np.max(np.abs(values))), margin_floor, np.finfo(float).tiny,
     )
+
+    # A month the pipeline does not trust carries no weight in the fit that
+    # decides between candidate low states. Its residual would otherwise
+    # dominate that comparison outright: Daly River HY2005's January 2006
+    # (0.0168 at 61% invalid) sits so far from every honest fit that all of
+    # them looked implausible beside a fit contorted to accommodate it, and
+    # the cycle abstained. Zero weight also stops it dragging the isotonic
+    # recovery branch, whose pooling is now driven by trusted neighbours.
+    #
+    # This makes an all-untrusted block cost nothing, which would otherwise
+    # be a free win -- the reliability anchors on the reference level, the
+    # departure candidate, and the support cluster are what keep such a
+    # block from being selected.
+    if reliable is not None and bool(np.any(reliable)):
+        weights = weights * reliable
     effective_support = float(np.sum(weights))
 
-    reference_level = _natural_reference_level(values, weights, scale=scale, huber_k=huber_k)
+    reference_level = _natural_reference_level(
+        values, weights, scale=scale, huber_k=huber_k, reliable=reliable,
+    )
     grid = l_grid(reference_level, scale, l_uncertainty_k=l_uncertainty_k)
 
     best_by_departure: dict[int, _DirectProfileFit] = {}
@@ -281,6 +334,7 @@ def solve_direct_profile(
                         level, delta_rel=delta_rel, margin_floor=margin_floor,
                     ),
                     tolerance=numerical_tolerance,
+                    reliable=reliable,
                 )
                 if departure is None:
                     continue
@@ -320,7 +374,24 @@ def solve_direct_profile(
             clusters.append([position])
         else:
             clusters[-1].append(position)
+
+    # The latest plausible cluster wins, but a cluster made up entirely of
+    # months the pipeline does not trust cannot be the one that decides
+    # where the low state ended. A cloud-corrupted month often reads far
+    # BELOW the true trough (Daly River HY2005: January 2006 at 0.0168,
+    # 61% invalid), so it lands under the equivalence ceiling on its own and
+    # forms a spurious later cluster that would otherwise outrank the real
+    # trough months. Fall back to the latest cluster holding at least one
+    # reliable month; if no cluster has one, keep the last so the caller's
+    # own reliability guard reports the abstention.
     final_cluster = clusters[-1] if clusters else []
+    if clusters and reliable is not None:
+        anchored = [
+            cluster for cluster in clusters
+            if bool(np.any(reliable[cluster]))
+        ]
+        if anchored:
+            final_cluster = anchored[-1]
     if not final_cluster:
         return _DirectProfileSolution(
             support_positions=(), departure_position=None, best_loss=float(overall_best_loss),
@@ -363,24 +434,32 @@ def _refine_gap_direct_profile(
     equivalence margin`` (this candidate's target) instead of the raw
     Huber-loss profile cutoff (the shape_fit target's unit).
     """
+    # These three rejections are all "this span's geometry leaves nothing to
+    # fit", not a finding about where the boundary lies -- more than one
+    # gap, a gap against a span edge, or observations missing on both sides
+    # of it. They are marked as not evaluable so the sensitivity ensemble
+    # excludes them from its stability vote rather than counting them as
+    # dissent (see `_combine_sensitivity_results`). The post-gap checks
+    # further down stay `gap_overlaps_low_state`: those are real conclusions
+    # drawn from data that was there.
     missing = np.flatnonzero(~observed)
     groups = np.split(missing, np.flatnonzero(np.diff(missing) != 1) + 1)
     if len(groups) != 1:
-        return _empty_result("unresolved", "gap_overlaps_low_state", policy)
+        return _empty_result("unresolved", SCENARIO_NOT_EVALUABLE, policy)
     gap = groups[0]
     gap_start = int(gap[0])
     gap_end = int(gap[-1])
     if gap_start <= 1 or gap_end >= len(span) - 1:
-        return _empty_result("unresolved", "gap_overlaps_low_state", policy)
+        return _empty_result("unresolved", SCENARIO_NOT_EVALUABLE, policy)
     if not bool(observed[:gap_start].all()) or not bool(observed[gap_end + 1:].all()):
-        return _empty_result("unresolved", "gap_overlaps_low_state", policy)
+        return _empty_result("unresolved", SCENARIO_NOT_EVALUABLE, policy)
 
     before = span.iloc[:gap_start]
     before_values = values_series.iloc[:gap_start].to_numpy(dtype=float)
     before_weights = weights[:gap_start]
     last = len(before) - 1
     if last < 1:
-        return _empty_result("unresolved", "no_defensible_low_state", policy)
+        return _empty_result("unresolved", SCENARIO_NOT_EVALUABLE, policy)
 
     preliminary = [
         _fit_valley_l1(before_values, before_weights, start, last)
@@ -466,6 +545,7 @@ def _refine_gap_direct_profile(
     quality_state = before["quality_state"]
     plausible_level = _natural_reference_level(
         before_values, before_weights, scale=scale, huber_k=policy.huber_k,
+        reliable=(quality_state != "low").to_numpy(),
     )
     plausibility_ceiling = plausible_level + equivalence_margin(
         plausible_level, delta_rel=policy.delta_rel, margin_floor=margin_floor,
@@ -581,6 +661,7 @@ def refine_selected_span_direct_profile(
         values, weights, delta_rel=policy.delta_rel, margin_floor=margin_floor,
         scale=scale, huber_k=policy.huber_k,
         profile_loss_cutoff=policy.profile_loss_cutoff, l_uncertainty_k=policy.l_uncertainty_k,
+        reliable=(span["quality_state"] != "low").to_numpy(),
     )
     if solution.departure_position is None:
         return TroughRefinementResult(
@@ -638,6 +719,20 @@ def refine_selected_span_direct_profile(
     recovery_quality = span.iloc[boundary_position + 1:]["quality_state"]
     essential_low_quality = recovery_quality.isin(["low", "unknown"]).any()
     unknown_quality = span["quality_state"].eq("unknown").any()
+
+    # The equivalence margin is a hydrological statement; `scale` is what
+    # this record can actually measure. When the month after the boundary
+    # clears the margin -- so it is not part of the low state, and the
+    # boundary stays here -- but still falls inside the record's own noise,
+    # "the low state ended in this month rather than the next" is a finer
+    # claim than the observation supports. Report it, do not move on it.
+    next_position = boundary_position + 1
+    recovery_within_noise = (
+        next_position < len(span)
+        and np.isfinite(values[next_position])
+        and values[next_position] <= best_fit.reference_level + scale
+    )
+
     if peak_low_quality:
         status, reason = "provisional", "low_quality_peak"
     elif peak_interval:
@@ -646,6 +741,8 @@ def refine_selected_span_direct_profile(
         status, reason = "provisional", "boundary_deferred_to_reliable_month"
     elif essential_low_quality:
         status, reason = "provisional", "essential_low_quality_recovery"
+    elif recovery_within_noise:
+        status, reason = "provisional", "recovery_within_noise"
     elif unknown_quality:
         status, reason = "provisional", "unknown_quality"
     else:

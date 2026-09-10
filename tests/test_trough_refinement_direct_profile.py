@@ -193,16 +193,25 @@ class TestQualityAwareBoundarySelection:
         )
         assert result.boundary == pd.Timestamp("2020-03-01")
 
-    def test_abstains_when_no_month_in_the_cluster_is_reliable(self):
+    def test_abstains_when_the_whole_trough_is_cloud_flagged(self):
+        # Every month of the low state is untrusted, so the core solves on
+        # the trusted shoulders alone and finds a shallower low state. That
+        # answer is not wrong for the data it was given -- it is answerable
+        # only because the real trough is hidden -- and catching it is the
+        # sensitivity ensemble's job, not the core's: the ensemble replaces
+        # each cloud-flagged month with its plausible bounds, gets
+        # incompatible answers, and abstains. Asserted through
+        # `refine_trough_span` for that reason.
         frame = self._span([0, 0, 30.0, 40.0, 45.0, 0, 0])
         left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
         right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
-        result = refine_selected_span_direct_profile(
+        result = refine_trough_span(
             frame, left_peak=left, right_peak=right,
             policy=_direct_profile_policy(l_uncertainty_k=2.0),
             measurement_tolerance_pp=0.5,
         )
         assert result.status == "unresolved"
+        assert result.reason == "unstable_quality_sensitivity"
         assert result.boundary is None
 
     def test_reliable_latest_month_is_unaffected(self):
@@ -336,3 +345,169 @@ class TestGapPathValuePlausibility:
         )
         assert result.boundary == pd.Timestamp("2020-06-01")
         assert result.reason == "recovery_crosses_gap"
+
+
+class TestReferenceLevelIgnoresUnreliableMonths:
+    """The low-state reference level `L` must be anchored on observations the
+    pipeline is willing to trust.
+
+    `_natural_reference_level` searches every candidate valley block for the
+    best-fitting one and takes its level. Nothing stopped that block from
+    being a single cloud-corrupted month: Daly River HY2005's January 2006
+    reads 0.0168 at 61% invalid -- roughly a seventh of the true trough --
+    and won the search outright, making 0.0168 the "low state". Every real
+    month then sat far above the equivalence ceiling, so the genuine trough
+    months never entered the support set at all and the cycle abstained.
+
+    An unreliable month may still be *scored* against the reference level;
+    it may not *define* it.
+    """
+
+    def _daly_2005_span(self) -> pd.DataFrame:
+        # Real observations, Jan 2005 -> Apr 2006 (the peak-to-peak span
+        # pass 2 actually receives for this cycle).
+        values = [
+            0.714490, 0.292494, 0.160265, 0.163330, 0.162717, 0.161318,
+            0.147574, 0.131862, 0.118780, 0.119377, 0.121806, 0.174568,
+            0.016762, 0.196351, 0.122782, 0.938340,
+        ]
+        invalid = [
+            2.314325, 3.199080, 3.570241, 1.931157, 1.933613, 2.034552,
+            1.927186, 1.926179, 2.063143, 2.333707, 3.020064, 41.032835,
+            60.986964, 2.329369, 47.257731, 3.297283,
+        ]
+        return _prepared_with_quality(values, invalid, start="2005-01-01")
+
+    def test_a_cloud_artifact_cannot_become_the_low_state_level(self):
+        frame = self._daly_2005_span()
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
+        )
+        # September/October/November 2005 are within 5% of each other; the
+        # latest of that genuine tie is November.
+        assert result.boundary == pd.Timestamp("2005-11-01")
+
+    def test_reliable_months_still_define_the_level_when_all_are_reliable(self):
+        # Regression: with nothing cloud-flagged, the reference level is
+        # chosen exactly as before.
+        values = [40.0, 20.0, 12.0, 12.1, 12.3, 20.0, 40.0]
+        frame = _prepared_with_quality(values, [0.0] * len(values))
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
+        )
+        assert result.boundary == pd.Timestamp("2020-05-01")
+
+
+class TestUnevaluableScenariosDoNotVetoTheEnsemble:
+    """A perturbation scenario that cannot be evaluated is absence of
+    evidence, not evidence of instability.
+
+    The quality-sensitivity ensemble masks each cloud-flagged month in turn.
+    When the masked month sits against a span edge, the pre-gap path has no
+    segment left to fit and the scenario is structurally undefined -- it
+    reports nothing about where the boundary is. Treating that as a
+    dissenting vote let one cloudy month far from the trough veto the whole
+    refinement: Gilbert River HY2006's March 2006 (25.0% invalid, eight
+    months before the trough) collapsed 2 of 7 scenarios and discarded a
+    5-of-7 agreement on December.
+    """
+
+    def _gilbert_2006_span(self) -> pd.DataFrame:
+        # Real observations, Feb 2006 -> Feb 2007 (peak to peak).
+        values = [
+            0.782102, 0.692048, 0.638315, 0.300520, 0.242215, 0.220948,
+            0.172179, 0.150800, 0.117680, 0.118082, 0.122906, 0.965496,
+            3.579843,
+        ]
+        invalid = [
+            3.247203, 25.008651, 5.648274, 3.031665, 3.052006, 3.065546,
+            3.764685, 3.039235, 3.041889, 3.036981, 3.039043, 10.592743,
+            42.755754,
+        ]
+        return _prepared_with_quality(values, invalid, start="2006-02-01")
+
+    def test_an_edge_masked_scenario_does_not_discard_an_agreed_boundary(self):
+        frame = self._gilbert_2006_span()
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_trough_span(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
+        )
+        # Oct/Nov/Dec 2006 are 0.1177/0.1181/0.1229 -- +0.3% and +4.4%, a
+        # genuine tie, so the boundary is the last month of it.
+        assert result.boundary == pd.Timestamp("2006-12-01")
+
+    def test_a_scenario_that_abstains_on_its_merits_still_vetoes(self):
+        # The filter must stay narrow. A scenario that WAS evaluable and
+        # concluded it could not stand behind any boundary is a real
+        # dissent, and must still make the ensemble unstable.
+        frame = _prepared([40.0, 20.0, 12.0, 12.1, 12.3, 20.0, 40.0])
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        nominal = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
+        )
+        from dataclasses import replace as _replace
+
+        from hydroseason._trough_refinement import _combine_sensitivity_results
+
+        dissenting = _replace(
+            nominal,
+            status="unresolved",
+            reason="no_reliable_boundary_in_support",
+            boundary=None,
+        )
+        combined = _combine_sensitivity_results(
+            nominal, [nominal, dissenting], unstable_reason="unstable_quality_sensitivity",
+        )
+        assert combined.status == "unresolved"
+        assert combined.reason == "unstable_quality_sensitivity"
+
+
+class TestRecoveryWithinNoiseIsNotConfirmed:
+    """Do not publish `confirmed` for a boundary the record cannot resolve.
+
+    The equivalence margin is a hydrological statement (within `delta_rel`
+    of the low-state level). The record's own noise scale is a separate,
+    measurement statement. When the month after the boundary is outside the
+    equivalence margin but still inside the noise scale, the claim "the low
+    state ended here, not there" is finer than the observation can support.
+    The boundary does not move -- the margin still decides that -- but the
+    result is reported as provisional rather than confirmed.
+    """
+
+    def test_a_recovery_inside_the_noise_scale_downgrades_to_provisional(self):
+        # L = 12.0, equivalence margin = 5% = 0.60 (ceiling 12.60), while the
+        # record's own scale is 4.12 (ceiling 16.12). The step to 13.2 is
+        # +10%: outside the margin, so the boundary stays at the trough --
+        # but well inside the noise, so this is not a confirmed call.
+        frame = _prepared([40.0, 20.0, 12.0, 12.0, 13.2, 30.0, 40.0])
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
+        )
+        assert result.boundary == pd.Timestamp("2020-04-01")
+        assert result.status == "provisional"
+        assert result.reason == "recovery_within_noise"
+
+    def test_a_recovery_well_clear_of_the_noise_stays_confirmed(self):
+        frame = _prepared([40.0, 20.0, 12.0, 12.0, 30.0, 35.0, 40.0])
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
+        )
+        assert result.boundary == pd.Timestamp("2020-04-01")
+        assert result.status == "confirmed"
+        assert result.reason == "accepted"

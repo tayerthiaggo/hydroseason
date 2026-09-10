@@ -329,6 +329,83 @@ placement rule (`established_0_2_0`, binding on every existing caller),
 not the opt-in trough-refinement candidates; that is out of scope here and
 recorded as a separate, unaddressed question.
 
+### Untrusted months may be scored, but may not decide
+
+A cloud-flagged month took full part in the fit that chose the low state.
+That is wrong in both directions, and both were observed on real records.
+
+A corrupted observation often reads far *below* the true trough, because
+extent is computed over whatever pixels survived. Daly River HY2005's
+January 2006 reads `0.0168` at 61% invalid — about a seventh of the real
+trough. It won the reference-level search outright, making `0.0168` the
+low-state level, so every genuine trough month sat seven times above the
+equivalence ceiling and none could be selected. Even after the reference
+level was anchored, the same month's residual dominated the loss comparison
+(the best honest fit came in at a normalised excess of 0.0501 against a
+0.05 cutoff) and its value dragged the isotonic recovery branch under the
+ceiling.
+
+Untrusted months (`quality_state == "low"`) now carry **zero weight in the
+profile solve**, so they neither define the low state nor distort the choice
+between candidate fits, and the recovery branch is pooled from trusted
+neighbours only. Because zero weight makes an all-untrusted block free, three
+anchors keep such a block from being selected: the reference level, the
+departure candidate, and the final support cluster must each be supported by
+at least one trusted month.
+
+The core therefore answers from data the pipeline trusts. Deciding whether
+the *untrusted* data could have changed that answer stays the sensitivity
+ensemble's job — when a whole trough is cloud-flagged, the core finds a
+shallower low state on the trusted shoulders and the ensemble abstains
+(`unstable_quality_sensitivity`), which is the correct division of
+responsibility.
+
+Effect: Daly HY2005's core now recovers the real Sep/Oct/Nov plateau and
+answers November. That cycle still publishes pass 1's September, because
+three of the four months after the trough are cloud-flagged (41%, 61% and
+47% invalid) and two ensemble scenarios conclude the low state may continue
+past the gap. That abstention is a genuine finding about the record, not the
+defect described here.
+
+### A scenario that cannot be evaluated is not a dissenting vote
+
+The sensitivity ensemble masks each cloud-flagged month in turn and required
+every scenario to agree. But masking a month against a span edge leaves the
+pre-gap path nothing to fit: the scenario is structurally undefined and
+reports nothing about where the boundary is. Counting that as dissent let a
+cloudy month far from the trough veto an otherwise unanimous answer —
+Gilbert River HY2006's March 2006 (25% invalid, eight months before the
+trough) collapsed 2 of 7 scenarios and discarded a 5-of-7 agreement on
+December.
+
+Those structural rejections now carry the reason `span_not_evaluable`, and
+`_combine_sensitivity_results` excludes such scenarios from the stability
+vote. The filter is deliberately narrow: a scenario that *did* evaluate and
+then abstained on the merits still dissents, and `shape_fit` never emits the
+reason, so its behaviour is unchanged. Gilbert HY2006 now reports
+`2006-12` — the last month of a genuine Oct–Dec tie.
+
+### The noise scale governs confidence, not the boundary
+
+Kakadu National Park's own detectability floor is 0.387 pp, roughly 7.9% of
+its trough level, while the equivalence margin there is 5%. A margin
+narrower than the record's noise can declare a month "materially higher"
+that the record cannot actually distinguish.
+
+The margin is deliberately **not** floored by the noise scale: the endpoint
+contract's §3 keeps the equivalence margin (a hydrological choice) separate
+from the noise scale (a measurement property), and coupling them would make
+two catchments with identical hydrology but different cloud cover disagree
+about when the dry season ended — and would push boundaries later on noisy
+records, the failure this work exists to remove.
+
+Instead the noise governs how confidently the answer is reported. When the
+month after the boundary clears the equivalence margin — so the boundary
+stands where it is — but still falls inside the record's own scale, the
+result is `provisional` with reason `recovery_within_noise` rather than
+`confirmed`. The operational date does not move; the claim is simply not
+presented as firmer than the observation supports.
+
 ### Evidence
 
 **The synthetic evidence below predates, and does not speak to, the

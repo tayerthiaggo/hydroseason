@@ -23,6 +23,15 @@ PeakQuality = Literal["normal", "low", "unknown", "missing"]
 TroughRefinementCandidate = Literal["shape_fit", "direct_profile_combined"]
 
 
+# Reason marking a result the span's own geometry could not evaluate at all,
+# as opposed to one that evaluated and reached a conclusion. Only the
+# sensitivity ensemble treats it specially -- a perturbation scenario
+# carrying it is excluded from the stability vote (see
+# `_combine_sensitivity_results`). `shape_fit` never emits it, so its
+# behaviour is unchanged.
+SCENARIO_NOT_EVALUABLE = "span_not_evaluable"
+
+
 @dataclass(frozen=True)
 class TroughRefinementPolicy:
     huber_k: float
@@ -1107,7 +1116,18 @@ def _combine_sensitivity_results(
     *,
     unstable_reason: str,
 ) -> TroughRefinementResult:
-    if any(
+    # A scenario the perturbation left structurally undefined reports
+    # nothing about where the boundary is -- it is absence of evidence, not
+    # evidence of instability, so it does not get a vote. Counting it as a
+    # dissent let one cloudy month far from the trough veto an otherwise
+    # unanimous answer: masking Gilbert River's March 2006 (25% invalid,
+    # eight months before the trough) leaves the pre-gap segment too short
+    # to fit, and that discarded a 5-of-7 agreement on December. Scenarios
+    # that *did* evaluate and then abstained on the merits still dissent.
+    scenarios = [
+        result for result in scenarios if result.reason != SCENARIO_NOT_EVALUABLE
+    ]
+    if not scenarios or any(
         result.boundary is None
         or result.status not in {"confirmed", "provisional"}
         for result in scenarios
