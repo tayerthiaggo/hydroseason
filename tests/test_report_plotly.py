@@ -215,7 +215,7 @@ def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(season
     assert {(shape["x0"], shape["x1"]) for shape in intervals} == expected_intervals
 
 
-def test_interval_and_unresolved_extrema_get_no_point_marker():
+def test_interval_and_unresolved_peak_gets_no_point_marker_but_end_dry_always_marks():
     monthly = pd.DataFrame(
         {
             "date": pd.to_datetime(["2020-01-01", "2020-08-01", "2020-09-01", "2020-10-01"]),
@@ -247,7 +247,12 @@ def test_interval_and_unresolved_extrema_get_no_point_marker():
     mid_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Mid Dry")
 
     assert peak_trace["x"] == []
-    assert end_dry_trace["x"] == []
+    # HY End Dry always marks the adopted boundary, even under "interval"
+    # status -- the interval shading (tested separately) communicates the
+    # uncertainty; this marker shows which date the report actually used.
+    # Drawn with an outlined symbol so it never reads as fully resolved.
+    assert end_dry_trace["x"] == ["2020-10-01"]
+    assert end_dry_trace["marker"]["symbol"] == ["circle-open"]
     # Mid-dry has no timing status of its own and is unaffected.
     assert mid_dry_trace["x"] == ["2020-08-01"]
 
@@ -281,6 +286,7 @@ def test_point_timing_status_still_gets_a_marker():
 
     assert peak_trace["x"] == ["2020-01-01"]
     assert end_dry_trace["x"] == ["2020-10-01"]
+    assert end_dry_trace["marker"]["symbol"] == ["circle"]
 
 
 def test_interval_timing_status_shades_its_span_instead_of_a_marker():

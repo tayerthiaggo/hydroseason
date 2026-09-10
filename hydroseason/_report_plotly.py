@@ -28,6 +28,15 @@ _MARKER_STATUS_COLUMN = {
     "HY Peak": "peak_timing_status",
     "HY End Dry": "trough_timing_status",
 }
+# "HY End Dry" is the exception: it marks the adopted operational boundary
+# (trough_month), which always carries a real date once a trough exists,
+# whatever its timing_status -- the interval/broad shading already
+# communicates the uncertainty, so this marker shows the reader exactly
+# which date the report actually used to partition the cycle, rather than
+# omitting a point entirely and leaving the adopted date implicit. Drawn as
+# an outlined ("-open") symbol whenever status isn't "point", so it never
+# reads as more resolved than the shading beside it claims.
+_ALWAYS_MARK = {"HY End Dry"}
 INTERVAL_SHADE_COLORS = {
     "peak": "rgba(37, 99, 235, 0.14)",
     "trough": "rgba(220, 38, 38, 0.14)",
@@ -261,14 +270,17 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
         x: list[str] = []
         y: list[Any] = []
         customdata: list[list[Any]] = []
+        symbols: list[str] = []
         status_column = _MARKER_STATUS_COLUMN.get(name)
+        always_mark = name in _ALWAYS_MARK
         if column in rows.columns:
             for _, row in rows.iterrows():
-                if (
-                    status_column is not None
-                    and status_column in rows.columns
-                    and row.get(status_column) != "point"
-                ):
+                is_point = (
+                    status_column is None
+                    or status_column not in rows.columns
+                    or row.get(status_column) == "point"
+                )
+                if not is_point and not always_mark:
                     continue
                 date = _iso_date(row[column])
                 if date is None:
@@ -277,6 +289,7 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
                 extent = point[2] if point is not None else None
                 x.append(date)
                 y.append(extent)
+                symbols.append(symbol if is_point else f"{symbol}-open")
                 customdata.append([
                     _clean_val(row.get("hy_year")), date, extent,
                     point[3] if point is not None else None,
@@ -286,7 +299,7 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
         marker = {
             "size": 8,
             "color": color,
-            "symbol": symbol,
+            "symbol": symbols if always_mark else symbol,
             "line": {"color": "#ffffff", "width": 1},
         }
         traces.append({
