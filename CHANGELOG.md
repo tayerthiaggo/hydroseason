@@ -4,6 +4,37 @@ All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Changed
+- `direct_profile_combined`'s equivalence margin is now **proportional to the
+  low-state level** (`TroughRefinementPolicy.delta_rel`, a fraction) rather
+  than an absolute number of percentage points (`delta_pp`, removed). A month
+  counts as still in the low state when it is within `delta_rel * L` of the
+  reference level, floored by what the observation can physically resolve
+  (one pixel, or the caller's `measurement_tolerance_pct`).
+
+  An absolute margin could not serve even one catchment's own cycles:
+  Fitzroy River's trough level ranges 0.0249 to 0.0521 percentage points
+  across its own record, so a margin meaningful in one year silently
+  swallowed a real recovery in another. Reviewing all 42 cycles of Fitzroy
+  and Gilbert against the retired `delta_pp=0.02` found 9 where the
+  published boundary was the first month of the recovery rather than the
+  cycle's own trough (Fitzroy HY2005/2007/2008/2011/2015/2020, Gilbert
+  HY2009/2010/2019); each recovery step was 10.4%–56.8% above the trough but
+  under 0.02 pp absolute, so the band absorbed it. The two populations
+  separate cleanly in relative terms (accepted boundaries: 0.0% rise;
+  rejected: >=10.4%) and not at all in absolute ones. All 9 now report their
+  own trough; the only boundaries still past a trough are 0%–5% genuine
+  ties, which is the case where reporting the last month is correct.
+
+  The representative-date convention is unchanged — the boundary is still
+  the latest month of a genuine tie; only the test for "tied" became
+  scale-relative. `shape_fit` is unaffected. `delta_rel` still has no
+  default on the policy object and must be supplied explicitly; the frozen
+  `TROUGH_REFINEMENT_DIRECT_PROFILE_POLICY` ships `delta_rel=0.05`,
+  bracketed by that review on both sides (Gilbert HY2006's genuinely flat
+  +4.4% plateau must stay tied; the smallest rise that must be excluded is
+  +10.4%).
+
 ### Fixed
 - `direct_profile_combined`'s gap-handling path (`_refine_gap_direct_profile`)
   always treated the last OBSERVED pre-gap month as the low state's own
@@ -54,8 +85,8 @@ All notable changes to HydroSeason are documented here. This project follows
   promoted): profiles the equivalence-state low-state departure directly
   over a bounded low-state reference-level grid, rather than mapping a
   finite set of best trough fits through one fixed reference level. Select
-  via `TroughRefinementPolicy(candidate="direct_profile_combined", delta_pp=...)`
-  (`delta_pp` has no default — see the policy field's docstring) or the
+  via `TroughRefinementPolicy(candidate="direct_profile_combined", delta_rel=...)`
+  (`delta_rel` has no default — see the policy field's docstring) or the
   frozen `TROUGH_REFINEMENT_DIRECT_PROFILE_POLICY` default. `shape_fit`
   (`trough_refinement_candidate_0_2`) remains the default candidate and is
   unaffected. `_refine_selected_span` is now a small dispatcher keyed on

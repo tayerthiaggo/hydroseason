@@ -44,6 +44,27 @@ interaction).
 
 ## 3. `sigma_pp` and `delta_pp` are not the same object
 
+> **Amendment, 2026-09-10 — the equivalence margin is proportional, not
+> absolute.** Everything in this section still holds, including the
+> separation from `sigma_pp` and the prohibition on assuming
+> `delta = k * sigma_pp`. What changed is the margin's *unit*: it is now
+> `delta_rel * L`, a fraction of the low-state reference level, floored by
+> what the observation can physically resolve — not a fixed count of
+> percentage points. Read `delta_pp` below as "the equivalence margin",
+> whose implementation is `delta_rel * L`.
+>
+> The reason is empirical. An absolute margin cannot serve even one
+> catchment's own cycles: Fitzroy River's trough level ranges 0.0249 to
+> 0.0521 percentage points across its record, so a margin meaningful in one
+> year silently absorbs a real recovery in another. A 42-cycle review of
+> Fitzroy and Gilbert found 9 cycles where a 10.4%–56.8% recovery was
+> counted as "tied" because it fell under 0.02 pp. See
+> `docs/migrations/trough-refinement-candidate.md`.
+>
+> This does not change §5's representative-date convention: the reported
+> boundary is still the latest month of a genuine tie. It changes only which
+> months qualify as tied.
+
 - `sigma_pp`: an **observation/variability scale**, in extent-percentage
   points, used inside the robust fit (Huber loss, profile-support cutoff).
   It answers "how much residual scatter is consistent with a single fitted

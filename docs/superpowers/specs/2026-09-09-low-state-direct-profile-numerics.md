@@ -7,6 +7,18 @@ candidate for Stage B. Not implementation-ready until its companion coding
 plan (`2026-09-09-low-state-direct-profile-coding.md`) is written; not a
 production change.
 
+> **Amendment, 2026-09-10.** The equivalence margin named `delta_pp`
+> throughout this document is now proportional to the low-state level:
+> `delta_rel * L`, floored by the observation's physical resolution, with
+> `TroughRefinementPolicy.delta_rel` replacing `delta_pp`. The solver
+> recomputes the margin for each candidate `L` on the reference-level grid
+> rather than holding one value fixed across the grid. Everything else in
+> this specification — the profile, the common-reference rule, the global-
+> optimum comparison, the support-cluster and representative-date rules —
+> is unchanged. See the endpoint contract's §3 amendment and
+> `docs/migrations/trough-refinement-candidate.md` for the 42-cycle review
+> that motivated it.
+
 **Depends on:** the endpoint contract (Step 1) for `sigma_pp`/`delta_pp`,
 the equivalence-state target, and the representative-date convention; the
 validation protocol (Step 2) for the truth fields and evaluation gates this

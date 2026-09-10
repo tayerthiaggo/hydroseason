@@ -148,7 +148,7 @@ TroughRefinementPolicy(
     huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=1.5,
     version="direct_profile_combined_v1",
     candidate="direct_profile_combined",
-    delta_pp=0.02,       # required -- no default; see below
+    delta_rel=0.05,      # required -- no default; see below
     l_uncertainty_k=2.0, # optional, shown at its default
     scale_mode="combined",
 )
@@ -163,19 +163,60 @@ compact CSV bundle, same unmoved peaks (same atomic two-pass wiring, same
 the export column *set* is identical to `shape_fit`'s (report-columns.md's
 trough-refinement section covers both).
 
-### `delta_pp` has no default
+### The equivalence margin is proportional (`delta_rel`), not absolute
 
-Unlike `shape_fit`'s hyperparameters, `delta_pp` (the equivalence-state
-margin — see the endpoint contract,
+`delta_rel` is the equivalence-state margin — see the endpoint contract,
 `docs/superpowers/specs/2026-09-09-low-state-endpoint-contract.md`, section
-3) is not something this package can pick safely for an arbitrary caller: a
-sensible value depends on the catchment's own trough-region extent scale.
-The frozen default (`0.02` percentage points) was validated only against
-catchments whose low-state region sits roughly in the 0.01–2% range (the
-five development catchments, Roper River NT, and Kakadu National Park all
-fall inside it). A catchment with a materially different trough-region scale
-needs its own `delta_pp`, not this default — constructing the policy without
-one raises `ValueError` rather than silently defaulting.
+3 — expressed as a **fraction of the low-state reference level** rather than
+a fixed number of percentage points. A month counts as still in the low
+state when it sits within `delta_rel * L` of that level, floored by what the
+observation can physically resolve (one pixel of the AOI, or the caller's
+declared `measurement_tolerance_pct`).
+
+**It replaced an absolute `delta_pp` margin, which was structurally unable
+to do the job.** An absolute margin cannot serve even a single catchment's
+own cycles: Fitzroy River's trough level ranges 0.0249 to 0.0521 percentage
+points across its own record, so any margin wide enough to mean something in
+one year silently swallows a real recovery in another. Reviewing every cycle
+of Fitzroy and Gilbert (42 in total) against the frozen `delta_pp = 0.02`
+found 9 cycles where the published boundary was **not** the cycle's own
+trough but the first month of the recovery — Fitzroy HY2005/2007/2008/2011/
+2015/2020 and Gilbert HY2009/2010/2019. In every one, the recovery step was
+10.4%–56.8% above the trough yet under 0.02 pp in absolute terms, so the
+absolute band absorbed it and the "latest tie wins" representative-date
+convention then published the rising month.
+
+The two populations separate cleanly in relative terms and not at all in
+absolute ones:
+
+| | count | relative rise from trough to published boundary |
+|---|---|---|
+| boundary **was** the cycle's trough | 33 | 0.0% exactly |
+| boundary was **past** the trough | 9 | 10.4% – 56.8% |
+
+`delta_rel = 0.05` is bracketed by that review on two independent sides:
+Gilbert HY2006's genuinely flat October–December plateau spans +4.4% and
+must stay tied, while the smallest rise that must be excluded is +10.4%.
+0.05 sits just above the equivalent-side edge, so it is not tuned to the
+value it must exclude — the same construction, and the same number, as
+`_boundary.py`'s `_RAW_MINIMUM_REL_TOLERANCE`.
+
+After the change, all 9 disputed cycles report their own trough, and the
+only boundaries still sitting past a trough are 0%–5% ties — genuine
+plateaus, which is exactly the case where reporting the *last* month is
+correct.
+
+Being proportional is what makes a shipped default defensible at all.
+`delta_rel` still has **no default on the policy object** and must be
+supplied explicitly — constructing the policy without one raises
+`ValueError` rather than silently defaulting — because the endpoint contract
+requires the equivalence margin to be fixed independently of what it scores.
+A catchment whose low state is a genuinely different *shape*, rather than
+merely a different scale, still warrants its own value.
+
+**The representative-date convention did not change.** The boundary is still
+the latest month of a genuine tie; only the test for what counts as tied
+became scale-relative. `shape_fit` is untouched.
 
 ### Wiring: real dependency injection, not a monkeypatch
 
@@ -253,7 +294,7 @@ masked-January scenario) beat November (from every other scenario) and
 shipped as the answer.
 
 The fix: the gap path now walks back from the naive last pre-gap month to
-the latest month that is *both* quality-reliable and within `delta_pp` of
+the latest month that is *both* quality-reliable and within the equivalence margin of
 the segment's own natural (outlier-robust) reference level, using the same
 `_natural_reference_level` anchor the main path already relies on.
 Deferring for a value-implausibility reason (reliable quality, wrong value)
@@ -266,7 +307,10 @@ Real-catchment effect: Daly River HY2016 now reports `2016-11` (previously
 `2016-12` even after the earlier quality-reliability fix, because the gap
 path smuggled it back in); HY2024 now reports `2024-11` (previously
 `2024-12`, identical mechanism). The five-catchment unblinded bundle below
-reflects both rounds of this fix together: 41 identical / 19 differ.
+reflected both rounds of this fix together: 41 identical / 19 differ.
+The proportional equivalence margin (see above) later moved it to 45
+identical / 15 differ -- the candidate agrees with `shape_fit` more
+often now, because both land on the cycle's own trough.
 
 This still does not address every "boundary looks early/late" report from
 the domain expert's review. Daly River HY2005's `unresolved` cycle is not
@@ -286,6 +330,20 @@ not the opt-in trough-refinement candidates; that is out of scope here and
 recorded as a separate, unaddressed question.
 
 ### Evidence
+
+**The synthetic evidence below predates, and does not speak to, the
+proportional equivalence margin.** Every family in that corpus places the low
+state at the same level (12.0 percentage points after scaling) and it ran a
+fixed 0.4 pp absolute margin — an effective 3.33% of the low-state level,
+close to the 5% now shipped. A single-scale corpus cannot separate an
+absolute margin from a proportional one, which is exactly why the defect only
+appeared on real records whose trough level varies from cycle to cycle. These
+figures are neither invalidated by the change nor evidence for it; the
+evidence for `delta_rel` is the 42-cycle Fitzroy/Gilbert review recorded
+above. The synthetic harnesses have **not** been re-run under the new
+definition — doing so would require changing the protocol's own truth field
+(`declared_endpoint_index`, which is itself defined in terms of the margin),
+which is a Stage A protocol revision rather than a knob change.
 
 Stage B development matrix (384 synthetic cases, frozen; see
 `case_studies/results/low-state-direct-profile-v2/findings.md`): unconditional
@@ -316,9 +374,11 @@ Five-catchment unblinded bundle
 (`case_studies/results/low-state-direct-profile-v2/five_catchment_bundle.csv`,
 generated by `five_catchment_bundle.py` from each catchment's frozen pass-1
 peaks — pass-1 chronology is unaffected by candidate choice by construction):
-60 cycles compared, 41 identical between candidates, 19 differ (see the
-quality-reliability fallback and gap-path value-plausibility guard above for
-why this changed from 45/15 across two rounds of fixes). The nine Daly
+60 cycles compared, 45 identical between candidates, 15 differ. This count
+moved twice: the quality-reliability fallback and gap-path guard took it
+from 45/15 to 41/19, and the proportional equivalence margin brought it
+back to 45/15 -- not a return to the old behaviour, but both candidates
+now landing on the cycle's own trough in more cycles. The nine Daly
 examples the user discussed directly (`daly_nine_example_disposition.csv`):
 four cycles (2005, 2011, 2018, 2020) are identical between candidates (all
 four abstain identically — `unresolved` on both); the other five differ.
@@ -375,7 +435,7 @@ Because every candidate here is opt-in, rollback is simply not passing a
 default). To remove `direct_profile_combined` entirely, revert the commit
 adding `hydroseason/_trough_refinement_direct_profile.py`,
 `_trough_refinement_direct_profile_defaults.py`, and the `candidate`/
-`delta_pp`/`l_uncertainty_k`/`scale_mode` fields on `TroughRefinementPolicy`;
+`delta_rel`/`l_uncertainty_k`/`scale_mode` fields on `TroughRefinementPolicy`;
 `shape_fit`'s own commits are unaffected.
 
 ## Downstream impact

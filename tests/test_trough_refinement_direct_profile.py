@@ -34,7 +34,7 @@ def _direct_profile_policy(**overrides) -> TroughRefinementPolicy:
     values = {
         "huber_k": 1.345, "profile_loss_cutoff": 0.05, "pulse_z": 1.5,
         "version": "direct_profile_combined_v1", "candidate": "direct_profile_combined",
-        "delta_pp": 0.4, "l_uncertainty_k": 2.0, "scale_mode": "combined",
+        "delta_rel": 0.05, "l_uncertainty_k": 2.0, "scale_mode": "combined",
     }
     values.update(overrides)
     return TroughRefinementPolicy(**values)
@@ -47,7 +47,7 @@ def test_frozen_direct_profile_defaults_are_valid():
 
     policy = TROUGH_REFINEMENT_DIRECT_PROFILE_POLICY
     assert policy.candidate == "direct_profile_combined"
-    assert policy.delta_pp == 0.02
+    assert policy.delta_rel == 0.05
     assert policy.version == "direct_profile_combined_v1"
 
 
@@ -56,26 +56,33 @@ class TestPolicyValidation:
         policy = _shape_fit_policy()
         assert policy.candidate == "shape_fit"
 
-    def test_direct_profile_candidate_requires_delta_pp(self):
-        with pytest.raises(ValueError, match="delta_pp"):
+    def test_direct_profile_candidate_requires_delta_rel(self):
+        with pytest.raises(ValueError, match="delta_rel"):
             TroughRefinementPolicy(
                 huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=1.5,
                 candidate="direct_profile_combined",
             )
 
-    def test_direct_profile_candidate_rejects_non_positive_delta_pp(self):
-        with pytest.raises(ValueError, match="delta_pp"):
-            _direct_profile_policy(delta_pp=0.0)
+    def test_direct_profile_candidate_rejects_non_positive_delta_rel(self):
+        with pytest.raises(ValueError, match="delta_rel"):
+            _direct_profile_policy(delta_rel=0.0)
+
+    def test_direct_profile_candidate_rejects_a_margin_of_one_or_more(self):
+        # delta_rel is a fraction of the low-state level; at 1.0 the
+        # equivalence ceiling reaches twice the low state, which is a
+        # doubling, not a tie.
+        with pytest.raises(ValueError, match="delta_rel"):
+            _direct_profile_policy(delta_rel=1.0)
 
     def test_unknown_candidate_rejected(self):
         with pytest.raises(ValueError, match="candidate"):
             _shape_fit_policy(candidate="not_a_real_candidate")
 
-    def test_shape_fit_candidate_ignores_delta_pp_requirement(self):
-        # delta_pp stays None (its default) for the existing candidate -- it
+    def test_shape_fit_candidate_ignores_delta_rel_requirement(self):
+        # delta_rel stays None (its default) for the existing candidate -- it
         # must not become a silently-required field for shape_fit callers.
         policy = _shape_fit_policy()
-        assert policy.delta_pp is None
+        assert policy.delta_rel is None
 
 
 class TestDispatch:
@@ -88,7 +95,7 @@ class TestDispatch:
         left = _point_peak("2020-01-01")
         right = _point_peak("2020-07-01")
         result = refine_trough_span(
-            frame, left_peak=left, right_peak=right, policy=_direct_profile_policy(delta_pp=0.4),
+            frame, left_peak=left, right_peak=right, policy=_direct_profile_policy(),
         )
         assert result.boundary == pd.Timestamp("2020-05-01")
         assert result.policy_version == "direct_profile_combined_v1"
@@ -108,7 +115,7 @@ class TestDispatch:
         left = _point_peak("2020-01-01")
         right = _point_peak("2020-05-01")
         result = refine_trough_span(
-            frame, left_peak=left, right_peak=right, policy=_direct_profile_policy(delta_pp=0.4),
+            frame, left_peak=left, right_peak=right, policy=_direct_profile_policy(),
         )
         assert result.boundary is None
 
@@ -119,7 +126,7 @@ class TestDispatch:
         left = PeakBoundary(dates[0], (dates[0],), "point", "normal")
         right = PeakBoundary(dates[-1], (dates[-1],), "point", "normal")
         result = refine_trough_span(
-            frame, left_peak=left, right_peak=right, policy=_direct_profile_policy(delta_pp=0.4),
+            frame, left_peak=left, right_peak=right, policy=_direct_profile_policy(),
         )
         assert result.boundary == dates[6]
         assert dates[4] in result.pulse_months
@@ -131,7 +138,7 @@ class TestDispatch:
         left = PeakBoundary(dates[0], (dates[0],), "point", "normal")
         right = PeakBoundary(dates[-1], (dates[-1],), "point", "normal")
         result = refine_trough_span(
-            frame, left_peak=left, right_peak=right, policy=_direct_profile_policy(delta_pp=0.4),
+            frame, left_peak=left, right_peak=right, policy=_direct_profile_policy(),
         )
         assert result.status == "unresolved"
         assert result.boundary is None
@@ -170,7 +177,7 @@ class TestQualityAwareBoundarySelection:
         right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
         result = refine_selected_span_direct_profile(
             frame, left_peak=left, right_peak=right,
-            policy=_direct_profile_policy(delta_pp=0.4, l_uncertainty_k=2.0),
+            policy=_direct_profile_policy(l_uncertainty_k=2.0),
             measurement_tolerance_pp=0.5,
         )
         assert result.boundary == pd.Timestamp("2020-04-01")
@@ -181,7 +188,7 @@ class TestQualityAwareBoundarySelection:
         right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
         result = refine_selected_span_direct_profile(
             frame, left_peak=left, right_peak=right,
-            policy=_direct_profile_policy(delta_pp=0.4, l_uncertainty_k=2.0),
+            policy=_direct_profile_policy(l_uncertainty_k=2.0),
             measurement_tolerance_pp=0.5,
         )
         assert result.boundary == pd.Timestamp("2020-03-01")
@@ -192,7 +199,7 @@ class TestQualityAwareBoundarySelection:
         right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
         result = refine_selected_span_direct_profile(
             frame, left_peak=left, right_peak=right,
-            policy=_direct_profile_policy(delta_pp=0.4, l_uncertainty_k=2.0),
+            policy=_direct_profile_policy(l_uncertainty_k=2.0),
             measurement_tolerance_pp=0.5,
         )
         assert result.status == "unresolved"
@@ -206,10 +213,84 @@ class TestQualityAwareBoundarySelection:
         right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
         result = refine_selected_span_direct_profile(
             frame, left_peak=left, right_peak=right,
-            policy=_direct_profile_policy(delta_pp=0.4, l_uncertainty_k=2.0),
+            policy=_direct_profile_policy(l_uncertainty_k=2.0),
             measurement_tolerance_pp=0.5,
         )
         assert result.boundary == pd.Timestamp("2020-05-01")
+
+
+class TestScaleRelativeEquivalenceMargin:
+    """The equivalence margin is a FRACTION of the low-state level, not a
+    fixed number of percentage points.
+
+    An absolute margin cannot serve one catchment's own cycles: Fitzroy
+    River's trough level varies 0.0249 (HY2008) to 0.0521 (HY2011) across
+    its record, so a margin wide enough to be meaningful at one level
+    swallows a real recovery at another. Reviewing both Fitzroy and Gilbert
+    (42 cycles) split cleanly: every boundary that was already the cycle's
+    own trough sat at a 0.0% rise, while every disputed one sat at a 10.4%
+    to 56.8% rise, with nothing in between. A proportional margin separates
+    those two populations at any threshold in that gap; an absolute one
+    cannot separate them at all.
+
+    The fixtures below are the real reviewed observations, so a change in
+    behaviour here is a change against the record the calibration was
+    bracketed on.
+    """
+
+    def test_a_real_recovery_below_the_old_absolute_margin_is_not_tied(self):
+        # Fitzroy HY2008 (Jun 2008 - Feb 2009). November is the trough at
+        # 0.0249; December is 0.0391 -- a +57% recovery, but only +0.014 in
+        # absolute terms, so the retired delta_pp=0.02 absolute margin
+        # counted it as tied and published December.
+        values = [0.100487, 0.056447, 0.039419, 0.037144, 0.028395,
+                  0.024948, 0.039120, 0.199723, 1.167529]
+        frame = _prepared(values, start="2008-06-01")
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
+        )
+        assert result.boundary == pd.Timestamp("2008-11-01")
+
+    def test_a_genuinely_flat_plateau_still_reports_its_last_month(self):
+        # Gilbert HY2006 (Jun 2006 - Jan 2007). October/November/December
+        # are 0.1177/0.1181/0.1229 -- +0.3% and +4.4%, genuinely tied. The
+        # representative-date convention is unchanged, so the boundary is
+        # the LAST month of the tie, not the deepest: the low state really
+        # did persist through December.
+        #
+        # This pins the core's answer for the span in isolation. The full
+        # pipeline abstains on this cycle (unstable_quality_sensitivity)
+        # and publishes pass 1's October instead, which is the sensitivity
+        # ensemble doing its job -- not a contradiction of this assertion.
+        values = [0.242215, 0.220948, 0.172179, 0.150800,
+                  0.117680, 0.118082, 0.122906, 0.965496]
+        frame = _prepared(values, start="2006-06-01")
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
+        )
+        assert result.boundary == pd.Timestamp("2006-12-01")
+
+    def test_the_same_relative_recovery_is_judged_alike_at_any_level(self):
+        # The property an absolute margin cannot have: rescaling the whole
+        # span leaves every verdict unchanged.
+        shape = [4.0, 2.0, 1.2, 1.0, 1.4, 3.0, 6.0]
+        boundaries = []
+        for factor in (0.01, 1.0, 10.0):
+            frame = _prepared([value * factor for value in shape])
+            left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+            right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+            result = refine_selected_span_direct_profile(
+                frame, left_peak=left, right_peak=right,
+                policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
+            )
+            boundaries.append(result.boundary)
+        assert boundaries[0] == boundaries[1] == boundaries[2]
 
 
 class TestGapPathValuePlausibility:
@@ -222,7 +303,7 @@ class TestGapPathValuePlausibility:
     January) can pass that quality check while still being far outside the
     equivalence band any other low-state month sits in. The published
     boundary must defer to the latest month that is BOTH quality-reliable
-    AND value-plausible (within delta_pp of the segment's own natural
+    AND value-plausible (within the equivalence margin of the segment's own natural
     reference level), not just quality-reliable.
     """
 
@@ -238,7 +319,7 @@ class TestGapPathValuePlausibility:
         right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
         result = refine_selected_span_direct_profile(
             frame, left_peak=left, right_peak=right,
-            policy=_direct_profile_policy(delta_pp=0.4), measurement_tolerance_pp=0.0,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
         )
         assert result.boundary == pd.Timestamp("2020-05-01")
         assert result.reason == "boundary_deferred_to_implausible_month"
@@ -251,7 +332,7 @@ class TestGapPathValuePlausibility:
         right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
         result = refine_selected_span_direct_profile(
             frame, left_peak=left, right_peak=right,
-            policy=_direct_profile_policy(delta_pp=0.4), measurement_tolerance_pp=0.0,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
         )
         assert result.boundary == pd.Timestamp("2020-06-01")
         assert result.reason == "recovery_crosses_gap"

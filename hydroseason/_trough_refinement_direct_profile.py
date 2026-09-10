@@ -1,6 +1,6 @@
 """Direct-profile low-state-departure challenger (candidate: direct_profile_combined).
 
-Profiles the equivalence-state departure ``T(f, L, delta_pp)`` directly over
+Profiles the equivalence-state departure ``T(f, L, delta)`` directly over
 a bounded grid of the low-state reference level ``L``, rather than mapping a
 finite set of best trough fits through one fixed reference level. Ported
 from the Stage B research module
@@ -114,11 +114,24 @@ def fit_with_reference_level(
     )
 
 
+def equivalence_margin(level: float, *, delta_rel: float, margin_floor: float) -> float:
+    """How far above ``level`` a month may sit and still count as tied.
+
+    Proportional to the low-state level, because the same absolute step
+    means different things at different low-state levels -- within a single
+    catchment, not just between catchments. Floored by what the observation
+    can physically resolve (one pixel, or the caller's declared measurement
+    tolerance), so the margin never claims to discriminate below the
+    measurement itself.
+    """
+    return max(delta_rel * abs(level), margin_floor)
+
+
 def final_departure_index(
     fitted: np.ndarray,
     *,
     level: float,
-    delta_pp: float,
+    margin: float,
     tolerance: float,
 ) -> int | None:
     """``T(f, L, delta)``: last interior index inside the equivalence ceiling.
@@ -128,7 +141,7 @@ def final_departure_index(
     "final departure" is undefined for this fit and ``None`` is returned.
     """
     n = fitted.size
-    ceiling = level + delta_pp + tolerance
+    ceiling = level + margin + tolerance
     below = np.flatnonzero(fitted <= ceiling)
     interior = below[(below > 0) & (below < n - 1)]
     if interior.size == 0:
@@ -223,7 +236,8 @@ def solve_direct_profile(
     values: np.ndarray,
     weights: np.ndarray,
     *,
-    delta_pp: float,
+    delta_rel: float,
+    margin_floor: float,
     scale: float,
     huber_k: float,
     profile_loss_cutoff: float,
@@ -231,13 +245,18 @@ def solve_direct_profile(
 ) -> _DirectProfileSolution:
     """Grid-search ``(start, end)`` against one shared ``L`` grid; profile
     ``Q(d) = T(f, L, delta)`` over the joint (position, reference-level)
-    space (numerics spec section 2)."""
+    space (numerics spec section 2).
+
+    The equivalence margin is recomputed for each candidate ``L`` on the
+    grid rather than fixed once, because it is proportional to the level
+    being tested.
+    """
     n = values.size
     loss_basis: Literal["standardized_huber", "exact_l1"] = (
         "exact_l1" if scale == 0.0 else "standardized_huber"
     )
     numerical_tolerance = 64 * np.finfo(float).eps * max(
-        float(np.max(np.abs(values))), abs(delta_pp), np.finfo(float).tiny,
+        float(np.max(np.abs(values))), margin_floor, np.finfo(float).tiny,
     )
     effective_support = float(np.sum(weights))
 
@@ -256,7 +275,12 @@ def solve_direct_profile(
                 if fit.loss < overall_best_loss:
                     overall_best_loss = fit.loss
                 departure = final_departure_index(
-                    fit.fitted, level=level, delta_pp=delta_pp, tolerance=numerical_tolerance,
+                    fit.fitted,
+                    level=level,
+                    margin=equivalence_margin(
+                        level, delta_rel=delta_rel, margin_floor=margin_floor,
+                    ),
+                    tolerance=numerical_tolerance,
                 )
                 if departure is None:
                     continue
@@ -329,14 +353,15 @@ def _refine_gap_direct_profile(
     *,
     policy: TroughRefinementPolicy,
     measurement_tolerance_pp: float,
+    margin_floor: float,
 ) -> TroughRefinementResult:
     """Pre-gap-only path, re-expressed in terms of the equivalence ceiling.
 
     Structurally identical to production's ``_refine_gap_after_low_state``
     (gap detection, pre-gap segment feasibility, post-gap compatibility
     checks). The one change is the post-gap comparisons: ``value <= L +
-    delta_pp`` (this candidate's target) instead of the raw Huber-loss
-    profile cutoff (the shape_fit target's unit).
+    equivalence margin`` (this candidate's target) instead of the raw
+    Huber-loss profile cutoff (the shape_fit target's unit).
     """
     missing = np.flatnonzero(~observed)
     groups = np.split(missing, np.flatnonzero(np.diff(missing) != 1) + 1)
@@ -388,7 +413,9 @@ def _refine_gap_direct_profile(
     loss_basis: Literal["standardized_huber", "exact_l1"] = (
         "exact_l1" if scale == 0.0 else "standardized_huber"
     )
-    ceiling = low_level + policy.delta_pp
+    ceiling = low_level + equivalence_margin(
+        low_level, delta_rel=policy.delta_rel, margin_floor=margin_floor,
+    )
     numerical_tolerance = 64 * np.finfo(float).eps * max(abs(ceiling), 1.0)
 
     after_values = values_series.iloc[gap_end + 1:].to_numpy(dtype=float)
@@ -434,13 +461,15 @@ def _refine_gap_direct_profile(
     # would never let such a value pass, but this gap path's fixed-end
     # block bypasses that test entirely. Guard against both failure modes
     # together: walk back from `last` to the latest month that is both
-    # quality-reliable and within delta_pp of the segment's own natural
+    # quality-reliable and within the equivalence margin of the segment's own natural
     # (outlier-robust) reference level.
     quality_state = before["quality_state"]
     plausible_level = _natural_reference_level(
         before_values, before_weights, scale=scale, huber_k=policy.huber_k,
     )
-    plausibility_ceiling = plausible_level + policy.delta_pp
+    plausibility_ceiling = plausible_level + equivalence_margin(
+        plausible_level, delta_rel=policy.delta_rel, margin_floor=margin_floor,
+    )
     plausibility_tolerance = 64 * np.finfo(float).eps * max(abs(plausibility_ceiling), 1.0)
     reliable_position = next(
         (
@@ -515,10 +544,17 @@ def refine_selected_span_direct_profile(
     observed = values_series.notna().to_numpy() & (weights > 0.0)
     if len(span) < 3 or not bool(observed[0]) or not bool(observed[-1]):
         return _empty_result("unresolved", "no_defensible_low_state", policy)
+
+    # Lower bound on the equivalence margin: the proportional margin is
+    # meaningful only down to what the observation can actually resolve --
+    # one pixel of the AOI, or whatever tolerance the caller declared.
+    margin_floor = max(_measurement_floor(span), measurement_tolerance_pp)
+
     if not bool(observed.all()):
         return _refine_gap_direct_profile(
             span, values_series, weights, observed,
             policy=policy, measurement_tolerance_pp=measurement_tolerance_pp,
+            margin_floor=margin_floor,
         )
 
     values = values_series.to_numpy(dtype=float)
@@ -542,7 +578,8 @@ def refine_selected_span_direct_profile(
         scale = residual_scale
 
     solution = solve_direct_profile(
-        values, weights, delta_pp=policy.delta_pp, scale=scale, huber_k=policy.huber_k,
+        values, weights, delta_rel=policy.delta_rel, margin_floor=margin_floor,
+        scale=scale, huber_k=policy.huber_k,
         profile_loss_cutoff=policy.profile_loss_cutoff, l_uncertainty_k=policy.l_uncertainty_k,
     )
     if solution.departure_position is None:

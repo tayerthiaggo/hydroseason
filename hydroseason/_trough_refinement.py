@@ -32,14 +32,23 @@ class TroughRefinementPolicy:
     candidate: TroughRefinementCandidate = "shape_fit"
     # direct_profile_combined only (numerics spec
     # docs/superpowers/specs/2026-09-09-low-state-direct-profile-numerics.md):
-    # delta_pp has no default and must be supplied explicitly by the caller,
-    # never silently defaulted -- see the endpoint contract's requirement
-    # that the equivalence margin be fixed independently of what it scores,
-    # and the fact that a sensible value depends on the catchment's own
-    # trough-region extent scale (validated only against development
-    # catchments in the 0.01-2% range; a catchment far outside that needs
-    # its own choice, not this policy's default).
-    delta_pp: float | None = None
+    # the equivalence margin, as a FRACTION of the low-state reference level
+    # rather than a fixed number of percentage points. A month counts as
+    # still in the low state when it sits within `delta_rel * L` of that
+    # level, floored by what the observation can physically resolve (one
+    # pixel, or the caller's declared measurement tolerance).
+    #
+    # It is proportional because an absolute margin cannot serve even one
+    # catchment's own cycles: Fitzroy River's trough level ranges 0.0249 to
+    # 0.0521 percentage points across its record, so a margin meaningful at
+    # one year's level silently swallows a real recovery at another's. See
+    # docs/migrations/trough-refinement-candidate.md for the 42-cycle review
+    # that established this.
+    #
+    # It has no default and must be supplied explicitly by the caller, never
+    # silently defaulted -- see the endpoint contract's requirement that the
+    # equivalence margin be fixed independently of what it scores.
+    delta_rel: float | None = None
     l_uncertainty_k: float = 2.0
     scale_mode: Literal["residual", "combined"] = "combined"
 
@@ -55,10 +64,16 @@ class TroughRefinementPolicy:
         if self.candidate not in ("shape_fit", "direct_profile_combined"):
             raise ValueError(f"unknown candidate: {self.candidate!r}")
         if self.candidate == "direct_profile_combined":
-            if self.delta_pp is None or not np.isfinite(self.delta_pp) or self.delta_pp <= 0.0:
+            if (
+                self.delta_rel is None
+                or not np.isfinite(self.delta_rel)
+                or not 0.0 < self.delta_rel < 1.0
+            ):
                 raise ValueError(
-                    "delta_pp must be a positive, finite value for the "
-                    "direct_profile_combined candidate."
+                    "delta_rel must be a finite fraction in (0, 1) for the "
+                    "direct_profile_combined candidate: it is a proportion of "
+                    "the low-state level, and at 1.0 the equivalence ceiling "
+                    "would reach twice that level."
                 )
 
 

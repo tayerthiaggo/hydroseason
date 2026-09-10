@@ -157,7 +157,7 @@ def test_direct_profile_combined_candidate_applies_boundary_without_changing_pea
             trough_refinement_policy=TroughRefinementPolicy(
                 huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=2.0,
                 version="direct_profile_combined_v1",
-                candidate="direct_profile_combined", delta_pp=0.5,
+                candidate="direct_profile_combined", delta_rel=0.05,
             ),
         ),
     )
@@ -218,7 +218,7 @@ def test_adopted_trough_interval_never_extends_past_the_operational_boundary(mon
             expected_trough_month=9,
             trough_refinement_policy=TroughRefinementPolicy(
                 huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=2.0,
-                version="direct_profile_combined_v1", candidate="direct_profile_combined", delta_pp=0.5,
+                version="direct_profile_combined_v1", candidate="direct_profile_combined", delta_rel=0.05,
             ),
         ),
     )

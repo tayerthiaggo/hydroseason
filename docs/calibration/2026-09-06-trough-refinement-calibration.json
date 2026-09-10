@@ -1,7 +1,7 @@
 {
   "calibration_version": "0.2.0-trough-refinement.1",
   "partition": "calibration",
-  "generated": "2026-09-09T07:45:10+00:00",
+  "generated": "2026-09-10T07:09:08+00:00",
   "authority_scope": "trough_refinement_candidate_0_2",
   "selected_policy": {
     "huber_k": 1.345,
@@ -9,11 +9,11 @@
     "pulse_z": 1.5,
     "version": "trough_refinement_candidate_0_2",
     "candidate": "shape_fit",
-    "delta_pp": null,
+    "delta_rel": null,
     "l_uncertainty_k": 2.0,
     "scale_mode": "combined"
   },
-  "fingerprint": "f2b010cf7906fff94b63713e0569364fff181a30782cf9bf7d5e1aa2fee8e41f",
+  "fingerprint": "3bee0e5832f32953e71e7a6e9c5ceea5d9b6492e0e2a12e23a80d8e53ee226ec",
   "environment": {
     "python": "3.12.13",
     "numpy": "2.4.6",
@@ -76,5 +76,5 @@
     "median_matches_or_beats_synthetic_reference": true,
     "p90_matches_or_beats_synthetic_reference": true
   },
-  "elapsed_seconds": 48.657
+  "elapsed_seconds": 43.643
 }
