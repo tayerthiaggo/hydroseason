@@ -88,6 +88,9 @@ overnight-wofs_resume.ps1
 overnight-wofs.ps1
 
 # ── Agent / session scratch (never part of a release) ─────────────────────────
+# `*.tmp` above only matches that extension, so dated scratch directories such
+# as `.tmp-audit-full-20260906/` were showing up as untracked noise.
+.tmp-*/
 pipelines/
 preview_report/
 docs/plans/
