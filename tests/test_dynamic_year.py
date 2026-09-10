@@ -170,6 +170,69 @@ def test_direct_profile_combined_candidate_applies_boundary_without_changing_pea
     assert bool(row["trough_refinement_applied"])
 
 
+def test_adopted_trough_interval_never_extends_past_the_operational_boundary(monkeypatch):
+    """Regression: a real Fitzroy River cycle under direct_profile_combined
+    reported trough_month=2021-12-01 but trough_interval_end_date=2022-01-01
+    -- December in the report simultaneously "might still be this cycle's low
+    state" (the interval) and "already the next cycle's rising limb"
+    (everywhere else in the report). This is legitimate under the
+    representative-date convention (the operational boundary is the latest
+    NEAR-TIE in the final cluster, not the cluster's own last member -- see
+    endpoint contract section 7), but confusing once exported: an adopted
+    interval must never claim territory the adopted boundary has already
+    ceded to the next cycle. The full, unclipped cluster stays available via
+    trough_challenger_interval_end for audit.
+    """
+    import hydroseason._trough_refinement as trough_module
+    from hydroseason._trough_refinement import TroughRefinementResult
+
+    raw = _candidate_frame()
+    raw.loc["2020-06-01":"2020-12-01", "extent_pct"] = [
+        30.0, 20.0, 10.0, 1.0, 1.0, 1.0, 15.0,
+    ]
+
+    def fake_refine_trough_span(frame, *, left_peak, right_peak, policy, measurement_tolerance_pp=0.0):
+        if right_peak is None:
+            return TroughRefinementResult(
+                status="awaiting_next_peak", reason="open_span", boundary=None,
+                boundary_candidates=(), low_state_start=None, low_state_end=None,
+                recovery_start=None, pulse_months=(), local_scale_pp=0.0,
+                best_loss=float("nan"), effective_support=0.0, policy_version=policy.version,
+            )
+        boundary = pd.Timestamp("2020-12-01")
+        candidates = (boundary, pd.Timestamp("2021-01-01"))  # extends past boundary, like real Fitzroy 2021
+        return TroughRefinementResult(
+            status="confirmed", reason="accepted", boundary=boundary,
+            boundary_candidates=candidates, low_state_start=pd.Timestamp("2020-09-01"),
+            low_state_end=boundary, recovery_start=boundary + pd.DateOffset(months=1),
+            pulse_months=(), local_scale_pp=0.01, best_loss=0.0, effective_support=7.0,
+            policy_version=policy.version,
+        )
+
+    monkeypatch.setattr(dynamic_year, "refine_trough_span", fake_refine_trough_span)
+    monkeypatch.setattr(trough_module, "refine_trough_span", fake_refine_trough_span)
+
+    refined = detect_dynamic_hydrological_years(
+        raw,
+        config=DynamicHydroYearConfig(
+            expected_trough_month=9,
+            trough_refinement_policy=TroughRefinementPolicy(
+                huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=2.0,
+                version="direct_profile_combined_v1", candidate="direct_profile_combined", delta_pp=0.5,
+            ),
+        ),
+    )
+
+    row = refined.loc[refined["hy_year"] == 2020].iloc[0]
+    assert row["trough_month"] == pd.Timestamp("2020-12-01")
+    # The adopted interval must not extend past the adopted boundary.
+    assert row["trough_interval_end"] == pd.Timestamp("2020-12-01")
+    assert row["trough_interval_start"] == pd.Timestamp("2020-12-01")
+    assert row["trough_timing_status"] == "point"
+    # The full, unclipped support cluster is still auditable separately.
+    assert row["trough_challenger_interval_end"] == pd.Timestamp("2021-01-01")
+
+
 def test_open_peak_span_retains_pass1_as_provisional_fallback():
     raw = _candidate_frame()
     result = detect_dynamic_hydrological_years(

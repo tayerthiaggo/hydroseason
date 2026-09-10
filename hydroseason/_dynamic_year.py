@@ -1311,10 +1311,23 @@ def _apply_trough_refinement(
 
         _preserve_refinement_columns(current_candidate, rows.iloc[position])
         _preserve_refinement_columns(following_candidate, rows.iloc[position + 1])
-        current_candidate["trough_interval_start"] = refinement.boundary_candidates[0]
-        current_candidate["trough_interval_end"] = refinement.boundary_candidates[-1]
+        # The adopted interval must never claim a month past the adopted
+        # boundary: a later month in `boundary_candidates` can be a
+        # genuinely plausible (but not the near-exact-tied) endpoint --
+        # that is what makes it a candidate at all -- but once that month
+        # belongs to the *next* cycle everywhere else in the report (peaks,
+        # phase, wet-season classification), reporting it as still part of
+        # this cycle's uncertainty interval contradicts the rest of the
+        # export for the same calendar month. Clip to the adopted boundary;
+        # the full, unclipped cluster remains available via
+        # `trough_challenger_interval_end` for audit.
+        adopted_candidates = tuple(
+            date for date in refinement.boundary_candidates if date <= refinement.boundary
+        )
+        current_candidate["trough_interval_start"] = adopted_candidates[0]
+        current_candidate["trough_interval_end"] = adopted_candidates[-1]
         current_candidate["trough_timing_status"] = _candidate_timing_status(
-            refinement.boundary_candidates, config.timing_identifiability_thresholds
+            adopted_candidates, config.timing_identifiability_thresholds
         )
         current_candidate["timing_status"] = _aggregate_timing_status(
             current_candidate["peak_timing_status"],

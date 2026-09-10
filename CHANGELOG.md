@@ -20,6 +20,20 @@ All notable changes to HydroSeason are documented here. This project follows
   for wiring, evidence, and why promotion is still unavailable.
 
 ### Fixed
+- Trough refinement: the adopted timing-support interval
+  (`trough_interval_start`/`trough_interval_end`) could extend past the
+  adopted operational boundary (`trough_month`) whenever the final support
+  cluster's near-exact-tied representative date (the existing convention
+  for both candidates) fell before the cluster's own last member. A real
+  Fitzroy River cycle under `direct_profile_combined` showed
+  `trough_month=2021-12-01` alongside `trough_interval_end=2022-01-01` --
+  January simultaneously "might still be this cycle's low state" per the
+  interval and "already the next cycle's rising limb" everywhere else in
+  the report. The adopted interval is now clipped to the adopted boundary;
+  the full, unclipped cluster remains available via
+  `trough_challenger_interval_end` for audit. Affects both candidates
+  wherever this situation arises, though it surfaces far more often under
+  `direct_profile_combined`'s wider, more calibrated support.
 - Trough refinement candidate (`trough_refinement_candidate_0_2`, opt-in,
   still not promoted): corrected a calendar-gap defect where a genuinely
   missing month could be silently treated as if it never existed during
