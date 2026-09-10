@@ -1,7 +1,7 @@
 catchment,hy_year,left_peak,right_peak,is_nine_daly_example,baseline_boundary,baseline_support,baseline_support_width_months,baseline_status,baseline_reason,candidate_boundary,candidate_support,candidate_support_width_months,candidate_status,candidate_reason,dates_agree
-daly_river_nt,2005,2005-01,2006-04,True,,2006-01,0,unresolved,unstable_quality_sensitivity,,2006-01,0,unresolved,unstable_quality_sensitivity,True
+daly_river_nt,2005,2005-01,2006-04,True,,2006-01,0,unresolved,unstable_quality_sensitivity,,2006-01,0,unresolved,no_reliable_boundary_in_support,True
 daly_river_nt,2006,2006-04,2007-03,False,2006-12,2006-12,0,provisional,essential_low_quality_recovery,2006-12,2006-12,0,provisional,essential_low_quality_recovery,True
-daly_river_nt,2007,2007-03,2008-03,False,,2007-10,0,unresolved,unstable_quality_sensitivity,,2008-02,0,unresolved,unstable_quality_sensitivity,True
+daly_river_nt,2007,2007-03,2008-03,False,,2007-10,0,unresolved,unstable_quality_sensitivity,,2008-02,0,unresolved,no_reliable_boundary_in_support,True
 daly_river_nt,2008,2008-03,2009-02,True,2008-10,2008-10,0,confirmed,accepted,2008-11,"2008-10,2008-11",1,confirmed,accepted,False
 daly_river_nt,2009,2009-02,2010-01,False,2009-11,2009-11,0,provisional,essential_low_quality_recovery,2009-11,"2009-11,2009-12",1,provisional,essential_low_quality_recovery,True
 daly_river_nt,2010,2010-01,2011-03,False,,2010-11,0,unresolved,unstable_quality_sensitivity,,"2010-09,2010-10,2010-11,2010-12,2011-01",4,unresolved,unstable_quality_sensitivity,True
@@ -14,7 +14,7 @@ daly_river_nt,2016,2016-01,2017-02,True,2016-12,"2016-11,2016-12",1,provisional,
 daly_river_nt,2017,2017-02,2018-02,False,2017-12,2017-12,0,provisional,essential_low_quality_recovery,2017-12,2017-12,0,provisional,essential_low_quality_recovery,True
 daly_river_nt,2018,2018-02,2019-04,True,,2018-11,0,unresolved,unstable_quality_sensitivity,,"2018-11,2018-12",1,unresolved,unstable_quality_sensitivity,True
 daly_river_nt,2019,2019-04,2020-01,True,2019-11,2019-11,0,provisional,interval_peak,2019-12,2019-12,0,provisional,interval_peak,False
-daly_river_nt,2020,2020-01,2021-02,True,,2021-01,0,unresolved,unstable_quality_sensitivity,,2021-01,0,unresolved,unstable_quality_sensitivity,True
+daly_river_nt,2020,2020-01,2021-02,True,,2021-01,0,unresolved,unstable_quality_sensitivity,,2021-01,0,unresolved,no_reliable_boundary_in_support,True
 daly_river_nt,2021,2021-02,2022-02,False,2021-11,2021-11,0,provisional,low_quality_peak,2021-11,2021-11,0,provisional,low_quality_peak,True
 daly_river_nt,2022,2022-02,2023-01,False,2022-12,"2022-11,2022-12",1,provisional,interval_peak,2022-12,2022-12,0,provisional,interval_peak,True
 daly_river_nt,2023,2023-01,2024-03,False,,2023-11,0,unresolved,unstable_quality_sensitivity,,"2023-11,2023-12",1,unresolved,unstable_quality_sensitivity,True
@@ -26,7 +26,7 @@ fitzroy_river_wa,2008,2008-02,2009-02,False,2008-11,2008-11,0,provisional,low_qu
 fitzroy_river_wa,2009,2009-02,2010-01,False,2009-11,2009-11,0,confirmed,accepted,2009-11,"2009-11,2009-12",1,confirmed,accepted,True
 fitzroy_river_wa,2010,2010-01,2011-03,False,,2010-09,0,unresolved,unstable_quality_sensitivity,,2010-12,0,unresolved,unstable_quality_sensitivity,True
 fitzroy_river_wa,2011,2011-03,2012-03,False,2011-12,"2011-09,2011-10,2011-11,2011-12",3,provisional,low_quality_peak,2011-12,"2011-09,2011-10,2011-11,2011-12",3,provisional,low_quality_peak,True
-fitzroy_river_wa,2012,2012-03,2013-03,False,,2012-12,0,unresolved,unstable_quality_sensitivity,,"2012-12,2013-01",1,unresolved,unstable_quality_sensitivity,True
+fitzroy_river_wa,2012,2012-03,2013-03,False,,2012-12,0,unresolved,unstable_quality_sensitivity,,"2012-12,2013-01",1,unresolved,no_reliable_boundary_in_support,True
 fitzroy_river_wa,2013,2013-03,2014-02,False,2013-11,2013-11,0,provisional,essential_low_quality_recovery,2013-11,2013-11,0,provisional,essential_low_quality_recovery,True
 fitzroy_river_wa,2014,2014-02,2015-01,False,2014-11,2014-11,0,provisional,essential_low_quality_recovery,2014-11,2014-11,0,provisional,essential_low_quality_recovery,True
 fitzroy_river_wa,2015,2015-01,2016-02,False,2015-10,2015-10,0,provisional,interval_peak,2015-12,"2015-11,2015-12",1,provisional,interval_peak,False
@@ -44,7 +44,7 @@ gilbert_river_qld,2006,2006-02,2007-02,False,,2006-10,0,unresolved,unstable_qual
 gilbert_river_qld,2007,2007-02,2008-01,False,,2007-10,0,unresolved,unstable_quality_sensitivity,,"2007-08,2007-09,2007-10,2007-11,2007-12",4,unresolved,unstable_quality_sensitivity,True
 gilbert_river_qld,2008,2008-01,2009-01,False,2008-11,2008-11,0,provisional,low_quality_peak,2008-11,"2008-09,2008-10,2008-11",2,provisional,low_quality_peak,True
 gilbert_river_qld,2009,2009-01,2010-02,False,2009-11,2009-11,0,provisional,low_quality_peak,2009-12,"2009-11,2009-12",1,provisional,low_quality_peak,False
-gilbert_river_qld,2010,2010-02,2011-02,False,2010-12,"2010-09,2010-10,2010-11,2010-12",3,provisional,essential_low_quality_recovery,2010-12,"2010-07,2010-08,2010-09,2010-10,2010-11,2010-12",5,provisional,essential_low_quality_recovery,True
+gilbert_river_qld,2010,2010-02,2011-02,False,2010-12,"2010-09,2010-10,2010-11,2010-12",3,provisional,essential_low_quality_recovery,2010-11,"2010-07,2010-08,2010-09,2010-10,2010-11,2010-12",5,provisional,essential_low_quality_recovery,False
 gilbert_river_qld,2011,2011-02,2012-03,False,,2011-11,0,unresolved,unstable_quality_sensitivity,,"2011-05,2011-06,2011-07,2011-08,2011-09,2011-10,2011-11,2011-12,2012-01",8,unresolved,unstable_quality_sensitivity,True
 gilbert_river_qld,2012,2012-03,2013-01,False,2012-11,2012-11,0,provisional,low_quality_peak,2012-11,2012-11,0,provisional,low_quality_peak,True
 gilbert_river_qld,2013,2013-01,2014-02,False,,2013-11,0,unresolved,unstable_quality_sensitivity,,2013-11,0,unresolved,unstable_quality_sensitivity,True

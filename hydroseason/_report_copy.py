@@ -42,11 +42,26 @@ def verdict_sentence(analysis: CatchmentAnalysis) -> str:
     snr = assessment.amplitude_snr
 
     if regime == "seasonal":
-        route_desc = (
-            "Dynamic hydrological-year boundaries are detected per year."
-            if analysis.route == "per_year_detection"
-            else "Hydrological year boundaries are applied."
-        )
+        if analysis.route == "per_year_detection":
+            route_desc = "Dynamic hydrological-year boundaries are detected per year."
+        elif analysis.route == "event_characterisation":
+            # Calendar-year evidence looked seasonal enough to attempt
+            # per-year detection, but the individual cycles it actually
+            # produced didn't support it (see _catchment.py's
+            # cycles_support_timing gate) -- no hydro_years were published,
+            # so this must not read as "boundaries are applied".
+            reason = analysis.route_reason or (
+                f"seasonal record (SNR {snr:.2f}) could not resolve annual timing per cycle"
+            )
+            sentence = reason[0].upper() + reason[1:]
+            if not sentence.endswith((".", "!", "?")):
+                sentence += "."
+            return (
+                f"{sentence} Wet events and low-extent spells are reported; "
+                "exact hydrological-year boundaries are withheld."
+            )
+        else:
+            route_desc = "Hydrological year boundaries are applied."
         return (
             f"Exhibits a seasonal regime with reproducible annual cycles "
             f"(SNR = {snr:.2f}). {route_desc}"

@@ -211,6 +211,12 @@ class _DirectProfileSolution:
     loss_basis: Literal["standardized_huber", "exact_l1", "unavailable"]
     start_position_at_best: int | None = None
     fit_at_best: _DirectProfileFit | None = None
+    # Fits for every member of the final support cluster (not just the
+    # winning departure position), so a caller can re-anchor the reported
+    # boundary to an earlier, more reliable cluster member -- e.g. when the
+    # naive latest month is too cloud-contaminated to publish as an
+    # operational date -- without re-solving the profile from scratch.
+    fits_in_final_cluster: dict[int, _DirectProfileFit] | None = None
 
 
 def solve_direct_profile(
@@ -311,6 +317,7 @@ def solve_direct_profile(
         loss_basis=loss_basis,
         start_position_at_best=winning_fit.start_position,
         fit_at_best=winning_fit,
+        fits_in_final_cluster={p: best_by_departure[p] for p in final_cluster},
     )
 
 
@@ -409,9 +416,33 @@ def _refine_gap_direct_profile(
             policy_version=policy.version, loss_basis=loss_basis,
         )
 
-    boundary = pd.Timestamp(before.index[last])
+    # Same reliability guard as the main (non-gap) path: `last` is only the
+    # latest OBSERVED pre-gap month, not necessarily a reliable one. Without
+    # this, a sensitivity-ensemble scenario that happens to mask a later
+    # month as the "gap" can smuggle an unreliable month back in as the
+    # published boundary even when the main path already excluded it (see
+    # the Gilbert River 2010 case: masking January alone reintroduces
+    # December, which max()-wins across the ensemble's scenarios).
+    quality_state = before["quality_state"]
+    reliable_position = next(
+        (
+            position for position in range(last, best.start_position - 1, -1)
+            if quality_state.iloc[position] != "low"
+        ),
+        None,
+    )
+    if reliable_position is None:
+        return TroughRefinementResult(
+            status="unresolved", reason="no_reliable_boundary_in_support", boundary=None,
+            boundary_candidates=tuple(pd.Timestamp(date) for date in before.index[best.start_position:]),
+            low_state_start=None, low_state_end=None, recovery_start=None, pulse_months=(),
+            local_scale_pp=scale, best_loss=best_loss, effective_support=float(np.sum(before_weights)),
+            policy_version=policy.version, loss_basis=loss_basis,
+        )
+    boundary = pd.Timestamp(before.index[reliable_position])
+    reason = "recovery_crosses_gap" if reliable_position == last else "boundary_deferred_to_reliable_month"
     return TroughRefinementResult(
-        status="provisional", reason="recovery_crosses_gap", boundary=boundary,
+        status="provisional", reason=reason, boundary=boundary,
         boundary_candidates=tuple(pd.Timestamp(date) for date in before.index[best.start_position:]),
         low_state_start=pd.Timestamp(before.index[best.start_position]), low_state_end=boundary,
         recovery_start=None, pulse_months=(), local_scale_pp=scale, best_loss=best_loss,
@@ -499,15 +530,44 @@ def refine_selected_span_direct_profile(
             policy_version=policy.version, loss_basis=solution.loss_basis,
         )
 
-    boundary_position = solution.departure_position
+    # The statistically-plausible support cluster can legitimately include a
+    # month whose own observation is heavily cloud-contaminated: the profile
+    # only sees its value, not its reliability. Never publish an unreliable
+    # month as the operational boundary -- a downstream step that pulls the
+    # raster/extent layer at the reported date would inherit a mostly-invalid
+    # layer. Defer to the latest RELIABLE month at or before the naive
+    # departure position (never later -- this only guards which calendar
+    # month gets published, not the timing conclusion itself); abstain if no
+    # month in the cluster is reliable enough to stand behind.
+    quality_state = span["quality_state"]
+    reliable_position = next(
+        (
+            position for position in sorted(
+                (p for p in solution.support_positions if p <= solution.departure_position),
+                reverse=True,
+            )
+            if quality_state.iloc[position] != "low"
+        ),
+        None,
+    )
+    if reliable_position is None:
+        return TroughRefinementResult(
+            status="unresolved", reason="no_reliable_boundary_in_support", boundary=None,
+            boundary_candidates=tuple(span.index[p] for p in solution.support_positions),
+            low_state_start=None, low_state_end=None, recovery_start=None, pulse_months=(),
+            local_scale_pp=scale, best_loss=solution.best_loss, effective_support=float(np.sum(weights)),
+            policy_version=policy.version, loss_basis=solution.loss_basis,
+        )
+    boundary_deferred = reliable_position != solution.departure_position
+    boundary_position = reliable_position
     boundary_candidates = tuple(span.index[p] for p in solution.support_positions)
-    # The winning (start, end, L) triple already found by the solver's own
-    # grid search is the low-state occupancy: re-deriving it from a separate
+    # The (start, end, L) triple already found by the solver's own grid
+    # search is the low-state occupancy: re-deriving it from a separate
     # single-level re-fit would ignore the isotonic branch construction that
     # lets the solver's fit absorb a pulse via pooling rather than forcing
     # it into a flat block (see the pulse-return test).
-    best_fit = solution.fit_at_best
-    assert best_fit is not None
+    assert solution.fits_in_final_cluster is not None
+    best_fit = solution.fits_in_final_cluster[boundary_position]
     best_start = best_fit.start_position
     boundary = span.index[boundary_position]
     pulse_fit = replace(best_fit, end_position=boundary_position)
@@ -521,6 +581,8 @@ def refine_selected_span_direct_profile(
         status, reason = "provisional", "low_quality_peak"
     elif peak_interval:
         status, reason = "provisional", "interval_peak"
+    elif boundary_deferred:
+        status, reason = "provisional", "boundary_deferred_to_reliable_month"
     elif essential_low_quality:
         status, reason = "provisional", "essential_low_quality_recovery"
     elif unknown_quality:

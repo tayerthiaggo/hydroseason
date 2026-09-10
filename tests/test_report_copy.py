@@ -196,6 +196,27 @@ def test_seasonal_copy_has_regime_verdict(seasonal_analysis):
     assert len(sentence) > 0
 
 
+def test_seasonal_regime_routed_to_event_characterisation_explains_why(seasonal_analysis):
+    """A seasonal-looking record whose per-cycle timing didn't hold up (Roper
+    River NT: SNR 2.14, but only 3 of 11 cycles resolved a usable trough)
+    must not claim "Hydrological year boundaries are applied" -- none were.
+    The verdict must surface analysis.route_reason and be honest that
+    boundaries are withheld."""
+    reason = (
+        "seasonal record (SNR 2.14) has insufficient identifiable annual "
+        "timing (peak cycles resolved=9, trough cycles resolved=3, need "
+        ">=3 on each); using event characterisation"
+    )
+    analysis = replace(
+        seasonal_analysis, route="event_characterisation", route_reason=reason,
+        hydro_years=pd.DataFrame(),
+    )
+    sentence = verdict_sentence(analysis)
+    assert "applied" not in sentence.casefold()
+    assert "trough cycles resolved=3" in sentence
+    assert "withheld" in sentence.casefold()
+
+
 def test_wet_event_explainer_states_this_catchments_own_thresholds(aseasonal_analysis):
     """The explanation is grounded in resolved numbers, not generic boilerplate."""
     summary = aseasonal_analysis.events.summary

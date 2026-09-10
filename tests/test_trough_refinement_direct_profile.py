@@ -10,6 +10,7 @@ from hydroseason._trough_refinement import (
     TroughRefinementPolicy,
     refine_trough_span,
 )
+from hydroseason._trough_refinement_direct_profile import refine_selected_span_direct_profile
 
 
 def _prepared(values: list[float], start: str = "2020-01-01") -> pd.DataFrame:
@@ -134,3 +135,78 @@ class TestDispatch:
         )
         assert result.status == "unresolved"
         assert result.boundary is None
+
+
+def _prepared_with_quality(values: list[float], invalid_pct: list[float], start: str = "2020-01-01") -> pd.DataFrame:
+    index = pd.date_range(start, periods=len(values), freq="MS")
+    raw = pd.DataFrame({"extent_pct": values, "invalid_pct": invalid_pct}, index=index)
+    return prepare_monthly_extent(raw)
+
+
+class TestQualityAwareBoundarySelection:
+    """direct_profile_combined only (shape_fit is frozen -- see the migration
+    doc). The statistically-plausible support cluster can legitimately
+    include a month whose own observation is heavily cloud-contaminated
+    (high invalid_pct): the profile only sees its value, not its
+    reliability. Publishing that month as the operational boundary is
+    risky for any downstream step that pulls the raster/extent layer at
+    the reported date (a near-half-invalid layer has little valid data to
+    work with). The adopted boundary must be the latest month in the
+    support cluster that is ALSO reliable (quality_state != "low"),
+    falling back through the cluster, and abstaining (unresolved) if no
+    month in it is reliable -- never publishing a boundary the pipeline
+    cannot itself trust enough to use.
+    """
+
+    def _span(self, invalid_pct):
+        values = [40.0, 20.0, 12.0, 12.1, 12.3, 20.0, 40.0]
+        return _prepared_with_quality(values, invalid_pct)
+
+    def test_low_quality_latest_month_defers_to_the_last_reliable_one(self):
+        # support cluster is {2020-03, 2020-04, 2020-05} at this scale/k;
+        # 2020-05 (the naive latest) is heavily cloud-contaminated.
+        frame = self._span([0, 0, 0, 0, 45.0, 0, 0])
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(delta_pp=0.4, l_uncertainty_k=2.0),
+            measurement_tolerance_pp=0.5,
+        )
+        assert result.boundary == pd.Timestamp("2020-04-01")
+
+    def test_falls_back_through_multiple_unreliable_months(self):
+        frame = self._span([0, 0, 0, 40.0, 45.0, 0, 0])
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(delta_pp=0.4, l_uncertainty_k=2.0),
+            measurement_tolerance_pp=0.5,
+        )
+        assert result.boundary == pd.Timestamp("2020-03-01")
+
+    def test_abstains_when_no_month_in_the_cluster_is_reliable(self):
+        frame = self._span([0, 0, 30.0, 40.0, 45.0, 0, 0])
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(delta_pp=0.4, l_uncertainty_k=2.0),
+            measurement_tolerance_pp=0.5,
+        )
+        assert result.status == "unresolved"
+        assert result.boundary is None
+
+    def test_reliable_latest_month_is_unaffected(self):
+        # Regression: when the naive latest month is already reliable,
+        # behavior must be identical to before this change.
+        frame = self._span([0, 0, 0, 0, 0, 0, 0])
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(delta_pp=0.4, l_uncertainty_k=2.0),
+            measurement_tolerance_pp=0.5,
+        )
+        assert result.boundary == pd.Timestamp("2020-05-01")

@@ -69,8 +69,8 @@ date,extent_pct,invalid_pct,max_invalid_pct,baseline_extent_pct,usable_month,qua
 2010-08-01,0.16499917739013614,10.160804318427477,20.0,0.196424,True,usable,2010,medium,receding,provisional,False,False,False,False,,False,,seasonal,per_year_detection
 2010-09-01,0.1416753206923909,4.290319987270786,20.0,0.196424,True,usable,2010,medium,receding,provisional,False,False,False,False,,True,6,seasonal,per_year_detection
 2010-10-01,0.13014409514446448,6.363998601485002,20.0,0.196424,True,usable,2010,medium,receding,provisional,False,False,False,False,,True,6,seasonal,per_year_detection
-2010-11-01,0.14829394213010483,5.387426667482726,20.0,0.196424,True,usable,2010,medium,receding,provisional,False,False,False,False,,True,6,seasonal,per_year_detection
-2010-12-01,0.6213998312811302,43.86539958670885,20.0,0.196424,True,low,2010,medium,receding,provisional,False,False,True,True,7,False,,seasonal,per_year_detection
+2010-11-01,0.14829394213010483,5.387426667482726,20.0,0.196424,True,usable,2010,medium,receding,provisional,False,False,True,False,,True,6,seasonal,per_year_detection
+2010-12-01,0.6213998312811302,43.86539958670885,20.0,0.196424,True,low,2011,low,rising,interval_boundary,False,False,False,True,7,False,,seasonal,per_year_detection
 2011-01-01,2.4599337189801056,27.116679928986535,20.0,0.196424,True,low,2011,low,rising,interval_boundary,False,False,False,True,7,False,,seasonal,per_year_detection
 2011-02-01,6.458520365982146,17.312416908051233,20.0,0.196424,True,usable,2011,low,rising,interval_boundary,True,False,False,True,7,False,,seasonal,per_year_detection
 2011-03-01,2.889890894640916,39.007736214887224,20.0,0.196424,True,low,2011,low,receding,interval_boundary,False,False,False,True,7,False,,seasonal,per_year_detection

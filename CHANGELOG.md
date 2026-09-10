@@ -4,6 +4,33 @@ All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- `direct_profile_combined` no longer publishes a heavily cloud-contaminated
+  month (`quality_state="low"`) as the operational end-of-dry boundary, even
+  when it is statistically part of the support cluster: the profile sees
+  the observation's *value*, not its reliability, so a plausible-looking
+  month can still be one where nearly half the AOI has no valid pixel that
+  month. The adopted boundary now defers to the latest RELIABLE month at or
+  before the naive pick (new reason `boundary_deferred_to_reliable_month`),
+  never later, and abstains (`unresolved`/`no_reliable_boundary_in_support`)
+  if no month in the cluster is reliable enough to publish. Applied in both
+  the main profile path and the gap-handling path (a sensitivity-ensemble
+  scenario that masks a later month as a gap can otherwise smuggle an
+  unreliable month back in as the winning boundary via
+  `_combine_sensitivity_results`'s "latest boundary wins" rule -- found via
+  the Gilbert River 2010 cycle, where December's 44%-invalid reading was
+  published as the boundary over a clean November reading one month
+  earlier). `shape_fit` is unaffected (frozen; not in scope for this fix).
+- `verdict_sentence()`: a `regime="seasonal"` record routed to
+  `event_characterisation` (calendar-year evidence looked seasonal, but too
+  few individual cycles resolved usable peak/trough timing -- see
+  `_catchment.py`'s `cycles_support_timing` gate) previously fell through to
+  "Hydrological year boundaries are applied," which is false when zero
+  hydro_years were published. Now surfaces `analysis.route_reason` (the
+  precise, already-computed explanation) and states plainly that boundaries
+  are withheld. Found on the Roper River NT report (SNR 2.14, seasonal, but
+  only 3 of 11 cycles resolved a usable trough).
+
 ### Added
 - Second trough-refinement candidate, `direct_profile_combined` (opt-in, not
   promoted): profiles the equivalence-state low-state departure directly
