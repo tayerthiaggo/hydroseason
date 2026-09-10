@@ -5,6 +5,24 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 ### Fixed
+- `direct_profile_combined`'s gap-handling path (`_refine_gap_direct_profile`)
+  always treated the last OBSERVED pre-gap month as the low state's own
+  endpoint, checking only its quality and never whether its raw *value* was
+  actually a plausible low-state member. A real, fully-usable but sharply
+  elevated month immediately before a data gap (Daly River HY2016/HY2024:
+  December is usable-quality but ~2x the trough level, right before a
+  low-quality January) could pass the quality check while sitting well
+  outside the low state's own equivalence band. The nominal call already
+  excluded it correctly, but the sensitivity ensemble's own gap-masking
+  scenario reached it via this separate path, and
+  `_combine_sensitivity_results`'s "latest boundary wins" rule let it ship
+  anyway. The gap path now walks back to the latest month that is both
+  quality-reliable and within `delta_pp` of the segment's own natural
+  reference level (new reason `boundary_deferred_to_implausible_month`,
+  alongside the existing `boundary_deferred_to_reliable_month` and
+  `no_reliable_boundary_in_support`). Daly River HY2016 now reports
+  `2016-11` (was `2016-12`); HY2024 now reports `2024-11` (was `2024-12`).
+  `shape_fit` is unaffected (frozen; not in scope for this fix).
 - `direct_profile_combined` no longer publishes a heavily cloud-contaminated
   month (`quality_state="low"`) as the operational end-of-dry boundary, even
   when it is statistically part of the support cluster: the profile sees

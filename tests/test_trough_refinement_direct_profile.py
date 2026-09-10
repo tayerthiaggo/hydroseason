@@ -210,3 +210,48 @@ class TestQualityAwareBoundarySelection:
             measurement_tolerance_pp=0.5,
         )
         assert result.boundary == pd.Timestamp("2020-05-01")
+
+
+class TestGapPathValuePlausibility:
+    """direct_profile_combined only. ``_refine_gap_direct_profile`` always
+    treats the last OBSERVED pre-gap month as the low state's own endpoint,
+    fitting a block that forces it in and only checking its quality -- never
+    whether its raw value is actually a plausible low-state member. A real
+    month (e.g. Daly River HY2016/HY2024's December: a real, fully-usable
+    but sharply elevated observation immediately before a low-quality
+    January) can pass that quality check while still being far outside the
+    equivalence band any other low-state month sits in. The published
+    boundary must defer to the latest month that is BOTH quality-reliable
+    AND value-plausible (within delta_pp of the segment's own natural
+    reference level), not just quality-reliable.
+    """
+
+    def _gap_frame(self, before_tail: float) -> pd.DataFrame:
+        # Sep/Oct/Nov analogue at ~12, then a spike immediately before a
+        # real data gap (Jan masked), then a clear post-gap recovery.
+        values = [40.0, 20.0, 12.0, 12.1, 12.3, before_tail, np.nan, 50.0]
+        return _prepared(values)
+
+    def test_implausible_naive_endpoint_defers_to_the_last_plausible_month(self):
+        frame = self._gap_frame(before_tail=24.0)
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(delta_pp=0.4), measurement_tolerance_pp=0.0,
+        )
+        assert result.boundary == pd.Timestamp("2020-05-01")
+        assert result.reason == "boundary_deferred_to_implausible_month"
+
+    def test_plausible_naive_endpoint_is_unaffected(self):
+        # Regression: when the naive last pre-gap month genuinely belongs to
+        # the low state, behavior is unchanged from before this fix.
+        frame = self._gap_frame(before_tail=12.2)
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_selected_span_direct_profile(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(delta_pp=0.4), measurement_tolerance_pp=0.0,
+        )
+        assert result.boundary == pd.Timestamp("2020-06-01")
+        assert result.reason == "recovery_crosses_gap"

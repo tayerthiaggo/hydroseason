@@ -423,11 +423,30 @@ def _refine_gap_direct_profile(
     # published boundary even when the main path already excluded it (see
     # the Gilbert River 2010 case: masking January alone reintroduces
     # December, which max()-wins across the ensemble's scenarios).
+    #
+    # Reliability alone is not enough, though: this function's "before"
+    # fit always forces the block to end exactly at `last`, so `low_level`
+    # is partly derived from `last`'s own value and can't be used to test
+    # it. A real, fully-usable month can still be a spike well outside the
+    # low state's own equivalence band (Daly River HY2016/HY2024: December
+    # is usable-quality but ~2x the trough level, sitting right before a
+    # low-quality January gap) -- the main path's `final_departure_index`
+    # would never let such a value pass, but this gap path's fixed-end
+    # block bypasses that test entirely. Guard against both failure modes
+    # together: walk back from `last` to the latest month that is both
+    # quality-reliable and within delta_pp of the segment's own natural
+    # (outlier-robust) reference level.
     quality_state = before["quality_state"]
+    plausible_level = _natural_reference_level(
+        before_values, before_weights, scale=scale, huber_k=policy.huber_k,
+    )
+    plausibility_ceiling = plausible_level + policy.delta_pp
+    plausibility_tolerance = 64 * np.finfo(float).eps * max(abs(plausibility_ceiling), 1.0)
     reliable_position = next(
         (
             position for position in range(last, best.start_position - 1, -1)
             if quality_state.iloc[position] != "low"
+            and before_values[position] <= plausibility_ceiling + plausibility_tolerance
         ),
         None,
     )
@@ -440,7 +459,12 @@ def _refine_gap_direct_profile(
             policy_version=policy.version, loss_basis=loss_basis,
         )
     boundary = pd.Timestamp(before.index[reliable_position])
-    reason = "recovery_crosses_gap" if reliable_position == last else "boundary_deferred_to_reliable_month"
+    if reliable_position == last:
+        reason = "recovery_crosses_gap"
+    elif quality_state.iloc[last] == "low":
+        reason = "boundary_deferred_to_reliable_month"
+    else:
+        reason = "boundary_deferred_to_implausible_month"
     return TroughRefinementResult(
         status="provisional", reason=reason, boundary=boundary,
         boundary_candidates=tuple(pd.Timestamp(date) for date in before.index[best.start_position:]),
