@@ -1,6 +1,6 @@
 # Seasonality gate comparison: research specification
 
-Date: 11 September 2026. Status: proposed experiment; implementation and results pending. Repository baseline: `ab98bee` (HydroSeason 0.2.0).
+Date: 11 September 2026. Status: **superseded** by [the timing-recurrence seasonality test design](2026-09-11-seasonality-timing-recurrence-design.md); not implemented. Repository baseline: `ab98bee` (HydroSeason 0.2.0).
 
 ## 1. Purpose and decision
 
