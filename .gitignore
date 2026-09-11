@@ -100,6 +100,7 @@ docs/superpowers/*
 docs/superpowers/plans/*
 !docs/superpowers/plans/2026-09-06-two-pass-trough-refinement.md
 !docs/superpowers/plans/2026-09-09-low-state-direct-profile-coding.md
+!docs/superpowers/plans/2026-09-11-camels-aus-validation-handoff.md
 !docs/superpowers/specs/
 docs/superpowers/specs/*
 !docs/superpowers/specs/2026-09-06-two-pass-trough-refinement-design.md
