@@ -5,7 +5,7 @@
     "pulse_z": 1.5,
     "version": "trough_refinement_candidate_0_2"
   },
-  "manifest_hash": "65e2537fbece06c3f931f81c9c0513838281471aaca4d376b9d1de62fa2b12c3",
+  "manifest_hash": "3c3e0ff14c7411c0db2ae91f0368e060ace1f600fc468ef3996e71275a8965fc",
   "partitions": {
     "calibration": {
       "n_seeds": 100,

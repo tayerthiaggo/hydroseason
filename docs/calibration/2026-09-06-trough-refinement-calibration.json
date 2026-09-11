@@ -1,7 +1,7 @@
 {
   "calibration_version": "0.2.0-trough-refinement.1",
   "partition": "calibration",
-  "generated": "2026-09-10T08:41:19+00:00",
+  "generated": "2026-09-11T03:49:54+00:00",
   "authority_scope": "trough_refinement_candidate_0_2",
   "selected_policy": {
     "huber_k": 1.345,
@@ -13,7 +13,7 @@
     "l_uncertainty_k": 2.0,
     "scale_mode": "combined"
   },
-  "fingerprint": "ee6a3b24475f9f9ddd3ba7f1880ebeb02f53cb3d62e8ab386f400a25e04e0217",
+  "fingerprint": "850122592d37124a5800052a5397cd514f127fe398c176020273023866a0fbb0",
   "environment": {
     "python": "3.12.13",
     "numpy": "2.4.6",
@@ -76,5 +76,5 @@
     "median_matches_or_beats_synthetic_reference": true,
     "p90_matches_or_beats_synthetic_reference": true
   },
-  "elapsed_seconds": 43.652
+  "elapsed_seconds": 49.65
 }

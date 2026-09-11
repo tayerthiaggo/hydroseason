@@ -31,6 +31,24 @@ TroughRefinementCandidate = Literal["shape_fit", "direct_profile_combined"]
 # behaviour is unchanged.
 SCENARIO_NOT_EVALUABLE = "span_not_evaluable"
 
+# Candidates whose own fit already gives `quality_state == "low"` months zero
+# weight. For those, masking ONE such month cannot change the answer -- it
+# only flips the span's contiguity and re-routes it through the separate
+# gap-handling path -- so those per-month scenarios are skipped rather than
+# counted as instability (Daly River HY2005: eight scenarios agreed on
+# November and the cycle abstained anyway).
+#
+# The scenario that masks every untrusted month at once is deliberately
+# KEPT, for all candidates. It is the only check on the case where the whole
+# trough is cloud-flagged: the fit then rests on the trusted shoulders and
+# finds a shallower low state that looks perfectly well-supported, which
+# nothing else would catch. Bound substitution is kept too -- it still
+# probes what the cloud could be hiding, via the upstream scale estimate.
+#
+# `shape_fit` weights untrusted months normally, so none of this reasoning
+# applies to it and it keeps every scenario it has always had.
+_CANDIDATES_EXCLUDING_UNTRUSTED_MONTHS = frozenset({"direct_profile_combined"})
+
 
 @dataclass(frozen=True)
 class TroughRefinementPolicy:
@@ -1223,7 +1241,8 @@ def _quality_sensitivity(
     removable_low = [date for date in low_dates if date not in {left_date, right_date}]
     if removable_low:
         scenario_frames.append(_masked_missing(frame, removable_low))
-        scenario_frames.extend(_masked_missing(frame, [date]) for date in removable_low)
+        if policy.candidate not in _CANDIDATES_EXCLUDING_UNTRUSTED_MONTHS:
+            scenario_frames.extend(_masked_missing(frame, [date]) for date in removable_low)
     for date in low_dates:
         observed_fraction = float(span.loc[date, "observed_fraction"])
         value = float(span.loc[date, "extent_pct"])

@@ -472,6 +472,70 @@ class TestUnevaluableScenariosDoNotVetoTheEnsemble:
         assert combined.reason == "unstable_quality_sensitivity"
 
 
+class TestMaskingAnUntrustedMonthIsNotASensitivityTest:
+    """`direct_profile_combined` gives `quality_state == "low"` months zero
+    weight, so masking one cannot change the fit it produces. The only thing
+    masking changes is contiguity, which re-routes the whole span through
+    the separate gap-handling path -- and the differing answer that comes
+    back was then counted as instability and vetoed the refinement.
+
+    Daly River HY2005 is the case: eight scenarios agree on November, and
+    the cycle abstained anyway. `shape_fit` weights untrusted months
+    normally, so the argument does not apply to it and it keeps the masking
+    scenarios (guarded by the two `unstable_quality_sensitivity` tests in
+    tests/test_trough_refinement.py).
+    """
+
+    def _daly_2005_span(self) -> pd.DataFrame:
+        values = [
+            0.714490, 0.292494, 0.160265, 0.163330, 0.162717, 0.161318,
+            0.147574, 0.131862, 0.118780, 0.119377, 0.121806, 0.174568,
+            0.016762, 0.196351, 0.122782, 0.938340,
+        ]
+        invalid = [
+            2.314325, 3.199080, 3.570241, 1.931157, 1.933613, 2.034552,
+            1.927186, 1.926179, 2.063143, 2.333707, 3.020064, 41.032835,
+            60.986964, 2.329369, 47.257731, 3.297283,
+        ]
+        return _prepared_with_quality(values, invalid, start="2005-01-01")
+
+    def test_the_ensemble_publishes_what_its_scenarios_agree_on(self):
+        frame = self._daly_2005_span()
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        result = refine_trough_span(
+            frame, left_peak=left, right_peak=right,
+            policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
+        )
+        assert result.boundary == pd.Timestamp("2005-11-01")
+
+    def test_shape_fit_still_masks_untrusted_months(self):
+        # shape_fit does not zero-weight them, so the masking scenarios must
+        # survive for it. Asserted structurally: the scenario frames the
+        # ensemble builds for shape_fit still include a masked one.
+        from hydroseason import _trough_refinement as tr
+
+        frame = self._daly_2005_span()
+        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
+        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
+        seen: list[bool] = []
+        original = tr._refine_selected_span
+
+        def spy(scenario_frame, **kwargs):
+            seen.append(bool(scenario_frame["extent_pct"].isna().any()))
+            return original(scenario_frame, **kwargs)
+
+        tr._refine_selected_span = spy
+        try:
+            refine_trough_span(
+                frame, left_peak=left, right_peak=right,
+                policy=_shape_fit_policy(), measurement_tolerance_pp=0.0,
+            )
+        finally:
+            tr._refine_selected_span = original
+        assert any(seen), "shape_fit must still receive a masked scenario"
+
+
 class TestRecoveryWithinNoiseIsNotConfirmed:
     """Do not publish `confirmed` for a boundary the record cannot resolve.
 

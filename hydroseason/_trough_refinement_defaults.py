@@ -3,7 +3,7 @@
 from hydroseason._trough_refinement import TroughRefinementPolicy
 
 TROUGH_REFINEMENT_AUTHORITY_SCOPE = 'trough_refinement_candidate_0_2'
-TROUGH_REFINEMENT_FINGERPRINT = 'ee6a3b24475f9f9ddd3ba7f1880ebeb02f53cb3d62e8ab386f400a25e04e0217'
+TROUGH_REFINEMENT_FINGERPRINT = '850122592d37124a5800052a5397cd514f127fe398c176020273023866a0fbb0'
 TROUGH_REFINEMENT_POLICY = TroughRefinementPolicy(
     huber_k=1.345,
     profile_loss_cutoff=0.05,

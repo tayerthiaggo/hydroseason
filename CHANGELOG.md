@@ -5,6 +5,22 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 ### Fixed
+- The quality-sensitivity ensemble treated masking a single untrusted month
+  as a sensitivity test for `direct_profile_combined`, which gives such
+  months zero weight. Masking one cannot change that candidate's fit; it
+  only flips the span's contiguity and re-routes it through gap handling,
+  and the differing answer was then counted as instability. Daly River
+  HY2005 abstained despite eight scenarios agreeing on November. Those
+  per-month masking scenarios are now skipped for candidates that already
+  exclude untrusted months from the fit. The scenario masking every
+  untrusted month at once is kept for all candidates -- it is the only
+  check on a cycle whose whole trough is cloud-flagged, where the fit
+  otherwise rests on the trusted shoulders and reports a shallower low
+  state as confirmed. Bound substitution is kept too. `shape_fit` weights
+  untrusted months normally and is unaffected: verified unchanged on all
+  84 cycles across seven catchments. Refinement now applies to 77 of those
+  84 (from 66), with four boundary dates moving, each the last month of a
+  genuine tie.
 - `direct_profile_combined` let cloud-flagged months take full part in the
   fit that chooses the low state. A corrupted observation often reads far
   *below* the true trough (Daly River HY2005's January 2006: `0.0168` at
