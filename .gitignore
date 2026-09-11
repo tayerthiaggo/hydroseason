@@ -107,3 +107,4 @@ docs/superpowers/specs/*
 !docs/superpowers/specs/2026-09-09-low-state-endpoint-contract.md
 !docs/superpowers/specs/2026-09-09-low-state-validation-protocol.md
 !docs/superpowers/specs/2026-09-09-low-state-direct-profile-numerics.md
+!docs/superpowers/specs/2026-09-11-seasonality-gate-comparison-design.md
