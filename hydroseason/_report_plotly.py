@@ -536,6 +536,47 @@ def _phase_legend_traces(phases: list[str] | None = None) -> list[dict[str, Any]
     ]
 
 
+def _end_dry_interval_legend_traces(analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
+    """Name the two end-of-dry cues the legend previously left unexplained.
+
+    A cycle whose trough timing is not a resolved point draws a red shaded
+    band over the equivalent-month span and switches its end-of-dry marker
+    to a hollow symbol. Both are drawn as layout shapes or per-point symbol
+    overrides, neither of which produces a legend entry of its own, so the
+    reader had no way to learn what they meant. These are legend-only
+    traces (no plotted point) added only when such a cycle exists, so a
+    fully resolved record does not gain entries explaining cues it never
+    shows.
+    """
+    rows = analysis.hydro_years if analysis.hydro_years is not None else pd.DataFrame()
+    if "trough_timing_status" not in getattr(rows, "columns", []):
+        return []
+    if not rows["trough_timing_status"].isin(("interval", "broad")).any():
+        return []
+    colour = MARKERS["HY End Dry"][1]
+    return [
+        {
+            "type": "scatter", "mode": "markers",
+            "name": "End Dry (interval)",
+            "legend": "legend",
+            "x": [None], "y": [None],
+            "marker": {
+                "size": 8, "color": colour, "symbol": "circle-open",
+                "line": {"color": "#ffffff", "width": 1},
+            },
+            "showlegend": True, "hoverinfo": "none",
+        },
+        {
+            "type": "scatter", "mode": "lines",
+            "name": "End Dry Interval",
+            "legend": "legend",
+            "x": [None], "y": [None],
+            "line": {"color": INTERVAL_SHADE_COLORS["trough"], "width": 10},
+            "showlegend": True, "hoverinfo": "none",
+        },
+    ]
+
+
 def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[str, Any]:
     """Generate the manager timeline as an offline JSON-safe Plotly dict."""
     raw_dates = _dates(monthly)
@@ -608,6 +649,7 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
                 "meta": _scale_meta([median_baseline, median_baseline]),
             })
     data.extend(_marker_traces(monthly, analysis))
+    data.extend(_end_dry_interval_legend_traces(analysis))
     has_rainfall = "rainfall_mm" in monthly.columns and monthly["rainfall_mm"].notna().any()
     if has_rainfall:
         data.append({"type": "bar", "name": "Rainfall", "legend": "legend2", "x": dates, "y": _clean_list(monthly["rainfall_mm"]),

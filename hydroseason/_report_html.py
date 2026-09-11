@@ -223,21 +223,6 @@ _STATUS_REASON_TEXT = {
 }
 
 
-_CONDITION_DISPLAY_MAP = {
-    "wet_persistent": "Wet Persistent",
-    "recharged_then_contracting": "Recharged, Contracting",
-    "buffered_low_recharge": "Buffered Low Recharge",
-    "dry_low_refuge": "Dry Low Refuge",
-    "typical_or_mixed": "Typical / Mixed",
-    "typical_uncertain": "Typical / Mixed",
-    "high": "High",
-    "low": "Low",
-    "typical": "Typical",
-    "insufficient_baseline": "Insufficient Baseline",
-    "not_applicable_low_variability": "Low Variability",
-}
-
-
 def _unbounded_year_card(row: pd.Series, year: Any) -> str:
     """Render a hydrological year that has no resolved start/end boundary.
 
@@ -246,12 +231,11 @@ def _unbounded_year_card(row: pd.Series, year: Any) -> str:
     """
     confidence = str(_row_value(row, "confidence") or "unassigned").lower()
     status = str(_row_value(row, "status") or "incomplete").lower()
-    condition_val = _row_value(row, "annual_condition", "annual_condition_qualified")
+    # The annual condition verdict is deliberately not shown on year cards:
+    # it comes from the condition model, not from this cycle's timing, and
+    # sat in the same stats row as cycle length and amplitude as though it
+    # were one of them.
     cond_item = ""
-    if condition_val and str(condition_val).lower() not in ("none", "nan", "unassigned", "<na>", "", "insufficient_baseline"):
-        c_str = str(condition_val).lower()
-        c_label = _CONDITION_DISPLAY_MAP.get(c_str, c_str.replace("_", " ").title())
-        cond_item = f'<span class="summary-stat">Condition: <strong>{_escape(c_label)}</strong></span>'
     reason_key = str(_row_value(row, "status_reason") or "").lower()
     reason = _STATUS_REASON_TEXT.get(
         reason_key,
@@ -343,16 +327,9 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
         inferred_start_note = (
             f'<p class="year-card-note">{note_text}</p>' if note_text else ""
         )
-        condition_val = _row_value(row, "annual_condition", "annual_condition_qualified")
-        condition_item = ""
-        if condition_val and str(condition_val).lower() not in ("none", "nan", "unassigned", "<na>", ""):
-            c_str = str(condition_val).lower()
-            c_label = _CONDITION_DISPLAY_MAP.get(c_str, c_str.replace("_", " ").title())
-            condition_item = f'<span class="summary-stat">Condition: <strong>{_escape(c_label)}</strong></span>'
-
+        # Annual condition is intentionally absent here -- see
+        # `_unbounded_year_card` for the reasoning.
         meta_items = []
-        if condition_item:
-            meta_items.append(condition_item)
         meta_items.extend([
             f'<span class="summary-stat">Cycle: <strong>{_escape("N/A" if cycle is None or pd.isna(cycle) else f"{float(cycle):.1f} mos")}</strong></span>',
             f'<span class="summary-stat">Amplitude: <strong>{_escape(_fmt_extent(amplitude))}</strong></span>',

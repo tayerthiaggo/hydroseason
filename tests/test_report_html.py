@@ -356,7 +356,12 @@ def test_year_cards_render_confidence_title_in_note_and_drawdown_stat():
 
     html = _year_cards(monthly, hydro_years)
 
-    assert "Condition: <strong>Typical / Mixed</strong>" in html
+    # The annual condition label was dropped from the year cards: it is a
+    # separate condition-model verdict, not a property of the cycle's
+    # timing, and it crowded the stats row it shared with cycle length,
+    # amplitude and drawdown.
+    assert "Condition:" not in html
+    assert "Typical / Mixed" not in html
     assert "Medium confidence: Boundary is provisional and was not confirmed." in html
     assert "Cycle: <strong>15.0 mos</strong>" in html
     assert "Amplitude: <strong>0.45%</strong>" in html

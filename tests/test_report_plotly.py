@@ -257,6 +257,81 @@ def test_interval_and_unresolved_peak_gets_no_point_marker_but_end_dry_always_ma
     assert mid_dry_trace["x"] == ["2020-08-01"]
 
 
+def _interval_trough_analysis():
+    return SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "temporal_mid_dry_month": [pd.Timestamp("2020-08-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "confidence": ["low"],
+                "boundary_status": ["provisional"],
+                "peak_timing_status": ["point"],
+                "trough_timing_status": ["interval"],
+                "trough_interval_start": [pd.Timestamp("2020-08-01")],
+                "trough_interval_end": [pd.Timestamp("2020-10-01")],
+            }
+        )
+    )
+
+
+def _interval_monthly():
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-08-01", "2020-09-01", "2020-10-01"]),
+            "extent_pct": [30.0, 1.0, 1.02, 1.04],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding", "receding", "receding"],
+            "hy_year": [2020, 2020, 2020, 2020],
+        }
+    )
+
+
+class TestEndDryIntervalIsExplainedInTheLegend:
+    """The chart already draws two things the legend never named: the red
+    shaded band spanning an end-of-dry interval, and the hollow variant of
+    the end-of-dry marker used whenever that date is not a resolved point.
+    A reader had no way to learn what either meant.
+    """
+
+    def test_interval_shading_and_hollow_marker_are_named(self):
+        figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
+        names = [trace.get("name") for trace in figure["data"]]
+        assert "End Dry Interval" in names
+        assert "End Dry (interval)" in names
+
+    def test_the_hollow_legend_swatch_matches_the_marker_it_explains(self):
+        figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
+        end_dry = next(t for t in figure["data"] if t.get("name") == "HY End Dry")
+        swatch = next(t for t in figure["data"] if t.get("name") == "End Dry (interval)")
+        assert end_dry["marker"]["symbol"] == ["circle-open"]
+        assert swatch["marker"]["symbol"] == "circle-open"
+        assert swatch["marker"]["color"] == end_dry["marker"]["color"]
+        # Legend-only: it must not plant a point on the chart.
+        assert swatch["x"] == [None]
+
+    def test_the_band_swatch_matches_the_shading_colour(self):
+        figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
+        swatch = next(t for t in figure["data"] if t.get("name") == "End Dry Interval")
+        shapes = [s for s in figure["layout"]["shapes"]
+                  if str(s.get("name", "")).startswith("timing_interval:trough")]
+        assert shapes, "expected a trough interval shape to explain"
+        assert swatch["line"]["color"] == shapes[0]["fillcolor"]
+        assert swatch["x"] == [None]
+
+    def test_a_fully_resolved_record_gets_neither_entry(self):
+        monthly = _interval_monthly()
+        analysis = _interval_trough_analysis()
+        analysis.hydro_years.loc[:, "trough_timing_status"] = "point"
+        analysis.hydro_years.loc[:, "trough_interval_start"] = pd.Timestamp("2020-10-01")
+        analysis.hydro_years.loc[:, "trough_interval_end"] = pd.Timestamp("2020-10-01")
+        figure = timeline_figure(monthly, analysis)
+        names = [trace.get("name") for trace in figure["data"]]
+        assert "End Dry Interval" not in names
+        assert "End Dry (interval)" not in names
+
+
 def test_point_timing_status_still_gets_a_marker():
     monthly = pd.DataFrame(
         {
