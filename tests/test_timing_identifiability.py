@@ -590,3 +590,51 @@ def test_peak_status_is_never_broad_even_on_a_flat_peak():
         trough_search="post_peak",
     )
     assert ev.peak_status != "broad"
+
+
+def test_annual_detectability_matches_the_calendar_year_path():
+    from hydroseason._timing_identifiability import annual_detectability
+
+    frame = _counts([0, 0, 6, 12, 6, 0, 0, 0, 0, 0, 0, 0])
+    prepared = prepare_monthly_extent(frame)
+    _amplitude_pp, noise_pp = robust_scale(prepared)
+    values = prepared["extent_pct"].astype(float)
+
+    direct = annual_detectability(
+        values,
+        prepared,
+        thresholds=TEST_THRESHOLDS,
+        measurement_tolerance_pp=1.0,
+        noise_pp=noise_pp,
+        pixel_support_status="available",
+    )
+    via_record = assess_timing_identifiability(
+        frame, thresholds=TEST_THRESHOLDS
+    ).years[2001]
+
+    assert direct.detectable is via_record.detectable
+    assert direct.amplitude_pp == via_record.amplitude_pp
+    assert direct.detectability_floor_pp == via_record.detectability_floor_pp
+    assert direct.amplitude_to_floor_ratio == via_record.amplitude_to_floor_ratio
+    assert direct.peak_n_water == via_record.peak_n_water
+    assert direct.at_or_below_floor is via_record.at_or_below_floor
+
+
+def test_annual_detectability_rejects_a_flat_year():
+    from hydroseason._timing_identifiability import annual_detectability
+
+    prepared = prepare_monthly_extent(_counts([4] * 12))
+    values = prepared["extent_pct"].astype(float)
+
+    result = annual_detectability(
+        values,
+        prepared,
+        thresholds=TEST_THRESHOLDS,
+        measurement_tolerance_pp=1.0,
+        noise_pp=0.0,
+        pixel_support_status="available",
+    )
+
+    assert result.amplitude_pp == 0.0
+    assert result.at_or_below_floor is True
+    assert result.detectable is False

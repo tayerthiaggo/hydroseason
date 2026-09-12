@@ -140,6 +140,67 @@ def _peak_water_pixels(rows: pd.DataFrame) -> int | None:
     return int(finite.max()) if not finite.empty else None
 
 
+@dataclass(frozen=True)
+class AnnualDetectability:
+    """Whether one window's annual range is large enough to locate extrema."""
+
+    amplitude_pp: float
+    detectability_floor_pp: float
+    amplitude_to_floor_ratio: float
+    peak_n_water: int | None
+    at_or_below_floor: bool
+    detectable: bool
+
+
+def annual_detectability(
+    values: pd.Series,
+    rows: pd.DataFrame,
+    *,
+    thresholds: TimingIdentifiabilityThresholds,
+    measurement_tolerance_pp: float,
+    noise_pp: float,
+    pixel_support_status: PixelSupportStatus,
+) -> AnnualDetectability:
+    """Detectability of one window, shared by every caller.
+
+    One definition serves the calendar-year path, the cycle-window path and the
+    seasonality candidate, so a record cannot be judged detectable by one and
+    undetectable by another.
+    """
+    maximum, minimum = float(values.max()), float(values.min())
+    amplitude_pp = maximum - minimum
+    peak_rows = rows.loc[values.index[values == maximum]]
+    trough_rows = rows.loc[values.index[values == minimum]]
+    detectability_floor_pp = max(
+        float(measurement_tolerance_pp),
+        float(noise_pp),
+        _resolution_pp(peak_rows),
+        _resolution_pp(trough_rows),
+        float(np.finfo(float).eps),
+    )
+    at_or_below_floor = amplitude_pp <= detectability_floor_pp
+    ratio = 0.0 if at_or_below_floor else float(amplitude_pp / detectability_floor_pp)
+    peak_n_water = _peak_water_pixels(peak_rows)
+    detectable = bool(
+        amplitude_pp > 0.0
+        and not at_or_below_floor
+        and ratio >= thresholds.min_amplitude_to_floor_ratio
+        and (
+            pixel_support_status == "unavailable"
+            or peak_n_water is not None
+            and peak_n_water >= thresholds.min_peak_water_pixels
+        )
+    )
+    return AnnualDetectability(
+        amplitude_pp=amplitude_pp,
+        detectability_floor_pp=detectability_floor_pp,
+        amplitude_to_floor_ratio=ratio,
+        peak_n_water=peak_n_water,
+        at_or_below_floor=at_or_below_floor,
+        detectable=detectable,
+    )
+
+
 def _timing_status(months: tuple[int, ...], thresholds: TimingIdentifiabilityThresholds) -> TimingStatus:
     span = shortest_circular_span(months)
     if span is None or span > thresholds.max_boundary_interval_months:
@@ -231,30 +292,20 @@ def assess_window_timing(
         return start, end
 
     values = values.astype(float)
-    maximum, minimum = float(values.max()), float(values.min())
-    amplitude_pp = maximum - minimum
-    peak_rows = rows.loc[values.index[values == maximum]]
-    trough_rows = rows.loc[values.index[values == minimum]]
-    detectability_floor_pp = max(
-        measurement_tolerance_pp,
-        float(noise_pp),
-        _resolution_pp(peak_rows),
-        _resolution_pp(trough_rows),
-        float(np.finfo(float).eps),
+    detectability = annual_detectability(
+        values,
+        rows,
+        thresholds=thresholds,
+        measurement_tolerance_pp=measurement_tolerance_pp,
+        noise_pp=noise_pp,
+        pixel_support_status=pixel_support_status,
     )
-    at_or_below_floor = amplitude_pp <= detectability_floor_pp
-    ratio = 0.0 if at_or_below_floor else float(amplitude_pp / detectability_floor_pp)
-    peak_n_water = _peak_water_pixels(peak_rows)
-    detectable = bool(
-        amplitude_pp > 0.0
-        and not at_or_below_floor
-        and ratio >= thresholds.min_amplitude_to_floor_ratio
-        and (
-            pixel_support_status == "unavailable"
-            or peak_n_water is not None
-            and peak_n_water >= thresholds.min_peak_water_pixels
-        )
-    )
+    amplitude_pp = detectability.amplitude_pp
+    detectability_floor_pp = detectability.detectability_floor_pp
+    at_or_below_floor = detectability.at_or_below_floor
+    ratio = detectability.amplitude_to_floor_ratio
+    peak_n_water = detectability.peak_n_water
+    detectable = detectability.detectable
     if detectable:
         peak_dates = equivalent_extremum_dates(values, kind="max", tolerance=detectability_floor_pp)
         # A trough-to-trough cycle opens just after the PREVIOUS trough, so that
@@ -369,34 +420,20 @@ def assess_timing_identifiability(
             continue
 
         values = usable["extent_pct"].astype(float)
-        maximum, minimum = float(values.max()), float(values.min())
-        amplitude_pp = maximum - minimum
-        peak_rows = usable.loc[values == maximum]
-        trough_rows = usable.loc[values == minimum]
-        detectability_floor_pp = max(
-            measurement_tolerance_pp,
-            float(noise_pp),
-            _resolution_pp(peak_rows),
-            _resolution_pp(trough_rows),
-            float(np.finfo(float).eps),
+        detectability = annual_detectability(
+            values,
+            usable,
+            thresholds=thresholds,
+            measurement_tolerance_pp=measurement_tolerance_pp,
+            noise_pp=noise_pp,
+            pixel_support_status=pixel_support_status,
         )
-        at_or_below_floor = amplitude_pp <= detectability_floor_pp
-        ratio = (
-            0.0
-            if at_or_below_floor
-            else float(amplitude_pp / detectability_floor_pp)
-        )
-        peak_n_water = _peak_water_pixels(peak_rows)
-        detectable = bool(
-            amplitude_pp > 0.0
-            and not at_or_below_floor
-            and ratio >= thresholds.min_amplitude_to_floor_ratio
-            and (
-                pixel_support_status == "unavailable"
-                or peak_n_water is not None
-                and peak_n_water >= thresholds.min_peak_water_pixels
-            )
-        )
+        amplitude_pp = detectability.amplitude_pp
+        detectability_floor_pp = detectability.detectability_floor_pp
+        at_or_below_floor = detectability.at_or_below_floor
+        ratio = detectability.amplitude_to_floor_ratio
+        peak_n_water = detectability.peak_n_water
+        detectable = detectability.detectable
         if detectable:
             peak_months = equivalent_extremum_months(
                 values, kind="max", tolerance=detectability_floor_pp
