@@ -12,9 +12,13 @@ Route = Literal[
     "event_characterisation",
     "insufficient_record",
 ]
-DecisionPolicy = Literal["established_0_1_1", "established_0_2_0"]
+DecisionPolicy = Literal[
+    "established_0_1_1", "established_0_2_0", "candidate_timing_recurrence"
+]
+SeasonalityPolicy = Literal["timing_recurrence"]
 ESTABLISHED_POLICY: DecisionPolicy = "established_0_2_0"
 CANDIDATE_POLICY: DecisionPolicy = "established_0_2_0"
+CANDIDATE_TIMING_RECURRENCE_POLICY: DecisionPolicy = "candidate_timing_recurrence"
 TimingEvidence = Literal["supported", "insufficient", "unsupported"]
 
 REGIME_THRESHOLDS = {
@@ -90,4 +94,43 @@ def decide_established(
         supports_fixed_window=fixed,
         timing_evidence=timing_evidence,
         reason=reason,
+    )
+
+
+def decide_timing_recurrence(
+    *,
+    classification: str | None,
+    status: str,
+    reason: str,
+) -> EstablishedDecision:
+    """Map a timing-recurrence result onto regime and route.
+
+    The candidate has two classes. ``aseasonal`` states that recurrence was
+    not established; it is not a claim that timing is uniform, and an
+    insufficient record is never folded into it.
+    """
+    if status != "ok":
+        regime: Regime = "insufficient_record"
+        route: Route = "insufficient_record"
+        timing_evidence: TimingEvidence = "insufficient"
+    elif classification == "seasonal":
+        regime, route, timing_evidence = "seasonal", "per_year_detection", "supported"
+    else:
+        regime, route, timing_evidence = (
+            "aseasonal",
+            "event_characterisation",
+            "unsupported",
+        )
+    return EstablishedDecision(
+        policy=CANDIDATE_TIMING_RECURRENCE_POLICY,
+        regime=regime,
+        route=route,
+        supports_per_year_boundaries=route == "per_year_detection",
+        supports_fixed_window=False,
+        timing_evidence=timing_evidence,
+        reason=(
+            f"candidate={CANDIDATE_TIMING_RECURRENCE_POLICY}: regime={regime}; "
+            f"status={status}; reason={reason}; route={route}"
+        ),
+        implementation_policy=CANDIDATE_TIMING_RECURRENCE_POLICY,
     )

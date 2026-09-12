@@ -158,3 +158,45 @@ def test_established_0_2_0_is_the_promoted_public_policy():
     assert result.implementation_policy == "established_0_2_0"
     assert "candidate=established_0_2_0" in result.reason
     assert "authority=established_0_2_0" in result.reason
+
+
+def test_timing_recurrence_seasonal_routes_to_per_year_detection():
+    from hydroseason._decision_policy import decide_timing_recurrence
+
+    decision = decide_timing_recurrence(
+        classification="seasonal", status="ok", reason="peak_and_trough_recur"
+    )
+
+    assert decision.regime == "seasonal"
+    assert decision.route == "per_year_detection"
+    assert decision.supports_per_year_boundaries is True
+    assert decision.timing_evidence == "supported"
+    assert decision.policy == "candidate_timing_recurrence"
+
+
+def test_timing_recurrence_aseasonal_routes_to_events():
+    from hydroseason._decision_policy import decide_timing_recurrence
+
+    decision = decide_timing_recurrence(
+        classification="aseasonal",
+        status="ok",
+        reason="peak_and_trough_uniformity_not_rejected",
+    )
+
+    assert decision.regime == "aseasonal"
+    assert decision.route == "event_characterisation"
+    assert decision.supports_per_year_boundaries is False
+    assert decision.timing_evidence == "unsupported"
+
+
+def test_timing_recurrence_never_emits_marginal_and_keeps_insufficiency():
+    from hydroseason._decision_policy import decide_timing_recurrence
+
+    decision = decide_timing_recurrence(
+        classification=None, status="insufficient_record", reason="trend_unavailable"
+    )
+
+    assert decision.regime == "insufficient_record"
+    assert decision.route == "insufficient_record"
+    assert decision.timing_evidence == "insufficient"
+    assert "trend_unavailable" in decision.reason
