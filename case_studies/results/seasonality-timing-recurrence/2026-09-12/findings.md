@@ -2,7 +2,7 @@
 
 Run commit `5ac3003`. 54,000 synthetic records (18 families x 3 lengths x 5 variants
 x 200 replicates), each scored under `established_0_2_0` and under
-`candidate_timing_recurrence`, plus the seven reviewed real records. Criteria were
+`candidate_timing_recurrence`, plus the five protected real records. Criteria were
 fixed in the design before any record was drawn and were not altered in response to
 any result.
 
@@ -53,29 +53,76 @@ returns on schedule is not on its own evidence of one interpretable annual cycle
 
 ## 4. Where the two policies disagree
 
-16,950 of 54,000 records (31.4%). Direction matters more than volume.
+16,950 of 54,000 records (31.4%). **17 of the 18 families disagree somewhere**; only
+`all_zero` never does. Direction matters more than volume.
 
-| family | disagreements | candidate seasonal, established not | established annual, candidate not |
-|---|---|---|---|
-| annual_plus_strong_trend | 1,958 | **1,458** | 500 |
-| white_noise | 2,057 | 0 | 2,057 |
-| events | 1,779 | 3 | 1,776 |
-| ar1_0_5 | 1,662 | 16 | 1,646 |
-| narrow_pulse | 1,098 | 0 | 1,098 |
+| family | disagreements | candidate seasonal, established not | established annual, candidate not | of which insufficient |
+|---|---|---|---|---|
+| white_noise | 2,057 | 0 | 2,057 | 116 |
+| annual_plus_strong_trend | 1,958 | **1,458** | 500 | 84 |
+| events | 1,779 | 3 | 1,776 | 97 |
+| ar1_0_5 | 1,662 | 16 | 1,646 | 115 |
+| amplitude_curve | 1,287 | 9 | 1,278 | 112 |
+| phase_drift | 1,272 | 61 | 1,211 | 118 |
+| two_cycles | 1,157 | 141 | 1,016 | 108 |
+| ar1_0_8 | 1,115 | 13 | 1,102 | 106 |
+| narrow_pulse | 1,098 | 0 | 1,098 | 112 |
+| timing_jitter | 813 | 0 | 813 | 106 |
+| annual_plus_trend | 722 | 113 | 609 | 100 |
+| asymmetric | 652 | 0 | 652 | 105 |
+| sinusoid | 532 | 0 | 532 | 108 |
+| step | 276 | 2 | 274 | 91 |
+| trend | 267 | 5 | 262 | 95 |
+| strong_trend | 198 | 2 | 196 | 69 |
+| zero_dominated_pulse | 105 | 0 | 105 | 105 |
+| all_zero | 0 | 0 | 0 | 0 |
 
-Two distinct effects:
+Two effects the candidate gets right:
 
-- **The candidate recovers trended annual records the established gate loses.** 1,458
+- **It recovers trended annual records the established gate loses.** 1,458
   `annual_plus_strong_trend` records are seasonal to the candidate and not annual to
-  the established policy. This is the design's counterexample reproduced at scale: the
-  SNR denominator absorbs trend, so a real annual cycle plus a trend reads as flat.
-- **The candidate rejects noise the established gate admits.** All 2,057 `white_noise`
+  the established policy, plus 113 more in `annual_plus_trend`. This is the design's
+  counterexample reproduced at scale: the SNR denominator absorbs trend, so a real
+  annual cycle plus a trend reads as flat.
+- **It rejects noise the established gate admits.** All 2,057 `white_noise`
   disagreements, and nearly all `events` and AR(1) disagreements, are records the
-  established policy labels seasonal or marginal while the candidate declines them.
+  established policy calls seasonal or marginal while the candidate declines them.
 
-`narrow_pulse` and `timing_jitter` disagreements are not candidate misses: they are
-7-year and gap-variant records returning `insufficient_record`, which is not a
-seasonal call.
+### 4.1 Correction: genuine power loss under pixel quantisation
+
+An earlier draft of this section claimed the `narrow_pulse` and `timing_jitter`
+disagreements were not candidate misses but short-record and gap-variant records
+returning `insufficient_record`. **That was wrong**, and the correction matters:
+
+| family | disagreements | actually insufficient | confident ok/aseasonal |
+|---|---|---|---|
+| narrow_pulse | 1,098 | 112 (10%) | 986 |
+| timing_jitter | 813 | 106 (13%) | 707 |
+
+Their distribution by variant and length:
+
+| narrow_pulse | 7 y | 15 y | 30 y |
+|---|---|---|---|
+| base | 104 | 6 | 0 |
+| low_state_gap | 135 | 9 | 0 |
+| missing_10 | 125 | 4 | 0 |
+| missing_25 | 100 | 73 | 0 |
+| **pixel_rounded** | 199 | 192 | **151** |
+
+`timing_jitter` behaves the same way: 196 / 181 / 95 across 7, 15 and 30 years under
+`pixel_rounded`, against 51 / 0 / 0 in `base`.
+
+The bulk of these disagreements are **confident candidate rejections of records whose
+truth is seasonal**, concentrated in `pixel_rounded` — a quantisation stressor, not a
+gap variant — and persisting at a full 30 years, where neither a short record nor
+missing months can explain them. Scaling extent by 0.02 onto a 1,000-pixel grid leaves
+a narrow pulse spanning about one pixel, and the calibrated detectability floor then
+declines the year. That is the floor doing its job rather than a bug, but it is real
+power loss and must not be described as bookkeeping.
+
+It does not disturb the acceptance verdict: both families clear the 0.80 detection
+floor comfortably on the base variant at 15 and 30 years, which is what criterion 2
+measures. `pixel_rounded` is reported, not gated.
 
 ## 5. Alpha sensitivity: 0.05 was the right pre-registered choice
 
@@ -125,3 +172,14 @@ consequence must be stated plainly rather than buried:
   cycle whose amplitude is comparable to the noise is often not established.
 - The AR(1) families consume most of the false-positive budget. Persistent noise, not
   trend, is this test's hardest negative.
+- Low extent on a coarse pixel grid is the hardest positive: see section 4.1. A cycle
+  whose amplitude is about one pixel is declined by the detectability floor even at 30
+  years.
+- Only the five protected records were scored. Kakadu and Roper, which the design lists
+  as descriptive-only, are not in `case_studies/data/extent/` — Roper lives under
+  `output/water_extent_csv/` and Kakadu under a stress-test report directory — so the
+  run's `*_30m.csv` glob did not reach them. They remain unscored.
+- The per-record dump `synthetic_records.csv` is 10.3 MB, about seven times the next
+  largest tracked file under `case_studies/results/`. The run is fully reproducible
+  from the frozen commit and seed range in `protocol.json`, so a future policy could
+  keep only the summary CSVs in git.
