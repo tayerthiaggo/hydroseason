@@ -99,7 +99,10 @@ returning `insufficient_record`. **That was wrong**, and the correction matters:
 | narrow_pulse | 1,098 | 112 (10%) | 986 |
 | timing_jitter | 813 | 106 (13%) | 707 |
 
-Their distribution by variant and length:
+All of their disagreements by variant and length. These rows count every
+disagreement, insufficient records included, so `narrow_pulse` sums to 1,098 rather
+than the 986 confident ones. `pixel_rounded` contains no insufficient records at all,
+so its rows are confident rejections throughout:
 
 | narrow_pulse | 7 y | 15 y | 30 y |
 |---|---|---|---|
