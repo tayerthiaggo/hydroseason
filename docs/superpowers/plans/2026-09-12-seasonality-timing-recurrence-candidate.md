@@ -213,8 +213,10 @@ Expected: PASS, no failures.
 
 - [ ] **Step 7: Confirm the established baseline is untouched**
 
-Run: `python scripts/_scientific_baseline_guard.py` if the script exposes a CLI, otherwise `python -m pytest tests/ -q -k "baseline or protected"`
-Expected: PASS. If this reports any protected-catchment difference, stop: the refactor changed behaviour and must be corrected before continuing.
+Run: `python -m pytest tests/test_scientific_baseline_0_1_1.py tests/test_regime.py tests/test_manual_review_regression.py -q`
+Expected: PASS. These pin the 0.1.1 scientific baseline fixtures, the five protected case-study regimes, and the manual-review regression respectively. If any protected-catchment result differs, stop: the refactor changed behaviour and must be corrected before continuing.
+
+Note: `scripts/_scientific_baseline_guard.py` is not a runnable check. It is a helper module exposing `refuse_protected_baseline_output()`, which the study-case builder scripts call to refuse overwriting the protected fixture directory.
 
 - [ ] **Step 8: Lint and commit**
 
