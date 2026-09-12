@@ -83,6 +83,60 @@ def score_record(record: SeasonalityRecord) -> dict:
     }
 
 
+PROTECTED_RECORDS = ("daly_river_nt", "fitzroy_river_wa", "gilbert_river_qld",
+                     "lachlan_river_nsw", "moonie_river_qld_nsw")
+
+
+def _markdown_table(frame: pd.DataFrame) -> str:
+    """Render markdown without `DataFrame.to_markdown`, which needs tabulate.
+
+    tabulate is neither installed nor declared in this project, so calling
+    `to_markdown` would fail at the end of an hour-long run.
+    """
+    header = "| " + " | ".join(str(column) for column in frame.columns) + " |"
+    rule = "| " + " | ".join("---" for _ in frame.columns) + " |"
+    rows = [
+        "| " + " | ".join("" if pd.isna(value) else str(value) for value in row) + " |"
+        for row in frame.itertuples(index=False, name=None)
+    ]
+    return "\n".join([header, rule, *rows]) + "\n"
+
+
+def real_record_rows(paths: dict[str, Path]) -> pd.DataFrame:
+    """Score named real records under both policies, protected ones included."""
+    from hydroseason import load_extent_csv
+
+    rows = []
+    for name, path in paths.items():
+        frame = load_extent_csv(path, date_col="date", value_col="extent_pct")
+        established = assess_water_regime(frame, n_bootstrap=200, random_state=0)
+        candidate = assess_water_regime(
+            frame, n_bootstrap=200, random_state=0, seasonality_policy="timing_recurrence"
+        )
+        test = candidate.seasonality_test
+        rows.append(
+            {
+                "record": name,
+                "protected": name in PROTECTED_RECORDS,
+                "established_regime": established.regime,
+                "established_route": established.public_route,
+                "established_snr": round(float(established.amplitude_snr), 3),
+                "candidate_class": test.classification if test else None,
+                "candidate_status": test.status if test else None,
+                "candidate_reason": test.reason if test else None,
+                "candidate_route": candidate.public_route,
+                "candidate_peak_p": test.peak.uniformity_p if test else None,
+                "candidate_trough_p": test.trough.uniformity_p if test else None,
+                "n_detectable_years": test.n_detectable_years if test else 0,
+                "agrees": (
+                    (established.regime in {"seasonal", "marginal"})
+                    == (candidate.regime == "seasonal")
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def _seasonal_at(rows: pd.DataFrame, alpha: float) -> pd.Series:
     """Recompute the candidate class at another alpha from saved p-values."""
     peak = rows["candidate_peak_p"]
@@ -218,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
             "pixel_rounded",
         ],
     )
+    parser.add_argument("--real-root", type=Path, default=None)
     args = parser.parse_args(argv)
 
     out_dir = args.out_dir
@@ -267,6 +322,15 @@ def main(argv: list[str] | None = None) -> int:
     (out_dir / "protocol.json").write_text(
         json.dumps(protocol, indent=2), encoding="utf-8"
     )
+
+    if args.real_root is not None:
+        paths = {
+            path.stem.replace("_30m", ""): path
+            for path in sorted(args.real_root.glob("*_30m.csv"))
+        }
+        table = real_record_rows(paths)
+        table.to_csv(out_dir / "real_records.csv", index=False)
+        (out_dir / "real_records.md").write_text(_markdown_table(table), encoding="utf-8")
 
     print(json.dumps(verdict, indent=2))
     return 0

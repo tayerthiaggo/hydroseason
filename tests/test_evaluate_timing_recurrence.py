@@ -70,3 +70,27 @@ def test_scoring_one_record_reports_both_policies():
     }
     assert row["candidate_class"] in {"seasonal", "aseasonal", None}
     assert "candidate_peak_p" in row
+
+
+def test_real_record_rows_report_both_policies(tmp_path):
+    import numpy as np
+
+    module = _module()
+    months = np.arange(240)
+    frame = pd.DataFrame(
+        {
+            "date": pd.date_range("2005-01-01", periods=240, freq="MS"),
+            "extent_pct": 20.0 + 8.0 * np.cos(2 * np.pi * months / 12),
+            "invalid_pct": 0.0,
+        }
+    )
+    path = tmp_path / "synthetic_catchment.csv"
+    frame.to_csv(path, index=False)
+
+    table = module.real_record_rows({"synthetic": path})
+
+    assert list(table["record"]) == ["synthetic"]
+    assert table.loc[0, "candidate_class"] in {"seasonal", "aseasonal"}
+    assert table.loc[0, "established_regime"] in {
+        "seasonal", "marginal", "aseasonal", "insufficient_record"
+    }
