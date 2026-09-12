@@ -122,6 +122,11 @@ Ordered. Steps 1–3 are safe on the full set; the holdout is only spent at 5.
    annualisation-declined result with no re-run. Do this in the same pass as
    extraction.
 
+   Record `regime`/`route` under **both** `established_0_2_0` and
+   `seasonality_policy="timing_recurrence"` in this same pass. The sealed
+   partition is single-use, so a second run to obtain candidate labels is not
+   available.
+
 3. **Runtime.** Measured: 14–30 s per seasonal catchment with refinement on,
    ~0.5 s off; aseasonal catchments cost nothing (they never reach per-year
    detection). Projected **~112 min single-core for 561**, embarrassingly

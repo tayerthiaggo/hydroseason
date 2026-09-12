@@ -234,3 +234,24 @@ def test_recurrence_identifiability_promotion_docs():
     assert "2026-09-03-recurrence-identifiability-promotion.json" in text_main
     # Bounds of equivalent evidence in migration notes
     assert "bounds of equivalent evidence" in text_mig
+
+
+def test_timing_recurrence_candidate_is_documented_as_unpromoted():
+    text = (ROOT / "docs" / "decision-policy-timing-recurrence.md").read_text(encoding="utf-8")
+    main = (ROOT / "docs" / "decision-policy.md").read_text(encoding="utf-8")
+
+    required = {
+        "candidate_timing_recurrence",
+        "alpha = 0.05",
+        "centred 2x12 moving average",
+        "mean monthly extent",
+        "aseasonal means recurrence was not established",
+        "SEASONALITY_VALIDATION_SEEDS = range(90000, 95000)",
+        "false-seasonal Wilson upper bound <= 0.05",
+        "detection >= 0.80 at 15 and 30 years",
+        "ESTABLISHED_POLICY remains established_0_2_0",
+    }
+    missing = sorted(phrase for phrase in required if phrase not in text)
+    assert not missing, f"candidate policy record is missing: {missing}"
+    assert "candidate_timing_recurrence" in main
+    assert "opt-in" in main

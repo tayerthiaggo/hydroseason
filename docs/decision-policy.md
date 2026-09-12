@@ -10,6 +10,13 @@ Trough-boundary refinement is a separate, additive axis and is not part of
 promotion gate below applies to either candidate before it could become
 authoritative.
 
+Seasonality classification has one opt-in, unpromoted candidate,
+`candidate_timing_recurrence`, selected with `seasonality_policy="timing_recurrence"`
+and off by default. It classifies a record `seasonal` or `aseasonal` from the
+calendar recurrence of annual peak and trough timing on a detrended record. See
+[the candidate record](decision-policy-timing-recurrence.md); the promotion gate
+below applies before it could become authoritative.
+
 ## Protected baseline
 
 Daly, Fitzroy, and Gilbert are protected as seasonal/per-year case studies with their checked annual dates. Lachlan and Moonie are protected as aseasonal/event case studies. Fixtures are evidence of regression, not permission to change the result.

@@ -4,6 +4,14 @@ All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- Opt-in `seasonality_policy="timing_recurrence"` candidate on `assess_water_regime`
+  and `analyze_catchment`: a binary seasonal/aseasonal classification from the
+  calendar recurrence of annual peak and trough timing, tested on a detrended
+  record. Default behaviour is unchanged.
+- `mean_monthly_peak_month` and `mean_monthly_trough_month` replace the
+  `climatological_*` spellings, which remain as deprecated aliases.
+
 ### Fixed
 - The quality-sensitivity ensemble treated masking a single untrusted month
   as a sensitivity test for `direct_profile_combined`, which gives such
