@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from hydroseason._seasonality_test import classical_trend
+from hydroseason._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
+from hydroseason._seasonality_test import assess_timing_recurrence, classical_trend
 from hydroseason._state_input import prepare_monthly_extent
 
 
@@ -74,3 +75,125 @@ def test_leading_and_trailing_gaps_are_not_extrapolated():
     estimate = classical_trend(prepared)
 
     assert estimate.n_interpolated_months == 0
+
+
+def _assess(frame, **kwargs):
+    prepared = prepare_monthly_extent(frame)
+    return assess_timing_recurrence(
+        prepared, thresholds=TIMING_IDENTIFIABILITY_DEFAULTS, **kwargs
+    )
+
+
+def _annual(years, *, amplitude=5.0, centre=50.0, slope=0.0, noise=0.0, seed=0):
+    rng = np.random.default_rng(seed)
+    months = np.arange(12 * years)
+    values = centre + slope * months + amplitude * np.cos(2 * np.pi * months / 12)
+    if noise:
+        values = values + rng.normal(0.0, noise, size=len(values))
+    return _frame(values)
+
+
+def test_annual_cycle_with_a_trend_is_seasonal():
+    # The design's counterexample: 10 + 0.2t + 5cos(2*pi*t/12), which the
+    # established SNR gate calls aseasonal. Centred at 10 so 30 years of
+    # +0.2/month stays inside the 0-100% extent domain (peak 86.8%).
+    result = _assess(_annual(30, centre=10.0, slope=0.2))
+
+    assert result.status == "ok"
+    assert result.classification == "seasonal"
+    assert result.reason == "peak_and_trough_recur"
+    assert result.peak.uniformity_p < 0.05
+    assert result.trough.uniformity_p < 0.05
+
+
+def test_white_noise_is_aseasonal():
+    rng = np.random.default_rng(3)
+    result = _assess(_frame(50.0 + rng.normal(0.0, 2.5, size=360)))
+
+    assert result.status == "ok"
+    assert result.classification == "aseasonal"
+    assert result.reason.endswith("uniformity_not_rejected")
+
+
+def test_a_short_record_is_insufficient_not_aseasonal():
+    result = _assess(_annual(4))
+
+    assert result.status == "insufficient_record"
+    assert result.reason == "too_few_qualifying_years"
+    assert result.classification is None
+
+
+def test_a_record_without_enough_trend_months_is_insufficient():
+    # Six clean years qualify on observed months, but the centred 2x12 window
+    # leaves the first and last six months without a trend, so only the four
+    # interior years reach nine detrended months. Insufficiency must be
+    # reported as trend_unavailable, never folded into aseasonal.
+    result = _assess(_annual(6))
+
+    assert result.status == "insufficient_record"
+    assert result.reason == "trend_unavailable"
+    assert result.n_qualifying_years == 6
+    assert result.n_timing_eligible_years == 4
+
+
+def test_a_flat_record_reports_no_detectable_years():
+    result = _assess(_frame(np.full(360, 20.0)))
+
+    assert result.status == "ok"
+    assert result.classification == "aseasonal"
+    assert result.reason == "no_detectable_years"
+    assert result.n_detectable_years == 0
+
+
+def test_detrending_never_sharpens_a_zero_plateau():
+    values = np.zeros(240)
+    months = np.arange(240) % 12
+    values[np.isin(months, [1, 2, 3])] = 30.0
+    result = _assess(_frame(values))
+
+    interior_years = sorted(result.trough_month_sets)[1:-1]
+    for year in interior_years:
+        assert set(result.trough_month_sets[year]) == {1, 5, 6, 7, 8, 9, 10, 11, 12}
+
+
+def test_classification_is_invariant_to_calendar_rotation():
+    classes = set()
+    for shift in range(12):
+        months = np.arange(360)
+        values = 50.0 + 5.0 * np.cos(2 * np.pi * (months - shift) / 12)
+        classes.add(_assess(_frame(values)).classification)
+
+    assert classes == {"seasonal"}
+
+
+def test_results_are_reproducible_for_a_fixed_seed():
+    frame = _annual(20, noise=2.5, seed=11)
+
+    first = _assess(frame, random_state=7)
+    second = _assess(frame, random_state=7)
+
+    assert first.peak.uniformity_p == second.peak.uniformity_p
+    assert first.trough.uniformity_p == second.trough.uniformity_p
+
+
+def test_raw_tied_months_stay_tied_after_detrending():
+    rng = np.random.default_rng(5)
+    months = np.arange(240)
+    values = 40.0 + 0.05 * months + 6.0 * np.cos(2 * np.pi * months / 12)
+    values = np.round(values + rng.normal(0.0, 1.0, size=values.size), 1)
+    prepared = prepare_monthly_extent(_frame(values))
+    result = assess_timing_recurrence(prepared, thresholds=TIMING_IDENTIFIABILITY_DEFAULTS)
+
+    trend = result.trend
+    for year, detrended_months in result.trough_month_sets.items():
+        year_values = trend.detrended.dropna()
+        year_values = year_values.loc[year_values.index.year == year]
+        raw = prepared.loc[year_values.index, "extent_pct"].astype(float)
+        year_trend = trend.trend.loc[year_values.index]
+        floor = float(year_trend.max() - year_trend.min())
+        raw_tied = {
+            int(stamp.month)
+            for stamp, value in raw.items()
+            if value <= float(raw.min()) + floor
+        }
+        assert raw_tied.issubset(set(detrended_months))
