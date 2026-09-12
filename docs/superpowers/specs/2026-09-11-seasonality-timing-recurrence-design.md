@@ -52,6 +52,10 @@ A scratchpad pilot (200 records per cell, noise SD 2.5, trend +40 points, strong
 
 Raw-extent timing fails on a strong trend because the annual maximum lands in December and the minimum in January. Detrending removes that failure.
 
+### 2.5 Terminology
+
+`extent_pct` measures observed surface water, not a climate variable, so this design does not call a mean-by-calendar-month profile a climatology. The 12-value profile is the **mean monthly extent**; its extremes are the **peak month of mean monthly extent** and the **trough month of mean monthly extent**. The same wording replaces "climatology" in the manuscript and in the public field names (Section 6.1). Frozen policy records, plans and handoffs keep their original wording.
+
 ## 3. Decision rule
 
 ### 3.1 Inputs and record sufficiency
@@ -207,7 +211,7 @@ In `_decision_policy.py`:
 - `None` runs the current code path unchanged.
 - `"timing_recurrence"` computes the candidate result and decision.
 - `WaterRegimeAssessment` gains `seasonality_test: TimingRecurrenceResult | None = None`.
-- Climatological peak and trough months use today's computation (raw calendar-month means over qualifying years). Under the candidate they are populated whenever the class is `seasonal`, without the `established_0_2_0` dominant-month condition, because the candidate test has already established recurrence. For records that both policies route to per-year detection, the anchor is therefore identical.
+- The peak and trough months of **mean monthly extent** (today's `climatological_peak_month` and `climatological_trough_month`, renamed at implementation per Section 6.1) keep today's computation: the mean of raw observed extent per calendar month over qualifying years. Under the candidate they are populated whenever the class is `seasonal`, without the `established_0_2_0` dominant-month condition, because the candidate test has already established recurrence. For records that both policies route to per-year detection, the anchor is therefore identical.
 - The SNR and marginal caveats are replaced by one candidate caveat that names the policy and states that `aseasonal` means recurrence was not established.
 
 `analyze_catchment(..., seasonality_policy: SeasonalityPolicy | None = None)` passes the keyword through. Under the candidate, route-reason strings report peak and trough p-values instead of the SNR. Nothing else in `analyze_catchment` changes.
@@ -228,12 +232,12 @@ extent → prepare_monthly_extent → qualifying years                     (unch
 
 These are unchanged:
 
-- the anchor months that centre the trough and peak search windows (raw calendar-month climatology);
+- the anchor months that centre the trough and peak search windows (the peak and trough of mean monthly extent, computed on raw observed values);
 - `_dynamic_year`, `analyze_hydrological_state`, the trough-refinement candidates, and the downstream resolved-cycle check;
 - report columns, report copy, CLI and batch interfaces;
 - CAMELS-AUS partitions, which are neither loaded nor split.
 
-Detrended climatology was rejected as the anchor because, on the zero-plateau pilot, it moved the trough anchor from January to August. The anchor belongs to the [0.3.0 trough-geometry design](../../decision-policy-0.3.0.md).
+Mean monthly extent computed on the detrended series was rejected as the anchor because, on the zero-plateau pilot, it moved the trough anchor from January to August. The anchor belongs to the [0.3.0 trough-geometry design](../../decision-policy-0.3.0.md).
 
 **Rule:** timing statistics of detected hydrological-year cycles never feed the seasonality decision. The search window constrains where those boundaries can fall, so their concentration is partly produced by the method.
 
@@ -340,6 +344,7 @@ Nothing existing under `case_studies/results/` is overwritten.
 - `docs/decision-policy.md`: add a paragraph naming `candidate_timing_recurrence` as an opt-in, unpromoted candidate, like the trough-refinement paragraph.
 - `docs/decision-policy-timing-recurrence.md`: the frozen design record, condensed from this spec.
 - `docs/superpowers/plans/2026-09-11-camels-aus-validation-handoff.md`, step 2: record candidate regime and route in the same pass.
+- Terminology rename, shipped with the candidate (Section 2.5): `climatological_peak_month` → `mean_monthly_peak_month` and `climatological_trough_month` → `mean_monthly_trough_month` on `WaterRegimeAssessment` and `CatchmentAnalysis`, with the old names retained as deprecated read-only aliases; the report strings "climatological maximum" and "climatological minimum" become "maximum of mean monthly extent" and "minimum of mean monthly extent"; internal identifiers and comments in `_regime.py`, `_catchment.py` and `hydro_year.py` follow; `docs/report-columns.md` is updated. The unreachable `fixed_climatological_window` route literal is left as it is: renaming or removing it is a separate public-schema decision. The deprecated aliases are removed only at promotion, with migration notes.
 
 ### 6.2 At promotion only
 
@@ -360,7 +365,7 @@ Apply only after promotion.
 - **Interpolation.** Long internal gaps bias T near the gap. Interpolated values never enter SI.
 - **Null assumption.** The rotation null treats years as exchangeable under no seasonality; interannual dependence is not modelled. The Monte Carlo p-value resolution is 1/1000.
 - **Inherited thresholds.** The calibrated `established_0_2_0` detectability thresholds (3.0 amplitude-to-floor ratio, 5 peak water pixels) and the downstream resolved-cycle requirement are retained, not re-derived.
-- **Anchor bias.** The raw-climatology anchor is unchanged. In a pilot, a strong trend shifted it by a mean of up to 0.43 months, within the ±3-month search radius.
+- **Anchor bias.** The anchor from mean monthly extent on raw values is unchanged. In a pilot, a strong trend shifted it by a mean of up to 0.43 months, within the ±3-month search radius.
 - **Out of scope:** the CAMELS cohort protocol, report and CLI changes, the default switch, manuscript edits before promotion, and any boundary-method change.
 
 ## 8. References
