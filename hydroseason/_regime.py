@@ -31,11 +31,14 @@ from ._decision_policy import (
     EstablishedDecision,
     Regime,
     Route,
+    SeasonalityPolicy,
     TimingEvidence,
     decide_established,
+    decide_timing_recurrence,
 )
 from ._events import extract_water_events
 from ._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
+from ._seasonality_test import TimingRecurrenceResult, assess_timing_recurrence
 from ._state_input import QualityPolicy, prepare_monthly_extent
 from ._timing_identifiability import (
     PixelSupportStatus,
@@ -93,6 +96,7 @@ class WaterRegimeAssessment:
     recommended_action: str
     caveats: tuple[str, ...]
 
+    seasonality_test: TimingRecurrenceResult | None = None
     decision_policy: DecisionPolicy = ESTABLISHED_POLICY
     public_route: Route = "insufficient_record"
 
@@ -151,6 +155,7 @@ def assess_water_regime(
     measurement_tolerance_pct: float = 0.0,
     n_bootstrap: int = 200,
     random_state: int = 0,
+    seasonality_policy: SeasonalityPolicy | None = None,
 ) -> WaterRegimeAssessment:
     """Assess what the observed surface-water record supports."""
     if not 1 <= min_months_per_year <= 12:
@@ -234,17 +239,45 @@ def assess_water_regime(
             snr = amplitude / within_month_sd
         else:
             snr = np.inf
-    decision = decide_established(
-        n_usable_years=len(qualifying_years),
-        amplitude_snr=float(snr),
-        peak_timing=peak_timing,
-        trough_timing=trough_timing,
-        n_peak_timing_years=timing_evidence.n_peak_timing_years,
-        n_trough_timing_years=timing_evidence.n_trough_timing_years,
-        min_informative_years=TIMING_IDENTIFIABILITY_DEFAULTS.min_informative_years,
-    )
+    if seasonality_policy == "timing_recurrence":
+        recurrence: TimingRecurrenceResult | None = assess_timing_recurrence(
+            prepared,
+            thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
+            value_col=value_col,
+            measurement_tolerance_pct=measurement_tolerance_pct,
+            min_months_per_year=min_months_per_year,
+            min_years=_MIN_USABLE_YEARS,
+            n_bootstrap=n_bootstrap,
+            random_state=random_state,
+        )
+        decision = decide_timing_recurrence(
+            classification=recurrence.classification,
+            status=recurrence.status,
+            reason=recurrence.reason,
+        )
+    else:
+        recurrence = None
+        decision = decide_established(
+            n_usable_years=len(qualifying_years),
+            amplitude_snr=float(snr),
+            peak_timing=peak_timing,
+            trough_timing=trough_timing,
+            n_peak_timing_years=timing_evidence.n_peak_timing_years,
+            n_trough_timing_years=timing_evidence.n_trough_timing_years,
+            min_informative_years=TIMING_IDENTIFIABILITY_DEFAULTS.min_informative_years,
+        )
 
-    if (
+    if seasonality_policy == "timing_recurrence":
+        # The candidate's own test established recurrence, so the anchor does
+        # not additionally require a dominant month from the established
+        # summaries. The months themselves are unchanged: mean monthly extent
+        # over qualifying years, computed on raw observed values.
+        populate_months = (
+            decision.regime == "seasonal" and len(qualifying_years) >= _MIN_USABLE_YEARS
+        )
+        climatological_peak_month = int(climatology.idxmax()) if populate_months else None
+        climatological_trough_month = int(climatology.idxmin()) if populate_months else None
+    elif (
         decision.regime in ("seasonal", "marginal")
         and decision.timing_evidence != "insufficient"
     ):
@@ -269,36 +302,50 @@ def assess_water_regime(
     longest_low = int(event_summary["longest_low_spell_months"])
     years_without = int(event_summary["years_without_event"])
 
-    if _MIN_USABLE_YEARS <= peak_timing.n_years < REGIME_THRESHOLDS["timing_record_caution_years"]:
+    if seasonality_policy == "timing_recurrence" and recurrence is not None:
         caveats.append(
-            "fewer than 30 usable annual timings: classification is retained, "
-            "but uncertainty intervals may be wide"
+            "seasonality policy candidate_timing_recurrence (opt-in, unpromoted): "
+            f"class decided by calendar recurrence of annual peak and trough timing at "
+            f"alpha {recurrence.alpha:g}; aseasonal means recurrence was not established, "
+            "not that timing is uniform"
         )
-    if (
-        _MIN_USABLE_YEARS <= peak_timing.n_years < REGIME_THRESHOLDS["uniformity_min_timing_years"]
-        and snr >= REGIME_THRESHOLDS["seasonal_min_snr"]
-        and peak_timing.ci_low is not None
-        and peak_timing.ci_low < REGIME_THRESHOLDS["strong_timing_concentration"]
-        and peak_timing.uniformity_p is not None
-        and peak_timing.uniformity_p >= REGIME_THRESHOLDS["circular_uniformity_alpha"]
-    ):
-        caveats.append(
-            "the circular-uniformity result has little power with fewer than "
-            "10 annual timings, so the record remains marginal"
-        )
-    if decision.regime == "marginal":
-        caveats.append(
-            "marginal seasonality: peak and trough timings exhibit interannual variability, "
-            "so per-year boundaries are detected dynamically from local extrema"
-        )
-    if decision.regime == "aseasonal":
-        caveats.append(
-            "annual timing was not established by the current evidence: peak "
-            "and trough are withheld because the record either lacks a "
-            "reproducible annual cycle or leaves it unresolved (insufficient "
-            "concentration, power, or informative years) -- a non-significant "
-            "test does not itself prove uniform timing"
-        )
+    else:
+        if (
+            _MIN_USABLE_YEARS
+            <= peak_timing.n_years
+            < REGIME_THRESHOLDS["timing_record_caution_years"]
+        ):
+            caveats.append(
+                "fewer than 30 usable annual timings: classification is retained, "
+                "but uncertainty intervals may be wide"
+            )
+        if (
+            _MIN_USABLE_YEARS
+            <= peak_timing.n_years
+            < REGIME_THRESHOLDS["uniformity_min_timing_years"]
+            and snr >= REGIME_THRESHOLDS["seasonal_min_snr"]
+            and peak_timing.ci_low is not None
+            and peak_timing.ci_low < REGIME_THRESHOLDS["strong_timing_concentration"]
+            and peak_timing.uniformity_p is not None
+            and peak_timing.uniformity_p >= REGIME_THRESHOLDS["circular_uniformity_alpha"]
+        ):
+            caveats.append(
+                "the circular-uniformity result has little power with fewer than "
+                "10 annual timings, so the record remains marginal"
+            )
+        if decision.regime == "marginal":
+            caveats.append(
+                "marginal seasonality: peak and trough timings exhibit interannual variability, "
+                "so per-year boundaries are detected dynamically from local extrema"
+            )
+        if decision.regime == "aseasonal":
+            caveats.append(
+                "annual timing was not established by the current evidence: peak "
+                "and trough are withheld because the record either lacks a "
+                "reproducible annual cycle or leaves it unresolved (insufficient "
+                "concentration, power, or informative years) -- a non-significant "
+                "test does not itself prove uniform timing"
+            )
     if years_without:
         caveats.append(
             f"{years_without} of {len(qualifying_groups)} usable years contain no "
@@ -335,6 +382,7 @@ def assess_water_regime(
         years_without_wet_event=years_without,
         recommended_action=_ACTIONS[decision.regime],
         caveats=tuple(caveats),
+        seasonality_test=recurrence,
         decision_policy=decision.policy,
         public_route=decision.route,
     )

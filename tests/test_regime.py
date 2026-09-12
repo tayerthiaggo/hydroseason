@@ -634,3 +634,54 @@ def test_zero_water_series_handles_zero_division_safely():
 )
 def test_route_matrix(regime, expected):
     assert public_route(regime) == expected
+
+
+def test_default_path_is_unchanged_by_the_new_keyword():
+    frame = _series([2, 2, 2, 8, 14, 18, 14, 8, 2, 2, 2, 2], years=20, noise=0.5, seed=1)
+
+    default = assess_water_regime(frame, n_bootstrap=200, random_state=0)
+    explicit = assess_water_regime(
+        frame, n_bootstrap=200, random_state=0, seasonality_policy=None
+    )
+
+    assert default == explicit
+    assert default.seasonality_test is None
+    assert default.decision_policy == "established_0_2_0"
+
+
+def test_candidate_labels_a_trending_annual_record_seasonal():
+    months = np.arange(360)
+    frame = pd.DataFrame(
+        {
+            "extent_pct": 10.0 + 0.2 * months + 5.0 * np.cos(2 * np.pi * months / 12),
+            "invalid_pct": 0.0,
+        },
+        index=pd.date_range("1990-01-01", periods=360, freq="MS"),
+    )
+
+    established = assess_water_regime(frame, n_bootstrap=200, random_state=0)
+    candidate = assess_water_regime(
+        frame, n_bootstrap=200, random_state=0, seasonality_policy="timing_recurrence"
+    )
+
+    assert established.regime == "aseasonal"
+    assert candidate.regime == "seasonal"
+    assert candidate.public_route == "per_year_detection"
+    assert candidate.decision_policy == "candidate_timing_recurrence"
+    assert candidate.seasonality_test.reason == "peak_and_trough_recur"
+    assert candidate.climatological_trough_month is not None
+
+
+def test_candidate_never_returns_marginal():
+    rng = np.random.default_rng(2)
+    frame = pd.DataFrame(
+        {"extent_pct": 50.0 + rng.normal(0.0, 2.5, size=180), "invalid_pct": 0.0},
+        index=pd.date_range("1990-01-01", periods=180, freq="MS"),
+    )
+
+    candidate = assess_water_regime(
+        frame, n_bootstrap=200, random_state=0, seasonality_policy="timing_recurrence"
+    )
+
+    assert candidate.regime in {"seasonal", "aseasonal", "insufficient_record"}
+    assert candidate.regime != "marginal"
