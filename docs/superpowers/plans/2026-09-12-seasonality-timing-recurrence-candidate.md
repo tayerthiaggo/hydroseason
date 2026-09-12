@@ -451,7 +451,10 @@ def _annual(years, *, amplitude=5.0, centre=50.0, slope=0.0, noise=0.0, seed=0):
 
 
 def test_annual_cycle_with_a_trend_is_seasonal():
-    result = _assess(_annual(30, slope=0.2))
+    # The design's counterexample: 10 + 0.2t + 5cos(2*pi*t/12), which the
+    # established SNR gate calls aseasonal. Centred at 10 so 30 years of
+    # +0.2/month stays inside the 0-100% extent domain (peak 86.8%).
+    result = _assess(_annual(30, centre=10.0, slope=0.2))
 
     assert result.status == "ok"
     assert result.classification == "seasonal"
@@ -478,14 +481,16 @@ def test_a_short_record_is_insufficient_not_aseasonal():
 
 
 def test_a_record_without_enough_trend_months_is_insufficient():
-    frame = _annual(6)
-    frame.loc[frame.index[12:60], "extent_pct"] = np.nan
-    frame.loc[frame.index[12:60], "invalid_pct"] = 100.0
-
-    result = _assess(frame)
+    # Six clean years qualify on observed months, but the centred 2x12 window
+    # leaves the first and last six months without a trend, so only the four
+    # interior years reach nine detrended months. Insufficiency must be
+    # reported as trend_unavailable, never folded into aseasonal.
+    result = _assess(_annual(6))
 
     assert result.status == "insufficient_record"
     assert result.reason == "trend_unavailable"
+    assert result.n_qualifying_years == 6
+    assert result.n_timing_eligible_years == 4
 
 
 def test_a_flat_record_reports_no_detectable_years():
