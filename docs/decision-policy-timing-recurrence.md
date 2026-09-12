@@ -52,7 +52,7 @@ Both acceptance criteria **passed**:
 All five protected catchments were unchanged: Daly, Fitzroy, and Gilbert
 remain seasonal on the per-year route; Lachlan and Moonie remain aseasonal.
 
-The full suite passed (1672 passed) apart from one pre-existing failure
+The full suite passed (1673 passed) apart from one pre-existing failure
 unrelated to this work.
 
 ## Limitations
