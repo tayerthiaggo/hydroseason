@@ -571,3 +571,28 @@ def test_event_route_never_constructs_dynamic_detector_config(monkeypatch):
     result = analyze_catchment(_aseasonal(), trough_refinement_policy=policy)
 
     assert result.route == "event_characterisation"
+
+
+def test_candidate_policy_flows_through_to_route_and_reason():
+    import numpy as np
+    import pandas as pd
+
+    from hydroseason import analyze_catchment
+
+    months = np.arange(360)
+    frame = pd.DataFrame(
+        {
+            "extent_pct": 10.0 + 0.2 * months + 5.0 * np.cos(2 * np.pi * months / 12),
+            "invalid_pct": 0.0,
+        },
+        index=pd.date_range("1990-01-01", periods=360, freq="MS"),
+    )
+
+    analysis = analyze_catchment(frame, seasonality_policy="timing_recurrence")
+
+    assert analysis.regime.decision_policy == "candidate_timing_recurrence"
+    assert "peak p=" in analysis.route_reason
+    assert "SNR" not in analysis.route_reason
+    assert analysis.summary_row(name="synthetic")["decision_policy"] == (
+        "candidate_timing_recurrence"
+    )

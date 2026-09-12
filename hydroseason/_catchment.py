@@ -15,7 +15,7 @@ import pandas as pd
 
 from ._boundary import robust_scale
 from ._condition import classify_annual_surface_water_condition
-from ._decision_policy import ESTABLISHED_POLICY, DecisionPolicy, Route
+from ._decision_policy import ESTABLISHED_POLICY, DecisionPolicy, Route, SeasonalityPolicy
 from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
 from ._phase import assign_monthly_phases
@@ -129,6 +129,16 @@ def _rounded(value: float | None, decimals: int) -> float | None:
     return round(value, decimals) if value is not None else None
 
 
+def _policy_evidence(regime: WaterRegimeAssessment) -> str:
+    """Name the evidence the active policy actually decided on."""
+    test = regime.seasonality_test
+    if test is None:
+        return f"SNR {regime.amplitude_snr:.2f}"
+    peak_p = "n/a" if test.peak.uniformity_p is None else f"{test.peak.uniformity_p:.3f}"
+    trough_p = "n/a" if test.trough.uniformity_p is None else f"{test.trough.uniformity_p:.3f}"
+    return f"peak p={peak_p}, trough p={trough_p}"
+
+
 def _wrap_month(month: int) -> int:
     """Map any integer onto a 1-based calendar month."""
     return ((month - 1) % 12) + 1
@@ -217,6 +227,7 @@ def analyze_catchment(
     n_bootstrap: int = 200,
     random_state: int = 0,
     trough_refinement_policy: TroughRefinementPolicy | None = None,
+    seasonality_policy: SeasonalityPolicy | None = None,
 ) -> CatchmentAnalysis:
     """Assess regime, then run the analysis that regime supports.
 
@@ -240,6 +251,7 @@ def analyze_catchment(
         measurement_tolerance_pct=measurement_tolerance_pct,
         n_bootstrap=n_bootstrap,
         random_state=random_state,
+        seasonality_policy=seasonality_policy,
     )
     events = extract_water_events(
         extent,
@@ -378,7 +390,7 @@ def analyze_catchment(
 
         if not cycles_support_timing:
             reason = (
-                f"{regime.regime} record (SNR {regime.amplitude_snr:.2f}): calendar-year "
+                f"{regime.regime} record ({_policy_evidence(regime)}): calendar-year "
                 "timing evidence appeared sufficient, but the detected hydrological-year "
                 f"cycles do not support it (peak cycles resolved={n_peak_cycles}, "
                 f"trough cycles resolved={n_trough_cycles}, need >={min_informative} on "
@@ -401,12 +413,12 @@ def analyze_catchment(
 
         if regime.regime == "seasonal":
             route_reason = (
-                f"seasonal record (SNR {regime.amplitude_snr:.2f}): "
+                f"seasonal record ({_policy_evidence(regime)}): "
                 "per-year dynamic boundaries are reproducible"
             )
         else:
             route_reason = (
-                f"marginal record (SNR {regime.amplitude_snr:.2f}): "
+                f"marginal record ({_policy_evidence(regime)}): "
                 "dynamic local extrema detected per year"
             )
         return CatchmentAnalysis(
@@ -429,14 +441,14 @@ def analyze_catchment(
     if not regime.supports_fixed_window:
         if regime.timing_evidence == "insufficient":
             route_reason = (
-                f"{regime.regime} record (SNR {regime.amplitude_snr:.2f}) has "
+                f"{regime.regime} record ({_policy_evidence(regime)}) has "
                 "insufficient identifiable annual timing "
                 f"(peak={regime.n_peak_timing_years}, "
                 f"trough={regime.n_trough_timing_years}); using event characterisation"
             )
         else:
             route_reason = (
-                f"{regime.regime} record (SNR {regime.amplitude_snr:.2f}): complex or "
+                f"{regime.regime} record ({_policy_evidence(regime)}): complex or "
                 "diffuse timing does not support a fixed climatological window, so no "
                 "hydrological year is defined"
             )
@@ -486,7 +498,7 @@ def analyze_catchment(
     route = "fixed_climatological_window"
     basis = "imposed_fixed_window"
     reason = (
-        f"{regime.regime} record (SNR {regime.amplitude_snr:.2f}): timing evidence "
+        f"{regime.regime} record ({_policy_evidence(regime)}): timing evidence "
         "supports a fixed climatological window, so it is imposed on every year"
     )
     monthly_phase: pd.DataFrame | None = None
