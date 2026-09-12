@@ -130,12 +130,12 @@ def compare_rainfall_to_extent_regime(
     )
     peak_lag = None
     if (
-        extent_regime.climatological_peak_month is not None
-        and rainfall_regime.climatological_peak_month is not None
+        extent_regime.mean_monthly_peak_month is not None
+        and rainfall_regime.mean_monthly_peak_month is not None
     ):
         peak_lag = _circular_lag_months(
-            rainfall_regime.climatological_peak_month,
-            extent_regime.climatological_peak_month,
+            rainfall_regime.mean_monthly_peak_month,
+            extent_regime.mean_monthly_peak_month,
         )
     divergence, interpretation = _interpret(
         extent_regime, rainfall_regime, peak_lag

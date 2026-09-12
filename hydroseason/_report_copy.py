@@ -358,15 +358,15 @@ def select_kpis(
         card(
             "Typical peak month",
             **cycle_metric(
-                _month_name(analysis.climatological_peak_month),
-                "climatological maximum",
+                _month_name(analysis.mean_monthly_peak_month),
+                "maximum of mean monthly extent",
             ),
         ),
         card(
             "Typical trough month",
             **cycle_metric(
-                _month_name(analysis.climatological_trough_month),
-                "climatological minimum",
+                _month_name(analysis.mean_monthly_trough_month),
+                "minimum of mean monthly extent",
             ),
         ),
         card(
@@ -467,10 +467,10 @@ def build_rainfall_context(
         "rainfall_regime": comparison.rainfall.regime,
         "extent_snr": comparison.extent.amplitude_snr,
         "rainfall_snr": comparison.rainfall.amplitude_snr,
-        "extent_peak_month": _month_name(comparison.extent.climatological_peak_month),
-        "extent_trough_month": _month_name(comparison.extent.climatological_trough_month),
-        "rainfall_peak_month": _month_name(comparison.rainfall.climatological_peak_month),
-        "rainfall_trough_month": _month_name(comparison.rainfall.climatological_trough_month),
+        "extent_peak_month": _month_name(comparison.extent.mean_monthly_peak_month),
+        "extent_trough_month": _month_name(comparison.extent.mean_monthly_trough_month),
+        "rainfall_peak_month": _month_name(comparison.rainfall.mean_monthly_peak_month),
+        "rainfall_trough_month": _month_name(comparison.rainfall.mean_monthly_trough_month),
         "peak_lag_months": comparison.peak_lag_months,
         "warning": comparison_warning,
     }

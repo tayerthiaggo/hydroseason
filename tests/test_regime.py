@@ -669,7 +669,7 @@ def test_candidate_labels_a_trending_annual_record_seasonal():
     assert candidate.public_route == "per_year_detection"
     assert candidate.decision_policy == "candidate_timing_recurrence"
     assert candidate.seasonality_test.reason == "peak_and_trough_recur"
-    assert candidate.climatological_trough_month is not None
+    assert candidate.mean_monthly_trough_month is not None
 
 
 def test_candidate_never_returns_marginal():
@@ -685,3 +685,13 @@ def test_candidate_never_returns_marginal():
 
     assert candidate.regime in {"seasonal", "aseasonal", "insufficient_record"}
     assert candidate.regime != "marginal"
+
+
+def test_mean_monthly_month_fields_have_deprecated_aliases():
+    frame = _series([2, 2, 2, 8, 14, 18, 14, 8, 2, 2, 2, 2], years=20, noise=0.5, seed=1)
+
+    regime = assess_water_regime(frame, n_bootstrap=200, random_state=0)
+
+    assert regime.mean_monthly_peak_month == regime.climatological_peak_month
+    assert regime.mean_monthly_trough_month == regime.climatological_trough_month
+    assert regime.mean_monthly_peak_month == 6

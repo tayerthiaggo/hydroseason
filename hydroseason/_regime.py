@@ -86,8 +86,8 @@ class WaterRegimeAssessment:
     zero_month_fraction: float
     n_whole_zero_years: int
     pixel_support_status: PixelSupportStatus
-    climatological_peak_month: int | None
-    climatological_trough_month: int | None
+    mean_monthly_peak_month: int | None
+    mean_monthly_trough_month: int | None
     n_usable_years: int
     n_usable_months: int
     n_wet_events: int
@@ -118,6 +118,16 @@ class WaterRegimeAssessment:
         require concentrated, non-uniform peak and trough timings.
         """
         return self.public_route in {"per_year_detection", "fixed_climatological_window"}
+
+    @property
+    def climatological_peak_month(self) -> int | None:
+        """Deprecated alias for :attr:`mean_monthly_peak_month`."""
+        return self.mean_monthly_peak_month
+
+    @property
+    def climatological_trough_month(self) -> int | None:
+        """Deprecated alias for :attr:`mean_monthly_trough_month`."""
+        return self.mean_monthly_trough_month
 
 
 _ACTIONS: dict[Regime, str] = {
@@ -275,20 +285,20 @@ def assess_water_regime(
         populate_months = (
             decision.regime == "seasonal" and len(qualifying_years) >= _MIN_USABLE_YEARS
         )
-        climatological_peak_month = int(climatology.idxmax()) if populate_months else None
-        climatological_trough_month = int(climatology.idxmin()) if populate_months else None
+        mean_monthly_peak_month = int(climatology.idxmax()) if populate_months else None
+        mean_monthly_trough_month = int(climatology.idxmin()) if populate_months else None
     elif (
         decision.regime in ("seasonal", "marginal")
         and decision.timing_evidence != "insufficient"
     ):
-        climatological_peak_month = (
+        mean_monthly_peak_month = (
             int(climatology.idxmax()) if peak_timing.dominant_month is not None else None
         )
-        climatological_trough_month = (
+        mean_monthly_trough_month = (
             int(climatology.idxmin()) if trough_timing.dominant_month is not None else None
         )
     else:
-        climatological_peak_month = climatological_trough_month = None
+        mean_monthly_peak_month = mean_monthly_trough_month = None
 
     # Events extraction
     event_summary = extract_water_events(
@@ -373,8 +383,8 @@ def assess_water_regime(
         zero_month_fraction=timing_evidence.zero_month_fraction,
         n_whole_zero_years=timing_evidence.n_whole_zero_years,
         pixel_support_status=timing_evidence.pixel_support_status,
-        climatological_peak_month=climatological_peak_month,
-        climatological_trough_month=climatological_trough_month,
+        mean_monthly_peak_month=mean_monthly_peak_month,
+        mean_monthly_trough_month=mean_monthly_trough_month,
         n_usable_years=len(qualifying_years),
         n_usable_months=int(len(usable)),
         n_wet_events=n_wet_events,

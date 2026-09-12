@@ -450,6 +450,8 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
         "n_usable_months",
         "n_hydro_years",
         "boundary_basis",
+        "mean_monthly_peak_month",
+        "mean_monthly_trough_month",
         "climatological_peak_month",
         "climatological_trough_month",
         "n_wet_events",
@@ -596,3 +598,21 @@ def test_candidate_policy_flows_through_to_route_and_reason():
     assert analysis.summary_row(name="synthetic")["decision_policy"] == (
         "candidate_timing_recurrence"
     )
+
+
+def test_summary_row_carries_both_month_key_spellings():
+    import numpy as np
+    import pandas as pd
+
+    from hydroseason import analyze_catchment
+
+    months = np.arange(240)
+    frame = pd.DataFrame(
+        {"extent_pct": 20.0 + 8.0 * np.cos(2 * np.pi * months / 12), "invalid_pct": 0.0},
+        index=pd.date_range("1990-01-01", periods=240, freq="MS"),
+    )
+
+    row = analyze_catchment(frame).summary_row(name="synthetic")
+
+    assert row["mean_monthly_peak_month"] == row["climatological_peak_month"]
+    assert row["mean_monthly_trough_month"] == row["climatological_trough_month"]

@@ -65,7 +65,7 @@ not define hydrological years. Date columns are month starts.
 | `confidence` | Overall confidence assigned to the row. |
 | `status` / `boundary_status` | Result status and whether boundaries are exact, provisional, or otherwise constrained. |
 | `peak_quality` | The peak observation judged against its own month-of-year norm: `normal` or `anomalous`. Only `anomalous` downgrades the cycle. |
-| `boundary_basis` | Whether the boundary was detected per year or imposed from a fixed climatological window. |
+| `boundary_basis` | Whether the boundary was detected per year or imposed from a fixed window derived from mean monthly extent. |
 | `regime` / `route` | Record-level routing metadata. |
 | `timing_status` | Aggregate timing identifiability for the row (`point`, `interval`, or `unresolved`): the weaker of `peak_timing_status` and `trough_timing_status`. `boundary_status` describes selection/data admissibility; `timing_status` describes temporal identifiability -- the two are independent. |
 | `peak_timing_status` / `trough_timing_status` | Whether the peak/trough resolves to an exact month (`point`), a bounded interval (`interval`), or cannot be resolved (`unresolved`). |
@@ -205,6 +205,8 @@ them should use the analysis result or a full summary export.
 | `n_whole_zero_years` | Non-negative integer **years** | Count of years whose usable months are all exact zero. A whole-zero year still contributes to dry-duration and event summaries; it contributes no peak or trough timing observation. |
 | `pixel_support_status` | `"available"` or `"unavailable"` | Whether the record carries pixel counts (`n_water`/`n_valid`/`n_invalid`/`n_aoi`). Percentage-only inputs always report `"unavailable"`, and their `min_peak_water_pixels` threshold is not consulted. |
 | `timing_evidence` | `"supported"`, `"insufficient"`, or `"unsupported"` | Record-level timing verdict: `insufficient` when `min(n_peak_timing_years, n_trough_timing_years) < min_informative_years`; `unsupported` when the established seasonality/uniformity evidence rejects an annual cycle (today this is reachable only when `regime == "aseasonal"`); otherwise `supported`. |
+| `mean_monthly_peak_month`, `mean_monthly_trough_month` | Calendar month 1–12 | Month of the maximum/minimum of mean monthly extent over qualifying years. `null` unless the record is routed with identifiable annual timing. |
+| `climatological_peak_month`, `climatological_trough_month` | Calendar month 1–12 | Deprecated spellings of the two fields above, emitted unchanged for compatibility. Removed when the seasonality candidate is promoted. |
 
 `R` and confidence intervals are rounded to three decimal places in the
 summary; IQR is rounded to two decimal places. The report uses peak `R` for

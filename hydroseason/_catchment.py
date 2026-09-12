@@ -55,8 +55,8 @@ class CatchmentAnalysis:
     hydro_years: pd.DataFrame
     events: WaterEventResult
     monthly: pd.DataFrame
-    climatological_peak_month: int | None = None
-    climatological_trough_month: int | None = None
+    mean_monthly_peak_month: int | None = None
+    mean_monthly_trough_month: int | None = None
     monthly_phase: pd.DataFrame | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
     state: HydrologicalStateResult | None = None
@@ -67,6 +67,16 @@ class CatchmentAnalysis:
     @property
     def public_route(self) -> Route:
         return self.route
+
+    @property
+    def climatological_peak_month(self) -> int | None:
+        """Deprecated alias for :attr:`mean_monthly_peak_month`."""
+        return self.mean_monthly_peak_month
+
+    @property
+    def climatological_trough_month(self) -> int | None:
+        """Deprecated alias for :attr:`mean_monthly_trough_month`."""
+        return self.mean_monthly_trough_month
 
     def summary_row(self, *, name: str) -> dict:
         """Flat one-row-per-catchment record for a cross-catchment table."""
@@ -114,8 +124,11 @@ class CatchmentAnalysis:
                 if not self.hydro_years.empty
                 else "none"
             ),
-            "climatological_peak_month": self.climatological_peak_month,
-            "climatological_trough_month": self.climatological_trough_month,
+            "mean_monthly_peak_month": self.mean_monthly_peak_month,
+            "mean_monthly_trough_month": self.mean_monthly_trough_month,
+            # Deprecated spellings, retained until the candidate is promoted.
+            "climatological_peak_month": self.mean_monthly_peak_month,
+            "climatological_trough_month": self.mean_monthly_trough_month,
             "n_wet_events": self.events.summary["n_events"],
             "median_event_duration_months": self.events.summary["median_event_duration_months"],
             "longest_low_spell_months": self.events.summary["longest_low_spell_months"],
@@ -297,22 +310,22 @@ def analyze_catchment(
                 "extent_pct"
             ].mean()
             operational_peak_month = (
-                regime.climatological_peak_month
-                if regime.climatological_peak_month is not None
+                regime.mean_monthly_peak_month
+                if regime.mean_monthly_peak_month is not None
                 else int(operational_climatology.idxmax())
             )
             operational_trough_month = (
-                regime.climatological_trough_month
-                if regime.climatological_trough_month is not None
+                regime.mean_monthly_trough_month
+                if regime.mean_monthly_trough_month is not None
                 else int(operational_climatology.idxmin())
             )
             if (
-                regime.climatological_peak_month is None
-                or regime.climatological_trough_month is None
+                regime.mean_monthly_peak_month is None
+                or regime.mean_monthly_trough_month is None
             ):
                 warnings.append(
                     "a diffuse annual timing summary has no dominant month; "
-                    "the dynamic detector uses a private climatological anchor"
+                    "the dynamic detector uses a private mean-monthly-extent anchor"
                 )
             config = DynamicHydroYearConfig(
                 expected_trough_month=operational_trough_month,
@@ -429,8 +442,8 @@ def analyze_catchment(
             events=events,
             monthly=pd.DataFrame(),
             state=state,
-            climatological_peak_month=regime.climatological_peak_month,
-            climatological_trough_month=regime.climatological_trough_month,
+            mean_monthly_peak_month=regime.mean_monthly_peak_month,
+            mean_monthly_trough_month=regime.mean_monthly_trough_month,
             monthly_phase=state.monthly_phase,
             warnings=tuple(warnings),
             quality_policy=quality_policy,
@@ -460,8 +473,8 @@ def analyze_catchment(
             events=events,
             monthly=pd.DataFrame(),
             state=None,
-            climatological_peak_month=None,
-            climatological_trough_month=None,
+            mean_monthly_peak_month=None,
+            mean_monthly_trough_month=None,
             warnings=tuple(warnings),
             quality_policy=quality_policy,
             max_invalid_pct=max_invalid_pct,
@@ -469,7 +482,7 @@ def analyze_catchment(
         )
 
     # Imposed fixed climatological window route
-    config_fixed = _fixed_config_from_climatology(int(regime.climatological_peak_month))
+    config_fixed = _fixed_config_from_climatology(int(regime.mean_monthly_peak_month))
     try:
         years = detect_hydrological_years(
             extent,
@@ -530,8 +543,8 @@ def analyze_catchment(
         )
         if canonical_scheme != "none":
             dyn_cfg = DynamicHydroYearConfig(
-                expected_trough_month=int(regime.climatological_trough_month or 1),
-                expected_peak_month=int(regime.climatological_peak_month or 7),
+                expected_trough_month=int(regime.mean_monthly_trough_month or 1),
+                expected_peak_month=int(regime.mean_monthly_peak_month or 7),
                 phase_scheme=canonical_scheme,
             )
             monthly_phase = assign_monthly_phases(
@@ -550,8 +563,8 @@ def analyze_catchment(
         events=events,
         monthly=pd.DataFrame(),
         state=None,
-        climatological_peak_month=regime.climatological_peak_month,
-        climatological_trough_month=regime.climatological_trough_month,
+        mean_monthly_peak_month=regime.mean_monthly_peak_month,
+        mean_monthly_trough_month=regime.mean_monthly_trough_month,
         monthly_phase=monthly_phase,
         warnings=tuple(warnings),
         quality_policy=quality_policy,
