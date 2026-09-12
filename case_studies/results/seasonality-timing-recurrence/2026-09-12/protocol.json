@@ -1,0 +1,44 @@
+{
+  "commit": "5ac3003f58a4abe4bf27ec90c68e49df0592b52c",
+  "hydroseason_version": "0.2.0",
+  "python": "3.14.5",
+  "numpy": "2.4.6",
+  "pandas": "3.0.3",
+  "alpha": 0.05,
+  "sensitivity_alpha": 0.1,
+  "replicates": 200,
+  "lengths": [
+    7,
+    15,
+    30
+  ],
+  "variants": [
+    "base",
+    "missing_10",
+    "missing_25",
+    "low_state_gap",
+    "pixel_rounded"
+  ],
+  "families": [
+    "white_noise",
+    "ar1_0_5",
+    "ar1_0_8",
+    "trend",
+    "strong_trend",
+    "step",
+    "events",
+    "all_zero",
+    "sinusoid",
+    "narrow_pulse",
+    "asymmetric",
+    "annual_plus_trend",
+    "annual_plus_strong_trend",
+    "zero_dominated_pulse",
+    "timing_jitter",
+    "two_cycles",
+    "phase_drift",
+    "amplitude_curve"
+  ],
+  "seed_range": "90000-95000",
+  "n_records": 54000
+}

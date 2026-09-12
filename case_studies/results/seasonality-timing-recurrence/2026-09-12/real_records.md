@@ -1,0 +1,7 @@
+| record | protected | established_regime | established_route | established_snr | candidate_class | candidate_status | candidate_reason | candidate_route | candidate_peak_p | candidate_trough_p | n_detectable_years | agrees |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| daly_river_nt | True | seasonal | per_year_detection | 2.459 | seasonal | ok | peak_and_trough_recur | per_year_detection | 0.001 | 0.002 | 19 | True |
+| fitzroy_river_wa | True | seasonal | per_year_detection | 2.65 | seasonal | ok | peak_and_trough_recur | per_year_detection | 0.001 | 0.001 | 19 | True |
+| gilbert_river_qld | True | seasonal | per_year_detection | 3.615 | seasonal | ok | peak_and_trough_recur | per_year_detection | 0.001 | 0.001 | 19 | True |
+| lachlan_river_nsw | True | aseasonal | event_characterisation | 0.671 | aseasonal | ok | peak_and_trough_uniformity_not_rejected | event_characterisation | 0.262 | 0.139 | 14 | True |
+| moonie_river_qld_nsw | True | aseasonal | event_characterisation | 0.616 | aseasonal | ok | peak_uniformity_not_rejected | event_characterisation | 0.232 | 0.009 | 17 | True |
