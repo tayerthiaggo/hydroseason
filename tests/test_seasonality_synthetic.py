@@ -67,3 +67,92 @@ def test_iteration_covers_families_lengths_and_replicates():
 def test_unknown_family_is_rejected():
     with pytest.raises(ValueError, match="unknown family"):
         generate_seasonality_record(family="nonsense", n_years=15, replicate=0)
+
+
+def test_missing_10_variant_blanks_roughly_one_tenth():
+    record = generate_seasonality_record(
+        family="white_noise", n_years=30, replicate=0, variant="missing_10"
+    )
+    extent = record.frame["extent_pct"].to_numpy(dtype=float)
+    invalid = record.frame["invalid_pct"].to_numpy(dtype=float)
+
+    blanked = np.isnan(extent)
+    blanked_fraction = float(blanked.mean())
+
+    # Expect roughly 10% blanked with tolerance band (0.05 to 0.15)
+    assert 0.05 <= blanked_fraction <= 0.15
+    # Every blanked month must have invalid_pct == 100.0
+    assert (invalid[blanked] == 100.0).all()
+    # Every unblanked month must have finite extent
+    unblanked = ~blanked
+    assert np.isfinite(extent[unblanked]).all()
+
+
+def test_low_state_gap_blanks_around_trough_month():
+    # Test with positive family (has trough_month)
+    record = generate_seasonality_record(
+        family="sinusoid", n_years=15, replicate=0, variant="low_state_gap"
+    )
+    extent = record.frame["extent_pct"].to_numpy(dtype=float)
+    invalid = record.frame["invalid_pct"].to_numpy(dtype=float)
+
+    blanked = np.isnan(extent)
+    # Assert some months are blanked (every third year gets 3-month gap)
+    assert blanked.sum() > 0
+    # Every blanked month has invalid_pct == 100.0
+    assert (invalid[blanked] == 100.0).all()
+
+    # Check that blanked months cluster around trough_month
+    blanked_months = record.frame.index[blanked].month.values
+    trough = record.truth.trough_month
+    # Expected window is trough-1, trough, trough+1 (handling month wrapping)
+    expected_months = {
+        (trough - 2) % 12 + 1,
+        (trough - 1) % 12 + 1,
+        trough % 12 + 1,
+    }
+    # All blanked months should be in or near the expected window
+    assert all(m in expected_months for m in blanked_months)
+
+    # Test with non-positive family (no trough_month): should be unchanged
+    base_record = generate_seasonality_record(
+        family="white_noise", n_years=15, replicate=0, variant="base"
+    )
+    gap_record = generate_seasonality_record(
+        family="white_noise", n_years=15, replicate=0, variant="low_state_gap"
+    )
+    assert base_record.frame.equals(gap_record.frame)
+
+
+def test_pixel_rounded_scales_extent_correctly():
+    base_record = generate_seasonality_record(
+        family="sinusoid", n_years=15, replicate=0, variant="base"
+    )
+    rounded_record = generate_seasonality_record(
+        family="sinusoid", n_years=15, replicate=0, variant="pixel_rounded"
+    )
+
+    frame = rounded_record.frame
+    # Check new columns exist and have expected values
+    assert "n_water" in frame.columns
+    assert "n_valid" in frame.columns
+    assert "n_invalid" in frame.columns
+    assert "n_aoi" in frame.columns
+
+    # All n_valid, n_invalid, n_aoi must be constant
+    assert (frame["n_valid"] == 1000).all()
+    assert (frame["n_invalid"] == 0).all()
+    assert (frame["n_aoi"] == 1000).all()
+
+    # extent_pct must be consistent with n_water / n_valid * 100
+    extent = frame["extent_pct"].to_numpy(dtype=float)
+    n_water = frame["n_water"].to_numpy(dtype=float)
+    expected_extent = n_water / 1000.0 * 100.0
+    assert np.allclose(extent, expected_extent, rtol=1e-10)
+
+    # Pixel-rounded extents should be scaled down relative to base
+    base_extent = base_record.frame["extent_pct"].to_numpy(dtype=float)
+    finite_base = base_extent[np.isfinite(base_extent)]
+    finite_rounded = extent[np.isfinite(extent)]
+    # With scale factor 0.02, max should be ~2% instead of ~55%
+    assert finite_rounded.max() < finite_base.max()
