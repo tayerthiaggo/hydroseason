@@ -250,6 +250,17 @@ def test_timing_recurrence_candidate_is_documented_as_unpromoted():
         "false-seasonal Wilson upper bound <= 0.05",
         "detection >= 0.80 at 15 and 30 years",
         "ESTABLISHED_POLICY remains established_0_2_0",
+        # Pin the three substantive validation findings from the Limitations section.
+        # A structural-phrase-only test would allow a future edit to delete all three
+        # findings without triggering a failure. These substrings guard against that.
+        "two cycles per year",
+        "98.5%",
+        "six-month phase drift",
+        "about one pixel",
+        "even at 30 years",
+        "alpha = 0.10",
+        "six family/variant cells",
+        "not promoted",
     }
     missing = sorted(phrase for phrase in required if phrase not in text)
     assert not missing, f"candidate policy record is missing: {missing}"
