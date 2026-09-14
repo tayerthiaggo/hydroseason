@@ -172,15 +172,14 @@ def summarise(records: pd.DataFrame, *, alpha: float) -> pd.DataFrame:
 
 
 def acceptance(metrics: pd.DataFrame) -> dict:
-    """Apply the design's predeclared criteria to the metrics table."""
-    # Ensure variant column exists for groupby operations
-    work_metrics = metrics.copy()
-    if "variant" not in work_metrics.columns:
-        work_metrics["variant"] = "base"
+    """Apply the design's predeclared criteria to the metrics table.
 
-    negatives = work_metrics.loc[
-        work_metrics["truth_seasonal"] == False  # noqa: E712
-    ]
+    ``metrics`` is always ``summarise()``'s output, which unconditionally
+    carries family, truth_seasonal, variant, n_years, seasonal, n, rate,
+    wilson_upper and insufficient -- so this asserts that contract rather
+    than defending against a shape ``summarise()`` never produces.
+    """
+    negatives = metrics.loc[metrics["truth_seasonal"] == False]  # noqa: E712
     pooled = (
         negatives.groupby(["family", "variant"], dropna=False)[["seasonal", "n"]]
         .sum()
@@ -200,23 +199,21 @@ def acceptance(metrics: pd.DataFrame) -> dict:
                 }
             )
 
-    positives = work_metrics.loc[
-        (work_metrics["truth_seasonal"] == True)  # noqa: E712
-        & (work_metrics["n_years"].isin(DETECTION_LENGTHS))
-        & (work_metrics["variant"] == "base")
+    positives = metrics.loc[
+        (metrics["truth_seasonal"] == True)  # noqa: E712
+        & (metrics["n_years"].isin(DETECTION_LENGTHS))
+        & (metrics["variant"] == "base")
     ]
-    detection_failures = []
-    if "rate" in positives.columns:
-        detection_failures = [
-            {
-                "family": row.family,
-                "n_years": int(row.n_years),
-                "rate": float(row.rate),
-                "n": int(row.n),
-            }
-            for row in positives.itertuples()
-            if float(row.rate) < DETECTION_FLOOR
-        ]
+    detection_failures = [
+        {
+            "family": row.family,
+            "n_years": int(row.n_years),
+            "rate": float(row.rate),
+            "n": int(row.n),
+        }
+        for row in positives.itertuples()
+        if float(row.rate) < DETECTION_FLOOR
+    ]
 
     return {
         "false_seasonal": {
@@ -231,11 +228,7 @@ def acceptance(metrics: pd.DataFrame) -> dict:
             "failures": detection_failures,
         },
         "status_accounting": {
-            "insufficient_records": (
-                int(work_metrics["insufficient"].sum())
-                if "insufficient" in work_metrics.columns
-                else 0
-            ),
+            "insufficient_records": int(metrics["insufficient"].sum()),
             "note": (
                 "insufficient records are counted separately and never as aseasonal"
             ),

@@ -19,17 +19,31 @@ def test_every_record_stays_inside_the_extent_domain():
         assert finite.max() <= 100.0
 
 
-def test_records_are_deterministic():
-    first = generate_seasonality_record(family="sinusoid", n_years=15, replicate=3)
-    second = generate_seasonality_record(family="sinusoid", n_years=15, replicate=3)
+# One or two families per truth category (False/True/None), so determinism
+# and replicate-independence are not proven by a single family alone.
+_FAMILIES_ACROSS_TRUTH_CATEGORIES = (
+    "white_noise",  # truth_seasonal=False
+    "ar1_0_8",  # truth_seasonal=False
+    "sinusoid",  # truth_seasonal=True
+    "narrow_pulse",  # truth_seasonal=True
+    "two_cycles",  # truth_seasonal=None
+    "phase_drift",  # truth_seasonal=None
+)
+
+
+@pytest.mark.parametrize("family", _FAMILIES_ACROSS_TRUTH_CATEGORIES)
+def test_records_are_deterministic(family):
+    first = generate_seasonality_record(family=family, n_years=15, replicate=3)
+    second = generate_seasonality_record(family=family, n_years=15, replicate=3)
 
     assert first.frame.equals(second.frame)
     assert first.truth == second.truth
 
 
-def test_replicates_differ():
-    first = generate_seasonality_record(family="white_noise", n_years=15, replicate=0)
-    second = generate_seasonality_record(family="white_noise", n_years=15, replicate=1)
+@pytest.mark.parametrize("family", _FAMILIES_ACROSS_TRUTH_CATEGORIES)
+def test_replicates_differ(family):
+    first = generate_seasonality_record(family=family, n_years=15, replicate=0)
+    second = generate_seasonality_record(family=family, n_years=15, replicate=1)
 
     assert not first.frame.equals(second.frame)
 
@@ -62,6 +76,20 @@ def test_iteration_covers_families_lengths_and_replicates():
     )
 
     assert len(records) == len(SEASONALITY_FAMILIES) * 2
+
+    # A count alone would pass even if some combination were yielded twice
+    # while another was skipped; every (family, n_years, replicate, variant)
+    # combination must be distinct.
+    combinations = [
+        (
+            record.truth.family,
+            record.truth.n_years,
+            record.truth.replicate,
+            record.truth.variant,
+        )
+        for record in records
+    ]
+    assert len(set(combinations)) == len(combinations)
 
 
 def test_unknown_family_is_rejected():

@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
 
+from hydroseason._boundary import robust_scale
 from hydroseason._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
 from hydroseason._seasonality_test import assess_timing_recurrence, classical_trend
 from hydroseason._state_input import prepare_monthly_extent
+from hydroseason._timing_identifiability import COUNT_COLUMNS, annual_detectability
 
 
 def _frame(values, *, start="1990-01-01", invalid_pct=0.0):
@@ -62,6 +64,22 @@ def test_internal_gaps_feed_the_trend_but_never_the_detrended_series():
     assert np.isfinite(estimate.trend.loc[gap])
     assert np.isnan(estimate.detrended.loc[gap])
     assert np.isfinite(estimate.detrended.loc[frame.index[41]])
+
+
+def test_classical_trend_on_an_empty_frame_returns_a_datetime_index():
+    """Every non-empty path returns a DatetimeIndex; the empty-frame branch
+    must match, not fall back to a default RangeIndex."""
+    prepared = prepare_monthly_extent(_frame([]))
+    assert prepared.empty
+
+    estimate = classical_trend(prepared)
+
+    assert isinstance(estimate.trend.index, pd.DatetimeIndex)
+    assert isinstance(estimate.detrended.index, pd.DatetimeIndex)
+    assert isinstance(estimate.interpolated.index, pd.DatetimeIndex)
+    assert estimate.trend.empty
+    assert estimate.detrended.empty
+    assert estimate.interpolated.empty
 
 
 def test_leading_and_trailing_gaps_are_not_extrapolated():
@@ -177,6 +195,20 @@ def test_results_are_reproducible_for_a_fixed_seed():
 
 
 def test_raw_tied_months_stay_tied_after_detrending():
+    """Every month tied at a year's RAW extremum must survive into the
+    DETRENDED month set.
+
+    ``assess_timing_recurrence`` computes the per-year detectability floor
+    from raw extent the same way ``annual_detectability`` does (using the
+    record's robust noise scale), then WIDENS that floor by the year's trend
+    range before reading extremum months off the DETRENDED series -- the
+    widening is exactly what is meant to absorb detrending's distortion of
+    raw ties (see its docstring: "tie tolerance widened by the year's trend
+    range"). So a month counts as raw-tied here using the floor alone (the
+    pre-widening tolerance detectability is judged on), and must appear in
+    ``trough_month_sets``, which the implementation populated using the
+    widened floor + trend-range tolerance.
+    """
     rng = np.random.default_rng(5)
     months = np.arange(240)
     values = 40.0 + 0.05 * months + 6.0 * np.cos(2 * np.pi * months / 12)
@@ -185,15 +217,64 @@ def test_raw_tied_months_stay_tied_after_detrending():
     result = assess_timing_recurrence(prepared, thresholds=TIMING_IDENTIFIABILITY_DEFAULTS)
 
     trend = result.trend
+    _amplitude_pp, noise_pp = robust_scale(prepared)
+    pixel_support_status = (
+        "available" if COUNT_COLUMNS.issubset(prepared.columns) else "unavailable"
+    )
+
+    n_years_checked = 0
     for year, detrended_months in result.trough_month_sets.items():
         year_values = trend.detrended.dropna()
         year_values = year_values.loc[year_values.index.year == year]
-        raw = prepared.loc[year_values.index, "extent_pct"].astype(float)
-        year_trend = trend.trend.loc[year_values.index]
-        floor = float(year_trend.max() - year_trend.min())
+        rows = prepared.loc[year_values.index]
+        raw = rows["extent_pct"].astype(float)
+        detectability = annual_detectability(
+            raw,
+            rows,
+            thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
+            measurement_tolerance_pp=0.0,
+            noise_pp=noise_pp,
+            pixel_support_status=pixel_support_status,
+        )
         raw_tied = {
             int(stamp.month)
             for stamp, value in raw.items()
-            if value <= float(raw.min()) + floor
+            if value <= float(raw.min()) + detectability.detectability_floor_pp
         }
         assert raw_tied.issubset(set(detrended_months))
+        n_years_checked += 1
+
+    assert n_years_checked > 0
+
+
+def test_zero_plateau_raw_ties_survive_detrending():
+    """The case that actually exercises the tie widening.
+
+    A nine-month exact-zero dry plateau is one raw tie. Detrending subtracts a
+    trend that varies across the year, which breaks those ties and collapses
+    the trough to a single month. Only the tolerance widened by the year's
+    trend range restores the full raw set. A gentle-trend fixture cannot test
+    this: there the trend range never exceeds the detectability floor, so
+    dropping the widening changes nothing observable.
+    """
+    rng = np.random.default_rng(0)
+    months = np.arange(240)
+    values = np.zeros(240)
+    wet = np.isin(months % 12, (1, 2, 3))
+    values[wet] = np.clip(30.0 + rng.normal(0.0, 2.0, size=int(wet.sum())), 0.0, None)
+    prepared = prepare_monthly_extent(_frame(values))
+    result = assess_timing_recurrence(prepared, thresholds=TIMING_IDENTIFIABILITY_DEFAULTS)
+
+    checked = 0
+    for year, detrended_months in result.trough_month_sets.items():
+        raw = prepared.loc[prepared.index.year == year, "extent_pct"].astype(float)
+        zero_months = {int(stamp.month) for stamp, value in raw.items() if value == 0.0}
+        if len(zero_months) < 5:
+            continue
+        assert zero_months.issubset(set(detrended_months)), (
+            f"year {year}: raw zero-tied months {sorted(zero_months)} were not all "
+            f"preserved in the detrended trough set {sorted(detrended_months)}"
+        )
+        checked += 1
+
+    assert checked > 0, "fixture produced no multi-month zero plateau to check"

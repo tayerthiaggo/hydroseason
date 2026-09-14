@@ -24,6 +24,8 @@ from ._state_input import QualityPolicy, prepare_monthly_extent
 TimingStatus = Literal["point", "interval", "broad", "unresolved"]
 PixelSupportStatus = Literal["available", "unavailable"]
 
+COUNT_COLUMNS = {"n_water", "n_valid", "n_invalid", "n_aoi"}
+
 
 @dataclass(frozen=True)
 class TimingIdentifiabilityThresholds:
@@ -398,9 +400,8 @@ def assess_timing_identifiability(
     if not np.isfinite(noise_pp) or noise_pp < 0.0:
         raise ValueError("robust noise must be finite and non-negative.")
 
-    count_columns = {"n_water", "n_valid", "n_invalid", "n_aoi"}
     pixel_support_status: PixelSupportStatus = (
-        "available" if count_columns.issubset(prepared.columns) else "unavailable"
+        "available" if COUNT_COLUMNS.issubset(prepared.columns) else "unavailable"
     )
     annual: dict[int, AnnualTimingEvidence] = {}
     for raw_year, group in prepared.groupby(prepared.index.year):
@@ -483,12 +484,15 @@ def assess_timing_identifiability(
 
 
 __all__ = [
+    "AnnualDetectability",
     "AnnualTimingEvidence",
+    "COUNT_COLUMNS",
     "PixelSupportStatus",
     "RecordTimingEvidence",
     "TimingIdentifiabilityThresholds",
     "TimingStatus",
     "WindowTimingEvidence",
+    "annual_detectability",
     "assess_timing_identifiability",
     "assess_window_timing",
 ]

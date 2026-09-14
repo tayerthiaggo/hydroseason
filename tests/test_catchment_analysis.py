@@ -600,6 +600,70 @@ def test_candidate_policy_flows_through_to_route_and_reason():
     )
 
 
+def test_candidate_policy_aseasonal_reason_quotes_p_values_not_snr():
+    """Task 6 pinned only the seasonal/per-year-detection route-reason text
+    under the candidate policy. This pins the aseasonal/event-characterisation
+    branch: white noise never establishes recurrence, so it routes to event
+    characterisation with a reason quoting peak/trough p-values instead of
+    the established policy's SNR vocabulary."""
+    import numpy as np
+    import pandas as pd
+
+    from hydroseason import analyze_catchment
+
+    rng = np.random.default_rng(3)
+    frame = pd.DataFrame(
+        {"extent_pct": 50.0 + rng.normal(0.0, 2.5, size=360), "invalid_pct": 0.0},
+        index=pd.date_range("1990-01-01", periods=360, freq="MS"),
+    )
+
+    result = analyze_catchment(frame, seasonality_policy="timing_recurrence")
+
+    assert result.regime.decision_policy == "candidate_timing_recurrence"
+    assert result.regime.regime == "aseasonal"
+    assert result.route == "event_characterisation"
+    assert "peak p=" in result.route_reason
+    assert "trough p=" in result.route_reason
+    assert "SNR" not in result.route_reason
+
+
+def test_candidate_policy_insufficient_record_reason_has_no_snr():
+    """Pins the insufficient-record branch under the candidate policy.
+
+    Unlike the seasonal and aseasonal branches, this route_reason is built
+    from `regime.n_usable_years` alone, before `_policy_evidence` is ever
+    consulted -- so it never quotes p-values under EITHER policy, and this
+    is not a candidate-policy-specific gap to close: there is no evidence to
+    quote yet when the record does not even clear the usable-years bar. What
+    the candidate policy changes here is only that the decision comes from
+    `assess_timing_recurrence`'s own too-few-qualifying-years status rather
+    than the established n_usable_years<5 rule -- so this asserts the actual,
+    real reason text (no SNR, no p=) rather than forcing an assertion that
+    cannot hold structurally for this branch.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from hydroseason import analyze_catchment
+
+    months = np.arange(48)
+    frame = pd.DataFrame(
+        {
+            "extent_pct": 50.0 + 5.0 * np.cos(2 * np.pi * months / 12),
+            "invalid_pct": 0.0,
+        },
+        index=pd.date_range("1990-01-01", periods=48, freq="MS"),
+    )
+
+    result = analyze_catchment(frame, seasonality_policy="timing_recurrence")
+
+    assert result.regime.decision_policy == "candidate_timing_recurrence"
+    assert result.route == "insufficient_record"
+    assert "usable years" in result.route_reason
+    assert "SNR" not in result.route_reason
+    assert "p=" not in result.route_reason
+
+
 def test_summary_row_carries_both_month_key_spellings():
     import numpy as np
     import pandas as pd

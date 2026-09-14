@@ -28,21 +28,34 @@ def test_wilson_upper_matches_known_values():
 
 
 def test_acceptance_fails_when_a_negative_family_exceeds_the_bound():
+    """The fixture carries the full column set `summarise()` actually
+    produces (family, truth_seasonal, variant, n_years, seasonal, n, rate,
+    wilson_upper, insufficient), so `acceptance()` can assert its contract
+    on this frame rather than defensively tolerating a malformed one."""
     module = _module()
     metrics = pd.DataFrame(
         [
             {
                 "family": "white_noise",
                 "truth_seasonal": False,
+                "variant": "base",
+                "n_years": 7,
                 "seasonal": 40,
                 "n": 600,
+                "rate": 40 / 600,
+                "wilson_upper": module.wilson_upper(40, 600),
+                "insufficient": 0,
             },
             {
                 "family": "sinusoid",
                 "truth_seasonal": True,
+                "variant": "base",
+                "n_years": 30,
                 "seasonal": 600,
                 "n": 600,
-                "n_years": 30,
+                "rate": 1.0,
+                "wilson_upper": module.wilson_upper(600, 600),
+                "insufficient": 0,
             },
         ]
     )
@@ -51,6 +64,7 @@ def test_acceptance_fails_when_a_negative_family_exceeds_the_bound():
 
     assert verdict["false_seasonal"]["passed"] is False
     assert verdict["false_seasonal"]["failures"][0]["family"] == "white_noise"
+    assert verdict["status_accounting"]["insufficient_records"] == 0
 
 
 def test_scoring_one_record_reports_both_policies():

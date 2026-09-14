@@ -20,18 +20,17 @@ from ._circular_timing import (
     summarise_annual_timing,
 )
 from ._timing_identifiability import (
+    COUNT_COLUMNS,
     TimingIdentifiabilityThresholds,
     _validate_tolerance,
     annual_detectability,
 )
 
-_TREND_WINDOW_MONTHS = 13
 _TREND_HALF_WINDOW = 6
 _TREND_WEIGHTS = np.r_[0.5, np.ones(11), 0.5] / 12.0
 
 TIMING_RECURRENCE_ALPHA = 0.05
 
-_COUNT_COLUMNS = {"n_water", "n_valid", "n_invalid", "n_aoi"}
 _EMPTY_SUMMARY = AnnualTimingSummary(None, None, None, None, None, 0, None)
 
 
@@ -73,8 +72,11 @@ def classical_trend(prepared: pd.DataFrame, *, value_col: str = "extent_pct") ->
     therefore no trend.
     """
     if prepared.empty:
-        empty = pd.Series(dtype=float)
-        return TrendEstimate(empty, empty, pd.Series(dtype=bool), 0, 0)
+        empty_index = pd.DatetimeIndex([])
+        empty = pd.Series(dtype=float, index=empty_index)
+        return TrendEstimate(
+            empty, empty, pd.Series(dtype=bool, index=empty_index), 0, 0
+        )
 
     grid = pd.date_range(prepared.index.min(), prepared.index.max(), freq="MS")
     usable = prepared["candidate_usable"].to_numpy(dtype=bool)
@@ -177,7 +179,7 @@ def assess_timing_recurrence(
 
     _amplitude_pp, noise_pp = robust_scale(prepared)
     pixel_support_status = (
-        "available" if _COUNT_COLUMNS.issubset(prepared.columns) else "unavailable"
+        "available" if COUNT_COLUMNS.issubset(prepared.columns) else "unavailable"
     )
 
     peak_month_sets: dict[int, tuple[int, ...]] = {}
