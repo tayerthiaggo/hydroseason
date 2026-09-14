@@ -360,6 +360,8 @@ Apply only after promotion.
 
 - **Fixed calendar.** Phase drift and large timing jitter reduce power; strongly drifting records may be `aseasonal`. This is consistent with search windows anchored on a fixed month and must be stated as scope.
 - **Twice-yearly regimes** are mostly `aseasonal` (5–22% seasonal in the pilot). This fits a one-cycle-per-year boundary model.
+
+  > **Correction, 14 September 2026.** The validation run measured the opposite: `two_cycles` is classified seasonal 98.5% of the time at 15 years and 100% at 30 years, and six-month phase drift 96% and 100%. The 5-22% figures came from a weaker pilot variant that used informative years only with no widened tolerance. The rule approved in Section 1 uses every detectable year with tie-aware month sets and is materially more powerful. See `case_studies/results/seasonality-timing-recurrence/2026-09-12/findings.md` section 6. The original sentence above is left intact as the record of what was believed at approval.
 - **Calendar-year windows.** Persistent noise can favour extremes near window edges. The AR(1) families measure this.
 - **Moving average.** The first and last six months are lost, so 5 timing-eligible years need about 7 calendar years. Abrupt steps are over-smoothed (Hyndman and Athanasopoulos, 2021); the step family measures this.
 - **Interpolation.** Long internal gaps bias T near the gap. Interpolated values never enter SI.

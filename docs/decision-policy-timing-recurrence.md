@@ -79,6 +79,16 @@ here without softening:
    false-seasonal bound while detection gains almost nothing. The AR(1)
    families are this test's hardest negative case.
 
+4. **Some seasonal calls rest on very few detectable years.** The rule sets no
+   floor on detectable years: the minimum-years check gates qualifying and
+   trend-eligible years only. In the validation run, 494 of 20,422 seasonal
+   calls were made from four or fewer detectable years, the minimum being two,
+   and 177 of those were 30-year records where most years were undetectable.
+   Fourteen fell in non-seasonal families and form part of the spent
+   false-positive budget. The acceptance criteria price this in, but a 30-year
+   record called seasonal from two aligned years is thin evidence, and the
+   CAMELS-AUS cohort will meet this case.
+
 ## What promotion still requires
 
 This candidate is **not promoted**. `ESTABLISHED_POLICY remains

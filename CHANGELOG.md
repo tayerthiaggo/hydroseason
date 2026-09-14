@@ -12,6 +12,19 @@ All notable changes to HydroSeason are documented here. This project follows
 - `mean_monthly_peak_month` and `mean_monthly_trough_month` replace the
   `climatological_*` spellings, which remain as deprecated aliases.
 
+### Known issues
+- `tests/test_release_metadata.py::test_published_pipeline_evaluation_is_not_stale`
+  fails. The published bundle
+  `case_studies/results/final-review-2026-09-08/validation/pipeline.json` was
+  already stale before this work: the test fails identically at commits
+  preceding every code change here. This work also moves that fingerprint
+  independently, because `_pipeline_manifest_hash` hashes
+  `_timing_identifiability.py`, whose duplicated detectability block was
+  consolidated into one shared helper. Regeneration via
+  `scripts/evaluate_final_pipeline.py` is deliberately deferred rather than
+  folded into this change, so that republishing a scientific artefact stays a
+  separate, deliberate act. Accepted and recorded 14 September 2026.
+
 ### Fixed
 - The quality-sensitivity ensemble treated masking a single untrusted month
   as a sensitivity test for `direct_profile_combined`, which gives such
