@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import sys
 from dataclasses import asdict, replace
@@ -228,8 +229,11 @@ def test_generated_defaults_module_keeps_its_imports_in_the_header(tmp_path):
     written = out_mod.read_text(encoding="utf-8")
     assert written.count("from hydroseason._recurrence_identifiability import RecurrencePolicy") == 1
 
+    ruff = shutil.which("ruff")
+    if ruff is None:
+        pytest.skip("ruff executable is not installed in this test environment")
     result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", "--select", "E402,F401,F821,I001", str(out_mod)],
+        [ruff, "check", "--select", "E402,F401,F821,I001", str(out_mod)],
         capture_output=True,
         text=True,
     )
