@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -989,3 +990,158 @@ def test_supplied_rainfall_csv_does_not_probe_silo_dependencies(monkeypatch, tmp
     )
 
     assert result.rainfall_status == "provided"
+
+
+@pytest.mark.parametrize(
+    "removed_key",
+    ["method_policy", "seasonality_policy", "trough_refinement_policy"],
+)
+def test_workflow_rejects_removed_method_options(tmp_path, removed_key):
+    with pytest.raises(
+        ValueError,
+        match=f"{removed_key} was removed in HydroSeason 0.2.0; the current method is mandatory",
+    ):
+        run_hydroseason(
+            _seasonal_extent(),
+            output_dir=tmp_path,
+            analysis_options={removed_key: "legacy"},
+        )
+
+
+def test_entry_point_equivalence_across_workflow_batch_and_cli(
+    monkeypatch, tmp_path
+):
+    from hydroseason import analyze_catchment, generate_catchment_report
+    from hydroseason._method_policy import method_policy_fingerprint
+    from hydroseason.batch import run_hydroseason_many
+    from hydroseason import cli
+
+    extent = _seasonal_extent(years=8)
+    csv_path = tmp_path / "extent.csv"
+    extent.to_csv(csv_path, index_label="date")
+
+    # 1. Direct analyze_catchment
+    direct_analysis = analyze_catchment(extent)
+    direct_report = generate_catchment_report(
+        extent, tmp_path / "direct", analysis=direct_analysis
+    )
+    direct_manifest = json.loads(
+        direct_report.manifest_json.read_text(encoding="utf-8")
+    )
+
+    # 2. Single-AOI run_hydroseason
+    wf_result = run_hydroseason(extent, output_dir=tmp_path / "single_wf")
+    wf_manifest = json.loads(
+        wf_result.artifacts.manifest_json.read_text(encoding="utf-8")
+    )
+
+    # 3. Batch run_hydroseason_many
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+
+    aoi_gdf = geopandas.GeoDataFrame(
+        {"aoi_id": ["catchment-1"]},
+        geometry=[box(140.0, -35.0, 141.0, -34.0)],
+        crs="EPSG:4326",
+    )
+    monkeypatch.setattr(
+        "hydroseason.workflow.run_preflight",
+        lambda *_a, **_k: _feasibility_result(True),
+    )
+    monkeypatch.setattr(
+        "hydroseason.workflow.resolve_water_input",
+        lambda *_a, **_k: ResolvedWaterInput(extent, "extent_dataframe"),
+    )
+    batch_result = run_hydroseason_many(
+        aoi_gdf,
+        output_dir=tmp_path / "batch",
+        start_date="2010-01-01",
+        end_date="2017-12-01",
+        id_col="aoi_id",
+        show_map=False,
+    )
+    assert len(batch_result.succeeded) == 1
+    batch_item_result = batch_result.succeeded[0].result
+    assert batch_item_result is not None
+    batch_manifest = json.loads(
+        batch_item_result.artifacts.manifest_json.read_text(encoding="utf-8")
+    )
+
+    # 4. CLI cli.main
+    cli_out = tmp_path / "cli"
+    exit_code = cli.main(
+        [
+            "run",
+            "--water-source",
+            str(csv_path),
+            "--output-dir",
+            str(cli_out),
+            "--no-progress",
+        ]
+    )
+    assert exit_code == 0
+    cli_manifest_files = list(cli_out.glob("*manifest.json"))
+    assert len(cli_manifest_files) == 1
+    cli_manifest = json.loads(
+        cli_manifest_files[0].read_text(encoding="utf-8")
+    )
+    cli_hydro_years_files = list(cli_out.glob("*hydro_years.csv"))
+    assert len(cli_hydro_years_files) == 1
+    cli_hydro_years = pd.read_csv(cli_hydro_years_files[0])
+
+    expected_policy_id = "hydroseason-v0.2.0"
+    expected_fingerprint = "ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080"
+    assert method_policy_fingerprint() == expected_fingerprint
+
+    # Assert identical method ID
+    assert direct_analysis.method_policy_id == expected_policy_id
+    assert wf_result.analysis.method_policy_id == expected_policy_id
+    assert batch_item_result.analysis.method_policy_id == expected_policy_id
+    assert direct_manifest["method"]["policy_id"] == expected_policy_id
+    assert wf_manifest["method"]["policy_id"] == expected_policy_id
+    assert batch_manifest["method"]["policy_id"] == expected_policy_id
+    assert cli_manifest["method"]["policy_id"] == expected_policy_id
+
+    # Assert identical method fingerprint
+    assert direct_analysis.method_policy_fingerprint == expected_fingerprint
+    assert wf_result.analysis.method_policy_fingerprint == expected_fingerprint
+    assert batch_item_result.analysis.method_policy_fingerprint == expected_fingerprint
+    assert direct_manifest["method"]["fingerprint"] == expected_fingerprint
+    assert wf_manifest["method"]["fingerprint"] == expected_fingerprint
+    assert batch_manifest["method"]["fingerprint"] == expected_fingerprint
+    assert cli_manifest["method"]["fingerprint"] == expected_fingerprint
+
+    # Assert identical regime
+    assert direct_analysis.regime.regime == "seasonal"
+    assert wf_result.analysis.regime.regime == "seasonal"
+    assert batch_item_result.analysis.regime.regime == "seasonal"
+    assert direct_manifest["analysis"]["regime"] == "seasonal"
+    assert wf_manifest["analysis"]["regime"] == "seasonal"
+    assert batch_manifest["analysis"]["regime"] == "seasonal"
+    assert cli_manifest["analysis"]["regime"] == "seasonal"
+
+    # Assert identical route
+    assert direct_analysis.route == "per_year_detection"
+    assert wf_result.analysis.route == "per_year_detection"
+    assert batch_item_result.analysis.route == "per_year_detection"
+    assert direct_manifest["analysis"]["route"] == "per_year_detection"
+    assert wf_manifest["analysis"]["route"] == "per_year_detection"
+    assert batch_manifest["analysis"]["route"] == "per_year_detection"
+    assert cli_manifest["analysis"]["route"] == "per_year_detection"
+
+    # Assert identical hydro-year table
+    pd.testing.assert_frame_equal(
+        direct_analysis.hydro_years, wf_result.analysis.hydro_years
+    )
+    pd.testing.assert_frame_equal(
+        direct_analysis.hydro_years, batch_item_result.analysis.hydro_years
+    )
+    assert len(cli_hydro_years) == len(direct_analysis.hydro_years)
+    for col in ("hydro_year", "start_date", "end_date", "peak_month", "trough_month"):
+        if col in direct_analysis.hydro_years.columns and col in cli_hydro_years.columns:
+            assert list(direct_analysis.hydro_years[col].astype(str)) == list(cli_hydro_years[col].astype(str))
+
+    # Assert identical manifest method and analysis sections
+    assert direct_manifest["method"] == wf_manifest["method"] == batch_manifest["method"] == cli_manifest["method"]
+    assert direct_manifest["analysis"] == wf_manifest["analysis"] == batch_manifest["analysis"] == cli_manifest["analysis"]
+

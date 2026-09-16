@@ -288,6 +288,15 @@ def test_cli_runs_without_rasterio(monkeypatch, tmp_path):
     assert exit_code == 0
 
 
+def test_cli_has_no_method_selector(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["run", "--help"])
+    help_text = capsys.readouterr().out
+    assert "--method-policy" not in help_text
+    assert "--seasonality-policy" not in help_text
+    assert "--trough-refinement-policy" not in help_text
+
+
 class _FakeResult:
     def __init__(self, tmp_path, *, rainfall_status="disabled"):
         from types import SimpleNamespace

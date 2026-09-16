@@ -543,3 +543,23 @@ def test_run_many_forwards_prefixed_five_step_progress_events(monkeypatch, tmp_p
         (1, 5, "east: resolve water input", "start"),
         (5, 5, "east: write report", "finish"),
     ]
+
+
+@pytest.mark.parametrize(
+    "removed_key",
+    ["method_policy", "seasonality_policy", "trough_refinement_policy"],
+)
+def test_run_many_rejects_removed_method_options_upfront(tmp_path, removed_key):
+    batch = _batch_module()
+    with pytest.raises(
+        ValueError,
+        match=f"{removed_key} was removed in HydroSeason 0.2.0; the current method is mandatory",
+    ):
+        batch.run_hydroseason_many(
+            _frame(ids=["test"]),
+            output_dir=tmp_path / "reports",
+            start_date="2020-01-01",
+            end_date="2020-12-01",
+            analysis_options={removed_key: "legacy"},
+        )
+

@@ -85,6 +85,34 @@ def test_package_import_exposes_only_migration_safe_surface():
     }
     assert stripped_names.isdisjoint(vars(hydroseason))
 
+    removed_method_symbols = {
+        "SeasonalityPolicy",
+        "TroughRefinementCandidate",
+        "CURRENT_METHOD_POLICY",
+        "method_policy",
+        "seasonality_policy",
+        "trough_refinement_policy",
+        "resolve_method_policy",
+    }
+    assert removed_method_symbols.isdisjoint(vars(hydroseason))
+    assert removed_method_symbols.isdisjoint(hydroseason.__all__)
+
+
+def test_removed_method_policies_and_selectors_stay_unexported():
+    hydroseason = importlib.import_module("hydroseason")
+
+    removed_symbols = {
+        "SeasonalityPolicy",
+        "TroughRefinementCandidate",
+        "CURRENT_METHOD_POLICY",
+        "method_policy",
+        "seasonality_policy",
+        "trough_refinement_policy",
+        "resolve_method_policy",
+    }
+    assert removed_symbols.isdisjoint(vars(hydroseason))
+    assert removed_symbols.isdisjoint(hydroseason.__all__)
+
 
 def test_package_metadata_declares_only_the_orchestrator_cli():
     """0.1.1 adds exactly one console script: the thin `hydroseason run`

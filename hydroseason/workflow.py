@@ -142,6 +142,22 @@ def _resolve_show_map(show_map: Literal["auto"] | bool) -> bool:
     raise ValueError("show_map must be 'auto', True, or False.")
 
 
+REMOVED_METHOD_OPTIONS = frozenset(
+    {"method_policy", "seasonality_policy", "trough_refinement_policy"}
+)
+
+
+def validate_analysis_options(options: Mapping[str, Any] | None) -> None:
+    if options is None:
+        return
+    removed = REMOVED_METHOD_OPTIONS.intersection(options)
+    if removed:
+        key = sorted(removed)[0]
+        raise ValueError(
+            f"{key} was removed in HydroSeason 0.2.0; the current method is mandatory"
+        )
+
+
 def run_hydroseason(
     water_source=None,
     *,
@@ -188,6 +204,7 @@ def run_hydroseason(
     ``rainfall_comparison_error``), and warned via ``UserWarning`` -- it never
     raises.
     """
+    validate_analysis_options(analysis_options)
     show_aoi_map = _resolve_show_map(show_map)
     messages: list[str] = []
     aoi_gdf = None
@@ -464,5 +481,7 @@ __all__ = [
     "HydroSeasonPreflightError",
     "RainfallSource",
     "RainfallStatus",
+    "REMOVED_METHOD_OPTIONS",
     "run_hydroseason",
+    "validate_analysis_options",
 ]
