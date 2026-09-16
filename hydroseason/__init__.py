@@ -2,6 +2,8 @@
 
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import WaterEventResult, extract_water_events
+from ._exceptions import BoundaryNotSupported as BoundaryNotSupported
+from ._fingerprint import extent_fingerprint as extent_fingerprint
 from ._preflight_feasibility import FeasibilityResult
 from ._preflight_types import PreflightResult, PreflightThresholds
 from ._regime import Regime, WaterRegimeAssessment, assess_water_regime

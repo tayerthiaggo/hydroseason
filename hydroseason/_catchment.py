@@ -1,4 +1,4 @@
-﻿"""Regime-routed catchment analysis: one entry point, no operator decisions.
+"""Regime-routed catchment analysis: one entry point, no operator decisions.
 
 ``analyze_catchment`` assesses the regime first, then dispatches to the
 analysis that regime actually supports, and records which route it took and
@@ -16,6 +16,8 @@ import pandas as pd
 from ._decision_policy import DECISION_POLICY, DecisionPolicy, Route
 from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
+from ._exceptions import BoundaryNotSupported
+from ._fingerprint import extent_fingerprint
 from ._method_policy import CURRENT_METHOD_POLICY, method_policy_fingerprint
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
@@ -56,6 +58,7 @@ class CatchmentAnalysis:
         default_factory=method_policy_fingerprint
     )
     random_state: int = 0
+    input_fingerprint: str = ""
 
     @property
     def public_route(self) -> Route:
@@ -153,6 +156,11 @@ def analyze_catchment(
     detectors directly, which makes the override explicit in their own code
     rather than hidden in a flag here.
     """
+    input_fingerprint = extent_fingerprint(
+        extent,
+        value_col=value_col,
+        date_col=date_col,
+    )
     canonical_scheme = resolve_phase_scheme(
         phase_scheme=phase_scheme,
         phase_model=phase_model,
@@ -197,6 +205,7 @@ def analyze_catchment(
             max_invalid_pct=max_invalid_pct,
             decision_policy=regime.decision_policy,
             random_state=random_state,
+            input_fingerprint=input_fingerprint,
         )
 
     if regime.regime == "seasonal":
@@ -247,7 +256,7 @@ def analyze_catchment(
                 random_state=random_state,
                 quality_policy=quality_policy,
             )
-        except ValueError as exc:
+        except BoundaryNotSupported as exc:
             warnings.append(f"per-year boundary detection failed; using events: {exc}")
             return CatchmentAnalysis(
                 regime=regime,
@@ -265,6 +274,7 @@ def analyze_catchment(
                 max_invalid_pct=max_invalid_pct,
                 decision_policy=regime.decision_policy,
                 random_state=random_state,
+                input_fingerprint=input_fingerprint,
             )
         years = state.hydro_years.copy()
         if years.empty:
@@ -283,6 +293,7 @@ def analyze_catchment(
                 max_invalid_pct=max_invalid_pct,
                 decision_policy=regime.decision_policy,
                 random_state=random_state,
+                input_fingerprint=input_fingerprint,
             )
         years["boundary_basis"] = "detected_per_year"
         state = replace(state, hydro_years=years)
@@ -322,6 +333,7 @@ def analyze_catchment(
                 max_invalid_pct=max_invalid_pct,
                 decision_policy=regime.decision_policy,
                 random_state=random_state,
+                input_fingerprint=input_fingerprint,
             )
 
         route_reason = (
@@ -344,6 +356,7 @@ def analyze_catchment(
             max_invalid_pct=max_invalid_pct,
             decision_policy=regime.decision_policy,
             random_state=random_state,
+            input_fingerprint=input_fingerprint,
         )
 
     route_reason = (
@@ -365,4 +378,5 @@ def analyze_catchment(
         max_invalid_pct=max_invalid_pct,
         decision_policy=regime.decision_policy,
         random_state=random_state,
+        input_fingerprint=input_fingerprint,
     )

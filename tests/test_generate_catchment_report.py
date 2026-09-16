@@ -295,6 +295,17 @@ def test_generate_catchment_report_rejects_inconsistent_supplied_analysis(
         generate_catchment_report(seasonal_extent, tmp_path, name="Mismatch", analysis=analysis)
 
 
+def test_generate_catchment_report_rejects_fingerprint_mismatch(tmp_path, seasonal_extent):
+    analysis = analyze_catchment(seasonal_extent, n_bootstrap=40)
+    paths = generate_catchment_report(seasonal_extent, tmp_path / "matched", analysis=analysis)
+    assert paths.html.exists()
+
+    tampered = seasonal_extent.copy()
+    tampered.iloc[0, 0] += 1.0
+    with pytest.raises(ValueError, match="analysis does not match extent content fingerprint"):
+        generate_catchment_report(tampered, tmp_path / "mismatch", analysis=analysis)
+
+
 def test_compatibility_report_uses_light_shell_without_csv_bundle(tmp_path, seasonal_extent):
     analysis = analyze_catchment(seasonal_extent, phase_model="rule_based", n_bootstrap=40)
     output = tmp_path / "legacy.html"

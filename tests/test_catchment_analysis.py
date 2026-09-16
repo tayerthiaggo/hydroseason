@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from hydroseason import BoundaryNotSupported, extent_fingerprint
 from hydroseason._catchment import analyze_catchment
 from hydroseason._regime import assess_water_regime
 from hydroseason.hydrological_state import HydrologicalStateResult
@@ -226,7 +227,7 @@ def test_diffuse_uniform_marginal_uses_event_characterisation():
 
 def test_per_year_boundary_failure_falls_back_to_event_characterisation(monkeypatch):
     def fail(*args, **kwargs):
-        raise ValueError("dynamic detector rejected the record")
+        raise BoundaryNotSupported("dynamic detector rejected the record")
 
     monkeypatch.setattr("hydroseason._catchment.analyze_hydrological_state", fail)
 
@@ -638,3 +639,34 @@ def test_deprecated_month_aliases_are_absent_from_live_analysis_objects():
     assert not hasattr(result.regime, "climatological_trough_month")
     assert not hasattr(result, "climatological_peak_month")
     assert not hasattr(result, "climatological_trough_month")
+
+
+@pytest.fixture
+def seasonal_extent():
+    return _seasonal()
+
+
+def test_expected_boundary_nonrecoverability_falls_back(monkeypatch, seasonal_extent):
+    monkeypatch.setattr(
+        "hydroseason._catchment.analyze_hydrological_state",
+        lambda *args, **kwargs: (_ for _ in ()).throw(BoundaryNotSupported("no resolved cycles")),
+    )
+    result = analyze_catchment(seasonal_extent)
+    assert result.route == "event_characterisation"
+    assert "no resolved cycles" in result.route_reason
+
+
+def test_unexpected_value_error_is_not_relabelled_as_scientific_abstention(monkeypatch, seasonal_extent):
+    monkeypatch.setattr(
+        "hydroseason._catchment.analyze_hydrological_state",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("column contract bug")),
+    )
+    with pytest.raises(ValueError, match="column contract bug"):
+        analyze_catchment(seasonal_extent)
+
+
+def test_catchment_analysis_records_input_fingerprint(seasonal_extent):
+    result = analyze_catchment(seasonal_extent, n_bootstrap=40)
+    assert result.input_fingerprint
+    assert len(result.input_fingerprint) == 64
+    assert result.input_fingerprint == extent_fingerprint(seasonal_extent)

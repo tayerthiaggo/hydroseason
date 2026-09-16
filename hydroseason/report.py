@@ -15,6 +15,7 @@ from ._aoi_context import AOIContext
 from ._aoi_map import render_aoi_map_html
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import _empty_events, _empty_low_spells
+from ._fingerprint import extent_fingerprint
 from ._regime_compare import RegimeComparison
 from ._report_copy import (
     build_rainfall_context,
@@ -89,14 +90,16 @@ def _write_text_atomic(path: Path, text: str) -> None:
         raise
 
 
-def _validate_analysis_for_extent(extent: Any, analysis: CatchmentAnalysis) -> None:
-    prepared = prepare_monthly_extent(
-        extent,
-        max_invalid_pct=analysis.max_invalid_pct,
-        quality_policy=analysis.quality_policy,
-    )
-    if int(analysis.regime.n_usable_months) != int(prepared["candidate_usable"].sum()):
-        raise ValueError("analysis does not match extent usable-month count")
+def _validate_analysis_for_extent(
+    extent: Any,
+    analysis: CatchmentAnalysis,
+    *,
+    date_col: str | None = None,
+    value_col: str = "extent_pct",
+) -> None:
+    actual = extent_fingerprint(extent, date_col=date_col, value_col=value_col)
+    if actual != analysis.input_fingerprint:
+        raise ValueError("analysis does not match extent content fingerprint")
 
     permits_years = analysis.route not in {"event_characterisation", "insufficient_record"}
     if not permits_years and not analysis.hydro_years.empty:
@@ -251,6 +254,8 @@ def generate_catchment_report(
     title: str | None = None,
     subtitle: str | None = None,
     quality_note: str | None = None,
+    value_col: str = "extent_pct",
+    date_col: str | None = None,
 ) -> CatchmentReportPaths:
     """Write HTML plus a compact, route-aware CSV bundle.
 
@@ -270,9 +275,11 @@ def generate_catchment_report(
     clean_stem = safe_stem(display_name)
 
     if analysis is None:
-        analysis = analyze_catchment(extent)
+        analysis = analyze_catchment(extent, value_col=value_col, date_col=date_col)
     else:
-        _validate_analysis_for_extent(extent, analysis)
+        _validate_analysis_for_extent(
+            extent, analysis, date_col=date_col, value_col=value_col
+        )
 
     monthly = build_monthly_export(extent, analysis=analysis, rainfall=rainfall)
     hydro_years = build_hydro_years_export(analysis, name=display_name)
