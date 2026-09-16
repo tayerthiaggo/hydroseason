@@ -61,6 +61,7 @@ from ._rainfall import (
     normalise_monthly_rainfall,
 )
 from ._regime_compare import RegimeComparison, compare_rainfall_to_extent_regime
+from ._run_manifest import sha256_file
 from ._workflow_input import (
     DEFAULT_STAC_COLLECTION,
     DEFAULT_STAC_URL,
@@ -376,6 +377,55 @@ def run_hydroseason(
         )
 
     tracker.start(5)
+    acquisition_info: dict[str, Any] = {
+        "source_kind": resolved.source_kind,
+    }
+    if start_date is not None:
+        acquisition_info["start_date"] = start_date
+    if end_date is not None:
+        acquisition_info["end_date"] = end_date
+
+    if water_source is None:
+        acquisition_info["stac_url"] = stac_url
+        acquisition_info["stac_collection"] = stac_collection
+        if statistics_stac_url is not None:
+            acquisition_info["statistics_stac_url"] = statistics_stac_url
+        if cache_dir is not None:
+            acquisition_info["cache_dir"] = str(cache_dir)
+        if historical_water_mask is not None:
+            acquisition_info["historical_water_mask"] = (
+                getattr(historical_water_mask, "name", None) or "provided"
+            )
+    elif isinstance(water_source, (str, Path)):
+        p = Path(water_source)
+        acquisition_info["path"] = str(p)
+        if p.is_file():
+            try:
+                acquisition_info["sha256"] = sha256_file(p)
+            except Exception:
+                pass
+        if water_mask_variable is not None:
+            acquisition_info["water_mask_variable"] = water_mask_variable
+    elif isinstance(water_source, pd.DataFrame):
+        acquisition_info["source_kind"] = "extent_dataframe"
+    else:
+        if water_mask_variable is not None:
+            acquisition_info["water_mask_variable"] = water_mask_variable
+
+    if aoi is not None:
+        if isinstance(aoi, (str, Path)):
+            acquisition_info["aoi"] = str(aoi)
+    if aoi_name is not None:
+        acquisition_info["aoi_name"] = aoi_name
+    if aoi_gdf is not None and hasattr(aoi_gdf, "crs") and aoi_gdf.crs is not None:
+        acquisition_info["crs"] = str(aoi_gdf.crs)
+
+    preflight_info = preflight_result.to_dict() if preflight_result is not None else {}
+    run_context = {
+        "acquisition": acquisition_info,
+        "preflight": preflight_info,
+    }
+
     artifacts = generate_catchment_report(
         resolved.extent,
         output_dir,
@@ -389,6 +439,7 @@ def run_hydroseason(
         aoi_context=aoi_context,
         title=report_title,
         subtitle=report_subtitle,
+        run_context=run_context,
     )
     tracker.finish(5, artifacts.html.name)
     return HydroSeasonRunResult(

@@ -163,6 +163,7 @@ def test_summary_reports_source_regime_route_rainfall_and_paths(
         "years.csv",
         "events.csv",
         "spells.csv",
+        "manifest.json",
     ):
         assert expected in out
 
@@ -180,6 +181,7 @@ def test_json_summary_is_machine_readable(monkeypatch, tmp_path, capsys):
     assert payload["source_kind"] == "extent_csv"
     assert payload["rainfall_status"] == "disabled"
     assert payload["html"].endswith("report.html")
+    assert payload["manifest_json"].endswith("manifest.json")
 
 
 def test_end_to_end_csv_run_writes_the_bundle(tmp_path):
@@ -309,4 +311,5 @@ class _FakeResult:
             hydro_years_csv=tmp_path / "years.csv",
             wet_event_csv=tmp_path / "events.csv",
             low_spells_csv=tmp_path / "spells.csv",
+            manifest_json=tmp_path / "manifest.json",
         )

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import math
 import tempfile
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 import pandas as pd
 
@@ -45,6 +46,7 @@ from ._report_plotly import (
     secondary_figure,
     timeline_figure,
 )
+from ._run_manifest import build_run_manifest
 from ._state_input import prepare_monthly_extent
 
 
@@ -57,6 +59,7 @@ class CatchmentReportPaths:
     hydro_years_csv: Path
     wet_event_csv: Path
     low_spells_csv: Path
+    manifest_json: Path
 
     @property
     def events_csv(self) -> Path:
@@ -256,6 +259,7 @@ def generate_catchment_report(
     quality_note: str | None = None,
     value_col: str = "extent_pct",
     date_col: str | None = None,
+    run_context: Mapping[str, Any] | None = None,
 ) -> CatchmentReportPaths:
     """Write HTML plus a compact, route-aware CSV bundle.
 
@@ -361,12 +365,32 @@ def generate_catchment_report(
     )
     _write_text_atomic(html_path, html_text)
 
+    manifest_path = output / f"{clean_stem}_manifest.json"
+    artifacts_to_hash = {
+        "html": html_path.resolve(),
+        "monthly_csv": csv_paths["monthly"].resolve(),
+        "hydro_years_csv": csv_paths["hydro_years"].resolve(),
+        "wet_event_csv": csv_paths["wet_event"].resolve(),
+        "low_spells_csv": csv_paths["low_spells"].resolve(),
+    }
+    manifest = build_run_manifest(
+        extent=extent,
+        analysis=analysis,
+        artifacts=artifacts_to_hash,
+        run_context=run_context,
+    )
+    _write_text_atomic(
+        manifest_path,
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+    )
+
     return CatchmentReportPaths(
         html=html_path.resolve(),
         monthly_csv=csv_paths["monthly"].resolve(),
         hydro_years_csv=csv_paths["hydro_years"].resolve(),
         wet_event_csv=csv_paths["wet_event"].resolve(),
         low_spells_csv=csv_paths["low_spells"].resolve(),
+        manifest_json=manifest_path.resolve(),
     )
 
 

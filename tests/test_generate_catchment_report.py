@@ -40,6 +40,8 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     html = paths.html.read_text(encoding="utf-8")
 
     assert isinstance(paths, CatchmentReportPaths)
+    assert paths.manifest_json.exists()
+    assert paths.manifest_json.name == "seasonal-test_manifest.json"
     assert "Plotly.newPlot" in html
     assert "plotly-basic-3.6.0" in html
     assert "cdn.plot.ly" not in html

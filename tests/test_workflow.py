@@ -420,6 +420,7 @@ def _report_paths(tmp_path):
         hydro_years_csv=tmp_path / "years.csv",
         wet_event_csv=tmp_path / "events.csv",
         low_spells_csv=tmp_path / "spells.csv",
+        manifest_json=tmp_path / "manifest.json",
     )
 
 
