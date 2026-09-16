@@ -25,16 +25,14 @@ from ._circular_timing import (
     summarise_annual_timing,
 )
 from ._decision_policy import (
-    ESTABLISHED_POLICY,
+    DECISION_POLICY,
     REGIME_THRESHOLDS,
     DecisionPolicy,
     EstablishedDecision,
     Regime,
     Route,
-    SeasonalityPolicy,
     TimingEvidence,
-    decide_established,
-    decide_timing_recurrence,
+    decide_regime,
 )
 from ._events import extract_water_events
 from ._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
@@ -97,7 +95,7 @@ class WaterRegimeAssessment:
     caveats: tuple[str, ...]
 
     seasonality_test: TimingRecurrenceResult | None = None
-    decision_policy: DecisionPolicy = ESTABLISHED_POLICY
+    decision_policy: DecisionPolicy = DECISION_POLICY
     public_route: Route = "insufficient_record"
 
     @property
@@ -108,36 +106,19 @@ class WaterRegimeAssessment:
     @property
     def attempts_per_year_detection(self) -> bool:
         """Whether the detector runs at all, as an internal diagnostic."""
-        return self.regime in {"seasonal", "marginal"}
+        return self.regime == "seasonal"
 
     @property
     def supports_fixed_window(self) -> bool:
-        """Whether one fixed climatological wet/dry window is defensible.
+        """Whether one fixed climatological wet/dry window is defensible."""
+        return False
 
-        Seasonal records always support a fixed window. Marginal records
-        require concentrated, non-uniform peak and trough timings.
-        """
-        return self.public_route in {"per_year_detection", "fixed_climatological_window"}
-
-    @property
-    def climatological_peak_month(self) -> int | None:
-        """Deprecated alias for :attr:`mean_monthly_peak_month`."""
-        return self.mean_monthly_peak_month
-
-    @property
-    def climatological_trough_month(self) -> int | None:
-        """Deprecated alias for :attr:`mean_monthly_trough_month`."""
-        return self.mean_monthly_trough_month
 
 
 _ACTIONS: dict[Regime, str] = {
     "seasonal": (
         "Run per-year hydrological-year detection. Peak and trough months are "
         "reproducible year to year."
-    ),
-    "marginal": (
-        "Run dynamic local extrema detection per hydrological year alongside "
-        "event descriptors. Peak and trough months vary interannually."
     ),
     "aseasonal": (
         "Do not define a hydrological year: annual timing was not established "
@@ -165,7 +146,6 @@ def assess_water_regime(
     measurement_tolerance_pct: float = 0.0,
     n_bootstrap: int = 200,
     random_state: int = 0,
-    seasonality_policy: SeasonalityPolicy | None = None,
 ) -> WaterRegimeAssessment:
     """Assess what the observed surface-water record supports."""
     if not 1 <= min_months_per_year <= 12:
@@ -249,56 +229,27 @@ def assess_water_regime(
             snr = amplitude / within_month_sd
         else:
             snr = np.inf
-    if seasonality_policy == "timing_recurrence":
-        recurrence: TimingRecurrenceResult | None = assess_timing_recurrence(
-            prepared,
-            thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
-            value_col=value_col,
-            measurement_tolerance_pct=measurement_tolerance_pct,
-            min_months_per_year=min_months_per_year,
-            min_years=_MIN_USABLE_YEARS,
-            n_bootstrap=n_bootstrap,
-            random_state=random_state,
-        )
-        decision = decide_timing_recurrence(
-            classification=recurrence.classification,
-            status=recurrence.status,
-            reason=recurrence.reason,
-        )
-    else:
-        recurrence = None
-        decision = decide_established(
-            n_usable_years=len(qualifying_years),
-            amplitude_snr=float(snr),
-            peak_timing=peak_timing,
-            trough_timing=trough_timing,
-            n_peak_timing_years=timing_evidence.n_peak_timing_years,
-            n_trough_timing_years=timing_evidence.n_trough_timing_years,
-            min_informative_years=TIMING_IDENTIFIABILITY_DEFAULTS.min_informative_years,
-        )
+    recurrence: TimingRecurrenceResult = assess_timing_recurrence(
+        prepared,
+        thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
+        value_col=value_col,
+        measurement_tolerance_pct=measurement_tolerance_pct,
+        min_months_per_year=min_months_per_year,
+        min_years=_MIN_USABLE_YEARS,
+        n_bootstrap=n_bootstrap,
+        random_state=random_state,
+    )
+    decision = decide_regime(
+        classification=recurrence.classification,
+        status=recurrence.status,
+        reason=recurrence.reason,
+    )
 
-    if seasonality_policy == "timing_recurrence":
-        # The candidate's own test established recurrence, so the anchor does
-        # not additionally require a dominant month from the established
-        # summaries. The months themselves are unchanged: mean monthly extent
-        # over qualifying years, computed on raw observed values.
-        populate_months = (
-            decision.regime == "seasonal" and len(qualifying_years) >= _MIN_USABLE_YEARS
-        )
-        mean_monthly_peak_month = int(climatology.idxmax()) if populate_months else None
-        mean_monthly_trough_month = int(climatology.idxmin()) if populate_months else None
-    elif (
-        decision.regime in ("seasonal", "marginal")
-        and decision.timing_evidence != "insufficient"
-    ):
-        mean_monthly_peak_month = (
-            int(climatology.idxmax()) if peak_timing.dominant_month is not None else None
-        )
-        mean_monthly_trough_month = (
-            int(climatology.idxmin()) if trough_timing.dominant_month is not None else None
-        )
-    else:
-        mean_monthly_peak_month = mean_monthly_trough_month = None
+    populate_months = (
+        decision.regime == "seasonal" and len(qualifying_years) >= _MIN_USABLE_YEARS
+    )
+    mean_monthly_peak_month = int(climatology.idxmax()) if populate_months else None
+    mean_monthly_trough_month = int(climatology.idxmin()) if populate_months else None
 
     # Events extraction
     event_summary = extract_water_events(
@@ -312,50 +263,11 @@ def assess_water_regime(
     longest_low = int(event_summary["longest_low_spell_months"])
     years_without = int(event_summary["years_without_event"])
 
-    if seasonality_policy == "timing_recurrence" and recurrence is not None:
-        caveats.append(
-            "seasonality policy candidate_timing_recurrence (opt-in, unpromoted): "
-            f"class decided by calendar recurrence of annual peak and trough timing at "
-            f"alpha {recurrence.alpha:g}; aseasonal means recurrence was not established, "
-            "not that timing is uniform"
-        )
-    else:
-        if (
-            _MIN_USABLE_YEARS
-            <= peak_timing.n_years
-            < REGIME_THRESHOLDS["timing_record_caution_years"]
-        ):
-            caveats.append(
-                "fewer than 30 usable annual timings: classification is retained, "
-                "but uncertainty intervals may be wide"
-            )
-        if (
-            _MIN_USABLE_YEARS
-            <= peak_timing.n_years
-            < REGIME_THRESHOLDS["uniformity_min_timing_years"]
-            and snr >= REGIME_THRESHOLDS["seasonal_min_snr"]
-            and peak_timing.ci_low is not None
-            and peak_timing.ci_low < REGIME_THRESHOLDS["strong_timing_concentration"]
-            and peak_timing.uniformity_p is not None
-            and peak_timing.uniformity_p >= REGIME_THRESHOLDS["circular_uniformity_alpha"]
-        ):
-            caveats.append(
-                "the circular-uniformity result has little power with fewer than "
-                "10 annual timings, so the record remains marginal"
-            )
-        if decision.regime == "marginal":
-            caveats.append(
-                "marginal seasonality: peak and trough timings exhibit interannual variability, "
-                "so per-year boundaries are detected dynamically from local extrema"
-            )
-        if decision.regime == "aseasonal":
-            caveats.append(
-                "annual timing was not established by the current evidence: peak "
-                "and trough are withheld because the record either lacks a "
-                "reproducible annual cycle or leaves it unresolved (insufficient "
-                "concentration, power, or informative years) -- a non-significant "
-                "test does not itself prove uniform timing"
-            )
+    caveats.append(
+        "seasonality policy hydroseason-v0.2.0: class decided by calendar recurrence of annual peak and trough timing at "
+        f"alpha {recurrence.alpha:g}; aseasonal means recurrence was not established, "
+        "not that timing is uniform"
+    )
     if years_without:
         caveats.append(
             f"{years_without} of {len(qualifying_groups)} usable years contain no "
@@ -404,8 +316,8 @@ PublicRoute = Literal[
 
 
 def public_route(regime: Regime) -> PublicRoute:
-    """Map regime to public route under established policy."""
-    if regime in ("seasonal", "marginal"):
+    """Map regime to public route."""
+    if regime == "seasonal":
         return "per_year_detection"
     if regime == "insufficient_record":
         return "insufficient_record"
@@ -414,7 +326,7 @@ def public_route(regime: Regime) -> PublicRoute:
 
 __all__ = [
     "DecisionPolicy",
-    "ESTABLISHED_POLICY",
+    "DECISION_POLICY",
     "EstablishedDecision",
     "PublicRoute",
     "REGIME_THRESHOLDS",
@@ -422,6 +334,6 @@ __all__ = [
     "Route",
     "WaterRegimeAssessment",
     "assess_water_regime",
-    "decide_established",
+    "decide_regime",
     "public_route",
 ]

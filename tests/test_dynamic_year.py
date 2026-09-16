@@ -16,7 +16,6 @@ from hydroseason._dynamic_year import (
 from hydroseason._seasonality import classify_seasonal_pattern
 from hydroseason._state_input import prepare_monthly_extent
 from hydroseason._trough_refinement import (
-    TroughRefinementPolicy,
     TroughRefinementResult,
 )
 
@@ -69,8 +68,8 @@ def _candidate_frame(start="2018-01-01", periods=60):
     return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=index)
 
 
-def test_default_detection_does_not_apply_unvalidated_trough_refinement():
-    """Removing candidate authority must leave the established pass-1 boundary."""
+def test_default_detection_applies_canonical_trough_refinement():
+    """Direct-profile trough refinement is canonical and always runs."""
     raw = _candidate_frame()
     raw.loc["2020-06-01":"2020-12-01", "extent_pct"] = [
         30.0,
@@ -88,15 +87,21 @@ def test_default_detection_does_not_apply_unvalidated_trough_refinement():
     )
 
     row = result.loc[result["hy_year"] == 2020].iloc[0]
+    following = result.loc[result["hy_year"] == 2021].iloc[0]
     assert row["raw_trough_month"] == pd.Timestamp("2020-09-01")
-    assert row["trough_month"] == pd.Timestamp("2020-09-01")
-    assert row["pass1_trough_month"] == row["trough_month"]
-    assert row["trough_refinement_status"] == "unavailable"
-    assert row["trough_refinement_reason"] == "not_requested"
-    assert not bool(row["trough_refinement_applied"])
+    assert row["pass1_trough_month"] == pd.Timestamp("2020-09-01")
+    assert row["trough_month"] == pd.Timestamp("2020-11-01")
+    assert row["trough_challenger_month"] == pd.Timestamp("2020-11-01")
+    assert row["trough_interval_start"] == pd.Timestamp("2020-09-01")
+    assert row["trough_interval_end"] == pd.Timestamp("2020-11-01")
+    assert row["trough_refinement_status"] == "confirmed"
+    assert row["trough_refinement_reason"] == "accepted"
+    assert bool(row["trough_refinement_applied"])
+    assert row["trough_refinement_policy_version"] == "direct_profile_combined_v1"
+    assert following["hy_start"] == pd.Timestamp("2020-12-01")
 
 
-def test_opted_in_trough_refinement_applies_boundary_without_changing_peaks():
+def test_trough_refinement_applies_boundary_without_changing_peaks():
     raw = _candidate_frame()
     raw.loc["2020-06-01":"2020-12-01", "extent_pct"] = [
         30.0,
@@ -107,66 +112,17 @@ def test_opted_in_trough_refinement_applies_boundary_without_changing_peaks():
         1.0,
         15.0,
     ]
-    baseline = detect_dynamic_hydrological_years(
+    result = detect_dynamic_hydrological_years(
         raw,
         config=DynamicHydroYearConfig(expected_trough_month=9),
     )
-    refined = detect_dynamic_hydrological_years(
-        raw,
-        config=DynamicHydroYearConfig(
-            expected_trough_month=9,
-            trough_refinement_policy=TroughRefinementPolicy(
-                huber_k=1.345,
-                profile_loss_cutoff=0.05,
-                pulse_z=2.0,
-            ),
-        ),
-    )
 
-    baseline_peaks = tuple(baseline["peak_month"])
-    refined_peaks = tuple(refined["peak_month"])
-    assert refined_peaks == baseline_peaks
-
-    row = refined.loc[refined["hy_year"] == 2020].iloc[0]
-    following = refined.loc[refined["hy_year"] == 2021].iloc[0]
+    row = result.loc[result["hy_year"] == 2020].iloc[0]
+    assert row["peak_month"] == row["raw_peak_month"]
+    assert row["peak_month"] == pd.Timestamp("2020-02-01")
     assert row["pass1_trough_month"] == pd.Timestamp("2020-09-01")
-    assert row["trough_challenger_month"] == pd.Timestamp("2020-11-01")
     assert row["trough_month"] == pd.Timestamp("2020-11-01")
-    assert row["trough_interval_start"] == pd.Timestamp("2020-09-01")
-    assert row["trough_interval_end"] == pd.Timestamp("2020-11-01")
     assert row["trough_refinement_status"] == "confirmed"
-    assert bool(row["trough_refinement_applied"])
-    assert following["hy_start"] == pd.Timestamp("2020-12-01")
-
-
-def test_direct_profile_combined_candidate_applies_boundary_without_changing_peaks():
-    """The opt-in direct_profile_combined candidate must plug into the same
-    pass-1/pass-2 wiring as shape_fit: unchanged peaks, atomic acceptance,
-    generic trough_refinement_* export columns populated the same way."""
-    raw = _candidate_frame()
-    raw.loc["2020-06-01":"2020-12-01", "extent_pct"] = [
-        30.0, 20.0, 10.0, 1.0, 1.0, 1.0, 15.0,
-    ]
-    baseline = detect_dynamic_hydrological_years(
-        raw, config=DynamicHydroYearConfig(expected_trough_month=9),
-    )
-    refined = detect_dynamic_hydrological_years(
-        raw,
-        config=DynamicHydroYearConfig(
-            expected_trough_month=9,
-            trough_refinement_policy=TroughRefinementPolicy(
-                huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=2.0,
-                version="direct_profile_combined_v1",
-                candidate="direct_profile_combined", delta_rel=0.05,
-            ),
-        ),
-    )
-
-    assert tuple(refined["peak_month"]) == tuple(baseline["peak_month"])
-    row = refined.loc[refined["hy_year"] == 2020].iloc[0]
-    assert row["pass1_trough_month"] == pd.Timestamp("2020-09-01")
-    assert row["trough_refinement_policy_version"] == "direct_profile_combined_v1"
-    assert row["trough_refinement_status"] in {"confirmed", "provisional"}
     assert bool(row["trough_refinement_applied"])
 
 
@@ -214,13 +170,7 @@ def test_adopted_trough_interval_never_extends_past_the_operational_boundary(mon
 
     refined = detect_dynamic_hydrological_years(
         raw,
-        config=DynamicHydroYearConfig(
-            expected_trough_month=9,
-            trough_refinement_policy=TroughRefinementPolicy(
-                huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=2.0,
-                version="direct_profile_combined_v1", candidate="direct_profile_combined", delta_rel=0.05,
-            ),
-        ),
+        config=DynamicHydroYearConfig(expected_trough_month=9),
     )
 
     row = refined.loc[refined["hy_year"] == 2020].iloc[0]
@@ -237,14 +187,7 @@ def test_open_peak_span_retains_pass1_as_provisional_fallback():
     raw = _candidate_frame()
     result = detect_dynamic_hydrological_years(
         raw,
-        config=DynamicHydroYearConfig(
-            expected_trough_month=9,
-            trough_refinement_policy=TroughRefinementPolicy(
-                huber_k=1.345,
-                profile_loss_cutoff=0.05,
-                pulse_z=2.0,
-            ),
-        ),
+        config=DynamicHydroYearConfig(expected_trough_month=9),
     )
 
     row = result.iloc[-1]
@@ -301,10 +244,7 @@ def test_trough_refinement_rolls_back_both_cycles_when_coverage_would_fail(
     monkeypatch.setattr(dynamic_year, "refine_trough_span", challenge)
     refined = detect_dynamic_hydrological_years(
         raw,
-        config=DynamicHydroYearConfig(
-            expected_trough_month=9,
-            trough_refinement_policy=TroughRefinementPolicy(1.345, 0.05, 2.0),
-        ),
+        config=DynamicHydroYearConfig(expected_trough_month=9),
     )
 
     for year in (2019, 2020):
@@ -408,9 +348,9 @@ def test_short_six_month_cycle_keeps_observed_peak_and_local_trough():
     )
 
     short = result.loc[result["hy_year"] == 2020].iloc[0]
-    assert short["trough_month"] == pd.Timestamp("2020-06-01")
+    assert short["pass1_trough_month"] == pd.Timestamp("2020-06-01")
     assert short["peak_month"] == pd.Timestamp("2020-02-01")
-    assert short["cycle_months"] == 6
+    assert short["trough_month"] == pd.Timestamp("2020-12-01")
 
 
 def test_adaptive_pass_relaxes_only_unresolved_interior_year():
@@ -427,11 +367,12 @@ def test_adaptive_pass_relaxes_only_unresolved_interior_year():
     )
 
     middle = result.loc[result["hy_year"] == 2020].iloc[0]
-    assert middle["trough_month"] == pd.Timestamp("2020-06-01")
+    assert middle["pass1_trough_month"] == pd.Timestamp("2020-06-01")
     assert middle["peak_month"] == pd.Timestamp("2020-02-01")
-    assert middle["cycle_months"] == 6
-    assert result.loc[result["hy_year"] == 2019, "trough_month"].item() == pd.Timestamp("2019-12-01")
-    assert result.loc[result["hy_year"] == 2021, "trough_month"].item() == pd.Timestamp("2021-10-01")
+    assert middle["trough_month"] == pd.Timestamp("2020-12-01")
+    assert middle["retry_outcome"] == "applied"
+    assert result.loc[result["hy_year"] == 2019, "pass1_trough_month"].item() == pd.Timestamp("2019-12-01")
+    assert result.loc[result["hy_year"] == 2021, "pass1_trough_month"].item() == pd.Timestamp("2021-10-01")
 
 
 def test_adaptive_edge_retry_finds_earlier_observed_trough():
@@ -447,9 +388,10 @@ def test_adaptive_edge_retry_finds_earlier_observed_trough():
         raw, config=DynamicHydroYearConfig(expected_trough_month=10)
     )
 
-    assert result.loc[result["hy_year"] == 2015, "trough_month"].item() == pd.Timestamp("2015-10-01")
-    assert result.loc[result["hy_year"] == 2016, "trough_month"].item() == pd.Timestamp("2016-05-01")
-    assert result.loc[result["hy_year"] == 2017, "trough_month"].item() == pd.Timestamp("2017-10-01")
+    assert result.loc[result["hy_year"] == 2015, "pass1_trough_month"].item() == pd.Timestamp("2015-10-01")
+    assert result.loc[result["hy_year"] == 2016, "pass1_trough_month"].item() == pd.Timestamp("2016-05-01")
+    assert result.loc[result["hy_year"] == 2017, "pass1_trough_month"].item() == pd.Timestamp("2017-10-01")
+    assert result.loc[result["hy_year"] == 2016, "retry_outcome"].item() == "applied"
 
 
 def test_unresolved_nominal_year_breaks_cycles_instead_of_merging():

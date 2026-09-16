@@ -44,6 +44,17 @@ class TrendEstimate:
     n_interpolated_months: int
     n_months_without_trend: int
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TrendEstimate):
+            return False
+        return (
+            self.trend.equals(other.trend)
+            and self.detrended.equals(other.detrended)
+            and self.interpolated.equals(other.interpolated)
+            and self.n_interpolated_months == other.n_interpolated_months
+            and self.n_months_without_trend == other.n_months_without_trend
+        )
+
 
 @dataclass(frozen=True)
 class TimingRecurrenceResult:
@@ -77,6 +88,9 @@ def classical_trend(prepared: pd.DataFrame, *, value_col: str = "extent_pct") ->
         return TrendEstimate(
             empty, empty, pd.Series(dtype=bool, index=empty_index), 0, 0
         )
+
+    if prepared.index.has_duplicates:
+        prepared = prepared.loc[~prepared.index.duplicated(keep="first")]
 
     grid = pd.date_range(prepared.index.min(), prepared.index.max(), freq="MS")
     usable = prepared["candidate_usable"].to_numpy(dtype=bool)
@@ -222,6 +236,25 @@ def assess_timing_recurrence(
             n_detectable_years=0,
             trend=trend,
         )
+
+    from ._method_policy import CURRENT_METHOD_POLICY
+
+    if len(peak_month_sets) < CURRENT_METHOD_POLICY.min_detectable_years:
+        return TimingRecurrenceResult(
+            classification="aseasonal",
+            status="ok",
+            reason="too_few_detectable_years",
+            alpha=alpha,
+            peak=_EMPTY_SUMMARY,
+            trough=_EMPTY_SUMMARY,
+            peak_month_sets=peak_month_sets,
+            trough_month_sets=trough_month_sets,
+            n_qualifying_years=len(qualifying_years),
+            n_timing_eligible_years=len(eligible),
+            n_detectable_years=len(peak_month_sets),
+            trend=trend,
+        )
+
 
     peak = summarise_annual_timing(
         peak_month_sets, n_resamples=n_bootstrap, random_state=random_state

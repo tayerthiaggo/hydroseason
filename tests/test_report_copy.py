@@ -34,7 +34,7 @@ def aseasonal_analysis():
     dates = pd.date_range("2010-01-01", periods=12 * years, freq="MS")
     values = np.abs(rng.normal(0.15, 0.12, 12 * years))
     df = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
-    return analyze_catchment(df, phase_model="rule_based", n_bootstrap=40)
+    return analyze_catchment(df, phase_scheme="two_phase", n_bootstrap=40)
 
 
 @pytest.fixture
@@ -46,24 +46,18 @@ def truly_aseasonal_analysis():
     values = np.abs(rng.normal(10.0, 3.0, 12 * years))
     rng.shuffle(values)
     df = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
-    return analyze_catchment(df, phase_model="rule_based", n_bootstrap=40)
+    return analyze_catchment(df, phase_scheme="two_phase", n_bootstrap=40)
 
 
 _KPI_LABELS = [
     "hydrological regime",
-    "amplitude signal-to-noise ratio",
-    "peak timing concentration",
-    "trough timing concentration",
+    "seasonality evidence",
     "analytical route",
     "observability",
     "hydrological years",
-    "mean annual amplitude",
     "mean cycle length",
     "Typical peak month",
     "Typical trough month",
-    "lower water extent at end of dry season",
-    "higher water extent in wet season",
-    "average water extent at end of dry season",
     "well-observed years",
     "point-identifiable boundary years",
     "wet events",
@@ -76,21 +70,16 @@ _KPI_LABELS = [
 def test_truly_aseasonal_copy_never_mentions_hydrological_year(truly_aseasonal_analysis):
     assert truly_aseasonal_analysis.regime.regime == "aseasonal"
     sentence = verdict_sentence(truly_aseasonal_analysis).casefold()
-    assert "no stable annual cycle" in sentence
-    assert "use wet events" in sentence
-    assert "hydrological-year boundaries" not in sentence
+    assert "calendar recurrence of annual peak and trough timing was not established" in sentence
+    assert "exact hydrological-year boundaries are withheld" in sentence
     assert len(select_kpis(truly_aseasonal_analysis)) == len(_KPI_LABELS)
 
 
 def test_aseasonal_copy_never_mentions_hydrological_year(aseasonal_analysis):
-    # This fixture's actual computed regime is "marginal" with insufficiently
-    # identifiable timing, routed to event_characterisation -- not "aseasonal"
-    # (no reproducible cycle at all). Both are event-routed, so the verdict
-    # must still avoid claiming hydrological-year boundaries were applied.
-    assert aseasonal_analysis.regime.regime == "marginal"
+    assert aseasonal_analysis.regime.regime == "aseasonal"
     assert aseasonal_analysis.route == "event_characterisation"
     sentence = verdict_sentence(aseasonal_analysis).casefold()
-    assert "insufficiently identifiable" in sentence
+    assert "calendar recurrence of annual peak and trough timing was not established" in sentence
     assert "exact hydrological-year boundaries are withheld" in sentence
     assert len(select_kpis(aseasonal_analysis)) == len(_KPI_LABELS)
 
@@ -112,7 +101,7 @@ def test_aseasonal_cycle_kpis_state_why_they_are_absent(aseasonal_analysis):
     cards = {item["label"]: item for item in select_kpis(aseasonal_analysis)}
     withheld = cards["Typical peak month"]
     assert withheld["value"] == "Not defined"
-    assert "insufficiently identifiable" in withheld["detail"]
+    assert "withheld: no reproducible annual cycle" in withheld["detail"]
     assert "N/A" not in withheld["value"]
 
 
@@ -123,48 +112,28 @@ def test_event_kpis_are_populated_without_a_cycle(aseasonal_analysis):
     assert cards["longest low-extent spell"]["value"].endswith("mo")
 
 
-def test_snr_card_states_the_thresholds_it_is_judged_against(seasonal_analysis):
-    """The number alone cannot tell a reader whether it passed."""
+def test_seasonality_card_states_the_tests_used(seasonal_analysis):
     cards = {item["label"]: item for item in select_kpis(seasonal_analysis)}
-    assert "2.0" in cards["amplitude signal-to-noise ratio"]["detail"]
-    peak = cards["peak timing concentration"]
-    trough = cards["trough timing concentration"]
-    assert peak["value"].startswith("R ")
-    assert "95% bootstrap CI" in peak["detail"]
-    assert "R >= 0.70" in peak["detail"]
-    assert "R ranges from 0 (diffuse or cancelling timing) to 1 (same month every year)." in peak["detail"]
-    assert "A low R can also arise from symmetric multi-modal timing; the Kuiper p-value tests the discrete 12-month uniform null." in peak["detail"]
-    assert trough["value"].startswith("R ")
-    assert "boundary eligibility" in trough["detail"]
+    evidence = cards["seasonality evidence"]
+    assert evidence["value"] == "Peak and trough recur"
+    assert "Kuiper p-values: peak=" in evidence["detail"]
+    assert "trough=0.001" in evidence["detail"]
+    assert "alpha = 0.05" in evidence["detail"]
+    assert "SNR" not in " ".join(item["detail"] for item in cards.values())
+    assert "R >= 0.70" not in evidence["detail"]
 
 
-def test_timing_cards_promote_ci_lower_bound_and_drop_descriptive_iqr(seasonal_analysis):
-    """Timing cards foreground the statistic used by the regime gates."""
-    assessment = replace(
-        seasonal_analysis.regime,
-        peak_timing_concentration=0.47,
-        peak_timing_concentration_ci_low=0.23,
-        peak_timing_concentration_ci_high=0.77,
-        trough_timing_concentration=0.83,
-        trough_timing_concentration_ci_low=0.67,
-        trough_timing_concentration_ci_high=0.97,
-        peak_phase_iqr_months=3.0,
-        trough_phase_iqr_months=2.0,
+def test_kpi_deck_omits_retired_signal_metrics(seasonal_analysis):
+    labels = [item["label"] for item in select_kpis(seasonal_analysis)]
+    rendered = " ".join(
+        f"{item['label']} {item['value']} {item['detail']}"
+        for item in select_kpis(seasonal_analysis)
     )
-    analysis = replace(seasonal_analysis, regime=assessment)
-
-    cards = {item["label"]: item for item in select_kpis(analysis)}
-    peak = cards["peak timing concentration"]
-    trough = cards["trough timing concentration"]
-
-    assert peak["value"] == "R 0.23"
-    assert "95% CI lower bound" in peak["detail"]
-    assert "average R 0.47" in peak["detail"]
-    assert "IQR" not in peak["detail"]
-    assert trough["value"] == "R 0.67"
-    assert "95% CI lower bound" in trough["detail"]
-    assert "average R 0.83" in trough["detail"]
-    assert "IQR" not in trough["detail"]
+    assert "amplitude signal-to-noise ratio" not in labels
+    assert "peak timing concentration" not in labels
+    assert "trough timing concentration" not in labels
+    assert "SNR" not in rendered
+    assert "R >= 0.70" not in rendered
 
 
 def test_observability_card_states_zero_fraction_and_timing_support(seasonal_analysis):
@@ -217,6 +186,66 @@ def test_seasonal_regime_routed_to_event_characterisation_explains_why(seasonal_
     assert "withheld" in sentence.casefold()
 
 
+def _candidate_record(*, years=30, trend=0.0, amplitude=5.0, centre=10.0, seed=0):
+    months = np.arange(12 * years)
+    values = centre + trend * months + amplitude * np.cos(2 * np.pi * months / 12)
+    if seed:
+        values = values + np.random.default_rng(seed).normal(0.0, 2.5, len(values))
+    values = np.clip(values, 0.0, 100.0)
+    return pd.DataFrame(
+        {"extent_pct": values, "invalid_pct": 0.0},
+        index=pd.date_range("1990-01-01", periods=len(values), freq="MS"),
+    )
+
+
+def test_candidate_report_copy_uses_calendar_recurrence_evidence():
+    analysis = analyze_catchment(
+        _candidate_record(trend=0.2),
+        n_bootstrap=40,
+    )
+    test = analysis.regime.seasonality_test
+    sentence = verdict_sentence(analysis)
+    cards = {item["label"]: item for item in select_kpis(analysis)}
+    detail = " ".join(item["detail"] for item in cards.values())
+
+    assert analysis.regime.regime == "seasonal"
+    assert "Calendar recurrence" in sentence
+    assert "was established" in sentence
+    assert f"peak Kuiper p = {test.peak.uniformity_p:.3f}" in sentence
+    assert f"trough Kuiper p = {test.trough.uniformity_p:.3f}" in sentence
+    assert "alpha = 0.05" in detail
+    assert f"{test.n_detectable_years} detectable years" in detail
+    assert "R >= 0.70" not in detail
+    assert "seasonal >= 2.0" not in detail
+
+
+def test_candidate_aseasonal_copy_does_not_claim_uniform_timing():
+    analysis = analyze_catchment(
+        _candidate_record(amplitude=0.0, centre=50.0, seed=3),
+        n_bootstrap=40,
+    )
+    sentence = verdict_sentence(analysis)
+
+    assert analysis.regime.regime == "aseasonal"
+    assert "calendar recurrence" in sentence.casefold()
+    assert "was not established" in sentence
+    assert "aseasonal means recurrence was not established" in sentence.casefold()
+    assert "proven uniform" in sentence.casefold()
+
+
+def test_candidate_insufficient_copy_is_not_aseasonal():
+    analysis = analyze_catchment(
+        _candidate_record(years=4),
+        n_bootstrap=40,
+    )
+    sentence = verdict_sentence(analysis)
+
+    assert analysis.regime.regime == "insufficient_record"
+    assert "could not be assessed" in sentence
+    assert "insufficient" in sentence.casefold()
+    assert "aseasonal means" not in sentence.casefold()
+
+
 def test_wet_event_explainer_states_this_catchments_own_thresholds(aseasonal_analysis):
     """The explanation is grounded in resolved numbers, not generic boilerplate."""
     summary = aseasonal_analysis.events.summary
@@ -242,7 +271,6 @@ def test_low_spell_explainer_states_this_catchments_own_thresholds(aseasonal_ana
 
 
 def test_low_spell_explainer_handles_no_spells(seasonal_analysis):
-    from dataclasses import replace
     no_spells_events = replace(
         seasonal_analysis.events,
         summary={**seasonal_analysis.events.summary, "n_low_spells": 0},
@@ -263,7 +291,7 @@ def test_explainers_differ_by_catchment():
             {"extent_pct": np.abs(rng_a.normal(0.15, 0.12, 120)), "invalid_pct": 0.0},
             index=dates,
         ),
-        phase_model="rule_based",
+        phase_scheme="two_phase",
         n_bootstrap=20,
     )
     rng_b = np.random.default_rng(7)
@@ -272,7 +300,7 @@ def test_explainers_differ_by_catchment():
             {"extent_pct": np.abs(rng_b.normal(15.0, 12.0, 120)), "invalid_pct": 0.0},
             index=dates,
         ),
-        phase_model="rule_based",
+        phase_scheme="two_phase",
         n_bootstrap=20,
     )
     assert wet_event_explainer(low) != wet_event_explainer(high)
@@ -312,8 +340,8 @@ def test_rainfall_context_exposes_comparison_metrics():
     )
 
     assert context["title"] == "Rainfall context (SILO)"
-    assert context["extent_snr"] == pytest.approx(comparison.extent.amplitude_snr)
-    assert context["rainfall_snr"] == pytest.approx(comparison.rainfall.amplitude_snr)
+    assert "extent_snr" not in context
+    assert "rainfall_snr" not in context
     assert context["peak_lag_months"] == comparison.peak_lag_months
     assert context["interpretation"] == comparison.interpretation
 

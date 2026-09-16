@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from hydroseason._boundary import robust_scale
+from hydroseason._circular_timing import summarise_annual_timing
 from hydroseason._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
 from hydroseason._seasonality_test import assess_timing_recurrence, classical_trend
 from hydroseason._state_input import prepare_monthly_extent
@@ -163,6 +165,21 @@ def test_a_flat_record_reports_no_detectable_years():
     assert result.n_detectable_years == 0
 
 
+@pytest.mark.parametrize("n_detectable", [1, 2, 3, 4])
+def test_one_to_four_detectable_years_do_not_establish_recurrence(n_detectable):
+    values = np.full(12 * 7, 20.0)
+    for offset in range(n_detectable):
+        start = 12 * (1 + offset)
+        values[start : start + 12] = 20.0 + 5.0 * np.cos(
+            2 * np.pi * np.arange(12) / 12
+        )
+    result = _assess(_frame(values))
+    assert result.status == "ok"
+    assert result.classification == "aseasonal"
+    assert result.reason == "too_few_detectable_years"
+    assert result.n_detectable_years == n_detectable
+
+
 def test_detrending_never_sharpens_a_zero_plateau():
     values = np.zeros(240)
     months = np.arange(240) % 12
@@ -192,6 +209,17 @@ def test_results_are_reproducible_for_a_fixed_seed():
 
     assert first.peak.uniformity_p == second.peak.uniformity_p
     assert first.trough.uniformity_p == second.trough.uniformity_p
+
+
+def test_unequal_bimodality_can_be_kuiper_significant_with_low_resultant():
+    # Two antipodal modes with 3:1 prevalence are concentrated away from a
+    # uniform calendar, but their first harmonic partially cancels.
+    month_sets = {year: ((7,) if year % 4 == 0 else (1,)) for year in range(200)}
+    summary = summarise_annual_timing(month_sets, random_state=0)
+
+    assert summary.uniformity_p < 0.05
+    assert summary.concentration is not None
+    assert 0.3 <= summary.concentration <= 0.7
 
 
 def test_raw_tied_months_stay_tied_after_detrending():

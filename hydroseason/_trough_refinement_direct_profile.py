@@ -29,8 +29,9 @@ import numpy as np
 import pandas as pd
 
 from ._trough_refinement import (
-    PeakBoundary,
+    _RELATIVE_CONVERGENCE,
     SCENARIO_NOT_EVALUABLE,
+    PeakBoundary,
     TroughRefinementPolicy,
     TroughRefinementResult,
     _empty_result,
@@ -40,7 +41,6 @@ from ._trough_refinement import (
     _measurement_floor,
     _median_absolute_deviation,
     _pulse_dates,
-    _RELATIVE_CONVERGENCE,
     _robust_isotonic,
     _support_weights,
 )
@@ -716,7 +716,7 @@ def refine_selected_span_direct_profile(
 
     peak_low_quality = left_peak.quality != "normal" or right_peak.quality != "normal"
     peak_interval = left_peak.timing_status != "point" or right_peak.timing_status != "point"
-    recovery_quality = span.iloc[boundary_position + 1:]["quality_state"]
+    recovery_quality = span.iloc[boundary_position + 1:-1]["quality_state"]
     essential_low_quality = recovery_quality.isin(["low", "unknown"]).any()
     unknown_quality = span["quality_state"].eq("unknown").any()
 

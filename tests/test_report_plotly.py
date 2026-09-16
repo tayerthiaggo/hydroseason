@@ -37,7 +37,7 @@ def _marginal_frames():
         phase_scheme="four_phase",
         n_bootstrap=20,
     )
-    assert analysis.regime.regime == "marginal"
+    assert analysis.regime.regime == "seasonal"
     assert analysis.route == "per_year_detection"
     return build_monthly_export(extent, analysis=analysis), analysis
 
@@ -215,7 +215,7 @@ def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(season
     assert {(shape["x0"], shape["x1"]) for shape in intervals} == expected_intervals
 
 
-def test_interval_and_unresolved_peak_gets_no_point_marker_but_end_dry_always_marks():
+def test_interval_and_unresolved_peak_separates_hollow_end_dry_marker():
     monthly = pd.DataFrame(
         {
             "date": pd.to_datetime(["2020-01-01", "2020-08-01", "2020-09-01", "2020-10-01"]),
@@ -247,12 +247,11 @@ def test_interval_and_unresolved_peak_gets_no_point_marker_but_end_dry_always_ma
     mid_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Mid Dry")
 
     assert peak_trace["x"] == []
-    # HY End Dry always marks the adopted boundary, even under "interval"
-    # status -- the interval shading (tested separately) communicates the
-    # uncertainty; this marker shows which date the report actually used.
-    # Drawn with an outlined symbol so it never reads as fully resolved.
-    assert end_dry_trace["x"] == ["2020-10-01"]
-    assert end_dry_trace["marker"]["symbol"] == ["circle-open"]
+    # Resolved and interval end-dry markers have separate legend controls.
+    assert end_dry_trace["x"] == []
+    interval_trace = next(trace for trace in figure["data"] if trace.get("name") == "End Dry (interval)")
+    assert interval_trace["x"] == ["2020-10-01"]
+    assert interval_trace["marker"]["symbol"] == "circle-open"
     # Mid-dry has no timing status of its own and is unaffected.
     assert mid_dry_trace["x"] == ["2020-08-01"]
 
@@ -301,15 +300,14 @@ class TestEndDryIntervalIsExplainedInTheLegend:
         assert "End Dry Interval" in names
         assert "End Dry (interval)" in names
 
-    def test_the_hollow_legend_swatch_matches_the_marker_it_explains(self):
+    def test_the_hollow_legend_trace_matches_the_marker_it_explains(self):
         figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
         end_dry = next(t for t in figure["data"] if t.get("name") == "HY End Dry")
-        swatch = next(t for t in figure["data"] if t.get("name") == "End Dry (interval)")
-        assert end_dry["marker"]["symbol"] == ["circle-open"]
-        assert swatch["marker"]["symbol"] == "circle-open"
-        assert swatch["marker"]["color"] == end_dry["marker"]["color"]
-        # Legend-only: it must not plant a point on the chart.
-        assert swatch["x"] == [None]
+        interval = next(t for t in figure["data"] if t.get("name") == "End Dry (interval)")
+        assert end_dry["x"] == []
+        assert interval["marker"]["symbol"] == "circle-open"
+        assert interval["marker"]["color"] == end_dry["marker"]["color"]
+        assert interval["x"] == ["2020-10-01"]
 
     def test_the_band_swatch_matches_the_shading_colour(self):
         figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
@@ -319,6 +317,7 @@ class TestEndDryIntervalIsExplainedInTheLegend:
         assert shapes, "expected a trough interval shape to explain"
         assert swatch["line"]["color"] == shapes[0]["fillcolor"]
         assert swatch["x"] == [None]
+        assert swatch["meta"] == {"interval_legend": "trough"}
 
     def test_a_fully_resolved_record_gets_neither_entry(self):
         monthly = _interval_monthly()
@@ -330,6 +329,22 @@ class TestEndDryIntervalIsExplainedInTheLegend:
         names = [trace.get("name") for trace in figure["data"]]
         assert "End Dry Interval" not in names
         assert "End Dry (interval)" not in names
+
+
+def test_peak_interval_markers_and_band_have_independent_legend_controls():
+    monthly = _interval_monthly()
+    analysis = _interval_trough_analysis()
+    analysis.hydro_years.loc[:, "peak_timing_status"] = "interval"
+    analysis.hydro_years.loc[:, "peak_interval_start"] = pd.Timestamp("2020-01-01")
+    analysis.hydro_years.loc[:, "peak_interval_end"] = pd.Timestamp("2020-01-01")
+    figure = timeline_figure(monthly, analysis)
+    peak_interval = next(t for t in figure["data"] if t.get("name") == "Peak (interval)")
+    peak_band = next(t for t in figure["data"] if t.get("name") == "Peak Interval")
+
+    assert peak_interval["x"] == ["2020-01-01"]
+    assert peak_interval["marker"]["symbol"] == "circle-open"
+    assert peak_band["x"] == [None]
+    assert peak_band["meta"] == {"interval_legend": "peak"}
 
 
 def test_point_timing_status_still_gets_a_marker():
@@ -362,6 +377,37 @@ def test_point_timing_status_still_gets_a_marker():
     assert peak_trace["x"] == ["2020-01-01"]
     assert end_dry_trace["x"] == ["2020-10-01"]
     assert end_dry_trace["marker"]["symbol"] == ["circle"]
+
+
+def test_mixed_end_dry_statuses_split_filled_and_hollow_traces():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-10-01", "2021-01-01", "2021-10-01"]),
+            "extent_pct": [30.0, 1.0, 31.0, 1.2],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding", "rising", "receding"],
+            "hy_year": [2020, 2020, 2021, 2021],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020, 2021],
+                "peak_month": pd.to_datetime(["2020-01-01", "2021-01-01"]),
+                "trough_month": pd.to_datetime(["2020-10-01", "2021-10-01"]),
+                "peak_timing_status": ["point", "point"],
+                "trough_timing_status": ["point", "interval"],
+            }
+        )
+    )
+    figure = timeline_figure(monthly, analysis)
+    filled = next(trace for trace in figure["data"] if trace.get("name") == "HY End Dry")
+    hollow = next(trace for trace in figure["data"] if trace.get("name") == "End Dry (interval)")
+
+    assert filled["x"] == ["2020-10-01"]
+    assert filled["marker"]["symbol"] == ["circle"]
+    assert hollow["x"] == ["2021-10-01"]
+    assert hollow["marker"]["symbol"] == "circle-open"
 
 
 def test_interval_timing_status_shades_its_span_instead_of_a_marker():

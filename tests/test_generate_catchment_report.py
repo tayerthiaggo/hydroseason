@@ -49,11 +49,14 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert 'id="timeline"' in html
     assert '<div id="timeline" class="plot-canvas"></div>' in html
     assert '<div id="secondary" class="plot-canvas"></div>' in html
-    assert html.count('class="kpi"') == 20
-    assert html.index("hydrological years") < html.index("mean annual amplitude")
-    assert html.index("peak timing concentration") < html.index("trough timing concentration")
-    assert html.index("trough timing concentration") < html.index("analytical route")
+    assert html.count('class="kpi"') == 14
+    assert html.index("hydrological years") < html.index("mean cycle length")
+    assert html.index("seasonality evidence") < html.index("analytical route")
     assert html.index("average invalid/cloud cover") > html.index("point-identifiable boundary years")
+    assert "amplitude signal-to-noise ratio" not in html
+    assert "peak timing concentration" not in html
+    assert "trough timing concentration" not in html
+    assert "SNR" not in html
     assert ".plot > .plot-canvas {" in html
     assert ".plot-primary > .plot-canvas {" in html
     assert ".plot > div {" not in html
@@ -92,6 +95,32 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert {"start_date", "peak_date", "trough_date"} <= set(hydro_years.columns)
     assert {"start_date", "end_date", "peak_date", "baseline_extent_pct"} <= set(events.columns)
     assert {"low_spell_id", "start_date", "end_date", "baseline_extent_pct"} <= set(low_spells.columns)
+
+
+def test_candidate_report_html_exposes_recurrence_evidence_without_established_thresholds(
+    tmp_path,
+):
+    months = np.arange(360)
+    extent = pd.DataFrame(
+        {
+            "extent_pct": 10.0 + 0.2 * months + 5.0 * np.cos(2 * np.pi * months / 12),
+            "invalid_pct": 0.0,
+        },
+        index=pd.date_range("1990-01-01", periods=360, freq="MS"),
+    )
+    analysis = analyze_catchment(
+        extent,
+        n_bootstrap=40,
+    )
+    paths = generate_catchment_report(extent, tmp_path, analysis=analysis)
+    html = paths.html.read_text(encoding="utf-8")
+    test = analysis.regime.seasonality_test
+
+    assert "Calendar recurrence" in html
+    assert f"peak Kuiper p = {test.peak.uniformity_p:.3f}" in html
+    assert f"trough Kuiper p = {test.trough.uniformity_p:.3f}" in html
+    assert "R &gt;= 0.70" not in html
+    assert "seasonal &gt;= 2.0" not in html
 
 
 def test_report_interactions_restore_scale_without_secondary_range_sync(tmp_path):
@@ -366,8 +395,8 @@ def test_report_adds_collapsible_rainfall_context(
     assert '<details class="rainfall-context">' in html
     assert "Rainfall context (SILO)" in html
     assert "Rainfall regime" in html
-    assert "Extent SNR" in html
-    assert "Rain SNR" in html
+    assert "Extent SNR" not in html
+    assert "Rain SNR" not in html
     assert "Peak lag" in html
     assert 'id="rainfall-context-figure"' in html
     rainfall_trace = next(

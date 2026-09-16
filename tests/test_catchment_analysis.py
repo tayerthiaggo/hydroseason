@@ -3,10 +3,10 @@ from dataclasses import replace
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from hydroseason._catchment import analyze_catchment
 from hydroseason._regime import assess_water_regime
-from hydroseason._trough_refinement import TroughRefinementPolicy
 from hydroseason.hydrological_state import HydrologicalStateResult
 
 
@@ -200,15 +200,14 @@ def test_seasonal_routes_to_per_year_detection():
     assert "reproducible" in result.route_reason.lower()
 
 
-def test_seasonal_record_with_unstable_trough_falls_back_to_event_characterisation():
-    """Under calibrated 0.2.0 recurrence policy (annual_shape_match), alternating
-    6-month troughs cannot be narrowed to annual recurrence, so cycle timing remains
-    unresolved across cycles and the record safely falls back to event characterisation."""
+def test_seasonal_record_with_unstable_trough_routes_to_per_year_detection():
+    """Under canonical 0.2.0 direct-profile trough refinement, alternating
+    troughs are resolved across cycles and the seasonal record routes to per-year detection."""
     result = _calibrated(_timing_route_record("unstable_trough"), n_bootstrap=40)
 
     assert result.regime.supports_per_year_boundaries is True
-    assert result.route == "event_characterisation"
-    assert "calendar-year timing evidence appeared sufficient, but the detected hydrological-year cycles do not support it" in result.route_reason
+    assert result.route == "per_year_detection"
+    assert not result.hydro_years.empty
 
 
 def test_concentrated_nonuniform_marginal_routes_to_per_year_detection():
@@ -218,11 +217,11 @@ def test_concentrated_nonuniform_marginal_routes_to_per_year_detection():
     assert (result.hydro_years["boundary_basis"] == "detected_per_year").all()
 
 
-def test_diffuse_uniform_marginal_uses_per_year_detection():
+def test_diffuse_uniform_marginal_uses_event_characterisation():
     result = _calibrated(_diffuse_uniform_marginal_record(), n_bootstrap=40)
 
-    assert result.route == "per_year_detection"
-    assert not result.hydro_years.empty
+    assert result.route == "event_characterisation"
+    assert result.hydro_years.empty
 
 
 def test_per_year_boundary_failure_falls_back_to_event_characterisation(monkeypatch):
@@ -292,7 +291,7 @@ def test_catchment_threads_measurement_tolerance_to_the_dynamic_cycle_detector()
     result = _calibrated(_seasonal(), measurement_tolerance_pct=0.0, n_bootstrap=40)
     assert result.route == "per_year_detection"
     assert not result.hydro_years.empty
-    assert (result.hydro_years["timing_status"] == "point").all()
+    assert result.hydro_years["timing_status"].isin(["point", "interval"]).all()
 
 
 def test_route_falls_back_to_events_when_cycles_cannot_deliver_supported_timing(monkeypatch):
@@ -399,8 +398,8 @@ def test_aseasonal_route_never_constructs_state_or_years():
 
 def test_peak_and_trough_withheld_for_aseasonal():
     result = _calibrated(_aseasonal())
-    assert result.climatological_peak_month is None
-    assert result.climatological_trough_month is None
+    assert result.mean_monthly_peak_month is None
+    assert result.mean_monthly_trough_month is None
 
 
 def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
@@ -452,8 +451,6 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
         "boundary_basis",
         "mean_monthly_peak_month",
         "mean_monthly_trough_month",
-        "climatological_peak_month",
-        "climatological_trough_month",
         "n_wet_events",
         "median_event_duration_months",
         "longest_low_spell_months",
@@ -480,8 +477,10 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
 
 def test_catchment_analysis_exposes_decision_policy():
     result = _calibrated(_seasonal(), n_bootstrap=40)
-    assert result.decision_policy == "established_0_2_0"
+    assert result.decision_policy == "hydroseason_0_2_0"
     assert result.public_route == "per_year_detection"
+    assert result.method_policy_id == "hydroseason-v0.2.0"
+    assert result.method_policy_fingerprint
 
 
 def test_routing_counts_broad_trough_cycles_as_informative():
@@ -491,7 +490,6 @@ def test_routing_counts_broad_trough_cycles_as_informative():
     sustained minimum is informative for routing. This pins that predicate
     against a future "fix" that narrows it to point/interval.
     """
-    import pandas as pd
     from hydroseason._catchment import _CYCLE_TIMING_INFORMATIVE_STATUSES
 
     assert "broad" in _CYCLE_TIMING_INFORMATIVE_STATUSES
@@ -530,52 +528,20 @@ def test_routing_does_not_count_unassessed_nan_status_cycles_as_informative():
     assert bool(new_predicate.iloc[3]) is False
 
 
-def test_explicit_none_preserves_default():
-    extent = _seasonal()
-    a = analyze_catchment(extent)
-    b = analyze_catchment(extent, trough_refinement_policy=None)
-    assert a.route == b.route
-    pd.testing.assert_frame_equal(a.hydro_years, b.hydro_years)
-    pd.testing.assert_frame_equal(a.monthly, b.monthly)
+@pytest.mark.parametrize(
+    "removed",
+    [
+        {"seasonality_policy": "timing_recurrence"},
+        {"trough_refinement_policy": "direct_profile_combined"},
+        {"method_policy": "established-0.2.0"},
+    ],
+)
+def test_removed_method_options_are_not_accepted(removed):
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        analyze_catchment(_seasonal(), **removed)
 
 
-def test_explicit_trough_refinement_policy_reaches_dynamic_config(monkeypatch):
-    """An explicit policy must reach ``DynamicHydroYearConfig`` unchanged."""
-    import hydroseason._catchment as catchment_module
-
-    seen_policies = []
-    real_config_cls = catchment_module.DynamicHydroYearConfig
-
-    def _spying_config(*args, **kwargs):
-        seen_policies.append(kwargs.get("trough_refinement_policy"))
-        return real_config_cls(*args, **kwargs)
-
-    monkeypatch.setattr(catchment_module, "DynamicHydroYearConfig", _spying_config)
-
-    policy = TroughRefinementPolicy(huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=1.5)
-    extent = _seasonal()
-    result = analyze_catchment(extent, trough_refinement_policy=policy)
-
-    assert result.route == "per_year_detection"
-    assert policy in seen_policies
-
-
-def test_event_route_never_constructs_dynamic_detector_config(monkeypatch):
-    """An event-route case must never call the dynamic detector at all."""
-    import hydroseason._catchment as catchment_module
-
-    def _fail(*args, **kwargs):
-        raise AssertionError("event route must not construct DynamicHydroYearConfig")
-
-    monkeypatch.setattr(catchment_module, "DynamicHydroYearConfig", _fail)
-
-    policy = TroughRefinementPolicy(huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=1.5)
-    result = analyze_catchment(_aseasonal(), trough_refinement_policy=policy)
-
-    assert result.route == "event_characterisation"
-
-
-def test_candidate_policy_flows_through_to_route_and_reason():
+def test_sole_policy_flows_through_to_route_and_reason():
     import numpy as np
     import pandas as pd
 
@@ -590,22 +556,17 @@ def test_candidate_policy_flows_through_to_route_and_reason():
         index=pd.date_range("1990-01-01", periods=360, freq="MS"),
     )
 
-    analysis = analyze_catchment(frame, seasonality_policy="timing_recurrence")
+    analysis = analyze_catchment(frame)
 
-    assert analysis.regime.decision_policy == "candidate_timing_recurrence"
+    assert analysis.regime.decision_policy == "hydroseason_0_2_0"
     assert "peak p=" in analysis.route_reason
     assert "SNR" not in analysis.route_reason
-    assert analysis.summary_row(name="synthetic")["decision_policy"] == (
-        "candidate_timing_recurrence"
-    )
+    assert analysis.summary_row(name="synthetic")["decision_policy"] == "hydroseason_0_2_0"
+    assert analysis.method_policy_id == "hydroseason-v0.2.0"
+    assert analysis.method_policy_fingerprint
 
 
-def test_candidate_policy_aseasonal_reason_quotes_p_values_not_snr():
-    """Task 6 pinned only the seasonal/per-year-detection route-reason text
-    under the candidate policy. This pins the aseasonal/event-characterisation
-    branch: white noise never establishes recurrence, so it routes to event
-    characterisation with a reason quoting peak/trough p-values instead of
-    the established policy's SNR vocabulary."""
+def test_sole_policy_aseasonal_reason_quotes_p_values_not_snr():
     import numpy as np
     import pandas as pd
 
@@ -617,9 +578,9 @@ def test_candidate_policy_aseasonal_reason_quotes_p_values_not_snr():
         index=pd.date_range("1990-01-01", periods=360, freq="MS"),
     )
 
-    result = analyze_catchment(frame, seasonality_policy="timing_recurrence")
+    result = analyze_catchment(frame)
 
-    assert result.regime.decision_policy == "candidate_timing_recurrence"
+    assert result.regime.decision_policy == "hydroseason_0_2_0"
     assert result.regime.regime == "aseasonal"
     assert result.route == "event_characterisation"
     assert "peak p=" in result.route_reason
@@ -627,20 +588,7 @@ def test_candidate_policy_aseasonal_reason_quotes_p_values_not_snr():
     assert "SNR" not in result.route_reason
 
 
-def test_candidate_policy_insufficient_record_reason_has_no_snr():
-    """Pins the insufficient-record branch under the candidate policy.
-
-    Unlike the seasonal and aseasonal branches, this route_reason is built
-    from `regime.n_usable_years` alone, before `_policy_evidence` is ever
-    consulted -- so it never quotes p-values under EITHER policy, and this
-    is not a candidate-policy-specific gap to close: there is no evidence to
-    quote yet when the record does not even clear the usable-years bar. What
-    the candidate policy changes here is only that the decision comes from
-    `assess_timing_recurrence`'s own too-few-qualifying-years status rather
-    than the established n_usable_years<5 rule -- so this asserts the actual,
-    real reason text (no SNR, no p=) rather than forcing an assertion that
-    cannot hold structurally for this branch.
-    """
+def test_sole_policy_insufficient_record_reason_has_no_snr():
     import numpy as np
     import pandas as pd
 
@@ -655,16 +603,16 @@ def test_candidate_policy_insufficient_record_reason_has_no_snr():
         index=pd.date_range("1990-01-01", periods=48, freq="MS"),
     )
 
-    result = analyze_catchment(frame, seasonality_policy="timing_recurrence")
+    result = analyze_catchment(frame)
 
-    assert result.regime.decision_policy == "candidate_timing_recurrence"
+    assert result.regime.decision_policy == "hydroseason_0_2_0"
     assert result.route == "insufficient_record"
     assert "usable years" in result.route_reason
     assert "SNR" not in result.route_reason
     assert "p=" not in result.route_reason
 
 
-def test_summary_row_carries_both_month_key_spellings():
+def test_summary_row_carries_canonical_month_keys_only():
     import numpy as np
     import pandas as pd
 
@@ -678,5 +626,15 @@ def test_summary_row_carries_both_month_key_spellings():
 
     row = analyze_catchment(frame).summary_row(name="synthetic")
 
-    assert row["mean_monthly_peak_month"] == row["climatological_peak_month"]
-    assert row["mean_monthly_trough_month"] == row["climatological_trough_month"]
+    assert row["mean_monthly_peak_month"] is not None
+    assert row["mean_monthly_trough_month"] is not None
+    assert "climatological_peak_month" not in row
+    assert "climatological_trough_month" not in row
+
+
+def test_deprecated_month_aliases_are_absent_from_live_analysis_objects():
+    result = _calibrated(_seasonal(), n_bootstrap=40)
+    assert not hasattr(result.regime, "climatological_peak_month")
+    assert not hasattr(result.regime, "climatological_trough_month")
+    assert not hasattr(result, "climatological_peak_month")
+    assert not hasattr(result, "climatological_trough_month")

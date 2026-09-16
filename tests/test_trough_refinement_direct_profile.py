@@ -24,45 +24,31 @@ def _point_peak(date: str, *, quality: str = "normal") -> PeakBoundary:
     return PeakBoundary(selected=timestamp, candidates=(timestamp,), timing_status="point", quality=quality)
 
 
-def _shape_fit_policy(**overrides) -> TroughRefinementPolicy:
-    values = {"huber_k": 1.345, "profile_loss_cutoff": 0.1, "pulse_z": 2.0}
-    values.update(overrides)
-    return TroughRefinementPolicy(**values)
-
-
 def _direct_profile_policy(**overrides) -> TroughRefinementPolicy:
     values = {
-        "huber_k": 1.345, "profile_loss_cutoff": 0.05, "pulse_z": 1.5,
-        "version": "direct_profile_combined_v1", "candidate": "direct_profile_combined",
-        "delta_rel": 0.05, "l_uncertainty_k": 2.0, "scale_mode": "combined",
+        "huber_k": 1.345,
+        "profile_loss_cutoff": 0.05,
+        "pulse_z": 1.5,
+        "version": "direct_profile_combined_v1",
+        "delta_rel": 0.05,
+        "l_uncertainty_k": 2.0,
+        "scale_mode": "combined",
     }
     values.update(overrides)
     return TroughRefinementPolicy(**values)
 
 
 def test_frozen_direct_profile_defaults_are_valid():
-    from hydroseason._trough_refinement_direct_profile_defaults import (
-        TROUGH_REFINEMENT_DIRECT_PROFILE_POLICY,
+    from hydroseason._trough_refinement_defaults import (
+        TROUGH_REFINEMENT_POLICY,
     )
 
-    policy = TROUGH_REFINEMENT_DIRECT_PROFILE_POLICY
-    assert policy.candidate == "direct_profile_combined"
+    policy = TROUGH_REFINEMENT_POLICY
     assert policy.delta_rel == 0.05
     assert policy.version == "direct_profile_combined_v1"
 
 
 class TestPolicyValidation:
-    def test_default_candidate_is_shape_fit(self):
-        policy = _shape_fit_policy()
-        assert policy.candidate == "shape_fit"
-
-    def test_direct_profile_candidate_requires_delta_rel(self):
-        with pytest.raises(ValueError, match="delta_rel"):
-            TroughRefinementPolicy(
-                huber_k=1.345, profile_loss_cutoff=0.05, pulse_z=1.5,
-                candidate="direct_profile_combined",
-            )
-
     def test_direct_profile_candidate_rejects_non_positive_delta_rel(self):
         with pytest.raises(ValueError, match="delta_rel"):
             _direct_profile_policy(delta_rel=0.0)
@@ -74,21 +60,9 @@ class TestPolicyValidation:
         with pytest.raises(ValueError, match="delta_rel"):
             _direct_profile_policy(delta_rel=1.0)
 
-    def test_unknown_candidate_rejected(self):
-        with pytest.raises(ValueError, match="candidate"):
-            _shape_fit_policy(candidate="not_a_real_candidate")
-
-    def test_shape_fit_candidate_ignores_delta_rel_requirement(self):
-        # delta_rel stays None (its default) for the existing candidate -- it
-        # must not become a silently-required field for shape_fit callers.
-        policy = _shape_fit_policy()
-        assert policy.delta_rel is None
-
 
 class TestDispatch:
-    """refine_trough_span must route to the direct-profile core under the
-    exact same peak/quality sensitivity ensemble used for shape_fit -- see
-    hydroseason/_trough_refinement_direct_profile.py."""
+    """refine_trough_span routes to the direct-profile core."""
 
     def test_direct_profile_candidate_produces_a_boundary(self):
         frame = _prepared([40.0, 20.0, 12.0, 12.1, 12.3, 20.0, 40.0])
@@ -99,16 +73,6 @@ class TestDispatch:
         )
         assert result.boundary == pd.Timestamp("2020-05-01")
         assert result.policy_version == "direct_profile_combined_v1"
-
-    def test_shape_fit_candidate_unaffected_by_new_fields(self):
-        # Same fixture, default (shape_fit) candidate: must reproduce exactly
-        # today's production behavior -- zero regression from adding the new
-        # dispatch seam.
-        frame = _prepared([40.0, 20.0, 12.0, 12.1, 12.3, 20.0, 40.0])
-        left = _point_peak("2020-01-01")
-        right = _point_peak("2020-07-01")
-        result = refine_trough_span(frame, left_peak=left, right_peak=right, policy=_shape_fit_policy())
-        assert result.policy_version == "trough_refinement_candidate_0_2"
 
     def test_direct_profile_flat_series_no_departure(self):
         frame = _prepared([12.0, 12.0, 12.0, 12.0, 12.0])
@@ -508,32 +472,6 @@ class TestMaskingAnUntrustedMonthIsNotASensitivityTest:
             policy=_direct_profile_policy(), measurement_tolerance_pp=0.0,
         )
         assert result.boundary == pd.Timestamp("2005-11-01")
-
-    def test_shape_fit_still_masks_untrusted_months(self):
-        # shape_fit does not zero-weight them, so the masking scenarios must
-        # survive for it. Asserted structurally: the scenario frames the
-        # ensemble builds for shape_fit still include a masked one.
-        from hydroseason import _trough_refinement as tr
-
-        frame = self._daly_2005_span()
-        left = PeakBoundary(frame.index[0], (frame.index[0],), "point", "normal")
-        right = PeakBoundary(frame.index[-1], (frame.index[-1],), "point", "normal")
-        seen: list[bool] = []
-        original = tr._refine_selected_span
-
-        def spy(scenario_frame, **kwargs):
-            seen.append(bool(scenario_frame["extent_pct"].isna().any()))
-            return original(scenario_frame, **kwargs)
-
-        tr._refine_selected_span = spy
-        try:
-            refine_trough_span(
-                frame, left_peak=left, right_peak=right,
-                policy=_shape_fit_policy(), measurement_tolerance_pp=0.0,
-            )
-        finally:
-            tr._refine_selected_span = original
-        assert any(seen), "shape_fit must still receive a masked scenario"
 
 
 class TestRecoveryWithinNoiseIsNotConfirmed:

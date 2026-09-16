@@ -1,4 +1,4 @@
-"""Regime-routed catchment analysis: one entry point, no operator decisions.
+﻿"""Regime-routed catchment analysis: one entry point, no operator decisions.
 
 ``analyze_catchment`` assesses the regime first, then dispatches to the
 analysis that regime actually supports, and records which route it took and
@@ -13,12 +13,10 @@ from dataclasses import dataclass, field, replace
 
 import pandas as pd
 
-from ._boundary import robust_scale
-from ._condition import classify_annual_surface_water_condition
-from ._decision_policy import ESTABLISHED_POLICY, DecisionPolicy, Route, SeasonalityPolicy
+from ._decision_policy import DECISION_POLICY, DecisionPolicy, Route
 from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
-from ._phase import assign_monthly_phases
+from ._method_policy import CURRENT_METHOD_POLICY, method_policy_fingerprint
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
     LegacyPhaseModel,
@@ -28,20 +26,10 @@ from ._phase_scheme import (
 )
 from ._regime import WaterRegimeAssessment, assess_water_regime
 from ._state_input import QualityPolicy, prepare_monthly_extent
-from ._trough_refinement import TroughRefinementPolicy
-from .hydro_year import HydroYearConfig, detect_hydrological_years
 from .hydrological_state import HydrologicalStateResult, analyze_hydrological_state
 
 __all__ = ["CatchmentAnalysis", "Route", "analyze_catchment"]
 
-# The four statuses TimingStatus can take are {"point", "interval", "broad",
-# "unresolved"} -- but a row can also carry NaN, when the cycle was never
-# evaluated at all (a blank cycle, or one with no previous boundary /
-# insufficient coverage; see `_dynamic_year._blank_cycle`). `.isin(...)`
-# against this set deliberately excludes NaN rows from the informative count,
-# same as it excludes "unresolved": an unassessed cycle is the absence of
-# evidence, not positive evidence of identifiable timing, so it must not
-# count toward the informative-cycle threshold that gates routing.
 _CYCLE_TIMING_INFORMATIVE_STATUSES: frozenset[str] = frozenset({"point", "interval", "broad"})
 
 
@@ -62,21 +50,16 @@ class CatchmentAnalysis:
     state: HydrologicalStateResult | None = None
     quality_policy: QualityPolicy = "flag"
     max_invalid_pct: float = 20.0
-    decision_policy: DecisionPolicy = ESTABLISHED_POLICY
+    decision_policy: DecisionPolicy = DECISION_POLICY
+    method_policy_id: str = CURRENT_METHOD_POLICY.policy_id
+    method_policy_fingerprint: str = field(
+        default_factory=method_policy_fingerprint
+    )
+    random_state: int = 0
 
     @property
     def public_route(self) -> Route:
         return self.route
-
-    @property
-    def climatological_peak_month(self) -> int | None:
-        """Deprecated alias for :attr:`mean_monthly_peak_month`."""
-        return self.mean_monthly_peak_month
-
-    @property
-    def climatological_trough_month(self) -> int | None:
-        """Deprecated alias for :attr:`mean_monthly_trough_month`."""
-        return self.mean_monthly_trough_month
 
     def summary_row(self, *, name: str) -> dict:
         """Flat one-row-per-catchment record for a cross-catchment table."""
@@ -126,9 +109,6 @@ class CatchmentAnalysis:
             ),
             "mean_monthly_peak_month": self.mean_monthly_peak_month,
             "mean_monthly_trough_month": self.mean_monthly_trough_month,
-            # Deprecated spellings, retained until the candidate is promoted.
-            "climatological_peak_month": self.mean_monthly_peak_month,
-            "climatological_trough_month": self.mean_monthly_trough_month,
             "n_wet_events": self.events.summary["n_events"],
             "median_event_duration_months": self.events.summary["median_event_duration_months"],
             "longest_low_spell_months": self.events.summary["longest_low_spell_months"],
@@ -152,80 +132,6 @@ def _policy_evidence(regime: WaterRegimeAssessment) -> str:
     return f"peak p={peak_p}, trough p={trough_p}"
 
 
-def _wrap_month(month: int) -> int:
-    """Map any integer onto a 1-based calendar month."""
-    return ((month - 1) % 12) + 1
-
-
-def _fixed_config_from_climatology(peak_month: int) -> HydroYearConfig:
-    """Build a fixed wet/dry window spanning an observed climatological peak."""
-    if peak_month < 1 or peak_month > 12:
-        raise ValueError(f"peak_month must be in 1..12, got {peak_month}")
-    wet_start = _wrap_month(peak_month - 2)
-    wet_end = _wrap_month(peak_month + 3)
-    dry_start = _wrap_month(wet_end + 1)
-    dry_end = _wrap_month(dry_start + 5)
-    return HydroYearConfig(
-        wet_start_month=wet_start,
-        wet_end_month=wet_end,
-        dry_start_month=dry_start,
-        dry_end_month=dry_end,
-    )
-
-
-def _annotate_fixed_window_quality(
-    years: pd.DataFrame,
-    extent,
-    *,
-    value_col: str,
-    date_col: str | None,
-    max_invalid_pct: float,
-    quality_policy: QualityPolicy,
-) -> pd.DataFrame:
-    """Carry invalid-coverage diagnostics into imposed-window HY rows."""
-    if years.empty:
-        return years
-    prepared = prepare_monthly_extent(
-        extent,
-        value_col=value_col,
-        date_col=date_col,
-        max_invalid_pct=max_invalid_pct,
-        quality_policy=quality_policy,
-    )
-    out = years.copy()
-
-    def _invalid(month) -> float:
-        if pd.isna(month) or pd.Timestamp(month) not in prepared.index:
-            return float("nan")
-        value = prepared.loc[pd.Timestamp(month), "invalid_pct"]
-        return float(value) if pd.notna(value) else float("nan")
-
-    def _support(value: float) -> float:
-        return max(0.0, min(1.0, 1.0 - value / 100.0)) if pd.notna(value) else 0.0
-
-    peak_invalid = [_invalid(value) for value in out["peak_month"]]
-    mid_invalid = [_invalid(value) for value in out["mid_dry_month"]]
-    trough_invalid = [_invalid(value) for value in out["end_dry_month"]]
-    out["peak_invalid_pct"] = peak_invalid
-    out["mid_dry_invalid_pct"] = mid_invalid
-    out["trough_invalid_pct"] = trough_invalid
-    out["temporal_mid_dry_month"] = out["mid_dry_month"]
-    out["temporal_mid_dry_extent_pct"] = out["mid_extent_pct"]
-    out["trough_month"] = out["end_dry_month"]
-    out["trough_extent_pct"] = out["end_extent_pct"]
-    bad = [
-        any(pd.isna(value) or float(value) > max_invalid_pct for value in values)
-        for values in zip(peak_invalid, mid_invalid, trough_invalid)
-    ]
-    out["peak_selection_status"] = ["low_quality" if value else "raw" for value in bad]
-    out["peak_selection_support"] = [_support(value) for value in peak_invalid]
-    out["boundary_status"] = ["provisional" if value else "confirmed" for value in bad]
-    out["status"] = ["partial" if value else "complete" for value in bad]
-    out["status_reason"] = ["boundary_low_quality" if value else "ok" for value in bad]
-    out.loc[out["status"] == "partial", "confidence"] = "low"
-    return out
-
-
 def analyze_catchment(
     extent,
     *,
@@ -239,8 +145,6 @@ def analyze_catchment(
     phase_model: LegacyPhaseModel | None = None,
     n_bootstrap: int = 200,
     random_state: int = 0,
-    trough_refinement_policy: TroughRefinementPolicy | None = None,
-    seasonality_policy: SeasonalityPolicy | None = None,
 ) -> CatchmentAnalysis:
     """Assess regime, then run the analysis that regime supports.
 
@@ -264,7 +168,6 @@ def analyze_catchment(
         measurement_tolerance_pct=measurement_tolerance_pct,
         n_bootstrap=n_bootstrap,
         random_state=random_state,
-        seasonality_policy=seasonality_policy,
     )
     events = extract_water_events(
         extent,
@@ -293,9 +196,10 @@ def analyze_catchment(
             quality_policy=quality_policy,
             max_invalid_pct=max_invalid_pct,
             decision_policy=regime.decision_policy,
+            random_state=random_state,
         )
 
-    if regime.supports_per_year_boundaries:
+    if regime.regime == "seasonal":
         try:
             state_extent = prepare_monthly_extent(
                 extent,
@@ -335,7 +239,6 @@ def analyze_catchment(
                 measurement_tolerance_pct=measurement_tolerance_pct,
                 detector="robust_extrema",
                 phase_scheme=canonical_scheme,
-                trough_refinement_policy=trough_refinement_policy,
             )
             state = analyze_hydrological_state(
                 state_extent,
@@ -361,6 +264,7 @@ def analyze_catchment(
                 quality_policy=quality_policy,
                 max_invalid_pct=max_invalid_pct,
                 decision_policy=regime.decision_policy,
+                random_state=random_state,
             )
         years = state.hydro_years.copy()
         if years.empty:
@@ -378,16 +282,11 @@ def analyze_catchment(
                 quality_policy=quality_policy,
                 max_invalid_pct=max_invalid_pct,
                 decision_policy=regime.decision_policy,
+                random_state=random_state,
             )
         years["boundary_basis"] = "detected_per_year"
         state = replace(state, hydro_years=years)
 
-        # The regime's calendar-year timing_evidence gates whether the dynamic
-        # detector even runs, but it is not the last word: the cycles it
-        # actually produces are the real seasonal context, and calendar-year
-        # and hydrological-year windowing can disagree. A record must not be
-        # routed to per_year_detection on a calendar-year "supported" verdict
-        # while every cycle it actually detected is unresolved.
         min_informative = config.timing_identifiability_thresholds.min_informative_years
         n_peak_cycles = (
             int(years["peak_timing_status"].isin(_CYCLE_TIMING_INFORMATIVE_STATUSES).sum())
@@ -422,18 +321,13 @@ def analyze_catchment(
                 quality_policy=quality_policy,
                 max_invalid_pct=max_invalid_pct,
                 decision_policy=regime.decision_policy,
+                random_state=random_state,
             )
 
-        if regime.regime == "seasonal":
-            route_reason = (
-                f"seasonal record ({_policy_evidence(regime)}): "
-                "per-year dynamic boundaries are reproducible"
-            )
-        else:
-            route_reason = (
-                f"marginal record ({_policy_evidence(regime)}): "
-                "dynamic local extrema detected per year"
-            )
+        route_reason = (
+            f"seasonal record ({_policy_evidence(regime)}): "
+            "per-year dynamic boundaries are reproducible"
+        )
         return CatchmentAnalysis(
             regime=regime,
             route="per_year_detection",
@@ -449,125 +343,26 @@ def analyze_catchment(
             quality_policy=quality_policy,
             max_invalid_pct=max_invalid_pct,
             decision_policy=regime.decision_policy,
+            random_state=random_state,
         )
 
-    if not regime.supports_fixed_window:
-        if regime.timing_evidence == "insufficient":
-            route_reason = (
-                f"{regime.regime} record ({_policy_evidence(regime)}) has "
-                "insufficient identifiable annual timing "
-                f"(peak={regime.n_peak_timing_years}, "
-                f"trough={regime.n_trough_timing_years}); using event characterisation"
-            )
-        else:
-            route_reason = (
-                f"{regime.regime} record ({_policy_evidence(regime)}): complex or "
-                "diffuse timing does not support a fixed climatological window, so no "
-                "hydrological year is defined"
-            )
-        return CatchmentAnalysis(
-            regime=regime,
-            route="event_characterisation",
-            route_reason=route_reason,
-            hydro_years=empty_years,
-            events=events,
-            monthly=pd.DataFrame(),
-            state=None,
-            mean_monthly_peak_month=None,
-            mean_monthly_trough_month=None,
-            warnings=tuple(warnings),
-            quality_policy=quality_policy,
-            max_invalid_pct=max_invalid_pct,
-            decision_policy=regime.decision_policy,
-        )
-
-    # Imposed fixed climatological window route
-    config_fixed = _fixed_config_from_climatology(int(regime.mean_monthly_peak_month))
-    try:
-        years = detect_hydrological_years(
-            extent,
-            value_col=value_col,
-            date_col=date_col,
-            config=config_fixed,
-            quality_policy="flag",
-            missing_month_policy="ignore",
-        )
-    except ValueError as exc:
-        warnings.append(f"boundary detection failed, falling back to events: {exc}")
-        return CatchmentAnalysis(
-            regime=regime,
-            route="event_characterisation",
-            route_reason=f"detection failed on a {regime.regime} record: {exc}",
-            hydro_years=empty_years,
-            events=events,
-            monthly=pd.DataFrame(),
-            state=None,
-            warnings=tuple(warnings),
-            quality_policy=quality_policy,
-            max_invalid_pct=max_invalid_pct,
-            decision_policy=regime.decision_policy,
-        )
-
-    route = "fixed_climatological_window"
-    basis = "imposed_fixed_window"
-    reason = (
-        f"{regime.regime} record ({_policy_evidence(regime)}): timing evidence "
-        "supports a fixed climatological window, so it is imposed on every year"
+    route_reason = (
+        f"{regime.regime} record ({_policy_evidence(regime)}): recurrence was not "
+        "established, so no hydrological year is defined"
     )
-    monthly_phase: pd.DataFrame | None = None
-    if not years.empty:
-        years = years.copy()
-        years["boundary_basis"] = basis
-        years = _annotate_fixed_window_quality(
-            years,
-            extent,
-            value_col=value_col,
-            date_col=date_col,
-            max_invalid_pct=max_invalid_pct,
-            quality_policy=quality_policy,
-        )
-        phase_input = prepare_monthly_extent(
-            extent,
-            value_col=value_col,
-            date_col=date_col,
-            max_invalid_pct=max_invalid_pct,
-            quality_policy=quality_policy,
-        )
-        _, noise_pp = robust_scale(phase_input)
-        years = classify_annual_surface_water_condition(
-            years,
-            reference="full_record",
-            low_percentile=20.0,
-            high_percentile=80.0,
-            noise_pp=noise_pp,
-        )
-        if canonical_scheme != "none":
-            dyn_cfg = DynamicHydroYearConfig(
-                expected_trough_month=int(regime.mean_monthly_trough_month or 1),
-                expected_peak_month=int(regime.mean_monthly_peak_month or 7),
-                phase_scheme=canonical_scheme,
-            )
-            monthly_phase = assign_monthly_phases(
-                phase_input,
-                years,
-                dyn_cfg,
-                noise_pp=noise_pp,
-                boundary_basis=basis,
-            )
-
     return CatchmentAnalysis(
         regime=regime,
-        route=route,
-        route_reason=reason,
-        hydro_years=years,
+        route="event_characterisation",
+        route_reason=route_reason,
+        hydro_years=empty_years,
         events=events,
         monthly=pd.DataFrame(),
         state=None,
-        mean_monthly_peak_month=regime.mean_monthly_peak_month,
-        mean_monthly_trough_month=regime.mean_monthly_trough_month,
-        monthly_phase=monthly_phase,
+        mean_monthly_peak_month=None,
+        mean_monthly_trough_month=None,
         warnings=tuple(warnings),
         quality_policy=quality_policy,
         max_invalid_pct=max_invalid_pct,
         decision_policy=regime.decision_policy,
+        random_state=random_state,
     )

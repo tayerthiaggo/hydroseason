@@ -1,6 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import calendar
+import re
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -9,7 +10,6 @@ import pandas as pd
 if TYPE_CHECKING:
     from hydroseason._catchment import CatchmentAnalysis
 
-from ._regime import REGIME_THRESHOLDS
 from ._regime_compare import RegimeComparison
 
 _DIVERGENCE_LABELS = {
@@ -35,25 +35,53 @@ def _month_name(month_idx: int | float | None) -> str:
     return "N/A"
 
 
+def _format_pvalue(value: float | int | None) -> str:
+    """Format a Kuiper p-value without implying a result when absent."""
+    if value is None:
+        return "not available"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "not available"
+    if not np.isfinite(number):
+        return "not available"
+    return f"{number:.3f}"
+
+
 def verdict_sentence(analysis: CatchmentAnalysis) -> str:
     """Generate regime-aware verdict copy for manager summary."""
     assessment = analysis.regime
-    regime = assessment.regime
-    snr = assessment.amplitude_snr
+    test = assessment.seasonality_test
+    if test is None:
+        return (
+            "Calendar recurrence evidence is not available; the record "
+            "cannot be classified by this policy."
+        )
 
-    if regime == "seasonal":
+    peak_p = _format_pvalue(test.peak.uniformity_p)
+    trough_p = _format_pvalue(test.trough.uniformity_p)
+    evidence = (
+        f"peak Kuiper p = {peak_p}; trough Kuiper p = {trough_p}; "
+        f"alpha = {test.alpha:g}"
+    )
+    if test.status != "ok" or assessment.regime == "insufficient_record":
+        return (
+            f"Calendar recurrence could not be assessed ({test.reason}; {evidence}). "
+            "The record is insufficient for a seasonal/aseasonal decision."
+        )
+    if assessment.regime == "seasonal":
         if analysis.route == "per_year_detection":
             route_desc = "Dynamic hydrological-year boundaries are detected per year."
-        elif analysis.route == "event_characterisation":
-            # Calendar-year evidence looked seasonal enough to attempt
-            # per-year detection, but the individual cycles it actually
-            # produced didn't support it (see _catchment.py's
-            # cycles_support_timing gate) -- no hydro_years were published,
-            # so this must not read as "boundaries are applied".
-            reason = analysis.route_reason or (
-                f"seasonal record (SNR {snr:.2f}) could not resolve annual timing per cycle"
+            return (
+                f"Calendar recurrence of annual peak and trough timing was established "
+                f"({evidence}). {route_desc}"
             )
-            sentence = reason[0].upper() + reason[1:]
+        elif analysis.route == "event_characterisation":
+            reason = analysis.route_reason or (
+                "seasonal record could not resolve annual timing per cycle"
+            )
+            sentence = re.sub(r"\s*\(SNR [^)]+\)", "", reason, flags=re.IGNORECASE)
+            sentence = sentence[0].upper() + sentence[1:]
             if not sentence.endswith((".", "!", "?")):
                 sentence += "."
             return (
@@ -61,31 +89,17 @@ def verdict_sentence(analysis: CatchmentAnalysis) -> str:
                 "exact hydrological-year boundaries are withheld."
             )
         else:
-            route_desc = "Hydrological year boundaries are applied."
-        return (
-            f"Exhibits a seasonal regime with reproducible annual cycles "
-            f"(SNR = {snr:.2f}). {route_desc}"
-        )
-    elif regime == "marginal":
-        if analysis.route == "per_year_detection":
+            route_desc = "Hydrological-year boundaries are withheld."
             return (
-                f"Exhibits marginal seasonality (SNR = {snr:.2f}); "
-                "dynamic local extrema are detected per year, alongside event descriptors."
+                f"Calendar recurrence of annual peak and trough timing was established "
+                f"({evidence}). {route_desc}"
             )
-        return (
-            f"Marginal seasonal signal (SNR = {snr:.2f}); annual timing is "
-            "insufficiently identifiable. Wet events and low-extent spells are "
-            "reported; exact hydrological-year boundaries are withheld."
-        )
-    elif regime == "aseasonal":
-        return (
-            f"Exhibits an aseasonal regime (SNR = {snr:.2f}) with no stable annual cycle; "
-            f"use wet events and low-extent spells for surface water tracking."
-        )
-    else:  # insufficient_record or fallback
-        return (
-            "Data record is insufficient to establish hydrological regime or seasonal boundaries."
-        )
+    return (
+        f"Calendar recurrence of annual peak and trough timing was not established "
+        f"({evidence}). Aseasonal means recurrence was not established, not that "
+        f"timing was proven uniform. Wet events and low-extent spells are reported; "
+        "exact hydrological-year boundaries are withheld."
+    )
 
 
 # Display names for analytical routes. The raw identifiers title-cased into
@@ -202,7 +216,7 @@ def _date_range_label(extent: pd.DataFrame | None) -> str:
     if extent is None or extent.empty:
         return "Source record"
     source = extent["date"] if "date" in extent.columns else extent.index
-    dates = pd.to_datetime(source, errors="coerce" ).dropna()
+    dates = pd.to_datetime(source, errors="coerce").dropna()
     if dates.empty:
         return "Source record"
     return f"{dates.min():%b %Y} to {dates.max():%b %Y}"
@@ -214,15 +228,12 @@ def select_kpis(
 ) -> list[dict[str, str]]:
     """Build the manager-facing summary cards in display order.
 
-    Regime, signal-to-noise ratio and analytical route lead the deck: they
-    frame how much weight the remaining per-year numbers can carry.
+    Recurrence evidence, regime and analytical route lead the deck. Cards are
+    limited to metrics used by, or needed to interpret, the current workflow.
     """
     hy_df = analysis.hydro_years.copy()
     n_years = len(hy_df)
-    amplitude = _metric_column(hy_df, "drawdown_pct", "amplitude_pct")
     cycle_length = _metric_column(hy_df, "cycle_months", "n_months_cycle")
-    peak = _metric_column(hy_df, "peak_extent_pct")
-    trough = _metric_column(hy_df, "trough_extent_pct", "end_extent_pct")
     selection_support = pd.to_numeric(
         hy_df.get("selection_support", pd.Series(dtype=float)), errors="coerce"
     )
@@ -237,18 +248,9 @@ def select_kpis(
 
     assessment = analysis.regime
     event_summary = analysis.events.summary if analysis.events is not None else {}
+    test = assessment.seasonality_test
 
-    # Every catchment keeps the same cards in the same order so two reports can
-    # be read side by side. Where a regime cannot support a number, the card
-    # says why it is absent rather than showing a bare "N/A": a deck of blanks
-    # reads as a broken run, when it is in fact the finding.
     withheld_reason = _WITHHELD_REASONS.get(str(assessment.regime))
-    if (
-        withheld_reason is None
-        and str(assessment.regime) == "marginal"
-        and analysis.route == "event_characterisation"
-    ):
-        withheld_reason = "annual timing is insufficiently identifiable"
     if withheld_reason is None and n_years == 0:
         withheld_reason = "no hydrological years were resolved"
 
@@ -261,54 +263,35 @@ def select_kpis(
     def card(label: str, value: str, detail: str) -> dict[str, str]:
         return {"label": label, "value": value, "detail": detail}
 
-    snr_detail = (
-        f"seasonal >= {REGIME_THRESHOLDS['seasonal_min_snr']:.1f}, "
-        f"aseasonal < {REGIME_THRESHOLDS['aseasonal_max_snr']:.1f}"
-    )
-    def timing_value(ci_low: float | None) -> str:
-        return f"R {_number(ci_low, decimals=2)}" if ci_low is not None else "Not defined"
+    if test is None:
+        peak_uniformity_p = _number(assessment.peak_timing_uniformity_p, decimals=3)
+        trough_uniformity_p = _number(assessment.trough_timing_uniformity_p, decimals=3)
+        alpha = 0.05
+    else:
+        peak_uniformity_p = _format_pvalue(test.peak.uniformity_p)
+        trough_uniformity_p = _format_pvalue(test.trough.uniformity_p)
+        alpha = test.alpha
 
-    peak_mean = _number(assessment.peak_timing_concentration, decimals=2)
-    trough_mean = _number(assessment.trough_timing_concentration, decimals=2)
-    peak_ci = (
-        f"{_number(assessment.peak_timing_concentration_ci_low, decimals=2)} to "
-        f"{_number(assessment.peak_timing_concentration_ci_high, decimals=2)}"
+    evidence_value = (
+        "Peak and trough recur" if assessment.regime == "seasonal"
+        else "Not established" if assessment.regime == "aseasonal"
+        else "Insufficient"
     )
-    trough_ci = (
-        f"{_number(assessment.trough_timing_concentration_ci_low, decimals=2)} to "
-        f"{_number(assessment.trough_timing_concentration_ci_high, decimals=2)}"
+    evidence_detail = (
+        f"Kuiper p-values: peak={peak_uniformity_p}; trough={trough_uniformity_p}. "
+        f"Both reject 12-month uniformity (alpha = {alpha:g})."
     )
-    peak_uniformity_p = _number(assessment.peak_timing_uniformity_p, decimals=3)
-    trough_uniformity_p = _number(assessment.trough_timing_uniformity_p, decimals=3)
-    timing_record_detail = (
-        f"{_date_range_label(extent)}; n_timing_years={assessment.n_timing_years}."
-    )
-    timing_record_caution = next(
-        (
-            caveat
-            for caveat in assessment.caveats
-            if "fewer than 30 usable annual timings" in caveat
-        ),
-        None,
-    )
-    if timing_record_caution is not None:
-        timing_record_detail += (
-            f" Only {assessment.n_timing_years} annual timing observations are "
-            f"available; {timing_record_caution}."
+    if test is not None:
+        timing_record_detail = (
+            f"{_date_range_label(extent)}; recurrence alpha={test.alpha:g}; "
+            f"{test.n_detectable_years} detectable years, "
+            f"{test.n_timing_eligible_years} timing-eligible years, "
+            f"{test.n_qualifying_years} qualifying years."
         )
-    peak_timing_detail = (
-        f"95% CI lower bound; average R {peak_mean}. "
-        f"Peak timing concentration (95% bootstrap CI {peak_ci}); "
-        f"R >= 0.70 supports seasonal peak timing. "
-        f"Kuiper uniformity p-value {peak_uniformity_p}. "
-        "R ranges from 0 (diffuse or cancelling timing) to 1 (same month every year). "
-        "A low R can also arise from symmetric multi-modal timing; the Kuiper p-value tests the discrete 12-month uniform null."
-    )
-    trough_timing_detail = (
-        f"95% CI lower bound; average R {trough_mean}. "
-        f"Trough timing concentration (95% bootstrap CI {trough_ci}); boundary eligibility requires trough timing "
-        f"CI lower bound R >= 0.70. Kuiper uniformity p-value {trough_uniformity_p}."
-    )
+    else:
+        timing_record_detail = (
+            f"{_date_range_label(extent)}; n_timing_years={assessment.n_timing_years}."
+        )
 
     return [
         card(
@@ -316,21 +299,7 @@ def select_kpis(
             str(assessment.regime).replace("_", " ").title(),
             "assessed seasonal strength",
         ),
-        card(
-            "amplitude signal-to-noise ratio",
-            _number(assessment.amplitude_snr, decimals=2),
-            snr_detail,
-        ),
-        card(
-            "peak timing concentration",
-            timing_value(assessment.peak_timing_concentration_ci_low),
-            peak_timing_detail,
-        ),
-        card(
-            "trough timing concentration",
-            timing_value(assessment.trough_timing_concentration_ci_low),
-            trough_timing_detail,
-        ),
+        card("seasonality evidence", evidence_value, evidence_detail),
         card(
             "analytical route",
             _route_label(analysis.route),
@@ -344,13 +313,6 @@ def select_kpis(
             f"{assessment.n_usable_years} years support both peak and trough timing",
         ),
         card("hydrological years", str(n_years), timing_record_detail),
-        card(
-            "mean annual amplitude",
-            **cycle_metric(
-                _number(amplitude.mean(), suffix="%"),
-                "difference between peak and end dry",
-            ),
-        ),
         card(
             "mean cycle length",
             **cycle_metric(_number(cycle_length.mean()), "months per hydro-year"),
@@ -368,18 +330,6 @@ def select_kpis(
                 _month_name(analysis.mean_monthly_trough_month),
                 "minimum of mean monthly extent",
             ),
-        ),
-        card(
-            "lower water extent at end of dry season",
-            **cycle_metric(_extent_number(trough.min()), "minimum across all hydro-years"),
-        ),
-        card(
-            "higher water extent in wet season",
-            **cycle_metric(_extent_number(peak.max()), "maximum across all hydro-years"),
-        ),
-        card(
-            "average water extent at end of dry season",
-            **cycle_metric(_extent_number(trough.mean()), "mean across all hydro-years"),
         ),
         card(
             "well-observed years",
@@ -447,8 +397,6 @@ def build_rainfall_context(
             "interpretation": "Rainfall values are shown, but regime comparison is unavailable.",
             "extent_regime": None,
             "rainfall_regime": None,
-            "extent_snr": None,
-            "rainfall_snr": None,
             "extent_peak_month": "N/A",
             "extent_trough_month": "N/A",
             "rainfall_peak_month": "N/A",
@@ -465,8 +413,6 @@ def build_rainfall_context(
         "interpretation": comparison.interpretation,
         "extent_regime": comparison.extent.regime,
         "rainfall_regime": comparison.rainfall.regime,
-        "extent_snr": comparison.extent.amplitude_snr,
-        "rainfall_snr": comparison.rainfall.amplitude_snr,
         "extent_peak_month": _month_name(comparison.extent.mean_monthly_peak_month),
         "extent_trough_month": _month_name(comparison.extent.mean_monthly_trough_month),
         "rainfall_peak_month": _month_name(comparison.rainfall.mean_monthly_peak_month),

@@ -40,6 +40,7 @@ from ._trough_refinement import (
     TroughRefinementResult,
     refine_trough_span,
 )
+from ._trough_refinement_defaults import TROUGH_REFINEMENT_POLICY
 
 _TIMING_STATUS_RANK: dict[TimingStatus, int] = {
     "unresolved": 0,
@@ -107,7 +108,6 @@ class DynamicHydroYearConfig:
         TIMING_IDENTIFIABILITY_DEFAULTS
     )
     recurrence_policy: RecurrencePolicy | None = None
-    trough_refinement_policy: TroughRefinementPolicy | None = None
     detector: Literal["robust_extrema"] = "robust_extrema"
     phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET
     phase_model: LegacyPhaseModel | None = None
@@ -600,10 +600,8 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         result.loc[years_index.isin(retry_attempted), "retry_outcome"] = "rolled_back"
         result.loc[years_index.isin(retry_applied), "retry_outcome"] = "applied"
     result = _initialise_trough_refinement_evidence(
-        result, policy=config.trough_refinement_policy
+        result, policy=TROUGH_REFINEMENT_POLICY
     )
-    if config.trough_refinement_policy is None:
-        return result
     return _apply_trough_refinement(
         frame,
         opportunities,
@@ -1190,9 +1188,7 @@ def _apply_trough_refinement(
     pattern: SeasonalPatternResult | None,
 ) -> pd.DataFrame:
     """Apply each shared boundary only after atomic two-cycle recomputation."""
-    policy = config.trough_refinement_policy
-    if policy is None:
-        return pass1_rows
+    policy = TROUGH_REFINEMENT_POLICY
 
     frozen_rows = pass1_rows.copy(deep=True).reset_index(drop=True)
     rows = pass1_rows.copy(deep=True).reset_index(drop=True)
@@ -1333,12 +1329,14 @@ def _apply_trough_refinement(
             current_candidate["peak_timing_status"],
             current_candidate["trough_timing_status"],
         )
-        current_candidate["boundary_status"] = (
-            "confirmed" if refinement.status == "confirmed" else "provisional"
-        )
-        if refinement.status == "provisional":
+        if (
+            current_candidate.get("boundary_status") == "confirmed"
+            and refinement.status != "confirmed"
+        ):
+            current_candidate["boundary_status"] = "provisional"
             current_candidate["status"] = "partial"
-            current_candidate["status_reason"] = "boundary_provisional"
+            if current_candidate.get("status_reason") == "ok":
+                current_candidate["status_reason"] = "boundary_provisional"
         current_candidate["n_rewetting_pulses"] = len(refinement.pulse_months)
         if refinement.pulse_months:
             strongest = max(
