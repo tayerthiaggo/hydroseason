@@ -1,5 +1,7 @@
-﻿import inspect
+import hashlib
+import inspect
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,6 +11,7 @@ from hydroseason._catchment import analyze_catchment
 from hydroseason._method_policy import (
     CURRENT_METHOD_POLICY,
     canonical_method_policy_json,
+    main,
     method_policy_fingerprint,
     method_policy_manifest,
 )
@@ -80,3 +83,36 @@ def test_catchment_analysis_records_provenance(seasonal_extent):
     assert analysis.method_policy_id == CURRENT_METHOD_POLICY.policy_id
     assert analysis.method_policy_fingerprint == method_policy_fingerprint()
     assert analysis.random_state == 0
+
+
+def test_checked_in_method_policy_manifest_matches_runtime():
+    repo_root = Path(__file__).resolve().parent.parent
+    manifest_path = repo_root / "docs" / "method-policy-v0.2.0.json"
+    sidecar_path = repo_root / "docs" / "method-policy-v0.2.0.sha256"
+
+    assert manifest_path.is_file(), f"Missing manifest: {manifest_path}"
+    assert sidecar_path.is_file(), f"Missing sidecar: {sidecar_path}"
+
+    payload = manifest_path.read_bytes()
+    sidecar_digest = sidecar_path.read_text(encoding="ascii").strip()
+
+    manifest_digest = hashlib.sha256(payload).hexdigest()
+    assert manifest_digest == sidecar_digest
+
+    parsed = json.loads(payload.decode("utf-8"))
+    assert parsed == method_policy_manifest()
+
+    canonical = json.dumps(parsed, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    assert hashlib.sha256(canonical).hexdigest() == method_policy_fingerprint()
+
+
+def test_method_policy_cli_generator(tmp_path):
+    out_json = tmp_path / "custom-policy.json"
+    ret = main(["--output", str(out_json)])
+    assert ret == 0
+    assert out_json.is_file()
+    out_sha = tmp_path / "custom-policy.sha256"
+    assert out_sha.is_file()
+    digest = hashlib.sha256(out_json.read_bytes()).hexdigest()
+    assert out_sha.read_text(encoding="ascii").strip() == digest
+
