@@ -4,9 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from hydroseason import (
-    DynamicHydroYearConfig,
     analyze_catchment,
-    detect_dynamic_hydrological_years,
     detect_hydrological_years,
     suggest_hydro_year_config,
 )

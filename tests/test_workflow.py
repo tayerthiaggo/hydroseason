@@ -1011,10 +1011,9 @@ def test_workflow_rejects_removed_method_options(tmp_path, removed_key):
 def test_entry_point_equivalence_across_workflow_batch_and_cli(
     monkeypatch, tmp_path
 ):
-    from hydroseason import analyze_catchment, generate_catchment_report
+    from hydroseason import analyze_catchment, cli, generate_catchment_report
     from hydroseason._method_policy import method_policy_fingerprint
     from hydroseason.batch import run_hydroseason_many
-    from hydroseason import cli
 
     extent = _seasonal_extent(years=8)
     csv_path = tmp_path / "extent.csv"

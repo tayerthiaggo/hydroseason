@@ -476,6 +476,7 @@ def _two_dry_seasons():
 
 def test_window_search_includes_the_previous_dry_season_tail():
     import pandas as pd
+
     from hydroseason._timing_identifiability import assess_window_timing
 
     values = _two_dry_seasons()
@@ -492,6 +493,7 @@ def test_window_search_includes_the_previous_dry_season_tail():
 
 def test_post_peak_search_excludes_the_previous_dry_season_tail():
     import pandas as pd
+
     from hydroseason._timing_identifiability import assess_window_timing
 
     values = _two_dry_seasons()
@@ -508,6 +510,7 @@ def test_post_peak_search_excludes_the_previous_dry_season_tail():
 
 def test_post_peak_search_leaves_the_peak_branch_untouched():
     import pandas as pd
+
     from hydroseason._timing_identifiability import assess_window_timing
 
     values = _two_dry_seasons()
@@ -524,6 +527,7 @@ def test_post_peak_search_leaves_the_peak_branch_untouched():
 
 def test_post_peak_search_handles_a_peak_in_the_final_month():
     import pandas as pd
+
     from hydroseason._timing_identifiability import assess_window_timing
 
     index = pd.date_range("2020-01-01", periods=4, freq="MS")
@@ -540,6 +544,7 @@ def test_post_peak_search_handles_a_peak_in_the_final_month():
 
 def test_cycle_trough_reports_broad_for_a_sustained_minimum():
     import pandas as pd
+
     from hydroseason._timing_identifiability import assess_window_timing
 
     index = pd.date_range("2020-01-01", periods=10, freq="MS")
@@ -561,6 +566,7 @@ def test_cycle_trough_reports_broad_for_a_sustained_minimum():
 
 def test_calendar_window_never_reports_broad():
     import pandas as pd
+
     from hydroseason._timing_identifiability import assess_window_timing
 
     index = pd.date_range("2020-01-01", periods=10, freq="MS")
@@ -578,6 +584,7 @@ def test_calendar_window_never_reports_broad():
 
 def test_peak_status_is_never_broad_even_on_a_flat_peak():
     import pandas as pd
+
     from hydroseason._timing_identifiability import assess_window_timing
 
     index = pd.date_range("2020-01-01", periods=8, freq="MS")

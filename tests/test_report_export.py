@@ -150,8 +150,6 @@ def test_build_hydro_years_export_and_summary(seasonal_extent):
         "boundary_basis",
         "mean_monthly_peak_month",
         "mean_monthly_trough_month",
-        "climatological_peak_month",
-        "climatological_trough_month",
         "n_wet_events",
         "median_event_duration_months",
         "longest_low_spell_months",

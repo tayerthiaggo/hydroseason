@@ -1,7 +1,6 @@
 import json
 import shutil
 import subprocess
-import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 

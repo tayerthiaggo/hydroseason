@@ -1,5 +1,4 @@
 import subprocess
-from pathlib import Path
 
 FORBIDDEN_TRACKED_PREFIXES = (
     "docs/paper/",
@@ -34,7 +33,7 @@ def test_release_repository_contains_no_paper_or_campaign_paths():
     result = subprocess.run(
         ["git", "ls-files"], capture_output=True, text=True, check=True
     )
-    tracked = [l.replace("\\\\", "/") for l in result.stdout.splitlines()]
+    tracked = [line.replace("\\\\", "/") for line in result.stdout.splitlines()]
     offenders = [p for p in tracked if p.startswith(FORBIDDEN_TRACKED_PREFIXES)]
     assert offenders == [], f"Forbidden tracked paths found: {offenders}"
 

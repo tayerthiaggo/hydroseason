@@ -87,8 +87,6 @@ def _rainfall_details(context: dict[str, Any] | None) -> str:
         '<dl class="rain-stats">'
         f'<dt>Rainfall regime</dt><dd>{_escape(context.get("rainfall_regime") or "N/A")}</dd>'
         f'<dt>Comparison</dt><dd>{_escape(context["comparison_label"])}</dd>'
-        f'<dt>Extent SNR</dt><dd>{_escape(_format_metric(context.get("extent_snr")))}</dd>'
-        f'<dt>Rain SNR</dt><dd>{_escape(_format_metric(context.get("rainfall_snr")))}</dd>'
         f'<dt>Extent peak / trough</dt><dd>{_escape(context["extent_peak_month"])} / {_escape(context["extent_trough_month"])}</dd>'
         f'<dt>Rain peak / trough</dt><dd>{_escape(context["rainfall_peak_month"])} / {_escape(context["rainfall_trough_month"])}</dd>'
         f'<dt>Peak lag</dt><dd>{_escape(lag_text)}</dd>'

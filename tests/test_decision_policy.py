@@ -1,6 +1,5 @@
 ﻿from hydroseason._decision_policy import (
     DECISION_POLICY,
-    REGIME_THRESHOLDS,
     decide_regime,
 )
 

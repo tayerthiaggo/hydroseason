@@ -364,7 +364,7 @@ def test_year_cards_render_confidence_title_in_note_and_drawdown_stat():
     assert "Typical / Mixed" not in html
     assert "Medium confidence: Boundary is provisional and was not confirmed." in html
     assert "Cycle: <strong>15.0 mos</strong>" in html
-    assert "Amplitude:" not in html
+    assert "Amplitude: <strong>0.45%</strong>" in html
     assert "Drawdown" not in html
     assert "MEDIUM CONFIDENCE" in html
 
