@@ -42,7 +42,7 @@ def test_frozen_summary_encodes_the_approved_five_case_contract():
         assert row["n_hydro_years"] == n_years
         if peak is not None:
             assert row["water_extent_peak_month"] == peak
-            assert row["climatological_trough_month"] == trough
+            assert row["mean_monthly_trough_month"] == trough
 
 
 @pytest.mark.parametrize("case_key", CASES)
@@ -56,11 +56,11 @@ def test_raw_30m_record_matches_established_public_baseline(case_key: str):
         random_state=0,
     )
 
-    assert analysis.regime.decision_policy == "established_0_2_0"
+    assert analysis.regime.decision_policy == "hydroseason_0_2_0"
     assert analysis.regime.regime == regime
     assert analysis.route == route
-    assert analysis.climatological_peak_month == peak_month
-    assert analysis.climatological_trough_month == trough_month
+    assert analysis.mean_monthly_peak_month == peak_month
+    assert analysis.mean_monthly_trough_month == trough_month
     assert len(analysis.hydro_years) == n_years
 
     if n_years == 0:

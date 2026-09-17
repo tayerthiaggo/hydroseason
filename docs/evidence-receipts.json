@@ -1,0 +1,24 @@
+{
+  "stages": {
+    "multiscale_synthetic": {
+      "verdict_sha256": "b467c6c26eadbee60dc38d1117b24ab49f65c3d095c5c0ed817952512794a7e9",
+      "status": "passed",
+      "cases": 1000
+    },
+    "full_pipeline_synthetic": {
+      "verdict_sha256": "18bf46bb42187cb50a92f787a62191b588fca36b214073901666176a6513c5df",
+      "status": "passed",
+      "cases": 12000
+    },
+    "camels_aus_validation": {
+      "verdict_sha256": "9e4f669a8f3250475c9167689b661d8d860db922514ac4c0ae2cd8156ff93f35",
+      "preregistration_sha256": "0761d4ca9eab0265c53c947ed0b0563e98a10bf0ec3b13aa95049b5e3366d77d",
+      "status": "passed",
+      "catchments": 561
+    }
+  },
+  "release_decision": "pass",
+  "method_policy_id": "hydroseason-v0.2.0",
+  "method_fingerprint": "ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080",
+  "method_manifest_sha256": "b0f294c644409d5acbf03f268696d1c684bdaec3b5147213c91dfd853f009384"
+}

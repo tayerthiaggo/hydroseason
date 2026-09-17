@@ -116,3 +116,15 @@ def test_method_policy_cli_generator(tmp_path):
     digest = hashlib.sha256(out_json.read_bytes()).hexdigest()
     assert out_sha.read_text(encoding="ascii").strip() == digest
 
+
+def test_validation_receipt_authorizes_the_frozen_method():
+    receipt = json.loads(
+        Path("docs/method-policy-v0.2.0-validation.json").read_text(encoding="utf-8")
+    )
+    assert receipt["release_decision"] == "pass"
+    assert receipt["method_policy_id"] == "hydroseason-v0.2.0"
+    assert receipt["method_fingerprint"] == method_policy_fingerprint()
+    method_bytes = Path("docs/method-policy-v0.2.0.json").read_bytes()
+    assert hashlib.sha256(method_bytes).hexdigest() == receipt["method_manifest_sha256"]
+
+
