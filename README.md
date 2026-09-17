@@ -92,8 +92,7 @@ for outcome in batch.outcomes:
 batch.raise_for_failures()
 ```
 
-`workers="auto"` uses a default concurrency cap of 2 and admits work only
-within 80% of currently available RAM. See the [Usage Guide](https://tayerthiaggo.github.io/hydroseason/guide/#many-aois-one-row-one-analysis) for memory and scheduling details.
+`workers="auto"` uses a default concurrency cap of 2 and an automatic memory budget of 80% of currently available RAM (`max_ram_fraction=0.8`). See the [Usage Guide](https://tayerthiaggo.github.io/hydroseason/guide/#batch-memory-and-threads) for memory and scheduling details.
 
 For runs long enough to outlive a notebook session, use the CLI — same
 orchestrator, its own process, resumable via `--cache-dir`:

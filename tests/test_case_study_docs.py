@@ -106,7 +106,7 @@ def test_release_docs_explain_batch_seasonality_and_map_contracts():
         "run_hydroseason_many",
         "one input row produces one analysis and one report",
         'workers="auto"',
-        "60% of currently available RAM",
+        "80% of currently available RAM",
         "default concurrency cap of 2",
         "30 usable annual timings",
         "not 30 months",
