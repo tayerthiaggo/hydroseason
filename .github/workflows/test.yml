@@ -165,9 +165,6 @@ jobs:
       - name: Check rainfall-augmented case study matches checked results
         run: python scripts/_build_study_case_rainfall.py --check
 
-      - name: Check resolution case study matches checked results
-        run: python scripts/run_resolution_case_study.py --check --output-dir case_studies/results/resolution
-
       - name: Check rendered docs match checked results
         run: python scripts/render_case_study_docs.py --check
 

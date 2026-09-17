@@ -187,3 +187,132 @@ def test_built_distributions_ship_calibration_reports(tmp_path):
         for name in sdist_names
     )
 
+
+def minimal_release_tree(tmp_path, *, version="0.2.0"):
+    (tmp_path / "hydroseason").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname="hydroseason"\nversion="{version}"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "hydroseason" / "__init__.py").write_text(
+        f'__version__ = "{version}"\n', encoding="utf-8"
+    )
+    (tmp_path / "CITATION.cff").write_text(
+        f'version: "{version}"\ndate-released: "2026-09-15"\n',
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_release_mode_rejects_duplicate_version_headings(tmp_path):
+    root = minimal_release_tree(tmp_path, version="0.2.0")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n## [0.2.0] - 2026-09-15\n## [0.2.0] - 2026-09-15\n",
+        encoding="utf-8",
+    )
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert "CHANGELOG contains duplicate [0.2.0] headings" in errors
+
+
+def test_publish_workflow_does_not_build_research_archive():
+    workflow = Path(".github/workflows/publish.yml").read_text(encoding="utf-8")
+    assert "case-studies.zip" not in workflow
+    assert "zip -r" not in workflow
+
+
+def test_release_metadata_enforces_clean_scope(tmp_path):
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        return
+
+    root = minimal_release_tree(tmp_path, version="0.2.0")
+    (root / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True, capture_output=True)
+
+    forbidden_file = root / "docs" / "paper" / "draft.tex"
+    forbidden_file.parent.mkdir(parents=True, exist_ok=True)
+    forbidden_file.write_text("content", encoding="utf-8")
+    subprocess.run(["git", "add", "docs/paper/draft.tex"], cwd=root, check=True, capture_output=True)
+
+    errors = validate_release_metadata(root, require_released=False)
+    assert any("Forbidden tracked files" in e and "docs/paper/draft.tex" in e for e in errors)
+
+
+def test_release_metadata_enforces_tracked_gitignored_scope(tmp_path):
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        return
+
+    root = minimal_release_tree(tmp_path, version="0.2.0")
+    (root / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True, capture_output=True)
+
+    (root / ".gitignore").write_text("*.secret\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root, check=True, capture_output=True)
+
+    secret_file = root / "test.secret"
+    secret_file.write_text("shh", encoding="utf-8")
+    subprocess.run(["git", "add", "-f", "test.secret"], cwd=root, check=True, capture_output=True)
+
+    errors = validate_release_metadata(root, require_released=False)
+    assert any("Tracked gitignored files" in e and "test.secret" in e for e in errors)
+
+
+def test_release_metadata_validates_method_policy_and_receipt(tmp_path):
+    import json
+
+    root = minimal_release_tree(tmp_path, version="0.2.0")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n## [0.2.0] - 2026-09-15\n", encoding="utf-8"
+    )
+
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert any("Method policy manifest" in e for e in errors)
+    assert any("Method validation receipt" in e for e in errors)
+
+    docs = root / "docs"
+    docs.mkdir(parents=True, exist_ok=True)
+    (docs / "method-policy-v0.2.0.json").write_text('{"policy_id": "hydroseason-v0.2.0"}', encoding="utf-8")
+
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert not any("Method policy manifest" in e for e in errors)
+    assert any("Method validation receipt" in e for e in errors)
+
+    receipt_data = {
+        "release_decision": "fail",
+        "method_policy_id": "hydroseason-v0.2.0",
+        "validation_environment": {"python_version": "3.12.0"},
+    }
+    receipt_file = docs / "method-policy-v0.2.0-validation.json"
+    receipt_file.write_text(json.dumps(receipt_data), encoding="utf-8")
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert any("release_decision must be 'pass'" in e for e in errors)
+
+    receipt_data["release_decision"] = "pass"
+    receipt_data["method_policy_id"] = "wrong-policy"
+    receipt_file.write_text(json.dumps(receipt_data), encoding="utf-8")
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert any("policy ID" in e and "wrong-policy" in e for e in errors)
+
+    receipt_data["method_policy_id"] = "hydroseason-v0.2.0"
+    receipt_data["validation_environment"] = {"python_version": "3.14.1"}
+    receipt_file.write_text(json.dumps(receipt_data), encoding="utf-8")
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert any("Python version" in e and ">=3.10,<3.14" in e for e in errors)
+
+    receipt_data["validation_environment"] = {"python_version": "3.12.3"}
+    receipt_file.write_text(json.dumps(receipt_data), encoding="utf-8")
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert errors == []
+
+

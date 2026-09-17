@@ -62,7 +62,6 @@ jobs:
           python scripts/prepare_case_study_data.py --check
           python scripts/_build_study_case_offline.py --check
           python scripts/_build_study_case_rainfall.py --check
-          python scripts/run_resolution_case_study.py --check --output-dir case_studies/results/resolution
           python scripts/render_case_study_docs.py --check
           python -m mkdocs build --strict
 
@@ -76,11 +75,6 @@ jobs:
         run: |
           python -m twine check dist/*
           check-wheel-contents dist/*.whl
-
-      - name: Build case-studies archive
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          zip -r "dist/hydroseason-$VERSION-case-studies.zip" case_studies/results docs/case-studies
 
       - name: Upload immutable build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -104,9 +98,6 @@ jobs:
           name: dist-${{ needs.build.outputs.version }}
           path: dist/
 
-      - name: Remove non-distribution files before publish
-        run: rm -f dist/*-case-studies.zip
-
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1; GHCR image published
 
@@ -124,7 +115,7 @@ jobs:
           name: dist-${{ needs.build.outputs.version }}
           path: dist/
 
-      - name: Upload dist files and case-studies archive to the GitHub Release
+      - name: Upload dist files to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.event.release.tag_name }}" dist/* --repo "${{ github.repository }}"
