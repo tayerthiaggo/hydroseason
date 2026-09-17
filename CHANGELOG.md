@@ -3,7 +3,47 @@
 All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-17
+
+### Added
+- **Run provenance manifest**: Cryptographic run provenance manifests (`manifest.json` / `manifest`) exported across public analyses, CLI runs, and HTML reports, recording the package version, invocation arguments, exact method policy ID (`hydroseason-v0.2.0`), method policy fingerprint (`ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080`), input extent fingerprint, execution timestamps, platform environment, and run outcomes.
+- **Typed scientific fallback `BoundaryNotSupported`**: Separates expected scientific abstention and nonrecoverability (such as missing boundary support, insufficient cycles, or unresolvable transitions) from software exceptions, providing structured attributes (`reason`, `aoi_id`, `details`) and clean workflow/batch reporting.
+- **Extent fingerprinting**: Content-addressable SHA-256 fingerprinting of input time series (`extent_fingerprint`) detecting input divergence or extent/analysis mismatches across workflow stages to prevent silent data corruption.
+- **Preflight and feasibility assessment**: `preflight`, `PreflightResult`, `PreflightThresholds`, `FeasibilityResult`, `PreflightProfileUnavailable`, and `HydroSeasonPreflightError` determine whether an AOI supports analysis prior to fetching monthly acquisitions, including DEA WOfS recurrent-water screening.
+- **Calibrated scientific defaults**: Frozen parameters for evidence thresholds, boundary recoverability, and phase identification derived from lexicographic optimization across 190,080 evidence grid points and 5,000 synthetic calibration seeds (`10000..14999`).
+- **Canonical direct-profile refinement and circular Kuiper recurrence**: Pinned direct-profile refinement (`delta_rel=0.05`, `huber_k=1.345`) and circular Kuiper timing recurrence (`p_value <= 0.01`, `R >= 0.65`) integrated as the sole invariant detection pipeline under method policy `hydroseason-v0.2.0`.
+- **Distribution packaging**: Pre-computed calibration and validation JSON reports bundled into Python wheel (`share/hydroseason/calibration/`) and source distributions (`docs/calibration/`).
+- `HistoricalMaskRefreshedWarning` and `HistoricalMaskCoverageWarning` re-exported at top-level package for clean provenance warning filtering.
+- `hydroseason doctor` diagnostic command probing environment, native dependencies (`scipy`, `dask_image`, `psutil`), and netCDF4/NumPy ABI compatibility.
+
+### Changed
+- **Pinned direct-profile equivalence margin**: Trough refinement equivalence margin is proportional to the low-state level (`delta_rel=0.05`, `huber_k=1.345`) rather than an absolute percentage threshold (`delta_pp`, removed), preventing misclassification of shallow dry-season recoveries while correctly preserving genuine low-state plateaus.
+- **Removal of SNR routing and method selectors**: Retired the heuristic signal-to-noise ratio (SNR) routing mechanism and eliminated method selection options (`--method-policy`, `--seasonality-policy`, `--trough-refinement-policy`, `method_policy=...`). All interfaces (Python, CLI, batch, reports) execute the single canonical `hydroseason-v0.2.0` method.
+- **Descriptive timing terminology**: `mean_monthly_peak_month` and `mean_monthly_trough_month` replace the misleading `climatological_*` names (which remain as deprecated aliases).
+- **Conservative dynamic-year defaults**: Restored conservative defaults (`trough_search_radius_months=3`, `min_usable_months_per_cycle=8`) and anchored adaptive retry for short interior cycles.
+- **Dynamic memory-bounded batch scheduler**: Memory-conscious batch processing defaults to 80% available RAM (`max_ram_fraction=0.8`) with auto-tuning of concurrent workers.
+- **Adaptive peak-quality assessment**: Replaced flat 20% peak invalid cap with a per-record, per-calendar-month p90 climatology threshold (`peak_quality`: `normal`/`anomalous`), preventing unwarranted downgrades of high-quality cycles in cloud-affected regions. Exported in `peak_quality` column.
+- **Lazy raster backend loading**: `xarray` and geospatial raster dependencies load lazily on demand rather than eagerly at package import.
+
+### Fixed
+- **Profile fit untrusted month masking**: Untrusted and cloud-flagged months carry zero weight in direct-profile low-state optimization, preventing corrupted observations from anchoring the low-state reference level or dominating loss calculations.
+- **Gap-handling walkback to reliable month**: When encountering data gaps, refinement walks back to the latest reliable month within the equivalence band rather than blindly adopting the last observed pre-gap month (`boundary_deferred_to_implausible_month`).
+- **Support interval boundary clipping**: Boundary support intervals are clipped to the adopted operational boundary date (`trough_interval_end <= trough_month`), resolving inconsistencies where the low-state interval overlapped the next cycle's rising limb.
+- **Cloud-contaminated boundary deferral**: High-cloud months (`quality_state="low"`) in the support cluster defer to the latest reliable month at or before the candidate date (`boundary_deferred_to_reliable_month`), or abstain if no reliable month exists.
+- **Sensitivity ensemble non-evaluable scenarios**: Sensitivity scenarios that cannot evaluate due to edge-of-record gaps receive status `span_not_evaluable` and are excluded from stability voting rather than counted as dissents.
+- **Provisional recovery classification within noise**: Boundaries where the recovery falls within record noise resolution are flagged as `provisional` with reason `recovery_within_noise`.
+- **Calibration selector pruning**: Corrected `select_evidence_defaults` to pick optimal constants from the lexicographically pruned survivor set rather than the unpruned candidate array. Monotonic pruning narrowing enforced.
+- **Environment-independent calibration fingerprinting**: Removed local Python/NumPy/pandas versions from the calibration cache hash to ensure reproducibility across Python 3.10–3.13 environments.
+- **Multi-pulse recurrence narrowing**: Multi-pulse cycle windows evaluate calibrated pure recurrence policy `annual_shape_match` instead of uninspected legacy heuristics.
+- **Accurate report route explanations**: `verdict_sentence()` accurately reports `analysis.route_reason` and notes withheld boundaries when a seasonal record lacks sufficient timing cycles.
+
+### Removed
+- **Heuristic SNR routing**: Removed legacy SNR-based thresholding and routing.
+- **Method selection options**: Removed candidate selection options from `TroughRefinementPolicy`, `--method-policy`, `--seasonality-policy`, and `--trough-refinement-policy` CLI options.
+- **Shape-fit refinement candidate**: Removed obsolete `shape_fit` (`trough_refinement_candidate_0_2`) implementation in favor of canonical direct-profile refinement.
+- **Unreachable four-phase labeller**: Removed dead four-phase cycle assignment code (`assign_cycle_relative_phases`, unused export columns `p_rising`, `p_receding`, `phase_stability`) and associated grid searches, preserving the robust two-phase (`rising`/`receding`) model.
+- **Semi-Markov challenger**: Removed internal-only experimental semi-Markov boundary challenger and promotion harness.
+- **Uncalibrated legacy fallbacks**: Dropped uncalibrated heuristic bridge code in regime assessment.
 
 ## [0.1.1] - 2026-08-20
 
@@ -107,14 +147,10 @@ First public release: the remote-sensing-first rewrite of HydroSeason.
   `phase_shift_months`. `selection_support` is a 0-1 quality grade, not yet a
   calibrated probability.
 - Experimental, internal-only semi-Markov boundary challenger (a four-state
-  hidden semi-Markov model), reachable only through the underscore-prefixed
-  `_detect_dynamic_hydrological_years_experimental` dispatcher used by the
-  experimental promotion-gate comparison harness
-  (`tests/test_detector_comparison.py::test_semi_markov_promotion_gate`). It
-  is **not** selectable through the public `DynamicHydroYearConfig.detector`
-  field (which accepts only `"robust_extrema"` and rejects anything else at
-  construction), is **not** promoted to default, and is not part of the
-  released public API.
+  hidden semi-Markov model) was included for research comparison only. It was
+  **not** selectable through the public `DynamicHydroYearConfig.detector`
+  field (which accepted only `"robust_extrema"`), was **not** promoted to
+  default, and was not part of the released public API.
 - Robust-anchored monthly phases, `phase_model="rule_based"`, **the default**
   (pass `phase_model="none"` to disable). The labels are descriptive
   (`recovery`, `wet`, `recession`, `dry`), use the existing robust extrema

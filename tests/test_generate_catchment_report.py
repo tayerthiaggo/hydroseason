@@ -40,6 +40,8 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     html = paths.html.read_text(encoding="utf-8")
 
     assert isinstance(paths, CatchmentReportPaths)
+    assert paths.manifest_json.exists()
+    assert paths.manifest_json.name == "seasonal-test_manifest.json"
     assert "Plotly.newPlot" in html
     assert "plotly-basic-3.6.0" in html
     assert "cdn.plot.ly" not in html
@@ -49,11 +51,14 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert 'id="timeline"' in html
     assert '<div id="timeline" class="plot-canvas"></div>' in html
     assert '<div id="secondary" class="plot-canvas"></div>' in html
-    assert html.count('class="kpi"') == 18
-    assert html.index("hydrological years") < html.index("mean annual amplitude")
-    assert html.index("peak timing concentration") < html.index("trough timing concentration")
-    assert html.index("trough timing concentration") < html.index("analytical route")
-    assert html.index("average invalid/cloud cover") > html.index("high confidence years")
+    assert html.count('class="kpi"') == 14
+    assert html.index("hydrological years") < html.index("mean cycle length")
+    assert html.index("seasonality evidence") < html.index("analytical route")
+    assert html.index("average invalid/cloud cover") > html.index("point-identifiable boundary years")
+    assert "amplitude signal-to-noise ratio" not in html
+    assert "peak timing concentration" not in html
+    assert "trough timing concentration" not in html
+    assert "SNR" not in html
     assert ".plot > .plot-canvas {" in html
     assert ".plot-primary > .plot-canvas {" in html
     assert ".plot > div {" not in html
@@ -92,6 +97,32 @@ def test_generate_catchment_report_writes_offline_bundle(tmp_path, seasonal_exte
     assert {"start_date", "peak_date", "trough_date"} <= set(hydro_years.columns)
     assert {"start_date", "end_date", "peak_date", "baseline_extent_pct"} <= set(events.columns)
     assert {"low_spell_id", "start_date", "end_date", "baseline_extent_pct"} <= set(low_spells.columns)
+
+
+def test_candidate_report_html_exposes_recurrence_evidence_without_established_thresholds(
+    tmp_path,
+):
+    months = np.arange(360)
+    extent = pd.DataFrame(
+        {
+            "extent_pct": 10.0 + 0.2 * months + 5.0 * np.cos(2 * np.pi * months / 12),
+            "invalid_pct": 0.0,
+        },
+        index=pd.date_range("1990-01-01", periods=360, freq="MS"),
+    )
+    analysis = analyze_catchment(
+        extent,
+        n_bootstrap=40,
+    )
+    paths = generate_catchment_report(extent, tmp_path, analysis=analysis)
+    html = paths.html.read_text(encoding="utf-8")
+    test = analysis.regime.seasonality_test
+
+    assert "Calendar recurrence" in html
+    assert f"peak Kuiper p = {test.peak.uniformity_p:.3f}" in html
+    assert f"trough Kuiper p = {test.trough.uniformity_p:.3f}" in html
+    assert "R &gt;= 0.70" not in html
+    assert "seasonal &gt;= 2.0" not in html
 
 
 def test_report_interactions_restore_scale_without_secondary_range_sync(tmp_path):
@@ -266,6 +297,17 @@ def test_generate_catchment_report_rejects_inconsistent_supplied_analysis(
         generate_catchment_report(seasonal_extent, tmp_path, name="Mismatch", analysis=analysis)
 
 
+def test_generate_catchment_report_rejects_fingerprint_mismatch(tmp_path, seasonal_extent):
+    analysis = analyze_catchment(seasonal_extent, n_bootstrap=40)
+    paths = generate_catchment_report(seasonal_extent, tmp_path / "matched", analysis=analysis)
+    assert paths.html.exists()
+
+    tampered = seasonal_extent.copy()
+    tampered.iloc[0, 0] += 1.0
+    with pytest.raises(ValueError, match="analysis does not match extent content fingerprint"):
+        generate_catchment_report(tampered, tmp_path / "mismatch", analysis=analysis)
+
+
 def test_compatibility_report_uses_light_shell_without_csv_bundle(tmp_path, seasonal_extent):
     analysis = analyze_catchment(seasonal_extent, phase_model="rule_based", n_bootstrap=40)
     output = tmp_path / "legacy.html"
@@ -295,7 +337,12 @@ def test_aseasonal_bundle_has_no_hydrological_year_claims(tmp_path, aseasonal_ex
     hydro_years = pd.read_csv(paths.hydro_years_csv)
 
     assert hydro_years.empty
-    assert "hydrological-year boundaries" not in html
+    # The new marginal/event-routed copy legitimately mentions "hydrological-year
+    # boundaries" while explicitly withholding them; what must never appear is a
+    # claim that they were applied or detected.
+    assert "hydrological-year boundaries are applied" not in html
+    assert "hydrological-year boundaries are detected" not in html
+    assert "exact hydrological-year boundaries are withheld" in html
     assert "wet events" in html
 
 
@@ -361,8 +408,8 @@ def test_report_adds_collapsible_rainfall_context(
     assert '<details class="rainfall-context">' in html
     assert "Rainfall context (SILO)" in html
     assert "Rainfall regime" in html
-    assert "Extent SNR" in html
-    assert "Rain SNR" in html
+    assert "Extent SNR" not in html
+    assert "Rain SNR" not in html
     assert "Peak lag" in html
     assert 'id="rainfall-context-figure"' in html
     rainfall_trace = next(

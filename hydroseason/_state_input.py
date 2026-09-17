@@ -27,6 +27,8 @@ def prepare_monthly_extent(
         frame = extent.copy()
     if date_col is not None:
         frame.index = pd.to_datetime(frame.pop(date_col))
+    elif not isinstance(frame.index, pd.DatetimeIndex) and "date" in frame.columns:
+        frame.index = pd.to_datetime(frame.pop("date"))
     else:
         frame.index = pd.to_datetime(frame.index)
     frame.index = frame.index.to_period("M").to_timestamp()
@@ -56,12 +58,18 @@ def prepare_monthly_extent(
         frame[value_col] = np.where(counts["n_valid"] > 0, 100.0 * counts["n_water"] / counts["n_valid"], np.nan)
         frame["invalid_pct"] = np.where(counts["n_aoi"] > 0, 100.0 * counts["n_invalid"] / counts["n_aoi"], np.nan)
 
-    frame[value_col] = pd.to_numeric(frame[value_col], errors="coerce")
+    # Force float64 even when the source column is all-integer percentages
+    # (e.g. a hand-built [60, 80, 60, ...] fixture with no fractional
+    # values and no count-derived NaN to force an upcast): downstream
+    # refinement code mutates this column in place with NaN and fractional
+    # replacements, which pandas' strict dtype checking refuses to write
+    # into an int64 column.
+    frame[value_col] = pd.to_numeric(frame[value_col], errors="coerce").astype(float)
     if ((frame[value_col] < 0) | (frame[value_col] > 100)).dropna().any():
         raise ValueError("extent_pct must be between 0 and 100.")
     if "invalid_pct" not in frame:
         frame["invalid_pct"] = np.nan
-    frame["invalid_pct"] = pd.to_numeric(frame["invalid_pct"], errors="coerce")
+    frame["invalid_pct"] = pd.to_numeric(frame["invalid_pct"], errors="coerce").astype(float)
     if ((frame["invalid_pct"] < 0) | (frame["invalid_pct"] > 100)).dropna().any():
         raise ValueError("invalid_pct must be between 0 and 100.")
 
@@ -87,3 +95,26 @@ def prepare_monthly_extent(
             allow_unknown_quality & (frame["quality_state"] == "unknown")
         )
     return frame.rename(columns={value_col: "extent_pct"})
+
+
+# Fitting weight floor. A month observed at 0.5% still carries real signal
+# about its own value, so it is down-weighted rather than discarded; without a
+# floor its weight underflows to effectively zero and the month is silently
+# dropped from every fit.
+_MIN_CANDIDATE_WEIGHT = 0.05
+
+
+def candidate_weights(prepared: pd.DataFrame, *, min_weight: float = _MIN_CANDIDATE_WEIGHT) -> pd.Series:
+    """Per-month weight for weighted fits: observed fraction, zero if unusable.
+
+    ``observed_fraction`` is NaN when ``invalid_pct`` is unknown. An unknown
+    invalid fraction is not evidence of poor observation, so those months are
+    weighted as fully observed; ``candidate_usable`` is what decides whether
+    they enter the fit at all.
+    """
+    if not 0.0 < min_weight <= 1.0:
+        raise ValueError("min_weight must be in (0, 1].")
+    observed = pd.to_numeric(prepared["observed_fraction"], errors="coerce")
+    weights = observed.where(observed.notna(), 1.0).clip(lower=min_weight, upper=1.0)
+    return weights.where(prepared["candidate_usable"].to_numpy(dtype=bool), 0.0).astype(float)
+

@@ -13,11 +13,10 @@ import pandas as pd
 if TYPE_CHECKING:
     from ._dynamic_year import DynamicHydroYearConfig
 
-PHASES = ("recovery", "wet", "recession", "dry")
+PHASES = ("rising", "receding")
 PHASE_COLUMNS = [
     "hy_year", "phase", "phase_status", "phase_confidence", "phase_method",
-    "boundary_basis", "p_wet", "p_recession", "p_dry", "p_recovery",
-    "extent_pct", "candidate_usable",
+    "boundary_basis", "extent_pct", "candidate_usable",
 ]
 
 
@@ -35,13 +34,10 @@ def empty_monthly_phase(prepared: pd.DataFrame, *, method: str = "none", boundar
     frame["phase_confidence"] = np.nan
     frame["phase_method"] = method
     frame["boundary_basis"] = boundary_basis
-    frame["p_wet"] = np.nan
-    frame["p_recession"] = np.nan
-    frame["p_dry"] = np.nan
-    frame["p_recovery"] = np.nan
     frame["extent_pct"] = prepared["extent_pct"].to_numpy(dtype=float)
     frame["candidate_usable"] = prepared["candidate_usable"].to_numpy(dtype=bool)
     return frame.loc[:, PHASE_COLUMNS]
+
 
 
 def _as_month(value) -> pd.Timestamp | None:
@@ -162,12 +158,11 @@ def assign_rule_based_phases(
     noise_pp: float,
     boundary_basis: str = "robust_extrema",
 ) -> pd.DataFrame:
-    """Assign baseline-relative descriptive phases to robust annual cycles.
+    """Assign the public rising/receding phases to robust annual cycles.
 
-    The month-specific reference median is the baseline. Recovery ends when
-    extent crosses that baseline while rising; wet/high-water continues through
-    the peak until half the peak anomaly is lost; recession continues until the
-    extent falls back through baseline; and dry continues to the trough.
+    The month-specific reference median and half-loss calculations remain in
+    place for legacy boundary semantics, but adjacent intervals are merged into
+    the two canonical labels.
     """
     out = empty_monthly_phase(prepared, method="rule_based", boundary_basis=boundary_basis)
     out["phase_status"] = "outside_cycle"
@@ -229,10 +224,10 @@ def assign_rule_based_phases(
         has_half_loss = half_crossing is not None
 
         assignments = [
-            (start, wet_start - pd.DateOffset(months=1), "recovery"),
-            (wet_start, half_start - pd.DateOffset(months=1), "wet"),
-            (half_start, dry_start - pd.DateOffset(months=1), "recession"),
-            (dry_start, end, "dry"),
+            (start, wet_start - pd.DateOffset(months=1), "rising"),
+            (wet_start, half_start - pd.DateOffset(months=1), "rising"),
+            (half_start, dry_start - pd.DateOffset(months=1), "receding"),
+            (dry_start, end, "receding"),
         ]
 
         for phase_start, phase_end, phase in assignments:
@@ -242,8 +237,8 @@ def assign_rule_based_phases(
             out.loc[months, "hy_year"] = int(row["hy_year"])
             out.loc[months, "phase"] = phase
 
-        out.loc[peak, "phase"] = "wet"
-        out.loc[end, "phase"] = "dry"
+        out.loc[peak, "phase"] = "rising"
+        out.loc[end, "phase"] = "receding"
         cycle_months = _months_in(prepared, start, end)
         usable = out.loc[cycle_months, "candidate_usable"].astype(bool)
         phase_status = "ok" if row.get("status") == "complete" else "provisional"
@@ -258,21 +253,75 @@ def assign_rule_based_phases(
     return out.loc[:, PHASE_COLUMNS]
 
 
+def assign_two_phase_phases(
+    prepared: pd.DataFrame,
+    hydro_years: pd.DataFrame,
+    *,
+    boundary_basis: str = "robust_extrema",
+) -> pd.DataFrame:
+    out = empty_monthly_phase(
+        prepared,
+        method="two_phase",
+        boundary_basis=boundary_basis,
+    )
+    out["phase_status"] = "outside_cycle"
+    for _, row in hydro_years.iterrows():
+        start = _as_month(row.get("hy_start"))
+        end = _as_month(row.get("hy_end"))
+        peak = _as_month(row.get("peak_month"))
+        if start is None or end is None or peak is None or not (start <= peak <= end):
+            continue
+        cycle_months = _months_in(prepared, start, end)
+        out.loc[cycle_months, "hy_year"] = int(row["hy_year"])
+        timing_status = row.get("timing_status")
+        if timing_status == "unresolved":
+            out.loc[cycle_months, "phase_status"] = "unresolved_cycle"
+            continue
+        recovery = _months_in(prepared, start, peak)
+        recession = _months_in(prepared, peak + pd.DateOffset(months=1), end)
+        out.loc[recovery, "phase"] = "rising"
+        out.loc[recession, "phase"] = "receding"
+        usable = out.loc[cycle_months, "candidate_usable"].astype(bool)
+        if timing_status == "interval":
+            base_status = "interval_boundary"
+        else:
+            base_status = "ok" if row.get("status") == "complete" else "provisional"
+        out.loc[cycle_months, "phase_status"] = np.where(usable, base_status, "unusable")
+        out.loc[cycle_months, "phase_confidence"] = [
+            _confidence(row, has_half_loss=False, unusable=not bool(value))
+            for value in usable
+        ]
+    return out.loc[:, PHASE_COLUMNS]
+
+
 def assign_monthly_phases(
     prepared: pd.DataFrame,
     hydro_years: pd.DataFrame,
     config: DynamicHydroYearConfig,
     *,
     noise_pp: float,
+    boundary_basis: str | None = None,
 ) -> pd.DataFrame:
     """Dispatch monthly phase labelling without mutating annual products.
 
-    ``boundary_basis`` is always taken from ``config.detector`` (the engine
-    that actually produced ``hydro_years``), never hard-coded, so provenance
-    cannot lie about which detector the annual boundaries came from.
+    ``boundary_basis`` is always taken from ``boundary_basis`` or
+    ``config.detector`` (the engine that actually produced ``hydro_years``),
+    never hard-coded, so provenance cannot lie about which detector the
+    annual boundaries came from.
     """
-    if config.phase_model == "none":
-        return empty_monthly_phase(prepared, boundary_basis=config.detector)
-    if config.phase_model == "rule_based":
-        return assign_rule_based_phases(prepared, hydro_years, noise_pp=noise_pp, boundary_basis=config.detector)
-    raise ValueError(f"unknown phase_model {config.phase_model!r}")
+    basis = boundary_basis or config.detector
+    if config.phase_scheme == "none":
+        return empty_monthly_phase(prepared, boundary_basis=basis)
+    if config.phase_scheme == "two_phase":
+        return assign_two_phase_phases(prepared, hydro_years, boundary_basis=basis)
+    raise ValueError(f"unknown phase_scheme {config.phase_scheme!r}")
+
+
+__all__ = [
+    "PHASES",
+    "PHASE_COLUMNS",
+    "assign_monthly_phases",
+    "assign_rule_based_phases",
+    "assign_two_phase_phases",
+    "empty_monthly_phase",
+]

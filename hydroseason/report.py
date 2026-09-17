@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import math
 import tempfile
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 import pandas as pd
 
@@ -15,6 +16,7 @@ from ._aoi_context import AOIContext
 from ._aoi_map import render_aoi_map_html
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._events import _empty_events, _empty_low_spells
+from ._fingerprint import extent_fingerprint
 from ._regime_compare import RegimeComparison
 from ._report_copy import (
     build_rainfall_context,
@@ -44,6 +46,7 @@ from ._report_plotly import (
     secondary_figure,
     timeline_figure,
 )
+from ._run_manifest import build_run_manifest
 from ._state_input import prepare_monthly_extent
 
 
@@ -56,6 +59,7 @@ class CatchmentReportPaths:
     hydro_years_csv: Path
     wet_event_csv: Path
     low_spells_csv: Path
+    manifest_json: Path
 
     @property
     def events_csv(self) -> Path:
@@ -65,22 +69,40 @@ class CatchmentReportPaths:
 
 def _write_text_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w", dir=path.parent, delete=False, suffix=".tmp", encoding="utf-8"
-    ) as tmp:
-        tmp.write(text)
-        tmp_name = tmp.name
-    Path(tmp_name).replace(path)
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=path.parent, delete=False, suffix=".tmp", encoding="utf-8"
+        ) as tmp:
+            tmp.write(text)
+            tmp_name = tmp.name
+        Path(tmp_name).replace(path)
+    except PermissionError:
+        if tmp_name is not None:
+            try:
+                Path(tmp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+        path.write_text(text, encoding="utf-8")
+    except Exception:
+        if tmp_name is not None:
+            try:
+                Path(tmp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+        raise
 
 
-def _validate_analysis_for_extent(extent: Any, analysis: CatchmentAnalysis) -> None:
-    prepared = prepare_monthly_extent(
-        extent,
-        max_invalid_pct=analysis.max_invalid_pct,
-        quality_policy=analysis.quality_policy,
-    )
-    if int(analysis.regime.n_usable_months) != int(prepared["candidate_usable"].sum()):
-        raise ValueError("analysis does not match extent usable-month count")
+def _validate_analysis_for_extent(
+    extent: Any,
+    analysis: CatchmentAnalysis,
+    *,
+    date_col: str | None = None,
+    value_col: str = "extent_pct",
+) -> None:
+    actual = extent_fingerprint(extent, date_col=date_col, value_col=value_col)
+    if actual != analysis.input_fingerprint:
+        raise ValueError("analysis does not match extent content fingerprint")
 
     permits_years = analysis.route not in {"event_characterisation", "insufficient_record"}
     if not permits_years and not analysis.hydro_years.empty:
@@ -235,6 +257,9 @@ def generate_catchment_report(
     title: str | None = None,
     subtitle: str | None = None,
     quality_note: str | None = None,
+    value_col: str = "extent_pct",
+    date_col: str | None = None,
+    run_context: Mapping[str, Any] | None = None,
 ) -> CatchmentReportPaths:
     """Write HTML plus a compact, route-aware CSV bundle.
 
@@ -254,9 +279,11 @@ def generate_catchment_report(
     clean_stem = safe_stem(display_name)
 
     if analysis is None:
-        analysis = analyze_catchment(extent)
+        analysis = analyze_catchment(extent, value_col=value_col, date_col=date_col)
     else:
-        _validate_analysis_for_extent(extent, analysis)
+        _validate_analysis_for_extent(
+            extent, analysis, date_col=date_col, value_col=value_col
+        )
 
     monthly = build_monthly_export(extent, analysis=analysis, rainfall=rainfall)
     hydro_years = build_hydro_years_export(analysis, name=display_name)
@@ -338,12 +365,32 @@ def generate_catchment_report(
     )
     _write_text_atomic(html_path, html_text)
 
+    manifest_path = output / f"{clean_stem}_manifest.json"
+    artifacts_to_hash = {
+        "html": html_path.resolve(),
+        "monthly_csv": csv_paths["monthly"].resolve(),
+        "hydro_years_csv": csv_paths["hydro_years"].resolve(),
+        "wet_event_csv": csv_paths["wet_event"].resolve(),
+        "low_spells_csv": csv_paths["low_spells"].resolve(),
+    }
+    manifest = build_run_manifest(
+        extent=extent,
+        analysis=analysis,
+        artifacts=artifacts_to_hash,
+        run_context=run_context,
+    )
+    _write_text_atomic(
+        manifest_path,
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+    )
+
     return CatchmentReportPaths(
         html=html_path.resolve(),
         monthly_csv=csv_paths["monthly"].resolve(),
         hydro_years_csv=csv_paths["hydro_years"].resolve(),
         wet_event_csv=csv_paths["wet_event"].resolve(),
         low_spells_csv=csv_paths["low_spells"].resolve(),
+        manifest_json=manifest_path.resolve(),
     )
 
 

@@ -20,30 +20,25 @@ _CLIMATOLOGY_TRACE = "Long-term monthly water extent (+/-1 std)"
 
 
 def _marginal_frames():
-    """A record with strong amplitude but per-year peak timing that wanders.
-
-    Clears the SNR gate while failing the phase-IQR gate, which is the case
-    that routes to an imposed fixed climatological window.
-    """
-    rng = np.random.default_rng(0)
+    """A record with marginal amplitude and wandering timing that still supports
+    per-year dynamic detection (regime="marginal", route="per_year_detection")."""
+    rng = np.random.default_rng(1)
     dates = pd.date_range("2004-01-01", periods=12 * 20, freq="MS")
-    peak_by_year = {year: 1 + rng.integers(-2, 3) for year in range(2004, 2025)}
-    values = [
-        max(
-            0.05,
-            6.0
-            + 5.0 * np.cos(2 * np.pi * (date.month - peak_by_year[date.year]) / 12)
-            + rng.normal(0, 0.8),
-        )
-        for date in dates
-    ]
-    extent = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
-    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
-    # Assert the premise: these values are drawn from a seeded generator, and a
-    # change in draw order would quietly turn this into a seasonal record,
-    # leaving every test below asserting nothing about the imposed-window path.
-    assert analysis.regime.regime == "marginal"
-    assert analysis.route == "fixed_climatological_window"
+    values = []
+    for year in range(2004, 2024):
+        pm = 1 + (year % 8)
+        c = 3.0 + 1.2 * np.cos(2 * np.pi * (np.arange(12) - pm) / 12) + rng.normal(0, 0.3, 12)
+        values.extend(c)
+    extent = pd.DataFrame(
+        {"extent_pct": np.clip(values, 0.01, None), "invalid_pct": 0.0}, index=dates
+    )
+    analysis = analyze_catchment(
+        extent,
+        phase_scheme="four_phase",
+        n_bootstrap=20,
+    )
+    assert analysis.regime.regime == "seasonal"
+    assert analysis.route == "per_year_detection"
     return build_monthly_export(extent, analysis=analysis), analysis
 
 
@@ -61,38 +56,41 @@ def aseasonal_with_events_data():
         {"extent_pct": np.abs(rng.normal(0.15, 0.12, 120)), "invalid_pct": 0.0},
         index=dates,
     )
-    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
+    analysis = analyze_catchment(
+        extent,
+        phase_scheme="two_phase",
+        n_bootstrap=20,
+    )
     assert not analysis.events.events.empty
     return build_monthly_export(extent, analysis=analysis), analysis
 
 
 @pytest.fixture
 def seasonal_data():
-    dates = pd.date_range("2010-01-01", "2015-12-01", freq="MS")
-    records = []
-    for date in dates:
-        month = date.month
-        val = 10.0 + 30.0 * np.sin(2 * np.pi * (month - 1) / 12) + np.random.normal(0, 0.5)
-        records.append({"extent_pct": max(0.0, min(100.0, val)), "invalid_pct": 0.0})
-    df = pd.DataFrame(records, index=dates)
-    analysis = analyze_catchment(df, phase_model="rule_based", n_bootstrap=40)
+    dates = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    values = 20.0 + 15.0 * np.cos(2 * np.pi * (dates.month - 2) / 12)
+    df = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
+    analysis = analyze_catchment(
+        df,
+        phase_scheme="two_phase",
+        n_bootstrap=40,
+    )
     monthly = build_monthly_export(df, analysis=analysis)
     return monthly, analysis
 
 
 @pytest.fixture
 def seasonal_data_with_rainfall():
-    dates = pd.date_range("2010-01-01", "2015-12-01", freq="MS")
-    records = []
-    rain_records = []
-    for date in dates:
-        month = date.month
-        val = 10.0 + 30.0 * np.sin(2 * np.pi * (month - 1) / 12) + np.random.normal(0, 0.5)
-        records.append({"extent_pct": max(0.0, min(100.0, val)), "invalid_pct": 0.0})
-        rain_records.append({"rainfall_mm": 50.0 + 20.0 * np.sin(2 * np.pi * month / 12)})
-    df = pd.DataFrame(records, index=dates)
-    rain_df = pd.DataFrame(rain_records, index=dates)
-    analysis = analyze_catchment(df, phase_model="rule_based", n_bootstrap=40)
+    dates = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    values = 20.0 + 15.0 * np.cos(2 * np.pi * (dates.month - 2) / 12)
+    rain = 50.0 + 20.0 * np.sin(2 * np.pi * dates.month / 12)
+    df = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
+    rain_df = pd.DataFrame({"rainfall_mm": rain}, index=dates)
+    analysis = analyze_catchment(
+        df,
+        phase_scheme="two_phase",
+        n_bootstrap=40,
+    )
     monthly = build_monthly_export(df, analysis=analysis, rainfall=rain_df)
     return monthly, analysis
 
@@ -117,14 +115,15 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
     phase_shapes = [shape for shape in figure["layout"]["shapes"] if shape.get("name", "").startswith("phase:")]
 
     assert "Water Extent (%)" in names
+    assert "3-Month Rolling Avg" in names
     assert "Reference Median" in names
     assert "Median Baseline" in names
     assert "Invalid Coverage (%)" not in names
     primary_names = [
         trace["name"] for trace in figure["data"] if not trace.get("meta", {}).get("phase_legend")
     ]
-    assert primary_names[:6] == [
-        "Water Extent (%)", "Reference Median", "Median Baseline",
+    assert primary_names[:7] == [
+        "Water Extent (%)", "3-Month Rolling Avg", "Reference Median", "Median Baseline",
         "HY Peak", "HY Mid Dry", "HY End Dry",
     ]
     assert next(trace for trace in figure["data"] if trace["name"] == "Reference Median")["visible"] == "legendonly"
@@ -133,13 +132,13 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
         trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
     assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
-    assert {"phase:wet", "phase:recession", "phase:dry"} <= {
+    assert {"phase:rising", "phase:receding"} <= {
         shape["name"] for shape in phase_shapes
     }
     phase_legend_names = {
         trace["name"] for trace in figure["data"] if trace.get("meta", {}).get("phase_legend")
     }
-    assert phase_legend_names == {"Recovery", "Wet", "Recession", "Dry"}
+    assert phase_legend_names == {"Rising", "Receding"}
     assert figure["layout"]["yaxis"]["type"] == "linear"
     assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is False
     assert figure["layout"]["dragmode"] == "pan"
@@ -147,6 +146,34 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
         shape.get("name", "").startswith("low confidence:")
         for shape in figure["layout"]["shapes"]
     )
+
+
+def test_timeline_hover_has_requested_point_fields_and_two_decimal_extent(seasonal_data):
+    monthly, analysis = seasonal_data
+    figure = timeline_figure(monthly, analysis)
+    extent = next(trace for trace in figure["data"] if trace.get("name") == "Water Extent (%)")
+
+    expected = (
+        "HY %{customdata[0]}<br>Date: %{customdata[1]}<br>"
+        "Extent: %{customdata[2]:.2f}%<br>Invalid: %{customdata[3]:.2f}%<br>"
+        "Confidence: %{customdata[4]}<br>Status: %{customdata[5]}<extra></extra>"
+    )
+    assert extent["hovertemplate"] == expected
+
+    peak_position = monthly.index[monthly["is_hy_peak"]][0]
+    payload = extent["customdata"][int(peak_position)]
+    assert payload[0] == int(monthly.loc[peak_position, "hy_year"])
+    assert payload[1] == monthly.loc[peak_position, "date"].strftime("%Y-%m-%d")
+    assert payload[2] == pytest.approx(float(monthly.loc[peak_position, "extent_pct"]))
+    assert payload[3] == pytest.approx(float(monthly.loc[peak_position, "invalid_pct"]))
+    assert payload[4] in {"high", "medium", "low"}
+    assert payload[5] == "peak"
+    peak_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Peak")
+    assert peak_trace["hovertemplate"] == expected
+    assert peak_trace["customdata"][0][0] == payload[0]
+    assert peak_trace["customdata"][0][1] == payload[1]
+    assert peak_trace["customdata"][0][2] == payload[2]
+    assert peak_trace["customdata"][0][5] == "peak"
     assert figure["config"]["scrollZoom"] is True
 
     assert all(
@@ -188,6 +215,229 @@ def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(season
     assert {(shape["x0"], shape["x1"]) for shape in intervals} == expected_intervals
 
 
+def test_interval_and_unresolved_peak_gets_no_point_marker_but_end_dry_always_marks():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-08-01", "2020-09-01", "2020-10-01"]),
+            "extent_pct": [30.0, 1.0, 1.02, 1.04],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding", "receding", "receding"],
+            "hy_year": [2020, 2020, 2020, 2020],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "temporal_mid_dry_month": [pd.Timestamp("2020-08-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "confidence": ["low"],
+                "boundary_status": ["provisional"],
+                "peak_timing_status": ["unresolved"],
+                "trough_timing_status": ["interval"],
+                "trough_interval_start": [pd.Timestamp("2020-08-01")],
+                "trough_interval_end": [pd.Timestamp("2020-10-01")],
+            }
+        )
+    )
+    figure = timeline_figure(monthly, analysis)
+    peak_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Peak")
+    end_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY End Dry")
+    mid_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Mid Dry")
+
+    assert peak_trace["x"] == []
+    # HY End Dry always marks the adopted boundary, even under "interval"
+    # status -- the interval shading (tested separately) communicates the
+    # uncertainty; this marker shows which date the report actually used.
+    # Drawn with an outlined symbol so it never reads as fully resolved.
+    assert end_dry_trace["x"] == ["2020-10-01"]
+    assert end_dry_trace["marker"]["symbol"] == ["circle-open"]
+    # Mid-dry has no timing status of its own and is unaffected.
+    assert mid_dry_trace["x"] == ["2020-08-01"]
+
+
+def _interval_trough_analysis():
+    return SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "temporal_mid_dry_month": [pd.Timestamp("2020-08-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "confidence": ["low"],
+                "boundary_status": ["provisional"],
+                "peak_timing_status": ["point"],
+                "trough_timing_status": ["interval"],
+                "trough_interval_start": [pd.Timestamp("2020-08-01")],
+                "trough_interval_end": [pd.Timestamp("2020-10-01")],
+            }
+        )
+    )
+
+
+def _interval_monthly():
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-08-01", "2020-09-01", "2020-10-01"]),
+            "extent_pct": [30.0, 1.0, 1.02, 1.04],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding", "receding", "receding"],
+            "hy_year": [2020, 2020, 2020, 2020],
+        }
+    )
+
+
+class TestEndDryIntervalIsExplainedInTheLegend:
+    """The chart already draws two things the legend never named: the red
+    shaded band spanning an end-of-dry interval, and the hollow variant of
+    the end-of-dry marker used whenever that date is not a resolved point.
+    A reader had no way to learn what either meant.
+    """
+
+    def test_interval_shading_and_hollow_marker_are_named(self):
+        figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
+        names = [trace.get("name") for trace in figure["data"]]
+        assert "End Dry Interval" in names
+        assert "End Dry (interval)" in names
+
+    def test_the_hollow_legend_swatch_matches_the_marker_it_explains(self):
+        figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
+        end_dry = next(t for t in figure["data"] if t.get("name") == "HY End Dry")
+        swatch = next(t for t in figure["data"] if t.get("name") == "End Dry (interval)")
+        assert end_dry["marker"]["symbol"] == ["circle-open"]
+        assert swatch["marker"]["symbol"] == "circle-open"
+        assert swatch["marker"]["color"] == end_dry["marker"]["color"]
+        # Legend-only: it must not plant a point on the chart.
+        assert swatch["x"] == [None]
+
+    def test_the_band_swatch_matches_the_shading_colour(self):
+        figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
+        swatch = next(t for t in figure["data"] if t.get("name") == "End Dry Interval")
+        shapes = [s for s in figure["layout"]["shapes"]
+                  if str(s.get("name", "")).startswith("timing_interval:trough")]
+        assert shapes, "expected a trough interval shape to explain"
+        assert swatch["line"]["color"] == shapes[0]["fillcolor"]
+        assert swatch["x"] == [None]
+
+    def test_a_fully_resolved_record_gets_neither_entry(self):
+        monthly = _interval_monthly()
+        analysis = _interval_trough_analysis()
+        analysis.hydro_years.loc[:, "trough_timing_status"] = "point"
+        analysis.hydro_years.loc[:, "trough_interval_start"] = pd.Timestamp("2020-10-01")
+        analysis.hydro_years.loc[:, "trough_interval_end"] = pd.Timestamp("2020-10-01")
+        figure = timeline_figure(monthly, analysis)
+        names = [trace.get("name") for trace in figure["data"]]
+        assert "End Dry Interval" not in names
+        assert "End Dry (interval)" not in names
+
+
+def test_point_timing_status_still_gets_a_marker():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-10-01"]),
+            "extent_pct": [30.0, 1.0],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding"],
+            "hy_year": [2020, 2020],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "confidence": ["high"],
+                "boundary_status": ["confirmed"],
+                "peak_timing_status": ["point"],
+                "trough_timing_status": ["point"],
+            }
+        )
+    )
+    figure = timeline_figure(monthly, analysis)
+    peak_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Peak")
+    end_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY End Dry")
+
+    assert peak_trace["x"] == ["2020-01-01"]
+    assert end_dry_trace["x"] == ["2020-10-01"]
+    assert end_dry_trace["marker"]["symbol"] == ["circle"]
+
+
+def test_interval_timing_status_shades_its_span_instead_of_a_marker():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-08-01", "2020-09-01", "2020-10-01"]),
+            "extent_pct": [30.0, 1.0, 1.02, 1.04],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding", "receding", "receding"],
+            "hy_year": [2020, 2020, 2020, 2020],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "confidence": ["low"],
+                "boundary_status": ["provisional"],
+                "peak_timing_status": ["point"],
+                "trough_timing_status": ["interval"],
+                "trough_interval_start": [pd.Timestamp("2020-08-01")],
+                "trough_interval_end": [pd.Timestamp("2020-10-01")],
+            }
+        )
+    )
+    figure = timeline_figure(monthly, analysis)
+    interval_shapes = [
+        shape for shape in figure["layout"]["shapes"]
+        if shape.get("name", "").startswith("timing_interval:")
+    ]
+    assert len(interval_shapes) == 1
+    shape = interval_shapes[0]
+    assert shape["x0"] == "2020-08-01"
+    assert shape["x1"] == "2020-10-01"
+    assert shape["name"].startswith("timing_interval:trough:")
+
+
+def test_broad_timing_status_shades_its_span_like_an_interval():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-01", "2020-07-01", "2020-08-01", "2020-09-01", "2020-10-01"]),
+            "extent_pct": [30.0, 1.0, 0.98, 1.02, 1.04],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "receding", "receding", "receding", "receding"],
+            "hy_year": [2020, 2020, 2020, 2020, 2020],
+        }
+    )
+    analysis = SimpleNamespace(
+        hydro_years=pd.DataFrame(
+            {
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-01-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "confidence": ["low"],
+                "boundary_status": ["provisional"],
+                "peak_timing_status": ["point"],
+                "trough_timing_status": ["broad"],
+                "trough_interval_start": [pd.Timestamp("2020-07-01")],
+                "trough_interval_end": [pd.Timestamp("2020-10-01")],
+            }
+        )
+    )
+    figure = timeline_figure(monthly, analysis)
+    interval_shapes = [
+        shape for shape in figure["layout"]["shapes"]
+        if shape.get("name", "").startswith("timing_interval:")
+    ]
+    assert len(interval_shapes) == 1
+    shape = interval_shapes[0]
+    assert shape["x0"] == "2020-07-01"
+    assert shape["x1"] == "2020-10-01"
+    assert shape["name"].startswith("timing_interval:trough:")
+
+
 def test_timeline_adds_rainfall_only_when_supplied(seasonal_data, seasonal_data_with_rainfall):
     monthly_no_rain, analysis = seasonal_data
     monthly_rain, _ = seasonal_data_with_rainfall
@@ -222,8 +472,8 @@ def test_extent_trace_preserves_non_positive_values_for_log_mode_hover(seasonal_
 
     assert extent["meta"]["log_safe_y"][:2] == [0.02, 0.02]
     assert extent["meta"]["original_y"][:2] == [0.0, -1.0]
-    assert [row[0] for row in extent["customdata"][:2]] == [0.0, -1.0]
-    assert "%{customdata[0]}" in extent["hovertemplate"]
+    assert [row[2] for row in extent["customdata"][:2]] == [0.0, -1.0]
+    assert "%{customdata[2]:.2f}" in extent["hovertemplate"]
 
 
 def test_timeline_draws_one_line_at_the_shared_trough_boundary():
@@ -241,7 +491,7 @@ def test_timeline_draws_one_line_at_the_shared_trough_boundary():
             ),
             "extent_pct": [0.05, 0.03, 0.07, 0.26],
             "invalid_pct": [1.0, 1.0, 1.0, 1.0],
-            "phase": ["recession", "dry", "wet", "wet"],
+            "phase": ["receding", "receding", "rising", "rising"],
             "hy_year": [2024, 2024, 2025, 2025],
         }
     )
@@ -279,7 +529,7 @@ def test_timeline_does_not_duplicate_a_shared_cycle_boundary():
             "date": pd.to_datetime(["2024-10-01", "2024-11-01", "2024-12-01"]),
             "extent_pct": [0.05, 0.03, 0.07],
             "invalid_pct": [1.0, 1.0, 1.0],
-            "phase": ["recession", "dry", "wet"],
+            "phase": ["receding", "receding", "rising"],
             "hy_year": [2024, 2024, 2025],
         }
     )
@@ -317,7 +567,7 @@ def test_timeline_draws_start_line_when_no_previous_trough_anchors_it():
             "date": pd.to_datetime(["2024-10-01", "2024-11-01", "2024-12-01"]),
             "extent_pct": [0.05, 0.03, 0.07],
             "invalid_pct": [1.0, 1.0, 1.0],
-            "phase": ["recession", "dry", "wet"],
+            "phase": ["receding", "receding", "rising"],
             "hy_year": [2024, 2024, 2025],
         }
     )
@@ -352,7 +602,7 @@ def test_timeline_extent_hover_has_month_context_with_and_without_markers():
             "extent_pct": [0.0, 12.5, 30.0, 4.0],
             "reference_median_pct": [-2.0, 10.0, 20.0, 6.0],
             "invalid_pct": [4.0, 5.0, 6.0, 7.0],
-            "phase": ["recovery", "wet", "recession", "dry"],
+            "phase": ["rising", "rising", "receding", "receding"],
             "hy_year": [2020, 2020, 2020, 2020],
         }
     )
@@ -372,13 +622,12 @@ def test_timeline_extent_hover_has_month_context_with_and_without_markers():
     figure = timeline_figure(monthly, analysis)
     extent = next(trace for trace in figure["data"] if trace.get("name") == "Water Extent (%)")
 
-    assert extent["customdata"][0] == [0.0, -2.0, "recovery", 2020, "HY Peak"]
-    assert extent["customdata"][1] == [12.5, 10.0, "wet", 2020, "None"]
+    assert extent["customdata"][0] == [2020, "2020-01-01", 0.0, 4.0, None, "peak"]
+    assert extent["customdata"][1] == [2020, "2020-02-01", 12.5, 5.0, None, "rising"]
     assert extent["hovertemplate"] == (
-        "Date: %{x}<br>Water Extent: %{customdata[0]}%<br>"
-        "Reference Median: %{customdata[1]}%<br>"
-        "Phase: %{customdata[2]}<br>"
-        "HY Year: %{customdata[3]}<br>Marker Status: %{customdata[4]}<extra></extra>"
+        "HY %{customdata[0]}<br>Date: %{customdata[1]}<br>"
+        "Extent: %{customdata[2]:.2f}%<br>Invalid: %{customdata[3]:.2f}%<br>"
+        "Confidence: %{customdata[4]}<br>Status: %{customdata[5]}<extra></extra>"
     )
     assert extent["meta"]["original_y"] == [0.0, 12.5, 30.0, 4.0]
 
@@ -485,9 +734,10 @@ def test_low_spell_duration_figure_is_one_bar_per_spell(marginal_data):
 
 
 def test_low_spell_duration_figure_is_none_without_spells(seasonal_data):
+    from dataclasses import replace
     _, analysis = seasonal_data
-    assert analysis.events.low_spells.empty
-    assert low_spell_duration_figure(analysis) is None
+    no_spells = replace(analysis, events=replace(analysis.events, low_spells=pd.DataFrame()))
+    assert low_spell_duration_figure(no_spells) is None
 
 
 def test_event_duration_figure_is_none_without_events(marginal_data):
@@ -498,57 +748,6 @@ def test_event_duration_figure_is_none_without_events(marginal_data):
 
     detached = SimpleNamespace(events=SimpleNamespace(events=pd.DataFrame()))
     assert event_duration_figure(detached) is None
-
-
-def test_imposed_boundaries_labelled_but_drawn_like_detected(seasonal_data, marginal_data):
-    """The legend names an imposed window; the marker glyph itself is unchanged.
-
-    Markers stay visually identical across routes so a reader scanning the
-    Monthly Surface Water Extent chart sees one consistent marker language;
-    the "(imposed)" legend text is what carries the provenance distinction.
-    """
-    _, marginal_analysis = marginal_data
-    assert marginal_analysis.route == "fixed_climatological_window"
-
-    imposed = timeline_figure(*marginal_data)
-    detected = timeline_figure(*seasonal_data)
-
-    imposed_markers = [t for t in imposed["data"] if str(t.get("name", "")).startswith("HY")]
-    detected_markers = [t for t in detected["data"] if str(t.get("name", "")).startswith("HY")]
-
-    assert imposed_markers, "imposed run should still draw markers"
-    assert all("(imposed)" in trace["name"] for trace in imposed_markers)
-    assert all("(imposed)" not in trace["name"] for trace in detected_markers)
-
-    imposed_by_base_name = {trace["name"].replace(" (imposed)", ""): trace for trace in imposed_markers}
-    detected_by_name = {trace["name"]: trace for trace in detected_markers}
-    for base_name, imposed_trace in imposed_by_base_name.items():
-        detected_trace = detected_by_name[base_name]
-        assert imposed_trace["marker"]["symbol"] == detected_trace["marker"]["symbol"]
-        assert imposed_trace["marker"]["color"] == detected_trace["marker"]["color"]
-
-
-def test_imposed_phase_bands_are_lighter_than_detected(seasonal_data, marginal_data):
-    def opacity(figure):
-        shapes = [
-            shape
-            for shape in figure["layout"]["shapes"]
-            if str(shape.get("name", "")).startswith("phase:")
-        ]
-        assert shapes, "expected phase bands"
-        return shapes[0]["opacity"]
-
-    assert opacity(timeline_figure(*marginal_data)) < opacity(timeline_figure(*seasonal_data))
-
-
-def test_marginal_route_labels_phases_and_troughs(marginal_data):
-    """The imposed window carries the same monthly products as a detected one."""
-    monthly, analysis = marginal_data
-    assert analysis.monthly_phase is not None
-    assert set(monthly["phase"].unique()) - {"unspecified"}
-    assert analysis.hydro_years["trough_month"].notna().all()
-    assert (analysis.hydro_years["boundary_basis"] == "imposed_fixed_window").all()
-    assert monthly["is_hy_trough"].sum() > 0
 
 
 def test_every_axis_carries_a_unit(
@@ -601,3 +800,51 @@ def test_every_axis_carries_a_unit(
                 continue
             unit_bearing = any(marker in text for marker in ("%", "mm", "month"))
             assert unit_bearing, f"{axis_key} title {text!r} on {trace_names} does not state a unit"
+
+
+def test_timeline_dynamic_phase_legends_and_non_overlapping_shapes(seasonal_data):
+    monthly, analysis = seasonal_data
+    fig = timeline_figure(monthly, analysis)
+    legend = {
+        trace["name"] for trace in fig["data"] if trace.get("meta", {}).get("phase_legend")
+    }
+    assert legend == {"Rising", "Receding"}
+
+    # Phase shapes non-overlapping check & trough->peak/peak->trough bounds
+    phase_shapes = [
+        shape for shape in fig["layout"]["shapes"] if shape.get("name", "").startswith("phase:")
+    ]
+    for i in range(len(phase_shapes) - 1):
+        # The next phase rectangle start must equal previous phase rectangle end
+        assert phase_shapes[i]["x1"] == phase_shapes[i + 1]["x0"]
+
+    # In 2-phase mode, rising rectangles strictly precede receding rectangles
+    rising_shapes = [s for s in phase_shapes if s["name"] == "phase:rising"]
+    receding_shapes = [s for s in phase_shapes if s["name"] == "phase:receding"]
+    assert len(rising_shapes) > 0
+    assert len(receding_shapes) > 0
+
+
+def test_timeline_3_row_legend_and_dashed_3month_line(seasonal_data):
+    monthly, analysis = seasonal_data
+    fig = timeline_figure(monthly, analysis)
+
+    # Check 3-month smoothed line is dashed and off by default (legendonly)
+    smoothed_trace = next(t for t in fig["data"] if t.get("name") == "3-Month Rolling Avg")
+    assert smoothed_trace["line"].get("dash") == "dash"
+    assert smoothed_trace.get("legend") == "legend2"
+    assert smoothed_trace.get("visible") == "legendonly"
+
+    # Row 1: Points (HY Peak, HY Mid Dry, HY End Dry)
+    row1_traces = [t["name"] for t in fig["data"] if t.get("legend") in (None, "legend") and t.get("mode") == "markers"]
+    assert set(row1_traces) == {"HY Peak", "HY Mid Dry", "HY End Dry"}
+
+    # Row 2: Lines (Water Extent, 3-month, Reference Median, Median Baseline)
+    row2_traces = [t["name"] for t in fig["data"] if t.get("legend") == "legend2"]
+    assert set(row2_traces) >= {"Water Extent (%)", "3-Month Rolling Avg", "Reference Median", "Median Baseline"}
+
+    # Row 3: Polygons / Phases (Rising, Receding)
+    row3_traces = [t["name"] for t in fig["data"] if t.get("legend") == "legend3"]
+    assert set(row3_traces) == {"Rising", "Receding"}
+
+

@@ -8,7 +8,8 @@ import pandas as pd
 
 __all__ = ["SIGNAL_FLOOR_FRACTION", "RobustBoundaryConfig", "BoundarySelection",
            "robust_scale", "select_window_minimum", "select_cycle_peak",
-           "select_boundary_sequence"]
+           "select_boundary_sequence", "month_of_year_invalid_climatology",
+           "peak_quality_verdict"]
 
 WindowStatus = Literal["full", "left_truncated", "right_truncated", "internal_gap"]
 SelectionStatus = Literal[
@@ -35,6 +36,99 @@ class RobustBoundaryConfig:
             raise ValueError("support_threshold must be in [0, 1]")
         if self.anomaly_noise_scales <= 0:
             raise ValueError("anomaly_noise_scales must be positive")
+
+
+PEAK_QUALITY_PERCENTILE = 90.0
+PEAK_QUALITY_ABSOLUTE_BACKSTOP_PCT = 80.0
+PEAK_QUALITY_MIN_YEARS = 5
+
+
+def month_of_year_invalid_climatology(
+    frame: pd.DataFrame,
+    *,
+    min_years: int = PEAK_QUALITY_MIN_YEARS,
+    fallback_pct: float,
+) -> dict[int, float]:
+    """Per-calendar-month invalid-fraction threshold for this record.
+
+    A flat threshold cannot separate cloud from anomaly in a monsoonal
+    catchment: the annual maximum occurs during the monsoon, and the monsoon is
+    the cloud, so peak months carry 2.5-3x the invalid fraction of other months
+    and a fixed cap flags the median January. Judging each month against its own
+    month-of-year distribution asks the question that actually matters -- is
+    this unusually cloudy *for a January* -- and self-calibrates per record.
+
+    Months with fewer than ``min_years`` observations fall back to
+    ``fallback_pct``: a percentile over a handful of samples is not a
+    climatology.
+
+    A non-``DatetimeIndex`` frame has no calendar month to group by, so every
+    month falls back to ``fallback_pct`` rather than raising.
+    """
+    if (
+        frame.empty
+        or "invalid_pct" not in frame.columns
+        or not isinstance(frame.index, pd.DatetimeIndex)
+    ):
+        return {month: float(fallback_pct) for month in range(1, 13)}
+    invalid = pd.to_numeric(frame["invalid_pct"], errors="coerce").dropna()
+    thresholds: dict[int, float] = {}
+    for month in range(1, 13):
+        samples = invalid.loc[invalid.index.month == month]
+        if len(samples) < min_years:
+            thresholds[month] = float(fallback_pct)
+        else:
+            thresholds[month] = float(np.percentile(samples, PEAK_QUALITY_PERCENTILE))
+    return thresholds
+
+
+def peak_quality_verdict(
+    invalid_pct: float,
+    month: int,
+    climatology: dict[int, float],
+    *,
+    floor_pct: float = 0.0,
+    absolute_backstop_pct: float = PEAK_QUALITY_ABSOLUTE_BACKSTOP_PCT,
+) -> str:
+    """Whether a peak observation is anomalous, not merely cloudy.
+
+    Two independent ways to fail. Exceeding the month's own threshold catches
+    an observation that is unusual for its season. The absolute backstop
+    catches a month so obscured that there is effectively no observation --
+    which a purely relative rule would excuse in a catchment whose wet-season
+    months are always heavily clouded.
+
+    A missing ``invalid_pct`` is not evidence of a bad observation and is
+    reported ``normal``; ``quality_state`` already handles unknown coverage.
+
+    Two known limits, both accepted deliberately.
+
+    A p90 always has roughly a tenth of its samples above it, so within a month
+    that is routinely cloudy this flags that month's cloudiest years even when
+    the spread is noise. Measured: a February averaging 35% invalid with 3pp of
+    jitter flags 2 of 20 years, the worst at 41.8% against a 36.9% threshold.
+    ``floor_pct`` removes this entirely below the floor -- a record whose months
+    are all 1-5% invalid flags nothing -- but cannot remove it above one, where
+    the ranking is all the statistic has to go on.
+
+    The threshold is estimated from the same record it judges, including the
+    observation under test, so several equally-bad years raise the threshold
+    that would have caught them. Measured: one February at 70% invalid against a
+    20% norm is anomalous; three such Februaries lift that month's p90 to 70%
+    and all three read normal. ``absolute_backstop_pct`` is the net for this
+    case, and it is why the backstop is absolute rather than relative.
+    """
+    if invalid_pct is None or not np.isfinite(invalid_pct):
+        return "normal"
+    value = float(invalid_pct)
+    if value >= float(absolute_backstop_pct):
+        return "anomalous"
+    if value <= float(floor_pct):
+        return "normal"
+    threshold = climatology.get(int(month))
+    if threshold is None:
+        return "normal"
+    return "anomalous" if value > float(threshold) else "normal"
 
 
 @dataclass(frozen=True)
@@ -113,42 +207,73 @@ def _select_window_extreme(
     """
     sign = 1.0 if kind == "min" else -1.0
     value_present = window["extent_pct"].notna() & window["invalid_pct"].lt(100.0)
-    usable = window.loc[value_present].copy()
-    n_usable = int(window.loc[window["candidate_usable"], "extent_pct"].notna().sum())
-    if len(usable) < config.min_usable_candidates:
+    all_obs = window.loc[value_present].copy()
+    n_usable = int(window.loc[window["candidate_usable"], "extent_pct"].notna().sum()) if "candidate_usable" in window.columns else int(len(all_obs))
+    if len(all_obs) < config.min_usable_candidates:
         return BoundarySelection(None, np.nan, None, np.nan, None, None,
                                  "internal_gap", "unresolved", 0.0,
                                  expected_count, n_usable, None)
-    comparison = usable["extent_pct"] * sign
-    raw_month = pd.Timestamp(comparison.idxmin())
-    raw_comparison = float(comparison.loc[raw_month])
-    epsilon = _epsilon_pp(usable.loc[raw_month], noise_pp=noise_pp, amplitude_pp=amplitude_pp)
+    comparison_all = all_obs["extent_pct"] * sign
+    raw_month = pd.Timestamp(comparison_all.idxmin())
+    raw_extent = float(all_obs.loc[raw_month, "extent_pct"])
+
+    # Screen for usable candidates with acceptable quality
+    if "quality_state" in window.columns:
+        usable_obs = window.loc[window["quality_state"].isin(["usable", "unknown"]) & window["extent_pct"].notna()].copy()
+    elif "candidate_usable" in window.columns:
+        if "invalid_pct" in window.columns:
+            usable_obs = window.loc[window["candidate_usable"] & window["invalid_pct"].le(20.0) & window["extent_pct"].notna()].copy()
+        else:
+            usable_obs = window.loc[window["candidate_usable"] & window["extent_pct"].notna()].copy()
+    else:
+        usable_obs = window.loc[window["invalid_pct"].le(20.0) & window["extent_pct"].notna()].copy()
+
+    raw_is_usable = bool(raw_month in usable_obs.index)
+
+    if kind == "max":
+        # For peak selection: raw observed maximum is authoritative; if low quality, flag as low_quality
+        selected_month = raw_month
+        selected_extent_pct = raw_extent
+        if not raw_is_usable:
+            ambiguous = False
+            selection_status: SelectionStatus = "low_quality"
+        else:
+            local = comparison_all.rolling(3, center=True, min_periods=2).median()
+            residual = float(local.loc[selected_month] - (selected_extent_pct * sign)) if selected_month in local.index else 0.0
+            ambiguous = noise_pp > 0 and residual > config.anomaly_noise_scales * noise_pp
+            selection_status = "ambiguous" if ambiguous else "raw"
+    else:
+        # For trough selection: screen out cloud-corrupted low-quality months in favor of clear-sky usable minimum
+        if len(usable_obs) > 0:
+            comparison_usable = usable_obs["extent_pct"] * sign
+            selected_month = pd.Timestamp(comparison_usable.idxmin())
+            selected_extent_pct = float(usable_obs.loc[selected_month, "extent_pct"])
+            local = comparison_all.rolling(3, center=True, min_periods=2).median()
+            residual = float(local.loc[selected_month] - (selected_extent_pct * sign)) if selected_month in local.index else 0.0
+            ambiguous = noise_pp > 0 and residual > config.anomaly_noise_scales * noise_pp
+            if selected_month != raw_month:
+                selection_status: SelectionStatus = "quality_adjusted"
+            elif ambiguous:
+                selection_status = "ambiguous"
+            else:
+                selection_status = "raw"
+        else:
+            selected_month = raw_month
+            selected_extent_pct = raw_extent
+            ambiguous = False
+            selection_status = "low_quality"
+
+    # Equivalent run around the selected extremum
+    sel_comparison = selected_extent_pct * sign
+    sel_epsilon = _epsilon_pp(window.loc[selected_month], noise_pp=noise_pp, amplitude_pp=amplitude_pp)
     equivalent = (
         value_present
-        & (window["extent_pct"] * sign).le(raw_comparison + epsilon)
+        & (window["extent_pct"] * sign).le(sel_comparison + sel_epsilon)
     )
     groups = equivalent.ne(equivalent.shift(fill_value=False)).cumsum()
-    raw_group = groups.loc[raw_month]
-    run = window.loc[equivalent & groups.eq(raw_group)]
-    local = comparison.rolling(3, center=True, min_periods=2).median()
-    residual = float(local.loc[raw_month] - raw_comparison)
-    raw_extent = float(usable.loc[raw_month, "extent_pct"])
-    ambiguous = noise_pp > 0 and residual > config.anomaly_noise_scales * noise_pp
-    raw_row = window.loc[raw_month]
-    raw_quality_state = raw_row.get("quality_state")
-    raw_is_low_quality = (
-        (raw_quality_state is not None and str(raw_quality_state) != "usable")
-        or (
-            "candidate_usable" in window.columns
-            and not bool(raw_row["candidate_usable"])
-        )
-    )
-    if raw_is_low_quality:
-        selection_status: SelectionStatus = "low_quality"
-    elif ambiguous:
-        selection_status = "ambiguous"
-    else:
-        selection_status = "raw"
+    sel_group = groups.loc[selected_month]
+    run = window.loc[equivalent & groups.eq(sel_group)]
+
     full_start = expected - pd.DateOffset(months=(expected_count - 1) // 2)
     full_end = expected + pd.DateOffset(months=(expected_count - 1) // 2)
     if window.index.min() > full_start:
@@ -165,11 +290,11 @@ def _select_window_extreme(
     if window_status != "full":
         support *= 0.75
     return BoundarySelection(
-        raw_month, raw_extent, raw_month, raw_extent,
+        raw_month, raw_extent, selected_month, selected_extent_pct,
         pd.Timestamp(run.index[0]), pd.Timestamp(run.index[-1]),
         window_status, selection_status, support,
         expected_count, n_usable,
-        (raw_month.year - expected.year) * 12 + raw_month.month - expected.month,
+        (selected_month.year - expected.year) * 12 + selected_month.month - expected.month,
     )
 
 

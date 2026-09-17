@@ -70,7 +70,14 @@ Zenodo mints it.
 # 1. Freeze metadata: pyproject version, the fallback in
 #    hydroseason/__init__.py, CITATION.cff `version` + `date-released`,
 #    docs/citation.md, and a dated `## [<version>] - YYYY-MM-DD` CHANGELOG
-#    heading must all agree. Verify with:
+#    heading must all agree. `check_release_metadata.py` also validates:
+#    - structural CHANGELOG headings (no duplicate version sections),
+#    - date-released synchronization with CITATION.cff,
+#    - method policy manifest and validation receipt (release_decision="pass",
+#      matching method policy ID, supported Python runtime >=3.10,<3.14),
+#    - clean repository scope (no forbidden research artifacts or campaign scripts,
+#      no tracked gitignored files).
+#    Verify with:
 python scripts/check_release_metadata.py --tag "v<version>" --require-released
 
 # 2. Lint, lockfile, and tests
@@ -79,15 +86,18 @@ uv lock --check
 python -m pytest -q -m "not experimental and not network and not performance" \
   --cov=hydroseason --cov-report=term-missing --cov-fail-under=80
 
-# 3. Reproducibility gates (require the [all,docs] extras)
+# 3. Method policy, documentation, and clean workspace verification
+python -m pytest tests/test_decision_policy_docs.py tests/test_release_metadata.py -v
+git ls-files -c -i --exclude-standard  # must be empty
+
+# 4. Reproducibility gates (require the [all,docs] extras)
 python scripts/prepare_case_study_data.py --check
 python scripts/_build_study_case_offline.py --check
 python scripts/_build_study_case_rainfall.py --check
-python scripts/run_resolution_case_study.py --check --output-dir case_studies/results/resolution
 python scripts/render_case_study_docs.py --check
 python -m mkdocs build --strict
 
-# 4. Build and verify artifacts
+# 5. Build and verify artifacts
 python -m build
 python -m twine check dist/*
 check-wheel-contents dist/*.whl
@@ -147,20 +157,17 @@ Once the required CI checks pass on the release commit and Step 2 is clean:
    which:
    - re-validates tag/version/date/changelog agreement;
    - re-runs every release gate against the tagged commit;
-   - builds the sdist/wheel once, builds
-     `hydroseason-<version>-case-studies.zip` from the checked case-study
-     results and docs, and uploads them as a build artifact;
+   - builds the sdist and wheel once and uploads them as a build artifact;
    - waits for human approval on the `pypi` environment, then publishes the
      exact downloaded sdist/wheel to PyPI via OIDC trusted publishing;
-   - uploads the identical sdist, wheel, and case-studies zip to the GitHub
-     Release as assets.
+   - uploads the identical sdist and wheel to the GitHub Release as assets.
 5. When the `pypi` environment deployment is queued, a required reviewer
    must approve it in the Actions UI before publishing proceeds. Confirm the
    artifact being approved is the one built from the tagged commit (check
    the run's commit SHA) before approving.
-6. Verify the wheel, sdist, and case-studies zip hashes attached to the
-   GitHub Release match the artifact produced by the workflow run (compare
-   `sha256sum` locally against the downloaded assets if in doubt).
+6. Verify the wheel and sdist hashes attached to the GitHub Release match the
+   artifact produced by the workflow run (compare `sha256sum` locally against
+   the downloaded assets if in doubt).
 
 Enabled Zenodo integration archives the published GitHub Release
 automatically; no manual Zenodo action is required at this step.
@@ -173,8 +180,7 @@ Once PyPI publishing completes:
   the documented CSV/report smoke from `README.md`.
 - Check PyPI project metadata and rendered README at
   https://pypi.org/project/hydroseason/.
-- Check GitHub Release assets (wheel, sdist, case-studies zip) download and
-  hash-match.
+- Check GitHub Release assets (wheel, sdist) download and hash-match.
 - Check the deployed docs site (`docs.yml`) reflects the released version.
 - Check Zenodo creator, version, and license metadata against
   `CITATION.cff` once the archive appears

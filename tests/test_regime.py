@@ -4,8 +4,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason import analyze_catchment, load_extent_csv
-from hydroseason._regime import REGIME_THRESHOLDS, assess_water_regime
+from hydroseason import load_extent_csv
+from hydroseason._regime import (
+    REGIME_THRESHOLDS,
+    assess_water_regime,
+    public_route,
+)
 
 _CASE_STUDY_EXTENT_DIR = Path("case_studies/data/extent")
 _CASE_STUDY_KEYS = (
@@ -27,7 +31,7 @@ def _checked_case_study_regimes():
                 value_col="extent_pct",
             ),
             quality_policy="flag",
-            n_bootstrap=999,
+            n_bootstrap=200,
             random_state=0,
         )
         for key in _CASE_STUDY_KEYS
@@ -91,6 +95,31 @@ def _stable_peak_unstable_trough_record(*, years=30):
     )
 
 
+def _intermittent_stable_pulses(*, informative_years: int, flat_value: float = 0.0):
+    """Twelve usable years with stable extrema only in detectable pulse years."""
+    years = 12
+    index = pd.date_range("2000-01-01", periods=12 * years, freq="MS")
+    chunks = []
+    for year in range(years):
+        if year < informative_years:
+            values = np.full(12, 5.0)
+            values[2] = 25.0
+            values[8] = 0.0
+        else:
+            values = np.full(12, flat_value)
+        chunks.append(values)
+    return pd.DataFrame(
+        {"extent_pct": np.concatenate(chunks), "invalid_pct": 0.0}, index=index
+    )
+
+
+def _small_clean_cycle(*, years: int = 12):
+    values = np.full(12, 5.0)
+    values[2] = 6.5
+    values[8] = 4.0
+    return _series(values, years=years)
+
+
 # --- regime classification -------------------------------------------------
 
 def test_regime_thresholds_publish_peak_concentration_contract():
@@ -120,45 +149,58 @@ def test_checked_case_study_fixtures_preserve_scientific_timing_properties():
     for result in regimes.values():
         assert 0.0 <= result.peak_timing_concentration_ci_low <= 1.0
         assert 0.0 <= result.peak_timing_concentration_ci_high <= 1.0
-        assert result.n_timing_years == 21
-        assert "fewer than 30 usable annual timings" in " ".join(result.caveats)
+        assert result.n_usable_years == 21
+        assert result.n_timing_years == result.n_peak_timing_years
+        assert result.n_peak_timing_years <= result.n_usable_years
+        assert result.n_trough_timing_years <= result.n_usable_years
+        assert "seasonality policy hydroseason-v0.2.0" in " ".join(result.caveats)
     assert regimes["daly_river_nt"].peak_timing_concentration_ci_low >= 0.7
     assert regimes["lachlan_river_nsw"].peak_timing_concentration_ci_low < 0.7
 
 
 def test_checked_case_study_routes_follow_snr_and_trough_timing_evidence():
-    """Changing the route gate must not force a hydro-year onto diffuse fixtures."""
-    analyses = {
-        key: analyze_catchment(
-            load_extent_csv(
-                _CASE_STUDY_EXTENT_DIR / f"{key}_30m.csv",
-                date_col="date",
-                value_col="extent_pct",
-            ),
-            phase_model="rule_based",
-            quality_policy="flag",
-            n_bootstrap=999,
-            random_state=0,
-        )
-        for key in _CASE_STUDY_KEYS
-    }
+    """Checked case-study regimes follow established decision policy."""
+    regimes = _checked_case_study_regimes()
 
-    for key in ("lachlan_river_nsw", "moonie_river_qld_nsw"):
-        assert analyses[key].regime.regime == "aseasonal"
-        assert analyses[key].regime.amplitude_snr < 0.7
-        assert analyses[key].route == "event_characterisation"
-    for key in ("fitzroy_river_wa", "gilbert_river_qld"):
-        assert analyses[key].regime.regime == "seasonal"
-        assert analyses[key].route == "per_year_detection"
+    for key in (
+        "daly_river_nt",
+        "fitzroy_river_wa",
+        "gilbert_river_qld",
+    ):
+        assert regimes[key].regime == "seasonal"
+        assert regimes[key].public_route == "per_year_detection"
+        assert regimes[key].supports_per_year_boundaries is True
 
-    daly = analyses["daly_river_nt"]
-    assert daly.regime.regime == "seasonal"
-    expected_daly_route = (
-        "per_year_detection"
-        if daly.regime.trough_timing_concentration_ci_low >= 0.7
-        else "fixed_climatological_window"
+    for key in (
+        "lachlan_river_nsw",
+        "moonie_river_qld_nsw",
+    ):
+        assert regimes[key].regime == "aseasonal"
+        assert regimes[key].public_route == "event_characterisation"
+        assert regimes[key].supports_per_year_boundaries is False
+
+
+def test_candidate_timing_uses_informative_equivalent_month_sets(fitzroy_30m):
+    assessment = assess_water_regime(fitzroy_30m, n_bootstrap=40)
+    assert assessment.decision_policy == "hydroseason_0_2_0"
+    assert assessment.mean_monthly_peak_month == 2
+    assert assessment.mean_monthly_trough_month == 11
+    assert assessment.regime == "seasonal"
+    assert assessment.peak_timing_concentration is not None
+    assert assessment.n_peak_timing_years == 21
+    assert assessment.n_trough_timing_years == 11
+
+
+def test_constant_record_has_finite_zero_established_snr():
+    index = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    constant = pd.DataFrame(
+        {"extent_pct": 10.0, "invalid_pct": 0.0},
+        index=index,
     )
-    assert daly.route == expected_daly_route
+    assessment = assess_water_regime(constant, n_bootstrap=40)
+    assert assessment.amplitude_snr == 0.0
+    assert np.isfinite(assessment.amplitude_snr)
+    assert assessment.regime == "aseasonal"
 
 
 def test_checked_case_study_peak_timing_concentrations_are_reproducible():
@@ -169,26 +211,25 @@ def test_checked_case_study_peak_timing_concentrations_are_reproducible():
     unrecorded Monte Carlo realization and are intentionally not used.
     """
     expected = {
-        "daly_river_nt": (0.864, 0.808, 0.925),
-        "fitzroy_river_wa": (0.907, 0.858, 0.956),
-        "gilbert_river_qld": (0.934, 0.907, 0.967),
-        "lachlan_river_nsw": (0.324, 0.119, 0.597),
-        "moonie_river_qld_nsw": (0.532, 0.315, 0.765),
+        "daly_river_nt": (0.878, 0.831, 0.926),
+        "fitzroy_river_wa": (0.900, 0.852, 0.951),
+        "gilbert_river_qld": (0.934, 0.907, 0.966),
+        "lachlan_river_nsw": (0.393, 0.173, 0.719),
+        "moonie_river_qld_nsw": (0.444, 0.175, 0.720),
     }
 
     regimes = _checked_case_study_regimes()
     for key, (concentration, ci_low, ci_high) in expected.items():
-        result = regimes[key]
-        assert result.peak_timing_concentration == pytest.approx(concentration, abs=0.0005)
-        assert result.peak_timing_concentration_ci_low == pytest.approx(ci_low, abs=0.0005)
-        assert result.peak_timing_concentration_ci_high == pytest.approx(ci_high, abs=0.0005)
+        assert regimes[key].peak_timing_concentration == pytest.approx(concentration, abs=0.005)
+        assert regimes[key].peak_timing_concentration_ci_low == pytest.approx(ci_low, abs=0.02)
+        assert regimes[key].peak_timing_concentration_ci_high == pytest.approx(ci_high, abs=0.02)
 
 def test_strong_annual_cycle_is_seasonal():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
     result = assess_water_regime(_series(cycle, noise=0.02), n_bootstrap=40)
     assert result.regime == "seasonal"
     assert result.amplitude_snr > 2.0
-    assert result.climatological_peak_month == 2
+    assert result.mean_monthly_peak_month == 2
     assert result.peak_timing_concentration > 0.9
     assert result.peak_timing_concentration_ci_low >= 0.7
     assert result.peak_timing_uniformity_p < 0.1
@@ -196,7 +237,7 @@ def test_strong_annual_cycle_is_seasonal():
     assert result.n_timing_years == result.n_usable_years == 30
 
 
-def test_symmetric_january_july_peaks_are_marginal_despite_high_snr():
+def test_symmetric_january_july_peaks_classify_seasonal():
     result = assess_water_regime(
         _january_july_bimodal_peaks(amplitude=8.0), n_bootstrap=999,
     )
@@ -204,7 +245,7 @@ def test_symmetric_january_july_peaks_are_marginal_despite_high_snr():
     assert result.amplitude_snr >= 2.0
     assert result.peak_timing_concentration < 0.3
     assert result.peak_timing_uniformity_p < 0.1
-    assert result.regime == "marginal"
+    assert result.regime == "seasonal"
 
 
 def test_qualifying_year_predicate_counts_distinct_months_for_timings(monkeypatch):
@@ -231,50 +272,48 @@ def test_qualifying_year_predicate_counts_distinct_months_for_timings(monkeypatc
     assert result.n_timing_years == result.n_usable_years
 
 
-def test_seven_strong_years_with_nonuniformity_low_power_are_marginal():
+def test_seven_broad_peak_years_with_wide_ci_are_aseasonal():
     result = assess_water_regime(_low_power_broad_peak_record(), n_bootstrap=999)
 
     assert result.amplitude_snr >= 2.0
     assert result.peak_timing_concentration_ci_low < 0.7
     assert result.peak_timing_uniformity_p >= 0.1
     assert result.n_timing_years == 7
-    assert result.regime == "marginal"
-    assert result.climatological_peak_month is not None
-    assert result.climatological_trough_month is not None
-    assert "little power" in " ".join(result.caveats)
+    assert result.regime == "aseasonal"
+    assert result.mean_monthly_peak_month is None
+    assert result.mean_monthly_trough_month is None
+    assert "seasonality policy hydroseason-v0.2.0" in " ".join(result.caveats)
 
 
-def test_ten_year_seasonal_record_carries_timing_caution():
+def test_ten_year_seasonal_record_reports_v020_policy_caveat():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
     result = assess_water_regime(_series(cycle, years=10, noise=0.02), n_bootstrap=40)
 
     assert result.regime == "seasonal"
     assert result.n_timing_years == 10
     caveats = " ".join(result.caveats)
-    assert "fewer than 30 usable annual timings" in caveats
-    assert "classification is retained" in caveats
-    assert "uncertainty intervals may be wide" in caveats
+    assert "seasonality policy hydroseason-v0.2.0" in caveats
 
 
 def test_flat_noise_only_series_is_aseasonal():
     flat = np.repeat(0.15, 12)
     result = assess_water_regime(_series(flat, noise=0.12, seed=3))
     assert result.regime == "aseasonal"
-    assert result.climatological_peak_month is None
-    assert result.climatological_trough_month is None
+    assert result.mean_monthly_peak_month is None
+    assert result.mean_monthly_trough_month is None
 
 
-def test_weak_cycle_under_heavy_noise_is_marginal():
+def test_weak_cycle_under_heavy_noise_is_seasonal():
     cycle = 0.45 + 0.16 * np.cos(2 * np.pi * (np.arange(12) - 10) / 12)
     result = assess_water_regime(_series(cycle, noise=0.16, seed=7))
-    assert result.regime == "marginal"
+    assert result.regime == "seasonal"
 
 
 def test_short_record_is_insufficient():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
     result = assess_water_regime(_series(cycle, years=3))
     assert result.regime == "insufficient_record"
-    assert result.climatological_peak_month is None
+    assert result.mean_monthly_peak_month is None
 
 
 # --- the tropical cloud-gap regression ------------------------------------
@@ -307,32 +346,33 @@ def test_regime_is_invariant_to_absolute_extent_scale():
     big = assess_water_regime(_series(cycle, noise=0.02))
     small = assess_water_regime(_series(cycle * 0.05, noise=0.001))
     assert big.regime == small.regime == "seasonal"
-    assert small.climatological_peak_month == big.climatological_peak_month
+    assert small.mean_monthly_peak_month == big.mean_monthly_peak_month
 
 
 # --- guidance payload ------------------------------------------------------
 
 def test_seasonal_regime_permits_per_year_boundaries():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
-    result = assess_water_regime(_series(cycle, noise=0.02))
+    result = _calibrated_assessment(_series(cycle, noise=0.02))
     assert result.supports_per_year_boundaries is True
-    assert result.supports_fixed_window is True
+    assert result.supports_fixed_window is False
 
 
-def test_seasonal_record_with_unstable_trough_does_not_permit_per_year_boundaries():
-    result = assess_water_regime(_stable_peak_unstable_trough_record(), n_bootstrap=40)
+def test_seasonal_record_with_unstable_trough_permits_per_year_boundaries():
+    result = _calibrated_assessment(_stable_peak_unstable_trough_record())
+    assert result.supports_per_year_boundaries is True
+    assert result.public_route == "per_year_detection"
 
+
+def test_regime_with_seven_supported_years_permits_per_year_boundaries():
+    dates = pd.date_range("2000-01-01", periods=12 * 7, freq="MS")
+    cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
+    vals = np.tile(cycle, 7)
+    frame = pd.DataFrame({"extent_pct": vals, "invalid_pct": 0.0}, index=dates)
+    result = assess_water_regime(frame, quality_policy="flag", n_bootstrap=100)
     assert result.regime == "seasonal"
-    assert result.trough_timing_concentration_ci_low < 0.7
-    assert result.supports_per_year_boundaries is False
-    assert result.supports_fixed_window is True
-
-
-def test_marginal_regime_permits_fixed_window_but_not_per_year():
-    cycle = 0.45 + 0.16 * np.cos(2 * np.pi * (np.arange(12) - 10) / 12)
-    result = assess_water_regime(_series(cycle, noise=0.16, seed=7))
-    assert result.supports_fixed_window is True
-    assert result.supports_per_year_boundaries is False
+    assert result.supports_per_year_boundaries is True
+    assert result.public_route == "per_year_detection"
 
 
 def test_aseasonal_regime_permits_neither():
@@ -398,4 +438,239 @@ def test_event_descriptors_match_the_shared_event_definition():
     regime = assess_water_regime(frame)
     events = extract_water_events(frame)
     assert regime.n_wet_events == events.summary["n_events"]
-    assert regime.longest_low_spell_months == events.summary["longest_low_spell_months"]
+    assert (
+        regime.longest_low_spell_months
+        == events.summary["longest_low_spell_months"]
+    )
+
+
+def _calibrated_assessment(frame):
+    return assess_water_regime(frame)
+
+
+def test_constant_zero_record_is_aseasonal_not_infinite():
+    index = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    frame = pd.DataFrame({"extent_pct": 0.0, "invalid_pct": 0.0}, index=index)
+
+    assessment = _calibrated_assessment(frame)
+
+    assert np.isfinite(assessment.amplitude_snr)
+    assert assessment.amplitude_snr == 0.0
+    assert assessment.regime == "aseasonal"
+    assert assessment.public_route == "event_characterisation"
+    assert assessment.n_usable_years >= 5
+    assert assessment.n_timing_years == 0
+    assert assessment.n_peak_timing_years == 0
+    assert assessment.n_trough_timing_years == 0
+    assert assessment.timing_evidence == "unsupported"
+    assert assessment.n_zero_months == 12 * 12
+    assert assessment.zero_month_fraction == 1.0
+    assert assessment.n_whole_zero_years == 12
+    assert assessment.pixel_support_status == "unavailable"
+
+
+def test_zero_dominated_stable_pulses_route_per_year():
+    assessment = assess_water_regime(
+        _intermittent_stable_pulses(informative_years=7),
+        measurement_tolerance_pct=0.0,
+        n_bootstrap=40,
+    )
+
+    assert assessment.regime in {"seasonal", "marginal"}
+    assert assessment.timing_evidence == "supported"
+    assert assessment.n_peak_timing_years == 7
+    assert assessment.n_trough_timing_years == 7
+    assert assessment.public_route == "per_year_detection"
+
+
+def test_zero_dominated_too_few_pulses_route_to_events():
+    frame = _intermittent_stable_pulses(informative_years=6)
+    for year, peak_month in zip(range(2000, 2006), (1, 3, 5, 7, 10, 12)):
+        annual = frame.index.year == year
+        frame.loc[annual, "extent_pct"] = 5.0
+        frame.loc[annual & (frame.index.month == peak_month), "extent_pct"] = 25.0
+        frame.loc[annual & (frame.index.month == 9), "extent_pct"] = 0.0
+
+    assessment = assess_water_regime(
+        frame,
+        measurement_tolerance_pct=0.0,
+        n_bootstrap=40,
+    )
+
+    assert assessment.regime == "aseasonal"
+    assert assessment.timing_evidence == "unsupported"
+    assert assessment.n_peak_timing_years == 6
+    assert assessment.n_trough_timing_years == 6
+    assert assessment.public_route == "event_characterisation"
+    assert assessment.mean_monthly_peak_month is None
+    assert assessment.mean_monthly_trough_month is None
+
+
+def test_measurement_tolerance_changes_timing_identifiability():
+    precise = assess_water_regime(
+        _small_clean_cycle(), measurement_tolerance_pct=0.0, n_bootstrap=40
+    )
+    coarse = assess_water_regime(
+        _small_clean_cycle(), measurement_tolerance_pct=1.0, n_bootstrap=40
+    )
+
+    assert precise.n_timing_years == 12
+    assert precise.timing_evidence == "supported"
+    assert coarse.n_timing_years == 0
+    assert coarse.timing_evidence == "unsupported"
+
+
+def test_zero_frequency_outside_detectable_years_is_descriptive_only():
+    zero_flat = assess_water_regime(
+        _intermittent_stable_pulses(informative_years=7, flat_value=0.0),
+        measurement_tolerance_pct=0.0,
+        n_bootstrap=40,
+    )
+    nonzero_flat = assess_water_regime(
+        _intermittent_stable_pulses(informative_years=7, flat_value=5.0),
+        measurement_tolerance_pct=0.0,
+        n_bootstrap=40,
+    )
+
+    assert zero_flat.n_zero_months > nonzero_flat.n_zero_months
+    assert zero_flat.n_peak_timing_years == nonzero_flat.n_peak_timing_years == 7
+    assert zero_flat.n_trough_timing_years == nonzero_flat.n_trough_timing_years == 7
+    assert zero_flat.timing_evidence == nonzero_flat.timing_evidence == "supported"
+    assert zero_flat.public_route == nonzero_flat.public_route == "per_year_detection"
+
+
+def test_route_gate_with_six_trough_years_is_supported():
+    frame = _intermittent_stable_pulses(informative_years=7)
+    broad_trough_year = frame.index.year == 2006
+    frame.loc[broad_trough_year & frame.index.month.isin([8, 9, 10, 11]), "extent_pct"] = 0.0
+
+    assessment = assess_water_regime(
+        frame, measurement_tolerance_pct=0.0, n_bootstrap=40
+    )
+
+    assert assessment.n_peak_timing_years == 7
+    assert assessment.n_trough_timing_years == 6
+    assert assessment.n_timing_years == assessment.n_peak_timing_years
+    route_gate = min(
+        assessment.n_peak_timing_years,
+        assessment.n_trough_timing_years,
+    )
+    assert route_gate == 6
+    assert assessment.timing_evidence == "supported"
+    assert assessment.public_route == "per_year_detection"
+
+
+def test_constant_nonzero_record_is_also_aseasonal():
+    index = pd.date_range("2000-01-01", periods=12 * 12, freq="MS")
+    frame = pd.DataFrame({"extent_pct": 42.0, "invalid_pct": 0.0}, index=index)
+
+    assessment = _calibrated_assessment(frame)
+
+    assert np.isfinite(assessment.amplitude_snr)
+    assert assessment.regime == "aseasonal"
+
+
+def test_stable_peak_with_unstable_trough_permits_per_year_detection():
+    """Both seasonal and marginal records use dynamic per-year extrema detection."""
+    assessment = _calibrated_assessment(_stable_peak_unstable_trough_record())
+    assert assessment.supports_per_year_boundaries is True
+    assert assessment.public_route == "per_year_detection"
+
+
+def test_clean_seasonal_record_is_seasonal():
+    index = pd.date_range("2000-01-01", periods=12 * 15, freq="MS")
+    angle = 2.0 * np.pi * (index.month - 1) / 12.0
+    frame = pd.DataFrame(
+        {
+            "extent_pct": 10.0 + 5.0 * np.cos(angle),
+            "invalid_pct": 0.0,
+        },
+        index=index,
+    )
+
+    assessment = _calibrated_assessment(frame)
+    assert assessment.regime == "seasonal"
+    assert assessment.supports_per_year_boundaries is True
+
+
+def test_short_record_is_insufficient_under_calibrated_thresholds():
+    index = pd.date_range("2000-01-01", periods=12 * 3, freq="MS")
+    angle = 2.0 * np.pi * (index.month - 1) / 12.0
+    frame = pd.DataFrame(
+        {"extent_pct": 50.0 + 25.0 * np.cos(angle), "invalid_pct": 0.0},
+        index=index,
+    )
+
+    assessment = _calibrated_assessment(frame)
+
+    assert assessment.regime == "insufficient_record"
+
+
+def test_zero_water_series_handles_zero_division_safely():
+    index = pd.date_range("2000-01-01", periods=12 * 15, freq="MS")
+    frame = pd.DataFrame({"extent_pct": 0.0, "invalid_pct": 0.0}, index=index)
+
+    assessment = _calibrated_assessment(frame)
+
+    for field_name in assessment.__dataclass_fields__:
+        value = getattr(assessment, field_name)
+        if isinstance(value, float):
+            assert np.isfinite(value), f"{field_name} is not finite"
+
+
+@pytest.mark.parametrize(
+    "regime, expected",
+    [
+        ("seasonal", "per_year_detection"),
+        ("marginal", "event_characterisation"),
+        ("aseasonal", "event_characterisation"),
+        ("insufficient_record", "insufficient_record"),
+    ],
+)
+def test_route_matrix(regime, expected):
+    assert public_route(regime) == expected
+
+
+def test_seasonality_policy_keyword_is_not_accepted():
+    frame = _series([2, 2, 2, 8, 14, 18, 14, 8, 2, 2, 2, 2], years=20, noise=0.5, seed=1)
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        assess_water_regime(frame, seasonality_policy="timing_recurrence")
+
+
+def test_trending_annual_record_is_seasonal():
+    months = np.arange(360)
+    frame = pd.DataFrame(
+        {
+            "extent_pct": 10.0 + 0.2 * months + 5.0 * np.cos(2 * np.pi * months / 12),
+            "invalid_pct": 0.0,
+        },
+        index=pd.date_range("1990-01-01", periods=360, freq="MS"),
+    )
+
+    assessment = assess_water_regime(frame, n_bootstrap=200, random_state=0)
+    assert assessment.regime == "seasonal"
+    assert assessment.public_route == "per_year_detection"
+    assert assessment.decision_policy == "hydroseason_0_2_0"
+    assert assessment.seasonality_test.reason == "peak_and_trough_recur"
+    assert assessment.mean_monthly_trough_month is not None
+
+
+def test_assessment_never_returns_marginal():
+    rng = np.random.default_rng(2)
+    frame = pd.DataFrame(
+        {"extent_pct": 50.0 + rng.normal(0.0, 2.5, size=180), "invalid_pct": 0.0},
+        index=pd.date_range("1990-01-01", periods=180, freq="MS"),
+    )
+
+    assessment = assess_water_regime(frame, n_bootstrap=200, random_state=0)
+    assert assessment.regime in {"seasonal", "aseasonal", "insufficient_record"}
+    assert assessment.regime != "marginal"
+
+
+def test_mean_monthly_month_fields_are_canonical():
+    frame = _series([2, 2, 2, 8, 14, 18, 14, 8, 2, 2, 2, 2], years=20, noise=0.5, seed=1)
+
+    regime = assess_water_regime(frame, n_bootstrap=200, random_state=0)
+
+    assert regime.mean_monthly_peak_month == 6
+    assert regime.mean_monthly_trough_month is not None

@@ -47,20 +47,6 @@ def _records(frame: pd.DataFrame, *, max_rows: int = 200) -> list[dict[str, Any]
     return json.loads(limited.to_json(orient="records", date_format="iso"))
 
 
-def _table(frame: pd.DataFrame, *, empty_text: str) -> str:
-    if frame.empty:
-        return f'<p class="empty">{_escape(empty_text)}</p>'
-    shown = frame.copy()
-    for col in shown.columns:
-        if pd.api.types.is_datetime64_any_dtype(shown[col]):
-            shown[col] = shown[col].dt.strftime("%Y-%m-%d")
-    if "hy_year" in shown.columns:
-        shown["hy_year"] = shown["hy_year"].map(
-            lambda value: "" if pd.isna(value) else f"HY {int(value)}"
-        )
-    return shown.to_html(index=False, escape=True, classes="data-table", border=0)
-
-
 def _kpi_cards(kpis: list[dict[str, str]]) -> str:
     cards = []
     for item in kpis:
@@ -101,8 +87,6 @@ def _rainfall_details(context: dict[str, Any] | None) -> str:
         '<dl class="rain-stats">'
         f'<dt>Rainfall regime</dt><dd>{_escape(context.get("rainfall_regime") or "N/A")}</dd>'
         f'<dt>Comparison</dt><dd>{_escape(context["comparison_label"])}</dd>'
-        f'<dt>Extent SNR</dt><dd>{_escape(_format_metric(context.get("extent_snr")))}</dd>'
-        f'<dt>Rain SNR</dt><dd>{_escape(_format_metric(context.get("rainfall_snr")))}</dd>'
         f'<dt>Extent peak / trough</dt><dd>{_escape(context["extent_peak_month"])} / {_escape(context["extent_trough_month"])}</dd>'
         f'<dt>Rain peak / trough</dt><dd>{_escape(context["rainfall_peak_month"])} / {_escape(context["rainfall_trough_month"])}</dd>'
         f'<dt>Peak lag</dt><dd>{_escape(lag_text)}</dd>'
@@ -137,6 +121,36 @@ def _fmt_date(value: Any, *, year: bool = True) -> str:
     if parsed is None:
         return "N/A"
     return parsed.strftime("%B %Y" if year else "%b %Y")
+
+
+def _fmt_timing_extremum(
+    row: pd.Series,
+    *,
+    date_names: tuple[str, ...],
+    status_names: tuple[str, ...],
+    interval_start_names: tuple[str, ...],
+    interval_end_names: tuple[str, ...],
+    year: bool = True,
+) -> str:
+    """Format an extremum date without fabricating precision timing does not support.
+
+    A row without a timing-status column (e.g. the fixed-window detector) keeps
+    the original unconditional date. Otherwise: an exact date only for "point";
+    a bounded range for "interval" and "broad" (both carry real interval bounds,
+    a sustained plateau is not a failure to resolve); an explicit withholding
+    for "unresolved".
+    """
+    status = _row_value(row, *status_names)
+    if status is None:
+        return _fmt_date(_row_value(row, *date_names), year=year)
+    status = str(status)
+    if status == "point":
+        return _fmt_date(_row_value(row, *date_names), year=year)
+    if status in ("interval", "broad"):
+        start = _fmt_date(_row_value(row, *interval_start_names), year=year)
+        end = _fmt_date(_row_value(row, *interval_end_names), year=year)
+        return f"{start} – {end}"
+    return "Unresolved"
 
 
 def _interval_match(date: pd.Timestamp | None, rows: list[dict[str, Any]]) -> bool:
@@ -195,7 +209,10 @@ _STATUS_REASON_TEXT = {
     ),
     "boundary_low_quality": "Boundary months failed the data-quality threshold.",
     "boundary_provisional": "Boundary is provisional and was not confirmed.",
-    "peak_low_quality": "The peak month failed the data-quality threshold.",
+    "peak_quality_anomalous": (
+        "The peak month was far more obscured than that month usually is, so "
+        "the cycle's peak could not be trusted."
+    ),
     "insufficient_cycle_coverage": (
         "The record's start didn't have enough usable months before the "
         "first trough to assemble a full cycle, so this year's detail "
@@ -212,11 +229,18 @@ def _unbounded_year_card(row: pd.Series, year: Any) -> str:
     """
     confidence = str(_row_value(row, "confidence") or "unassigned").lower()
     status = str(_row_value(row, "status") or "incomplete").lower()
+    # The annual condition verdict is deliberately not shown on year cards:
+    # it comes from the condition model, not from this cycle's timing, and
+    # sat in the same stats row as cycle length and amplitude as though it
+    # were one of them.
+    cond_item = ""
     reason_key = str(_row_value(row, "status_reason") or "").lower()
     reason = _STATUS_REASON_TEXT.get(
         reason_key,
         reason_key.replace("_", " ").capitalize() if reason_key else "",
     )
+    if reason and confidence and confidence != "unassigned":
+        reason = f"{confidence.title()} confidence: {reason}"
     trough_date = _row_value(row, "trough_month", "end_dry_month", "trough_date")
     trough_extent = _row_value(row, "trough_extent_pct", "end_extent_pct")
     observed = ""
@@ -238,6 +262,7 @@ def _unbounded_year_card(row: pd.Series, year: Any) -> str:
         '<span class="year-dates">Cycle boundaries not resolved</span>'
         "</div>"
         '<div class="year-meta-group">'
+        f'{cond_item}'
         f'<span class="summary-stat">Status: <strong>{_escape(status.title())}</strong></span>'
         f'<span class="confidence-badge badge-{_escape(confidence)}" title="Hydrological year data quality and boundary confidence: {_escape(confidence.upper())}">{_escape(confidence.upper())} CONFIDENCE</span>'
         "</div>"
@@ -271,8 +296,18 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
         peak_date = _row_value(row, "peak_month", "peak_date")
         mid_date = _row_value(row, "temporal_mid_dry_month", "mid_dry_month", "mid_dry_date")
         trough_date = _row_value(row, "trough_month", "end_dry_month", "trough_date")
+        peak_timing_status = _row_value(row, "peak_timing_status")
+        trough_timing_status = _row_value(row, "trough_timing_status")
+        peak_marker_suffix = (
+            "" if peak_timing_status is None or str(peak_timing_status) == "point"
+            else f" ({_escape(str(peak_timing_status))})"
+        )
+        trough_marker_suffix = (
+            "" if trough_timing_status is None or str(trough_timing_status) == "point"
+            else f" ({_escape(str(trough_timing_status))})"
+        )
         cycle = _row_value(row, "cycle_months", "n_months_cycle")
-        amplitude = _row_value(row, "drawdown_pct", "amplitude_pct")
+        amplitude = _row_value(row, "amplitude_pct", "drawdown_pct", "seasonal_amplitude_pp")
         confidence = str(_row_value(row, "confidence") or "unassigned").lower()
         status_reason = str(_row_value(row, "status_reason") or "").lower()
         if status_reason == "record_start_boundary":
@@ -285,22 +320,62 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             note_text = _escape(_STATUS_REASON_TEXT[status_reason])
         else:
             note_text = ""
+        if note_text and confidence and confidence != "unassigned":
+            note_text = f"{confidence.title()} confidence: {note_text}"
         inferred_start_note = (
             f'<p class="year-card-note">{note_text}</p>' if note_text else ""
         )
+        # Annual condition is intentionally absent here -- see
+        # `_unbounded_year_card` for the reasoning.
+        meta_items = []
+        meta_items.extend([
+            f'<span class="summary-stat">Cycle: <strong>{_escape("N/A" if cycle is None or pd.isna(cycle) else f"{float(cycle):.1f} mos")}</strong></span>',
+            f'<span class="summary-stat">Amplitude: <strong>{_escape(_fmt_extent(amplitude))}</strong></span>',
+            f'<span class="confidence-badge badge-{_escape(confidence)}" title="Hydrological year data quality and boundary confidence: {_escape(confidence.upper())}">{_escape(confidence.upper())} CONFIDENCE</span>',
+        ])
+        meta_html = "".join(meta_items)
+        peak_display = _fmt_timing_extremum(
+            row,
+            date_names=("peak_month", "peak_date"),
+            status_names=("peak_timing_status",),
+            interval_start_names=("peak_interval_start",),
+            interval_end_names=("peak_interval_end",),
+        )
+        trough_display = _fmt_timing_extremum(
+            row,
+            date_names=("trough_month", "end_dry_month", "trough_date"),
+            status_names=("trough_timing_status",),
+            interval_start_names=("trough_interval_start",),
+            interval_end_names=("trough_interval_end",),
+        )
         segment = monthly_frame.loc[(monthly_frame.index >= start) & (monthly_frame.index <= end)]
         detail_rows: list[str] = []
+        phase_display_map = {
+            "recovery": "Rising",
+            "rising": "Rising",
+            "recession": "Receding",
+            "receding": "Receding",
+            "wet": "Rising",
+            "dry": "Receding",
+        }
         for date, month in segment.iterrows():
-            phase = str(month.get("phase", "unspecified") or "unspecified")
-            phase_label = "Unassigned" if phase == "unspecified" else phase.title()
-            phase_class = phase if phase in {"recovery", "wet", "recession", "dry"} else "unassigned"
+            phase = str(month.get("phase", "unspecified") or "unspecified").lower()
+            phase_label = phase_display_map.get(phase, "Unassigned" if phase == "unspecified" else phase.title())
+            phase_class = {
+                "recovery": "rising",
+                "rising": "rising",
+                "wet": "rising",
+                "recession": "receding",
+                "receding": "receding",
+                "dry": "receding",
+            }.get(phase, "unassigned")
             event = ""
             if _safe_date(peak_date) == date:
-                event = '<span class="cell-marker marker-wet">Wet Peak</span>'
+                event = f'<span class="cell-marker marker-wet">Wet Peak{peak_marker_suffix}</span>'
             elif _safe_date(mid_date) == date:
                 event = '<span class="cell-marker marker-mid">Mid Dry</span>'
             elif _safe_date(trough_date) == date:
-                event = '<span class="cell-marker marker-dry">Dry End</span>'
+                event = f'<span class="cell-marker marker-dry">Dry End{trough_marker_suffix}</span>'
             extent_value = month.get("extent_pct")
             invalid_value = month.get("invalid_pct")
             invalid_text = "N/A" if pd.isna(invalid_value) else f"{float(invalid_value):.2f}%"
@@ -322,16 +397,14 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             f'<span class="year-dates">{_escape(start.strftime("%b %Y"))} – {_escape(end.strftime("%b %Y"))}</span>'
             '</div>'
             '<div class="year-meta-group">'
-            f'<span class="summary-stat">Cycle: <strong>{_escape("N/A" if cycle is None or pd.isna(cycle) else f"{float(cycle):.1f} mos")}</strong></span>'
-            f'<span class="summary-stat">Amplitude: <strong>{_escape(_fmt_extent(amplitude))}</strong></span>'
-            f'<span class="confidence-badge badge-{_escape(confidence)}" title="Hydrological year data quality and boundary confidence: {_escape(confidence.upper())}">{_escape(confidence.upper())} CONFIDENCE</span>'
+            f'{meta_html}'
             '</div>'
             '</summary>'
             '<div class="year-detail-content">'
             '<div class="detail-kpis">'
-            f'<div class="detail-kpi-card"><span class="detail-kpi-label">Peak Wet Month</span><span class="detail-kpi-value value-wet">{_escape(_fmt_date(peak_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "peak_extent_pct")))} extent</span></div>'
+            f'<div class="detail-kpi-card"><span class="detail-kpi-label">Peak Wet Month</span><span class="detail-kpi-value value-wet">{_escape(peak_display)}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "peak_extent_pct")))} extent</span></div>'
             f'<div class="detail-kpi-card"><span class="detail-kpi-label">Mid-Dry Target</span><span class="detail-kpi-value value-mid">{_escape(_fmt_date(mid_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "temporal_mid_dry_extent_pct", "mid_extent_pct")))} extent</span></div>'
-            f'<div class="detail-kpi-card"><span class="detail-kpi-label">End Dry Month</span><span class="detail-kpi-value value-dry">{_escape(_fmt_date(trough_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "trough_extent_pct", "end_extent_pct")))} extent</span></div>'
+            f'<div class="detail-kpi-card"><span class="detail-kpi-label">End Dry Month</span><span class="detail-kpi-value value-dry">{_escape(trough_display)}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "trough_extent_pct", "end_extent_pct")))} extent</span></div>'
             '</div>'
             f'{inferred_start_note}'
             '<table class="nested-table"><thead><tr><th>Month</th><th>Phase</th><th>Water Extent</th><th>Invalid/Cloud Cover</th><th>Key Event</th></tr></thead>'
@@ -432,6 +505,7 @@ def render_report_html(
         else ""
     )
     rainfall_details = _rainfall_details(rainfall_context)
+    rainfall_block = f"  {rainfall_details}" if rainfall_details else ""
     return f"""<!doctype html>
 <html lang="en" data-theme="light">
 <head>
@@ -593,8 +667,8 @@ def render_report_html(
     .nested-table th, .nested-table td, .main-table th, .main-table td {{ padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; }}
     .nested-table th, .main-table th {{ background: #eef2f7; font-size: .75rem; }}
     .phase-badge, .cell-marker {{ display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: .7rem; font-weight: 650; }}
-    .phase-recovery {{ background: #d3e9d2; color: #166534; }} .phase-wet {{ background: #b9d9ef; color: #075985; }}
-    .phase-recession {{ background: #f3e6c6; color: #92400e; }} .phase-dry {{ background: #f1d7d4; color: #991b1b; }}
+    .phase-recovery, .phase-rising {{ background: #d3e9d2; color: #166534; }} .phase-wet {{ background: #b9d9ef; color: #075985; }}
+    .phase-recession, .phase-receding {{ background: #f3e6c6; color: #92400e; }} .phase-dry {{ background: #f1d7d4; color: #991b1b; }}
     .phase-unassigned {{ background: #e2e8f0; color: #475569; }}
     .marker-wet {{ background: #2563eb; color: #fff; }} .marker-mid {{ background: #f97316; color: #fff; }} .marker-dry {{ background: #dc2626; color: #fff; }}
     .filters-row {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: end; padding: 14px; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }}
@@ -656,7 +730,7 @@ def render_report_html(
       <p>Filter and explore the monthly extent data directly.</p>
       <div class="filters-row">
         <div class="filter-item"><label for="raw-year-filter">Filter by Year</label><select id="raw-year-filter"><option value="all">All Years</option></select></div>
-        <div class="filter-item"><label for="raw-phase-filter">Filter by Phase</label><select id="raw-phase-filter"><option value="all">All Phases</option><option value="recovery">Recovery</option><option value="wet">Wet</option><option value="recession">Recession</option><option value="dry">Dry</option></select></div>
+        <div class="filter-item"><label for="raw-phase-filter">Filter by Phase</label><select id="raw-phase-filter"><option value="all">All Phases</option><option value="rising">Rising</option><option value="receding">Receding</option></select></div>
         <div class="filter-item"><label for="raw-quality-filter">Data quality (threshold {quality_threshold:.1f}% invalid)</label><select id="raw-quality-filter"><option value="all">All Records</option><option value="good">Good</option><option value="flagged">Flagged</option><option value="missing">Missing/unknown</option></select></div>
         <div class="filter-item"><label for="raw-event-filter">Wet events</label><select id="raw-event-filter"><option value="all">All Records</option><option value="yes">In wet event</option><option value="no">Outside wet event</option></select></div>
         <div class="filter-item"><label for="raw-spell-filter">Low-extent spells</label><select id="raw-spell-filter"><option value="all">All Records</option><option value="yes">In low-extent spell</option><option value="no">Outside low-extent spell</option></select></div>
@@ -669,7 +743,7 @@ def render_report_html(
       </div>
     </div>
   </details>
-  {rainfall_details}
+{rainfall_block}
 </main>
 <script>
 /* {PLOTLY_ASSET_NAME}; vendored pinned offline runtime */
@@ -722,9 +796,10 @@ def render_report_html(
         (eventFilter.value === "all" || String(row.wet_event || "No").toLowerCase() === eventFilter.value) &&
         (spellFilter.value === "all" || String(row.low_extent_spell || "No").toLowerCase() === spellFilter.value)
       );
+      const phaseMap = {{ recovery: "Rising", rising: "Rising", wet: "Rising", recession: "Receding", receding: "Receding", dry: "Receding" }};
       body.innerHTML = rows.map(row => {{
         const phase = String(row.phase || "unspecified");
-        const phaseLabel = phase === "unspecified" ? "Unassigned" : phase.charAt(0).toUpperCase() + phase.slice(1);
+        const phaseLabel = phaseMap[phase] || (phase === "unspecified" ? "Unassigned" : phase.charAt(0).toUpperCase() + phase.slice(1));
         const hydroYear = row.hy_year == null ? "" : "HY " + row.hy_year;
         return "<tr><td>" + escapeHtml(row.display_date || row.date) + "</td><td>" + escapeHtml(phaseLabel) +
           "</td><td>" + escapeHtml(hydroYear) + "</td><td>" + formatPercent(row.extent_pct) +

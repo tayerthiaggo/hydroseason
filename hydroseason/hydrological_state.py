@@ -1,3 +1,17 @@
+"""Dynamic hydrological state: data-driven years, phases, and conditions.
+
+The public face of the dynamic route. Where
+:mod:`hydroseason.hydro_year` fixes a calendar-anchored hydrological year,
+this module derives each cycle's boundaries from the observed extent record
+itself, then labels months by cycle-relative phase and classifies each year's
+surface-water condition against the record's own history.
+
+:func:`analyze_hydrological_state` is the one call that runs the whole chain
+(seasonality classification, dynamic year detection, phase assignment,
+condition classification); the individual steps are re-exported for callers
+that need only one of them. See the
+`Dynamic Hydrological State guide <https://tayerthiaggo.github.io/hydroseason/hydrological-state/>`_.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,6 +32,7 @@ from ._dynamic_year import (
 from ._phase import assign_monthly_phases
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._state_input import QualityPolicy, prepare_monthly_extent
+from ._trough_refinement import TroughRefinementPolicy
 
 
 @dataclass(frozen=True)
@@ -57,6 +72,10 @@ def analyze_hydrological_state(
         quality_policy=selected.quality_policy,
     )
     _amplitude_pp, noise_pp = robust_scale(prepared)
+    is_low_variability = (
+        False if (config is not None and config.expected_trough_month is not None)
+        else (pattern.pattern == "low_variability")
+    )
     annual = classify_annual_surface_water_condition(
         annual,
         reference=reference,
@@ -67,7 +86,7 @@ def analyze_hydrological_state(
         min_baseline_cycles=selected.min_baseline_cycles,
         low_percentile=selected.low_percentile,
         high_percentile=selected.high_percentile,
-        low_variability=pattern.pattern == "low_variability",
+        low_variability=is_low_variability,
         noise_pp=noise_pp,
     )
     monthly = compute_monthly_surface_water_condition(
@@ -96,7 +115,7 @@ def analyze_hydrological_state(
 
 
 __all__ = [
-    "DynamicHydroYearConfig", "HydrologicalStateResult", "SeasonalPatternResult",
+    "DynamicHydroYearConfig", "TroughRefinementPolicy", "HydrologicalStateResult", "SeasonalPatternResult",
     "aggregate_basin_monthly_extent", "analyze_hydrological_state",
     "classify_annual_surface_water_condition", "classify_seasonal_pattern",
     "compute_monthly_surface_water_condition", "detect_dynamic_hydrological_years",

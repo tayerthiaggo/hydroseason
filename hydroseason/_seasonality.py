@@ -1,14 +1,33 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from numbers import Integral
 from typing import Literal
 
 import numpy as np
 import pandas as pd
 
-from ._state_input import prepare_monthly_extent
+from ._harmonic import (
+    _DEFAULT_N_NULL,
+    _curve_extrema,
+    _design,
+    _year_matrices,
+    amplitude_evidence,
+    periodicity_p_value,
+    retained_modes,
+    select_harmonic_order,
+)
+from ._state_input import candidate_weights, prepare_monthly_extent
 
-Pattern = Literal["unimodal_annual", "bimodal_or_complex", "weak_or_irregular", "low_variability", "insufficient_record"]
+Pattern = Literal[
+    "unimodal_annual",
+    "bimodal_or_complex",
+    "weak_or_irregular",
+    "low_variability",
+    "insufficient_record",
+]
+
+_MIN_EVALUABLE_YEARS = 5
 
 
 @dataclass(frozen=True)
@@ -23,98 +42,238 @@ class SeasonalPatternResult:
     peak_phase_iqr_months: float | None
     trough_phase_iqr_months: float | None
     n_complete_years: int
+    seasonal_cv_skill: float
+    periodicity_p: float
+    selected_harmonic_order: int
+    seasonal_amplitude_pp: float
+    amplitude_noise_ratio: float
+    peak_timing_n_modes: int
+    trough_timing_n_modes: int
+    n_evaluable_years: int
 
 
-def _design(month: np.ndarray, order: int) -> np.ndarray:
-    theta = 2.0 * np.pi * (month - 1) / 12.0
-    columns = [np.ones(len(month))]
-    for harmonic in range(1, order + 1):
-        columns.extend([np.sin(harmonic * theta), np.cos(harmonic * theta)])
-    return np.column_stack(columns)
-
-
-def _fit(month: np.ndarray, values: np.ndarray, order: int) -> tuple[np.ndarray, float]:
-    matrix = _design(month, order)
-    beta = np.linalg.lstsq(matrix, values, rcond=None)[0]
-    residual = values - matrix @ beta
-    rss = max(float(residual @ residual), np.finfo(float).tiny)
-    n, k = len(values), matrix.shape[1]
-    aic = n * np.log(rss / n) + 2 * k
-    aicc = aic + (2 * k * (k + 1) / (n - k - 1)) if n > k + 1 else np.inf
-    return beta, float(aicc)
-
-
-def _local_extrema(curve: np.ndarray, kind: str) -> list[int]:
-    sign = 1.0 if kind == "max" else -1.0
-    scaled = sign * curve
-    return [i + 1 for i in range(12) if scaled[i] > scaled[(i - 1) % 12] and scaled[i] >= scaled[(i + 1) % 12]]
-
-
-def _phase_iqr(months: list[int]) -> float | None:
-    if not months:
-        return None
-    radians = 2.0 * np.pi * (np.asarray(months) - 1) / 12.0
-    centre = np.angle(np.mean(np.exp(1j * radians)))
-    offsets = np.angle(np.exp(1j * (radians - centre))) * 12.0 / (2.0 * np.pi)
-    return float(np.percentile(offsets, 75) - np.percentile(offsets, 25))
-
-
-def _classify_values(month: np.ndarray, values: np.ndarray, tolerance: float) -> tuple[Pattern, np.ndarray, int, float]:
-    fits = [_fit(month, values, order) for order in (0, 1, 2)]
-    order = int(np.argmin([item[1] for item in fits]))
-    beta = fits[order][0]
-    curve = _design(np.arange(1, 13), order) @ beta
-    intercept_rss = max(float(np.sum((values - values.mean()) ** 2)), np.finfo(float).tiny)
-    selected_rss = max(float(np.sum((values - _design(month, order) @ beta) ** 2)), np.finfo(float).tiny)
-    strength = float(np.clip(1.0 - selected_rss / intercept_rss, 0.0, 1.0))
-    if float(curve.max() - curve.min()) <= tolerance:
-        return "low_variability", curve, order, strength
-    if order == 0:
-        return "weak_or_irregular", curve, order, strength
-    maxima = _local_extrema(curve, "max")
-    return ("unimodal_annual" if len(maxima) == 1 else "bimodal_or_complex"), curve, order, strength
+def _insufficient(n_complete: int, n_evaluable: int) -> SeasonalPatternResult:
+    return SeasonalPatternResult(
+        "insufficient_record",
+        None,
+        None,
+        None,
+        None,
+        0.0,
+        0.0,
+        None,
+        None,
+        n_complete,
+        0.0,
+        1.0,
+        0,
+        0.0,
+        0.0,
+        0,
+        0,
+        n_evaluable,
+    )
 
 
 def classify_seasonal_pattern(
     extent,
     *,
+    resolution_floor_pp: float | None = None,
+    mode_min_frequency: float | None = None,
+    mode_min_separation_months: int | None = None,
     n_bootstrap: int = 200,
+    n_null: int = _DEFAULT_N_NULL,
     random_state: int = 0,
     measurement_tolerance_pct: float = 1.0,
     quality_policy: Literal["exclude", "flag"] = "flag",
 ) -> SeasonalPatternResult:
-    frame = prepare_monthly_extent(extent, quality_policy=quality_policy)
-    usable = frame.loc[frame["candidate_usable"]]
-    complete_years = [year for year, group in usable.groupby(usable.index.year) if set(group.index.month) == set(range(1, 13))]
-    if len(complete_years) < 5:
-        return SeasonalPatternResult("insufficient_record", None, None, None, None, 0.0, 0.0, None, None, len(complete_years))
-    sample = usable.loc[usable.index.year.isin(complete_years)]
-    pattern, curve, _, strength = _classify_values(sample.index.month.to_numpy(), sample["extent_pct"].to_numpy(float), measurement_tolerance_pct)
-    maxima, minima = _local_extrema(curve, "max"), _local_extrema(curve, "min")
-    peaks = sorted(maxima, key=lambda month: curve[month - 1], reverse=True)
-    troughs = sorted(minima, key=lambda month: curve[month - 1])
-    peak = peaks[0] if peaks else int(np.argmax(curve) + 1)
-    trough = troughs[0] if troughs else int(np.argmin(curve) + 1)
+    """Classify annual-cycle shape from weighted, partial-year-tolerant evidence.
 
-    rng = np.random.default_rng(random_state)
-    support, boot_peaks, boot_troughs = 0, [], []
-    by_year = {year: sample.loc[sample.index.year == year] for year in complete_years}
-    for _ in range(n_bootstrap):
-        draw = [by_year[int(year)] for year in rng.choice(complete_years, len(complete_years), replace=True)]
-        boot = pd.concat(draw, ignore_index=True)
-        boot_month = np.tile(np.arange(1, 13), len(draw))
-        boot_pattern, boot_curve, _, _ = _classify_values(boot_month, boot["extent_pct"].to_numpy(float), measurement_tolerance_pct)
-        support += int(boot_pattern == pattern)
-        boot_peaks.append(int(np.argmax(boot_curve) + 1))
-        boot_troughs.append(int(np.argmin(boot_curve) + 1))
-    bootstrap_support = support / n_bootstrap if n_bootstrap else 0.0
-    if pattern not in ("low_variability", "insufficient_record") and bootstrap_support < 0.80:
-        pattern = "weak_or_irregular"
-    stable_peak = None if pattern == "low_variability" else peak
-    stable_trough = None if pattern == "low_variability" else trough
-    return SeasonalPatternResult(
-        pattern, stable_peak, stable_trough,
-        peaks[1] if len(peaks) > 1 else None,
-        troughs[1] if len(troughs) > 1 else None,
-        strength, bootstrap_support, _phase_iqr(boot_peaks), _phase_iqr(boot_troughs), len(complete_years),
+    Every month passing the observation policy contributes, weighted by its
+    observed fraction. Complete calendar years remain a compatibility metric,
+    but evaluable partial years now gate and inform the fit.
+    """
+    if not np.isfinite(measurement_tolerance_pct) or measurement_tolerance_pct < 0.0:
+        raise ValueError("measurement_tolerance_pct must be a non-negative finite number.")
+    if (mode_min_frequency is None) != (mode_min_separation_months is None):
+        raise ValueError(
+            "mode_min_frequency and mode_min_separation_months must be provided together."
+        )
+    if mode_min_frequency is not None and not 0.0 < float(mode_min_frequency) <= 1.0:
+        raise ValueError("mode_min_frequency must be in (0, 1].")
+    if mode_min_separation_months is not None and (
+        isinstance(mode_min_separation_months, bool)
+        or not isinstance(mode_min_separation_months, Integral)
+        or mode_min_separation_months < 1
+    ):
+        raise ValueError("mode_min_separation_months must be an integer of at least 1.")
+    if (
+        isinstance(n_bootstrap, bool)
+        or not isinstance(n_bootstrap, Integral)
+        or n_bootstrap < (1 if mode_min_frequency is not None else 0)
+    ):
+        raise ValueError(
+            "n_bootstrap must be positive when calibrated mode retention is enabled, "
+            "otherwise non-negative."
+        )
+    if isinstance(n_null, bool) or not isinstance(n_null, Integral) or n_null < 1:
+        raise ValueError("n_null must be a positive integer.")
+    if isinstance(random_state, bool) or not isinstance(random_state, Integral):
+        raise ValueError("random_state must be an integer.")
+    if resolution_floor_pp is not None and (
+        not np.isfinite(resolution_floor_pp) or resolution_floor_pp <= 0.0
+    ):
+        raise ValueError("resolution_floor_pp must be a positive finite number.")
+    effective_resolution_floor = (
+        max(float(measurement_tolerance_pct), np.finfo(float).eps)
+        if resolution_floor_pp is None
+        else float(resolution_floor_pp)
     )
+    if isinstance(extent, pd.DataFrame) and "candidate_usable" in extent.columns:
+        prepared = extent.copy()
+        if "observed_fraction" not in prepared.columns:
+            prepared["observed_fraction"] = 1.0
+    else:
+        prepared = prepare_monthly_extent(extent, quality_policy=quality_policy)
+    weights = candidate_weights(prepared)
+    usable = prepared.loc[prepared["candidate_usable"]]
+    complete_years = [
+        year
+        for year, group in usable.groupby(usable.index.year)
+        if set(group.index.month) == set(range(1, 13))
+    ]
+    if weights.sum() <= 0.0:
+        return _insufficient(len(complete_years), 0)
+
+    _years, values, weight_matrix = _year_matrices(prepared, weights)
+    n_evaluable = int(np.count_nonzero(weight_matrix.sum(axis=1) > 0.0))
+    if n_evaluable < _MIN_EVALUABLE_YEARS:
+        return _insufficient(len(complete_years), n_evaluable)
+
+    selection = select_harmonic_order(values, weight_matrix)
+    if selection is None:
+        return _insufficient(len(complete_years), n_evaluable)
+
+    evidence = amplitude_evidence(
+        values,
+        weight_matrix,
+        selection,
+        resolution_floor_pp=effective_resolution_floor,
+    )
+    if (
+        resolution_floor_pp is None
+        and measurement_tolerance_pct == 0.0
+        and evidence.seasonal_amplitude_pp > 0.0
+        and evidence.at_or_below_floor
+    ):
+        numerical_denominator = max(
+            evidence.robust_noise_pp,
+            np.finfo(float).eps,
+        )
+        evidence = replace(
+            evidence,
+            amplitude_noise_ratio=evidence.seasonal_amplitude_pp
+            / numerical_denominator,
+            at_or_below_floor=False,
+        )
+    curve = _design(selection.order) @ selection.coefficients
+    peak_seed, trough_seed, periodicity_seed = np.random.SeedSequence(
+        int(random_state)
+    ).spawn(3)
+    peak_random_state = int(peak_seed.generate_state(1, dtype=np.uint32)[0])
+    trough_random_state = int(trough_seed.generate_state(1, dtype=np.uint32)[0])
+    periodicity_random_state = int(
+        periodicity_seed.generate_state(1, dtype=np.uint32)[0]
+    )
+
+    if evidence.at_or_below_floor:
+        return SeasonalPatternResult(
+            "low_variability",
+            None,
+            None,
+            None,
+            None,
+            0.0,
+            0.0,
+            None,
+            None,
+            len(complete_years),
+            float(selection.pooled_skill),
+            1.0,
+            int(selection.order),
+            float(evidence.seasonal_amplitude_pp),
+            float(evidence.amplitude_noise_ratio),
+            0,
+            0,
+            n_evaluable,
+        )
+
+    if mode_min_frequency is None:
+        # Compatibility path for existing callers until generated calibration
+        # defaults exist. Shape comes from the selected weighted curve, with no
+        # invented mode-retention threshold.
+        peak_modes = tuple(_curve_extrema(curve, "peak"))
+        trough_modes = tuple(_curve_extrema(curve, "trough"))
+    else:
+        peak_modes = retained_modes(
+            values,
+            weight_matrix,
+            kind="peak",
+            min_frequency=mode_min_frequency,
+            min_separation_months=mode_min_separation_months,
+            n_bootstrap=n_bootstrap,
+            random_state=peak_random_state,
+        )
+        trough_modes = retained_modes(
+            values,
+            weight_matrix,
+            kind="trough",
+            min_frequency=mode_min_frequency,
+            min_separation_months=mode_min_separation_months,
+            n_bootstrap=n_bootstrap,
+            random_state=trough_random_state,
+        )
+    periodicity = periodicity_p_value(
+        values,
+        weight_matrix,
+        n_null=n_null,
+        random_state=periodicity_random_state,
+    )
+
+    if selection.order == 0:
+        pattern: Pattern = "weak_or_irregular"
+    elif len(peak_modes) > 1:
+        pattern = "bimodal_or_complex"
+    elif len(peak_modes) == 1:
+        pattern = "unimodal_annual"
+    else:
+        pattern = "weak_or_irregular"
+
+    ranked_peaks = sorted(peak_modes, key=lambda month: curve[month - 1], reverse=True)
+    ranked_troughs = sorted(trough_modes, key=lambda month: curve[month - 1])
+    fallback_peak = int(np.argmax(curve)) + 1
+    fallback_trough = int(np.argmin(curve)) + 1
+
+    return SeasonalPatternResult(
+        pattern=pattern,
+        expected_peak_month=ranked_peaks[0] if ranked_peaks else fallback_peak,
+        expected_trough_month=ranked_troughs[0] if ranked_troughs else fallback_trough,
+        secondary_peak_month=ranked_peaks[1] if len(ranked_peaks) > 1 else None,
+        secondary_trough_month=ranked_troughs[1] if len(ranked_troughs) > 1 else None,
+        seasonal_strength=float(np.clip(selection.pooled_skill, 0.0, 1.0)),
+        bootstrap_support=float(bool(peak_modes)),
+        peak_phase_iqr_months=None,
+        trough_phase_iqr_months=None,
+        n_complete_years=len(complete_years),
+        seasonal_cv_skill=float(selection.pooled_skill),
+        periodicity_p=float(periodicity),
+        selected_harmonic_order=int(selection.order),
+        seasonal_amplitude_pp=float(evidence.seasonal_amplitude_pp),
+        amplitude_noise_ratio=float(evidence.amplitude_noise_ratio),
+        peak_timing_n_modes=len(peak_modes),
+        trough_timing_n_modes=len(trough_modes),
+        n_evaluable_years=n_evaluable,
+    )
+
+
+__all__ = ["Pattern", "SeasonalPatternResult", "classify_seasonal_pattern"]

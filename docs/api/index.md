@@ -24,6 +24,12 @@ return types are on each linked page.
 | `HydroSeasonBatchResult` | Ordered per-row outcomes, failures, and `raise_for_failures()` | [Workflow](workflow.md) |
 | `HydroSeasonAOIOutcome` | One source row's result or captured exception | [Workflow](workflow.md) |
 | `HydroSeasonBatchError` | Aggregated error raised for failed batch outcomes | [Workflow](workflow.md) |
+| `preflight` | Report what an AOI's record can support, before analysing it | [Preflight](preflight.md) |
+| `FeasibilityResult` | Whether an AOI holds recurrent surface water, and the counts behind that call | [Preflight](preflight.md) |
+| `PreflightResult` | Candidate, monthly, and timing decisions with their reason codes | [Preflight](preflight.md) |
+| `PreflightThresholds` | One named, versioned cut-off profile | [Preflight](preflight.md) |
+| `PreflightProfileUnavailable` | Raised when the reviewed default profile is not installed | [Preflight](preflight.md) |
+| `HydroSeasonPreflightError` | Raised when the regular DEA screen rejects an AOI | [Preflight](preflight.md) |
 | `load_extent_csv` | Read a monthly extent CSV into date-indexed form | [Loading Data](io.md) |
 | `load_aoi` | Load and validate an AOI (vector path or GeoDataFrame) | [Loading Data](io.md) |
 | `load_monthly_masks` | Load AOI-clipped raster masks from a directory | [Loading Data](io.md) |
@@ -64,6 +70,7 @@ return types are on each linked page.
 ## Pages
 
 - **[Workflow](workflow.md)** — `run_hydroseason`, the one-call orchestrator.
+- **[Preflight](preflight.md)** — Recurrent-water screening and detection-support decisions, before acquisition.
 - **[Loading Data](io.md)** — CSV/raster/Zarr loaders, DEA/STAC acquisition, historical water mask, planning footprints, cache surfaces.
 - **[Analysis](analysis.md)** — Catchment routing, regime assessment, wet events, hydrological-year detection, dynamic hydrological state.
 - **[Reporting](report.md)** — HTML report and CSV bundle generation.

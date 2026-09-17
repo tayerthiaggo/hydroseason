@@ -20,8 +20,18 @@ theme:
 nav:
   - Home: index.md
   - Usage Guide: guide.md
+  - Methods Reference: methods.md
   - CLI Recipes: cli-recipes.md
+  - Preflight: preflight.md
   - Dynamic Hydrological State: hydrological-state.md
+  - Decision Policy: decision-policy.md
+  - Decision Policy 0.2.0 Design: decision-policy-0.2.0.md
+  - Decision Policy 0.3.0 Design: decision-policy-0.3.0.md
+  - Migrations:
+      - 0.2.0 Timing Identifiability: migrations/0.2.0-timing-identifiability.md
+      - 0.2.0 Boundary Geometry Diagnostics: migrations/0.2.0-boundary-geometry-diagnostics.md
+      - 0.2.0 Seasonality: migrations/0.2.0-seasonality.md
+      - 0.2.0 Trough Refinement: migrations/0.2.0-trough-refinement.md
   - Case Studies:
       - Overview: case-studies/index.md
       - Main Catchment Workflow: case-studies/main-workflow.md
@@ -31,6 +41,7 @@ nav:
   - API Reference:
       - Overview: api/index.md
       - Workflow: api/workflow.md
+      - Preflight: api/preflight.md
       - Loading Data: api/io.md
       - Analysis: api/analysis.md
       - Reporting: api/report.md

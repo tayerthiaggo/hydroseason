@@ -2,9 +2,11 @@
 
 ## Start here: one call
 
-`run_hydroseason` is the function almost everyone needs. Point it at water
-data — a CSV, a raster, or nothing at all (it will fetch DEA WOfS for you) —
-and it writes back a self-contained HTML report plus four CSVs.
+`run_hydroseason` is the function almost everyone needs. Executing under the frozen
+`hydroseason-v0.2.0` runtime method, it analyzes satellite water data — from a CSV,
+a raster, or fetched directly from DEA WOfS — and writes back a self-contained HTML
+report, an immutable run manifest (`_manifest.json`, schema `hydroseason-run-manifest-v1`),
+and four CSVs.
 
 ```python
 from hydroseason import run_hydroseason
@@ -17,11 +19,49 @@ result = run_hydroseason(
 
 print(f"Regime: {result.analysis.regime.regime} | Route: {result.analysis.route}")
 print(f"HTML report: {result.artifacts.html}")
+print(f"Manifest: {result.artifacts.manifest}")
 ```
 
 See real output first: [Fitzroy River report](examples/fitzroy-river-wa.html)
 (seasonal regime) and [Lachlan River report](examples/lachlan-river-nsw.html)
 (aseasonal regime).
+
+---
+
+## Many AOIs: one row, one analysis
+
+For independent DEA/STAC analyses from a multi-row vector layer (GeoPackage, Shapefile,
+GeoJSON), use `run_hydroseason_many`. One input row produces one analysis, one output
+directory, and one cryptographic run manifest; each result is isolated under its resolved identifier.
+This differs from `run_hydroseason`, which treats a multi-row AOI as one combined analysis over
+its union footprint. A one-row `MultiPolygon` is still one AOI.
+
+```python
+from hydroseason import run_hydroseason_many
+
+batch = run_hydroseason_many(
+    "catchments.gpkg",
+    output_dir="results",
+    cache_dir="cache",
+    start_date="2000-01-01",
+    end_date="2025-12-01",
+    id_col="catchment_id",
+    workers="auto",
+)
+for outcome in batch.outcomes:
+    if outcome.succeeded:
+        print(outcome.id, outcome.result.artifacts.html)
+    else:
+        print(outcome.id, outcome.error_type, outcome.error_message)
+batch.raise_for_failures()
+```
+
+### Memory-bounded scheduling (80% RAM budget)
+
+`run_hydroseason_many` schedules tasks dynamically based on system resource availability:
+- `workers="auto"` uses a default concurrency cap of 2 and schedules work dynamically.
+- Work is admitted only within an **80% RAM budget** (`max_ram_fraction=0.8` / "80% of currently available RAM"), evaluated via pre-flight memory estimation (`estimate_aoi_peak_gb`).
+- Tasks queue safely if memory is constrained, avoiding out-of-memory worker termination during large satellite raster extractions.
 
 ---
 
@@ -76,6 +116,12 @@ result = run_hydroseason(
     end_date="2025-12-01",
 )
 ```
+
+Before any monthly data is fetched, one all-time WOfS Statistics read screens
+the AOI for recurrent surface water. An AOI with none raises
+`HydroSeasonPreflightError` rather than returning an empty analysis; a
+Statistics outage warns and continues instead of being read as "no water".
+See [Preflight](preflight.md).
 
 This resolves the fixed historical water mask and separate planning
 superset described in [Advanced: DEA acquisition internals](#advanced-dea-acquisition-internals)
@@ -198,15 +244,45 @@ test complements `R` by testing the discrete 12-month uniform null.
 | Marginal | Otherwise | Evidence sits between the gates; a fixed climatological window is used only when both peak and trough evidence support it. |
 | Insufficient record | <5 usable annual timings | Do not infer lack of seasonality from inadequate data. |
 
-The seasonal label and the route are related but separate. Per-year boundaries
-need trough timing support too: `per_year_detection` requires the lower 95%
-bootstrap CI for trough `R` to be >= 0.70. A seasonal record with unstable
-troughs instead uses `fixed_climatological_window`; complex or diffuse timing
-uses `event_characterisation`. `n_timing_years` counts qualifying **years**,
-not months. Fewer than 30 usable annual timings (not 30 months) keeps the
-classification but warns that uncertainty intervals may be wide. The approved
-10-year guard keeps a strong 5–9-year record marginal when a Kuiper uniformity
-result has little power.
+The regime label and the route are related but separate, and since v0.2.0 the
+route additionally requires that annual timing be *identifiable*, not just that
+the record be seasonal or marginal. Each qualifying year's peak and trough are
+independently classified `point` (a defensible exact month), `interval` (a
+defensible bounded span, e.g. a broad low-water plateau), or `unresolved` (a
+flat or below-floor year, or a diffuse extremum that clears no calibrated
+threshold) using a detectability floor derived from measurement tolerance,
+robust noise, and pixel resolution when available. Record-level
+`timing_evidence` is `insufficient` when
+`min(n_peak_timing_years, n_trough_timing_years)` — the count of years whose
+peak/trough is independently identifiable — falls below a calibrated
+`min_informative_years`; `unsupported` when the established seasonality
+evidence above already rejects an annual cycle; otherwise `supported`.
+
+`per_year_detection` is used only for a seasonal or marginal record whose
+timing evidence is `supported`. A seasonal or marginal record with
+insufficient identifiable timing keeps its regime label but routes to
+`event_characterisation` instead — wet events and low-extent spells are
+still reported, but no hydrological-year boundary is published. The
+`fixed_climatological_window` route exists in the type system for backward
+compatibility but is not reachable under the current established policy: no
+regime/timing combination selects it. `n_timing_years` counts qualifying
+**years**, not months, and keeps its historical peak-derived meaning (it
+equals `n_peak_timing_years`); the conservative minimum of peak and trough
+years is used only inside the route gate, never as a public field's value.
+Fewer than 30 usable annual timings (not 30 months) keeps the classification
+but warns that uncertainty intervals may be wide. The approved 10-year guard
+keeps a strong 5–9-year record marginal when a Kuiper uniformity result has
+little power.
+
+Exact-zero extent is a valid dry observation, not missing data, and zero
+frequency (`n_zero_months`, `zero_month_fraction`, `n_whole_zero_years`) is
+reported descriptively but never used to decide detectability or route. A
+whole-zero year still contributes to dry-duration and event summaries; it
+contributes no peak or trough timing observation. See
+[Dynamic Hydrological State](hydrological-state.md#diagnostic-columns) for the
+per-cycle `timing_status` fields and
+[the 0.2.0 migration notes](migrations/0.2.0-timing-identifiability.md) for
+what changed from `established_0_1_1`.
 
 ---
 
@@ -253,8 +329,8 @@ error for all failures.
 ### Batch memory and threads
 
 With `workers="auto"`, HydroSeason chooses at most the available logical CPU
-count but applies a default concurrency cap of 2. It reserves 40% and uses
-60% of currently available RAM as the global admission budget. Before each
+count but applies a default concurrency cap of 2. It reserves 20% and uses
+80% of currently available RAM (`max_ram_fraction=0.8`) as the global admission budget. Before each
 run, a conservative native-30 m peak-memory estimate is calculated from the
 AOI bounding box; the box is intentionally conservative because it includes
 space outside irregular geometry. An AOI estimated above the budget emits a
@@ -288,9 +364,14 @@ Water-mask gaps, cloud/shadow contamination, and missing months can shift
 wet/dry boundaries. **Strongly consider gapfilling** (e.g. [WaterMask-TSFill](https://github.com/tayerthiaggo/WaterMask-TSFill))
 on raw/incomplete masks before running hydro-year detection. The robust
 detector still reports an observed extremum when its month exceeds
-`max_invalid_pct=20.0`% invalid coverage, but marks that extremum
-`low_quality` and the annual cycle `provisional`; low-quality cycles cannot
-anchor historical condition baselines.
+`max_invalid_pct=20.0`% invalid coverage. For the TROUGH this still marks
+that extremum `low_quality` and the annual cycle `provisional`; low-quality
+trough cycles cannot anchor historical condition baselines. The PEAK is
+judged differently: it is compared against its own calendar month's typical
+invalid coverage (see `peak_quality` below), so routine wet-season cloud over
+the peak no longer marks the cycle `provisional` on its own — only a peak
+that is anomalous for its own month, or obscured past an absolute backstop,
+does.
 
 For review-oriented mapping where every finite observation should
 contribute to the cycle search, pass `quality_policy="flag"` (the main
@@ -298,6 +379,25 @@ case-study build uses this mode). Months with partial invalid coverage
 remain `usable_month=True`, while `invalid_pct`, `quality_state="low"`,
 support, and confidence expose the uncertainty. A month with 100% invalid
 coverage or no observed extent remains unusable.
+
+---
+
+## Scientific uncertainty and calibration semantics
+
+HydroSeason rigorously separates four distinct uncertainty concepts and avoids conflating quality classifications with probabilistic confidence:
+
+1. **Observation uncertainty**: Satellite surface-water measurement error, cloud/shadow gaps, sensor resolution limitations, and historical mask boundaries.
+2. **Statistical sampling uncertainty**: Sampling variation across available observation years, quantified via non-parametric bootstrap confidence intervals (e.g., circular timing concentration CIs) and Wilson score intervals for discrete rates.
+3. **Model structural uncertainty**: Discretization choices in harmonic order selection, circular statistics assumptions, and rule-based cycle-relative phase thresholding.
+4. **Empirical threshold validation**: Calibrated false annualisation, abstention, boundary error, and phase accuracy bounds established over 5,000 independent synthetic benchmarks.
+
+### Post-selection held-out skill (`seasonal_cv_skill`)
+
+The `seasonal_cv_skill` metric measures **post-selection** cross-validation skill: the fraction of variance explained by the fitted seasonal harmonic model evaluated strictly on held-out folds after selecting the harmonic order. It quantifies how well the chosen seasonal cycle predicts unseen years, distinguishing true periodic regularities from in-sample overfitting.
+
+### Benchmark recoverability vs real-world validation
+
+Boundary recoverability metrics (such as leave-one-year-out within-one-month accuracy and MAE) demonstrate algorithmic recoverability under controlled benchmark data with known truth. Real-world boundary accuracy is not claimed as interchangeable with streamflow or gauge discharge without catchment-specific physical validation. Quality grades indicate methodological admissibility under explicit evidentiary thresholds, not probabilities of truth.
 
 ---
 
@@ -371,6 +471,12 @@ paths = generate_catchment_report(
 `name` is optional and can be any AOI label (it does not need to be a
 named catchment). If omitted or blank, the report uses **HydroSeason
 results** and the files use the `hydroseason-results` stem.
+
+When run via the orchestrator (`run_hydroseason`), an immutable cryptographic
+run manifest (`<stem>_manifest.json`, schema `hydroseason-run-manifest-v1`) is
+automatically generated alongside the HTML and CSVs, recording the frozen method
+policy (`hydroseason-v0.2.0`), its SHA-256 fingerprint, runtime environment, and
+output checksums.
 
 ---
 

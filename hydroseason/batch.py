@@ -1,8 +1,8 @@
 """Row-preserving contracts and execution for multi-AOI workflows.
 
-This module deliberately does not schedule or run work yet.  Optional
-geospatial dependencies stay inside :func:`_prepare_batch_aois` so importing
-the eventual public batch API remains available on a core installation.
+Provides memory-bounded multi-AOI batch processing via :func:`run_hydroseason_many`.
+Optional geospatial dependencies stay inside :func:`_prepare_batch_aois` so
+importing the public batch API remains available on a core installation.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from ._batch_scheduler import (
 )
 from ._progress import ProgressEvent, resolve_progress_reporter
 from ._workflow_input import DEFAULT_STAC_COLLECTION, DEFAULT_STAC_URL
-from .workflow import _resolve_show_map, run_hydroseason
+from .workflow import _resolve_show_map, run_hydroseason, validate_analysis_options
 
 if TYPE_CHECKING:
     from ._aoi_context import AOIContext
@@ -121,6 +121,7 @@ def run_hydroseason_many(
     progress: bool | Callable[[ProgressEvent], None] = False,
 ) -> HydroSeasonBatchResult:
     """Run the public single-AOI workflow once for every source AOI row."""
+    validate_analysis_options(analysis_options)
     output_root = _validate_path(output_dir, name="output_dir")
     cache_root = (
         None if cache_dir is None else _validate_path(cache_dir, name="cache_dir")

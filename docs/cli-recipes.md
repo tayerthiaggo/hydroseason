@@ -200,7 +200,34 @@ output for scripting:
 hydroseason run --water-source monthly_extent.csv --output-dir out --json
 ```
 
-## 7. Repository checks
+## 7. Method Policy and Run Manifest
+
+HydroSeason v0.2.0 operates strictly under the frozen scientific method `hydroseason-v0.2.0`. There is **no runtime method selector** (runtime configuration is immutable).
+
+Every execution automatically generates an immutable cryptographic run manifest (`<stem>_manifest.json`) complying with schema `hydroseason-run-manifest-v1`. It records the exact method policy fingerprint (`ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080`), runtime platform, input provenance, and output file checksums:
+
+```json
+{
+  "$schema": "hydroseason-run-manifest-v1",
+  "method_policy_id": "hydroseason-v0.2.0",
+  "method_fingerprint": "ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080",
+  "environment": {
+    "os": "Windows",
+    "python_version": "3.12.13"
+  },
+  "inputs": {
+    "water_source": "data/fitzroy_kimberley_aoi.geojson"
+  },
+  "outputs": {
+    "html": "output/fitzroy/fitzroy-river-wa.html",
+    "manifest": "output/fitzroy/fitzroy-river-wa_manifest.json",
+    "monthly_csv": "output/fitzroy/fitzroy-river-wa_monthly.csv",
+    "hydro_years_csv": "output/fitzroy/fitzroy-river-wa_hydro_years.csv"
+  }
+}
+```
+
+## 8. Repository checks
 
 Maintainer and reproducibility commands, for a source checkout rather than
 an installed package:

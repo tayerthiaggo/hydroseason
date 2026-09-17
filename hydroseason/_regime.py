@@ -12,21 +12,6 @@ variable and must not be read as one. Regulation, diversion, extraction,
 farm-dam storage and land-use change all move surface-water extent
 independently of rainfall, so a flat or shifted signal is evidence about water
 *availability*, never directly about climate.
-
-Two scale-free diagnostics drive the classification:
-
-``amplitude_snr``
-    Climatological amplitude (wettest mean month minus driest) divided by the
-    mean within-month interannual standard deviation. Reads as: is the average
-    year's cycle larger than the difference between years? Being a ratio it is
-    invariant to absolute extent, so catchments whose entire signal sits under
-    1% are judged on the same footing as far wetter ones.
-
-``peak_timing_concentration``
-    Circular concentration of the per-year peak month, with a bootstrap
-    confidence interval. It directly distinguishes a single reproducible peak
-    from a split or diffuse distribution that can have a deceptively narrow
-    circular IQR.
 """
 from __future__ import annotations
 
@@ -35,43 +20,34 @@ from typing import Literal
 
 import numpy as np
 
-from ._circular_timing import CircularTimingSummary, summarise_circular_months
+from ._circular_timing import (
+    AnnualTimingSummary,
+    summarise_annual_timing,
+)
+from ._decision_policy import (
+    DECISION_POLICY,
+    REGIME_THRESHOLDS,
+    DecisionPolicy,
+    EstablishedDecision,
+    Regime,
+    Route,
+    TimingEvidence,
+    decide_regime,
+)
 from ._events import extract_water_events
+from ._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
+from ._seasonality_test import TimingRecurrenceResult, assess_timing_recurrence
 from ._state_input import QualityPolicy, prepare_monthly_extent
+from ._timing_identifiability import (
+    PixelSupportStatus,
+    RecordTimingEvidence,
+    assess_timing_identifiability,
+)
 
-Regime = Literal["seasonal", "marginal", "aseasonal", "insufficient_record"]
-
-# A year is usable with most months present, not all twelve. The all-or-nothing
-# rule this replaces is not neutral: wet-season cloud removes precisely the
-# months carrying the monsoon peak, so completeness anti-correlates with
-# seasonality and the strictest interpretation discards the most seasonal
-# catchments first.
 _DEFAULT_MIN_MONTHS_PER_YEAR = 9
 _MIN_USABLE_YEARS = 5
+_DRIFT_MIN_TIMING_YEARS = 10
 
-# Boundaries between regimes. Deliberately wide apart, with everything between
-# them landing in "marginal" rather than being forced to a side.
-_SEASONAL_MIN_SNR = 2.0
-_ASEASONAL_MAX_SNR = 0.7
-_STRONG_TIMING_CONCENTRATION = 0.7
-_WEAK_TIMING_CONCENTRATION = 0.3
-_CIRCULAR_UNIFORMITY_ALPHA = 0.1
-_UNIFORMITY_MIN_TIMING_YEARS = 10.0
-_TIMING_RECORD_CAUTION_YEARS = 30.0
-
-# Published so the report can state the cut-offs it is judging against. A
-# reader shown "SNR 2.46" and nothing else cannot tell a strong number from a
-# weak one, and a second copy of these values in the report layer would
-# eventually disagree with the classifier that actually decides the regime.
-REGIME_THRESHOLDS: dict[str, float] = {
-    "seasonal_min_snr": _SEASONAL_MIN_SNR,
-    "strong_timing_concentration": _STRONG_TIMING_CONCENTRATION,
-    "weak_timing_concentration": _WEAK_TIMING_CONCENTRATION,
-    "aseasonal_max_snr": _ASEASONAL_MAX_SNR,
-    "circular_uniformity_alpha": _CIRCULAR_UNIFORMITY_ALPHA,
-    "uniformity_min_timing_years": _UNIFORMITY_MIN_TIMING_YEARS,
-    "timing_record_caution_years": _TIMING_RECORD_CAUTION_YEARS,
-}
 
 _SCOPE_CAVEAT = (
     "extent_pct measures observed surface water (water availability), not "
@@ -101,8 +77,15 @@ class WaterRegimeAssessment:
     trough_timing_concentration_ci_high: float | None
     trough_timing_uniformity_p: float | None
     n_timing_years: int
-    climatological_peak_month: int | None
-    climatological_trough_month: int | None
+    timing_evidence: TimingEvidence
+    n_peak_timing_years: int
+    n_trough_timing_years: int
+    n_zero_months: int
+    zero_month_fraction: float
+    n_whole_zero_years: int
+    pixel_support_status: PixelSupportStatus
+    mean_monthly_peak_month: int | None
+    mean_monthly_trough_month: int | None
     n_usable_years: int
     n_usable_months: int
     n_wet_events: int
@@ -111,64 +94,25 @@ class WaterRegimeAssessment:
     recommended_action: str
     caveats: tuple[str, ...]
 
+    seasonality_test: TimingRecurrenceResult | None = None
+    decision_policy: DecisionPolicy = DECISION_POLICY
+    public_route: Route = "insufficient_record"
+
     @property
     def supports_per_year_boundaries(self) -> bool:
-        """Whether seasonal trough timing supports a boundary in each year.
+        """Whether public hydrological years may be published for this record."""
+        return self.public_route == "per_year_detection"
 
-        A seasonal regime still needs a strongly concentrated trough timing
-        interval: annual boundaries are only reproducible when its bootstrap
-        lower bound clears the strong timing-concentration threshold.
-        """
-        return (
-            self.regime == "seasonal"
-            and self.trough_timing_concentration_ci_low is not None
-            and self.trough_timing_concentration_ci_low >= _STRONG_TIMING_CONCENTRATION
-        )
+    @property
+    def attempts_per_year_detection(self) -> bool:
+        """Whether the detector runs at all, as an internal diagnostic."""
+        return self.regime == "seasonal"
 
     @property
     def supports_fixed_window(self) -> bool:
-        """Whether one fixed climatological wet/dry window is defensible.
+        """Whether one fixed climatological wet/dry window is defensible."""
+        return False
 
-        Seasonal records always support a fixed window. This intentionally
-        breaks the former behaviour that accepted every marginal record:
-        marginal records now require concentrated, non-uniform peak *and*
-        trough timings before a pooled window can be imposed.
-        """
-        if self.regime == "seasonal":
-            return True
-        if self.regime != "marginal":
-            return False
-        timing_values = (
-            self.peak_timing_uniformity_p,
-            self.trough_timing_uniformity_p,
-            self.peak_timing_concentration,
-            self.trough_timing_concentration,
-        )
-        return (
-            all(value is not None for value in timing_values)
-            and self.peak_timing_uniformity_p < _CIRCULAR_UNIFORMITY_ALPHA
-            and self.trough_timing_uniformity_p < _CIRCULAR_UNIFORMITY_ALPHA
-            and self.peak_timing_concentration >= _WEAK_TIMING_CONCENTRATION
-            and self.trough_timing_concentration >= _WEAK_TIMING_CONCENTRATION
-        )
-
-
-def _classify(snr: float, peak: CircularTimingSummary) -> Regime:
-    if (
-        snr >= _SEASONAL_MIN_SNR
-        and peak.ci_low is not None
-        and peak.ci_low >= _STRONG_TIMING_CONCENTRATION
-    ):
-        return "seasonal"
-    if snr < _ASEASONAL_MAX_SNR:
-        return "aseasonal"
-    if (
-        peak.uniformity_p is not None
-        and peak.uniformity_p >= _CIRCULAR_UNIFORMITY_ALPHA
-        and peak.n >= _UNIFORMITY_MIN_TIMING_YEARS
-    ):
-        return "aseasonal"
-    return "marginal"
 
 
 _ACTIONS: dict[Regime, str] = {
@@ -176,15 +120,12 @@ _ACTIONS: dict[Regime, str] = {
         "Run per-year hydrological-year detection. Peak and trough months are "
         "reproducible year to year."
     ),
-    "marginal": (
-        "Do not report per-year peak/trough: individual years disagree on "
-        "timing. A single fixed climatological window may be applied as an "
-        "explicit average-behaviour frame, recorded as an imposed assumption "
-        "rather than a detected boundary. Report event descriptors alongside it."
-    ),
     "aseasonal": (
-        "Do not define a hydrological year. No reproducible annual cycle is "
-        "present, so any peak, trough or wet/dry split would describe noise. "
+        "Do not define a hydrological year: annual timing was not established "
+        "by the current evidence. This label covers both a record that "
+        "genuinely lacks a reproducible annual cycle and one where insufficient "
+        "concentration, power, or informative years left annual timing "
+        "unresolved -- a non-significant test does not prove uniform timing. "
         "Characterise this catchment by wet events and low-extent spell length instead."
     ),
     "insufficient_record": (
@@ -202,17 +143,11 @@ def assess_water_regime(
     min_months_per_year: int = _DEFAULT_MIN_MONTHS_PER_YEAR,
     max_invalid_pct: float = 20.0,
     quality_policy: QualityPolicy = "flag",
+    measurement_tolerance_pct: float = 0.0,
     n_bootstrap: int = 200,
     random_state: int = 0,
 ) -> WaterRegimeAssessment:
-    """Assess what the observed surface-water record supports.
-
-    Call this before hydrological-year detection and surface the result to the
-    user. Detectors downstream cannot themselves tell a weak cycle from none,
-    and their confidence grades are computed relative to the same weak signal,
-    so a record with no cycle can otherwise be reported back as many
-    high-confidence years.
-    """
+    """Assess what the observed surface-water record supports."""
     if not 1 <= min_months_per_year <= 12:
         raise ValueError("min_months_per_year must be between 1 and 12.")
 
@@ -233,108 +168,114 @@ def assess_water_regime(
     ]
     qualifying_years = [year for year, _ in qualifying_groups]
     sample = usable.loc[usable.index.year.isin(qualifying_years)]
-    values = sample[value_col]
+
+    if sample.empty:
+        count_columns = {"n_water", "n_valid", "n_invalid", "n_aoi"}
+        timing_evidence = RecordTimingEvidence(
+            years={},
+            pixel_support_status=(
+                "available" if count_columns.issubset(prepared.columns) else "unavailable"
+            ),
+            n_zero_months=0,
+            zero_month_fraction=0.0,
+            n_whole_zero_years=0,
+            n_peak_timing_years=0,
+            n_trough_timing_years=0,
+            n_timing_years=0,
+        )
+    else:
+        timing_evidence = assess_timing_identifiability(
+            sample,
+            thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
+            value_col=value_col,
+            max_invalid_pct=max_invalid_pct,
+            quality_policy=quality_policy,
+            measurement_tolerance_pct=measurement_tolerance_pct,
+        )
+
+    peak_month_sets = {
+        year: annual.peak_months
+        for year, annual in timing_evidence.years.items()
+        if annual.peak_status != "unresolved"
+    }
+    trough_month_sets = {
+        year: annual.trough_months
+        for year, annual in timing_evidence.years.items()
+        if annual.trough_status != "unresolved"
+    }
+    peak_timing: AnnualTimingSummary = summarise_annual_timing(
+        peak_month_sets,
+        n_resamples=n_bootstrap,
+        random_state=random_state,
+    )
+    trough_timing: AnnualTimingSummary = summarise_annual_timing(
+        trough_month_sets,
+        n_resamples=n_bootstrap,
+        random_state=random_state,
+    )
 
     if len(qualifying_years) < _MIN_USABLE_YEARS:
-        return WaterRegimeAssessment(
-            regime="insufficient_record",
-            amplitude_snr=0.0,
-            peak_phase_iqr_months=None,
-            peak_timing_concentration=None,
-            peak_timing_concentration_ci_low=None,
-            peak_timing_concentration_ci_high=None,
-            peak_timing_uniformity_p=None,
-            trough_phase_iqr_months=None,
-            trough_timing_concentration=None,
-            trough_timing_concentration_ci_low=None,
-            trough_timing_concentration_ci_high=None,
-            trough_timing_uniformity_p=None,
-            n_timing_years=0,
-            climatological_peak_month=None,
-            climatological_trough_month=None,
-            n_usable_years=len(qualifying_years),
-            n_usable_months=int(len(usable)),
-            n_wet_events=0,
-            longest_low_spell_months=0,
-            years_without_wet_event=0,
-            recommended_action=_ACTIONS["insufficient_record"],
-            caveats=tuple(caveats),
-        )
-
-    by_month = values.groupby(values.index.month)
-    climatology = by_month.mean()
-    amplitude = float(climatology.max() - climatology.min())
-    within_month_sd = float(by_month.std().mean())
-    # Ratio, not a difference against a fixed pp floor: an absolute tolerance
-    # silently rejects any catchment whose entire signal is small.
-    snr = amplitude / within_month_sd if within_month_sd > 0 else np.inf
-
-    per_year_peaks = [int(group[value_col].idxmax().month) for _, group in qualifying_groups]
-    per_year_troughs = [int(group[value_col].idxmin().month) for _, group in qualifying_groups]
-    peak_timing = summarise_circular_months(
-        per_year_peaks, n_resamples=n_bootstrap, random_state=random_state,
-    )
-    trough_timing = summarise_circular_months(
-        per_year_troughs, n_resamples=n_bootstrap, random_state=random_state,
-    )
-
-    regime = _classify(snr, peak_timing)
-    # One definition of an event, shared with the event module. A private
-    # second implementation here drifted from it -- different thresholds, no
-    # hysteresis -- so the same record reported different counts depending on
-    # which entry point the caller used.
-    event_summary = extract_water_events(
-        extent, value_col=value_col, date_col=date_col,
-        max_invalid_pct=max_invalid_pct, quality_policy=quality_policy,
-    ).summary
-    n_wet_events = event_summary["n_events"]
-    longest_low = event_summary["longest_low_spell_months"]
-    years_without = event_summary["years_without_event"]
-
-    # Withhold a headline peak/trough where the record cannot support one,
-    # rather than emitting a number the caller has to know to distrust.
-    if regime in ("seasonal", "marginal"):
-        peak_month: int | None = int(climatology.idxmax())
-        trough_month: int | None = int(climatology.idxmin())
+        snr = 0.0
     else:
-        peak_month = trough_month = None
+        by_month = sample[value_col].groupby(sample.index.month)
+        climatology = by_month.mean()
+        amplitude = float(climatology.max() - climatology.min())
+        within_month_sd = (
+            float(by_month.std().mean()) if len(qualifying_years) > 1 else 0.0
+        )
+        if amplitude == 0.0:
+            snr = 0.0
+        elif within_month_sd > 0.0:
+            snr = amplitude / within_month_sd
+        else:
+            snr = np.inf
+    recurrence: TimingRecurrenceResult = assess_timing_recurrence(
+        prepared,
+        thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
+        value_col=value_col,
+        measurement_tolerance_pct=measurement_tolerance_pct,
+        min_months_per_year=min_months_per_year,
+        min_years=_MIN_USABLE_YEARS,
+        n_bootstrap=n_bootstrap,
+        random_state=random_state,
+    )
+    decision = decide_regime(
+        classification=recurrence.classification,
+        status=recurrence.status,
+        reason=recurrence.reason,
+    )
 
-    if _MIN_USABLE_YEARS <= peak_timing.n < _TIMING_RECORD_CAUTION_YEARS:
-        caveats.append(
-            "fewer than 30 usable annual timings: classification is retained, "
-            "but uncertainty intervals may be wide"
-        )
-    if (
-        _MIN_USABLE_YEARS <= peak_timing.n < _UNIFORMITY_MIN_TIMING_YEARS
-        and snr >= _SEASONAL_MIN_SNR
-        and peak_timing.ci_low is not None
-        and peak_timing.ci_low < _STRONG_TIMING_CONCENTRATION
-        and peak_timing.uniformity_p is not None
-        and peak_timing.uniformity_p >= _CIRCULAR_UNIFORMITY_ALPHA
-    ):
-        caveats.append(
-            "the circular-uniformity result has little power with fewer than "
-            "10 annual timings, so the record remains marginal"
-        )
-    if regime == "marginal":
-        caveats.append(
-            "peak-timing concentration does not provide strong enough evidence "
-            "for per-year boundaries, so the climatological peak describes "
-            "average behaviour only"
-        )
-    if regime == "aseasonal":
-        caveats.append(
-            "no reproducible annual cycle: peak and trough are withheld because "
-            "any value would reflect noise rather than a seasonal signal"
-        )
+    populate_months = (
+        decision.regime == "seasonal" and len(qualifying_years) >= _MIN_USABLE_YEARS
+    )
+    mean_monthly_peak_month = int(climatology.idxmax()) if populate_months else None
+    mean_monthly_trough_month = int(climatology.idxmin()) if populate_months else None
+
+    # Events extraction
+    event_summary = extract_water_events(
+        extent,
+        value_col=value_col,
+        date_col=date_col,
+        max_invalid_pct=max_invalid_pct,
+        quality_policy=quality_policy,
+    ).summary
+    n_wet_events = int(event_summary["n_events"])
+    longest_low = int(event_summary["longest_low_spell_months"])
+    years_without = int(event_summary["years_without_event"])
+
+    caveats.append(
+        "seasonality policy hydroseason-v0.2.0: class decided by calendar recurrence of annual peak and trough timing at "
+        f"alpha {recurrence.alpha:g}; aseasonal means recurrence was not established, "
+        "not that timing is uniform"
+    )
     if years_without:
         caveats.append(
             f"{years_without} of {len(qualifying_groups)} usable years contain no "
-            "wet event above the record's own 75th percentile"
+            f"wet event above {max_invalid_pct:.0f}% invalid ceiling"
         )
 
     return WaterRegimeAssessment(
-        regime=regime,
+        regime=decision.regime,
         amplitude_snr=float(snr),
         peak_phase_iqr_months=peak_timing.iqr_months,
         peak_timing_concentration=peak_timing.concentration,
@@ -346,22 +287,53 @@ def assess_water_regime(
         trough_timing_concentration_ci_low=trough_timing.ci_low,
         trough_timing_concentration_ci_high=trough_timing.ci_high,
         trough_timing_uniformity_p=trough_timing.uniformity_p,
-        n_timing_years=peak_timing.n,
-        climatological_peak_month=peak_month,
-        climatological_trough_month=trough_month,
+        n_timing_years=timing_evidence.n_peak_timing_years,
+        timing_evidence=decision.timing_evidence,
+        n_peak_timing_years=timing_evidence.n_peak_timing_years,
+        n_trough_timing_years=timing_evidence.n_trough_timing_years,
+        n_zero_months=timing_evidence.n_zero_months,
+        zero_month_fraction=timing_evidence.zero_month_fraction,
+        n_whole_zero_years=timing_evidence.n_whole_zero_years,
+        pixel_support_status=timing_evidence.pixel_support_status,
+        mean_monthly_peak_month=mean_monthly_peak_month,
+        mean_monthly_trough_month=mean_monthly_trough_month,
         n_usable_years=len(qualifying_years),
         n_usable_months=int(len(usable)),
         n_wet_events=n_wet_events,
         longest_low_spell_months=longest_low,
         years_without_wet_event=years_without,
-        recommended_action=_ACTIONS[regime],
+        recommended_action=_ACTIONS[decision.regime],
         caveats=tuple(caveats),
+        seasonality_test=recurrence,
+        decision_policy=decision.policy,
+        public_route=decision.route,
     )
 
 
+PublicRoute = Literal[
+    "per_year_detection", "event_characterisation", "insufficient_record"
+]
+
+
+def public_route(regime: Regime) -> PublicRoute:
+    """Map regime to public route."""
+    if regime == "seasonal":
+        return "per_year_detection"
+    if regime == "insufficient_record":
+        return "insufficient_record"
+    return "event_characterisation"
+
+
 __all__ = [
+    "DecisionPolicy",
+    "DECISION_POLICY",
+    "EstablishedDecision",
+    "PublicRoute",
     "REGIME_THRESHOLDS",
     "Regime",
+    "Route",
     "WaterRegimeAssessment",
     "assess_water_regime",
+    "decide_regime",
+    "public_route",
 ]

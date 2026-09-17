@@ -1,0 +1,61 @@
+{
+  "partition": "calibration",
+  "authority_scope": "candidate_for_established_0_3_0",
+  "n_seeds": 240,
+  "seed_range": [
+    30000,
+    30239
+  ],
+  "geometry": {
+    "trough_search_radius_months": 4,
+    "adaptive_trough_search_radius_months": 4,
+    "adaptive_min_usable_months_per_cycle": 8
+  },
+  "fingerprint": "885af0c5e2e3c9edddc3d7a85762d43a3a7e5bb1483f57264d6efad3c9980022",
+  "environment": {
+    "python": "3.14.5",
+    "numpy": "2.4.6",
+    "pandas": "3.0.3"
+  },
+  "elapsed_seconds": 798.022,
+  "selection_counts": {
+    "grid": 24,
+    "false_precise_boundary_wilson": 24,
+    "duplicate_or_nonmonotonic": 24,
+    "boundary_mae": 24,
+    "wrong_cycle_rate": 24,
+    "abstention_rate": 8,
+    "boundary_signed_bias": 8,
+    "status_quo_tie_break": 8,
+    "final_survivors": 8,
+    "selected": 1
+  },
+  "tie_breaks": [
+    "false_precise_boundary_wilson",
+    "duplicate_or_nonmonotonic",
+    "boundary_mae",
+    "wrong_cycle_rate",
+    "abstention_rate",
+    "abs_boundary_signed_bias",
+    "status_quo_shipped_tuple",
+    "smaller_trough_search_radius_months",
+    "smaller_adaptive_trough_search_radius_months",
+    "larger_adaptive_min_usable_months_per_cycle"
+  ],
+  "metrics": {
+    "false_precise_boundary_rate": 0.0,
+    "false_precise_boundary_wilson": [
+      0.0,
+      0.009904714241677031
+    ],
+    "false_precise_boundary_n": 384,
+    "duplicate_or_nonmonotonic_rate": 0.0,
+    "boundary_mae": 0.0,
+    "boundary_signed_bias": 0.29219701162147205,
+    "wrong_cycle_rate": 0.0,
+    "short_long_cycle_rate": 0.44106253458771444,
+    "coverage_drop_rate": 0.13923611111111112,
+    "abstention_rate": 0.2760416666666667,
+    "outside_window_lower_rate": 0.07113218731475993
+  }
+}

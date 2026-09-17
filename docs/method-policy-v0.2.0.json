@@ -1,0 +1,23 @@
+{
+  "event_thresholds": {
+    "enter_sigma": 3.0,
+    "exit_sigma": 1.0,
+    "low_sigma": 1.0
+  },
+  "policy_id": "hydroseason-v0.2.0",
+  "seasonality": {
+    "alpha": 0.05,
+    "method": "timing_recurrence",
+    "min_detectable_years": 5
+  },
+  "trough_refinement": {
+    "delta_rel": 0.05,
+    "huber_k": 1.345,
+    "l_uncertainty_k": 2.0,
+    "method": "direct_profile_combined",
+    "profile_loss_cutoff": 0.05,
+    "pulse_z": 1.5,
+    "scale_mode": "combined",
+    "version": "direct_profile_combined_v1"
+  }
+}
