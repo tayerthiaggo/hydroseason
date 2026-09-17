@@ -19,11 +19,11 @@ HydroSeason turns a monthly surface-water record into a hydrological year report
 
 [![HydroSeason report preview](https://raw.githubusercontent.com/tayerthiaggo/hydroseason/main/docs/assets/report-preview.png)](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa.html)
 
-One function call gives you one self-contained HTML report, an interactive
-water-extent timeline with each hydrological year, its wet and dry phases,
-and the flood events and low spells found in the record. Plus four CSVs
-carrying the same numbers for your own analysis: `_monthly`, `_hydro_years`,
-`_wet_event`, and `_low_spells`.
+One function call gives you one self-contained HTML report, an immutable
+run manifest (`_manifest.json`), an interactive water-extent timeline with
+each hydrological year, its wet and dry phases, and the flood events and low
+spells found in the record. Plus four CSVs carrying the same numbers for your
+own analysis: `_monthly`, `_hydro_years`, `_wet_event`, and `_low_spells`.
 
 Open a real one (no install needed):
 
@@ -111,16 +111,17 @@ dependencies a given path needs. Full recipes:
 ---
 
 ## How it works
+Under the frozen sole method policy (`hydroseason-v0.2.0`), the workflow operates deterministically:
 
 1. **You give it monthly water-extent data** — a CSV you already have, a raster/NetCDF/Zarr cube, or nothing at all (it fetches Digital Earth Australia satellite data for you).
 2. **On a DEA fetch, it screens the AOI first** — one all-time WOfS Statistics read checks the catchment actually holds recurrent surface water before any monthly data is paid for; an AOI with none raises `HydroSeasonPreflightError` instead of returning an empty analysis. A Statistics outage never becomes a "no water" answer.
-3. **It checks whether the catchment has a reliable annual cycle** — a signal-to-noise ratio (SNR): how strong and repeatable the yearly wet/dry swing is compared to noise.
-4. **It picks the matching analysis automatically** — a strong, repeatable cycle gets per-year hydrological boundaries; an irregular or dryland catchment gets discrete flood-event and dry-spell characterization instead, rather than forcing a yearly pattern that isn't really there.
-5. **Optional rainfall adds context, never changes the answer** — rainfall can be fetched or supplied alongside the water data, but it only annotates the report; it can never alter the regime, route, boundaries, phases, events, or spells that were already decided from water alone.
-6. **It writes one self-contained HTML report and four CSVs** — open the HTML anywhere, no server needed; the CSVs are ready for your own analysis.
+3. **It tests whether the catchment has an established recurring annual cycle** — applying circular Kuiper uniformity tests on detrended series for both peaks and troughs with a mandatory five-detectable-year guard.
+4. **It picks the matching analysis automatically** — a record with confirmed recurring annual timing and at least seven detectable cycles receives per-year dynamic boundaries refined via direct-profile Huber loss; an irregular, dryland, or cycle-sparse catchment gets discrete flood-event and low-extent spell characterization instead, rather than forcing a yearly pattern that isn't supported.
+5. **Optional rainfall adds context, never changes the answer** — rainfall can be fetched or supplied alongside the water data, but it only annotates the report; it is completely independent and can never alter the regime, route, boundaries, phases, events, or spells decided from water alone.
+6. **It writes one self-contained HTML report, an immutable run manifest, and four CSVs** — open the HTML anywhere, verify execution provenance via the run manifest (`hydroseason-run-manifest-v1`), and use the CSVs for downstream analysis.
 
 ```
-CSV, raster, or DEA fetch  →  run_hydroseason  →  seasonal or aseasonal route  →  HTML report + 4 CSVs
+CSV, raster, or DEA fetch  →  run_hydroseason (v0.2.0)  →  seasonal or aseasonal route  →  HTML report + manifest + 4 CSVs
 ```
 
 ---

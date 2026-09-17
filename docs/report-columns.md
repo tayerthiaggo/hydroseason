@@ -45,7 +45,7 @@ month; percentages are 0--100.
 | `in_wet_event` / `wet_event_id` | Whether the month belongs to a wet event and its identifier. |
 | `in_low_spell` / `low_spell_id` | Whether the month belongs to a low-extent spell and its identifier. |
 | `regime` / `route` | The regime decision and analysis route applied to the record. |
-| `decision_policy` | Decision policy identifier controlling public routing (`established_0_2_0`). |
+| `decision_policy` | Decision policy identifier controlling public routing (`hydroseason-v0.2.0`). |
 | `rainfall_mm` / `rain_anomaly_mm` | Optional supplied-CSV or SILO rainfall context, written only when rainfall loads successfully. The anomaly is rainfall minus the median for the same calendar month. These fields never drive regime routing, boundaries, phases, events, or low spells. |
 
 ## Hydrological years (`<stem>_hydro_years.csv`)
@@ -62,7 +62,7 @@ not define hydrological years. Date columns are month starts.
 | `peak_extent_pct` / `mid_dry_extent_pct` / `trough_extent_pct` | Extent observed at each marker. |
 | `peak_invalid_pct` / `mid_dry_invalid_pct` / `trough_invalid_pct` | Invalid-pixel percentage at each marker. High values make the marker provisional/low confidence. |
 | `drawdown_pct` | Peak-to-trough extent range when available. |
-| `confidence` | Overall confidence assigned to the row. |
+| `confidence` | Deterministic quality grade (`high`, `medium`, `low`) assigned based on data completeness and observation flags. This is an empirical quality grade, not a probability. |
 | `status` / `boundary_status` | Result status and whether boundaries are exact, provisional, or otherwise constrained. |
 | `peak_quality` | The peak observation judged against its own month-of-year norm: `normal` or `anomalous`. Only `anomalous` downgrades the cycle. |
 | `boundary_basis` | Whether the boundary was detected per year or imposed from a fixed window derived from mean monthly extent. |
@@ -71,8 +71,7 @@ not define hydrological years. Date columns are month starts.
 | `peak_timing_status` / `trough_timing_status` | Whether the peak/trough resolves to an exact month (`point`), a bounded interval (`interval`), or cannot be resolved (`unresolved`). |
 | `peak_date` / `trough_date` | Populated only when the corresponding `*_timing_status` is `point`; blank for `interval` or `unresolved` so a broad plateau or diffuse peak is never presented as a fabricated exact date. |
 | `trough_boundary_date` | The **operational** boundary used for cycle segmentation, populated whenever a trough was detected regardless of timing status (blank only for a blank cycle with no trough opportunity at all). This is always `trough_month`, the actual date used to define `hy_start`/`hy_end` -- it is **not** the same as `trough_interval_end_date`: a refined boundary can sit strictly inside its own support interval, so the two must not be assumed equal. Use `trough_date` for a strict point-only claim and `trough_boundary_date` for "what date this cycle actually uses". |
-| `peak_interval_start_date` / `peak_interval_end_date` / `trough_interval_start_date` / `trough_interval_end_date` | Populated whenever the corresponding `*_timing_status` is `interval` (bounds of the defensible interval), also populated for `point` (a single-month interval). Blank for `unresolved`. |
-| `peak_interval_start_date` / `peak_interval_end_date` / `trough_interval_start_date` / `trough_interval_end_date` | Bounds of equivalent evidence for that extremum across the cycle window. Populated for `point` and `interval`; also populated for `unresolved` when candidate extrema exist to preserve complete equivalent evidence (never an exact published point). |
+| `peak_interval_start_date` / `peak_interval_end_date` / `trough_interval_start_date` / `trough_interval_end_date` | Bounds of equivalent evidence for that extremum across the cycle window (or robust-loss profile support interval for refined troughs). Populated for `point` and `interval`; also populated for `unresolved` when candidate extrema exist to preserve complete equivalent evidence. These are deterministic non-parametric support bounds, not nominal confidence intervals or probability distributions. |
 | `detectability_floor_pp` | The record's detectability floor for that cycle, in percentage points: `max(measurement_tolerance_pct, robust_noise_pp, peak_resolution_pp, trough_resolution_pp, machine epsilon)`. |
 | `amplitude_to_floor_ratio` | That cycle's amplitude divided by `detectability_floor_pp`; `0.0` when the amplitude is at or below the floor. |
 

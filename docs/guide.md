@@ -2,9 +2,11 @@
 
 ## Start here: one call
 
-`run_hydroseason` is the function almost everyone needs. Point it at water
-data — a CSV, a raster, or nothing at all (it will fetch DEA WOfS for you) —
-and it writes back a self-contained HTML report plus four CSVs.
+`run_hydroseason` is the function almost everyone needs. Executing under the frozen
+`hydroseason-v0.2.0` runtime method, it analyzes satellite water data — from a CSV,
+a raster, or fetched directly from DEA WOfS — and writes back a self-contained HTML
+report, an immutable run manifest (`_manifest.json`, schema `hydroseason-run-manifest-v1`),
+and four CSVs.
 
 ```python
 from hydroseason import run_hydroseason
@@ -17,11 +19,49 @@ result = run_hydroseason(
 
 print(f"Regime: {result.analysis.regime.regime} | Route: {result.analysis.route}")
 print(f"HTML report: {result.artifacts.html}")
+print(f"Manifest: {result.artifacts.manifest}")
 ```
 
 See real output first: [Fitzroy River report](examples/fitzroy-river-wa.html)
 (seasonal regime) and [Lachlan River report](examples/lachlan-river-nsw.html)
 (aseasonal regime).
+
+---
+
+## Many AOIs: one row, one analysis
+
+For independent DEA/STAC analyses from a multi-row vector layer (GeoPackage, Shapefile,
+GeoJSON), use `run_hydroseason_many`. One input row produces one analysis, one output
+directory, and one cryptographic run manifest; each result is isolated under its resolved identifier.
+This differs from `run_hydroseason`, which treats a multi-row AOI as one combined analysis over
+its union footprint. A one-row `MultiPolygon` is still one AOI.
+
+```python
+from hydroseason import run_hydroseason_many
+
+batch = run_hydroseason_many(
+    "catchments.gpkg",
+    output_dir="results",
+    cache_dir="cache",
+    start_date="2000-01-01",
+    end_date="2025-12-01",
+    id_col="catchment_id",
+    workers="auto",
+)
+for outcome in batch.outcomes:
+    if outcome.succeeded:
+        print(outcome.id, outcome.result.artifacts.html)
+    else:
+        print(outcome.id, outcome.error_type, outcome.error_message)
+batch.raise_for_failures()
+```
+
+### Memory-bounded scheduling (80% RAM budget)
+
+`run_hydroseason_many` schedules tasks dynamically based on system resource availability:
+- `workers="auto"` uses a default concurrency cap of 2 and schedules work dynamically.
+- Work is admitted only within an **80% RAM budget** (`max_ram_fraction=0.8` / "80% of currently available RAM"), evaluated via pre-flight memory estimation (`estimate_aoi_peak_gb`).
+- Tasks queue safely if memory is constrained, avoiding out-of-memory worker termination during large satellite raster extractions.
 
 ---
 
@@ -431,6 +471,12 @@ paths = generate_catchment_report(
 `name` is optional and can be any AOI label (it does not need to be a
 named catchment). If omitted or blank, the report uses **HydroSeason
 results** and the files use the `hydroseason-results` stem.
+
+When run via the orchestrator (`run_hydroseason`), an immutable cryptographic
+run manifest (`<stem>_manifest.json`, schema `hydroseason-run-manifest-v1`) is
+automatically generated alongside the HTML and CSVs, recording the frozen method
+policy (`hydroseason-v0.2.0`), its SHA-256 fingerprint, runtime environment, and
+output checksums.
 
 ---
 

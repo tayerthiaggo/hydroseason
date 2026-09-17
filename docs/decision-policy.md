@@ -1,18 +1,8 @@
 # Decision policy and scientific baseline
 
-HydroSeason 0.2.0 publishes regime, route, timing-identifiability status, and hydrological years under `established_0_2_0`, using circular timing statistics of annual extrema, circular Kuiper uniformity testing, and calibrated per-year timing-identifiability thresholds. See [the 0.2.0 design](decision-policy-0.2.0.md) and [migration notes](migrations/0.2.0-timing-identifiability.md).
+HydroSeason freezes a single authoritative runtime method: `hydroseason-v0.2.0` (payload SHA-256 fingerprint: `ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080`).
 
-Trough-boundary refinement is a separate, additive axis and is not part of
-`established_0_2_0`: two opt-in, unpromoted challenger candidates
-(`shape_fit`, `direct_profile_combined`) exist behind an explicit
-`trough_refinement_policy`, off by default; the same promotion gate below
-applies to either candidate before it could become authoritative.
-
-Seasonality classification has one opt-in, unpromoted candidate,
-`candidate_timing_recurrence`, selected with `seasonality_policy="timing_recurrence"`
-and off by default. It classifies a record `seasonal` or `aseasonal` from the
-calendar recurrence of annual peak and trough timing on a detrended record; the
-promotion gate below applies before it could become authoritative.
+There are no competing, alternate, or unversioned runtime method policies. Earlier experimental flags, candidate selectors (including unpromoted shape-fit trough refinement, SNR routing, and opt-in seasonality selectors), and selectable policy flags have been removed. Trough refinement is frozen to direct-profile refinement (`direct_profile_combined_v1`), and seasonality classification is frozen to mandatory circular timing recurrence with the five-detectable-year guard. See [Methods Reference](methods.md) and [the 0.2.0 design](decision-policy-0.2.0.md).
 
 ## Protected baseline
 
@@ -32,28 +22,7 @@ A replacement decision policy requires all of the following before implementatio
 
 Regenerating expected fixtures, tuning to the five protected catchments, or obtaining a better in-sample fit is not sufficient.
 
-The v0.2.0 policy design is frozen in
-[`decision-policy-0.2.0.md`](decision-policy-0.2.0.md). It was promoted to
-public policy identifier `established_0_2_0` after every gate above passed:
-synthetic calibration and untouched validation (false precise-boundary
-Wilson upper bound `1.2e-4 <= 0.05`), the five protected catchments'
-outcomes unchanged, no confirmed baseline anchor from an unresolved row, the
-three motivating records' qualitative checks, and an independently reviewed
-21-station real cohort (zero false precise-boundary claims, zero direct
-contradictions -- see
-`case_studies/results/timing-identifiability/comparison-report.json`).
-public policy identifier `established_0_2_0` after every gate above passed
-across both timing identifiability and recurrence identifiability:
-synthetic calibration and untouched validation for timing identifiability
-(`docs/calibration/2026-09-01-timing-identifiability-calibration.json` and
-`docs/calibration/2026-09-01-timing-identifiability-validation.json`, false
-precise-boundary Wilson upper bound `1.2e-4 <= 0.05`); synthetic calibration,
-untouched validation, and the promotion decision record for recurrence identifiability
-(`docs/calibration/2026-09-03-recurrence-identifiability-calibration.json`,
-`docs/calibration/2026-09-03-recurrence-identifiability-validation.json`, and
-`docs/calibration/2026-09-03-recurrence-identifiability-promotion.json`); the
-five protected catchments' outcomes unchanged; no confirmed baseline anchor from
-an unresolved row; the three motivating records' qualitative checks; and the
-timing cohort review (`case_studies/results/timing-identifiability/comparison-report.json`).
-`established_0_1_1` remains the historical baseline these gates were
-measured against; it is no longer the published policy identifier.
+The v0.2.0 policy design is frozen in [`decision-policy-0.2.0.md`](decision-policy-0.2.0.md). It was promoted to public policy identifier `established_0_2_0` after every gate above passed across both timing identifiability and recurrence identifiability:
+synthetic calibration and untouched validation for timing identifiability (`docs/calibration/2026-09-01-timing-identifiability-calibration.json` and `docs/calibration/2026-09-01-timing-identifiability-validation.json`, false precise-boundary Wilson upper bound `1.2e-4 <= 0.05`); synthetic calibration, untouched validation, and the promotion decision record for recurrence identifiability (`docs/calibration/2026-09-03-recurrence-identifiability-calibration.json`, `docs/calibration/2026-09-03-recurrence-identifiability-validation.json`, and `docs/calibration/2026-09-03-recurrence-identifiability-promotion.json`); the five protected catchments' outcomes unchanged; no confirmed baseline anchor from an unresolved row; the three motivating records' qualitative checks; and the timing cohort review (`case_studies/results/timing-identifiability/comparison-report.json`).
+In the frozen release, this established policy is shipped as the sole runtime method `hydroseason-v0.2.0`.
+`established_0_1_1` remains the historical baseline these gates were measured against; it is no longer the published policy identifier.

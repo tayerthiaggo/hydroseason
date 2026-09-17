@@ -1,8 +1,8 @@
 """Row-preserving contracts and execution for multi-AOI workflows.
 
-This module deliberately does not schedule or run work yet.  Optional
-geospatial dependencies stay inside :func:`_prepare_batch_aois` so importing
-the eventual public batch API remains available on a core installation.
+Provides memory-bounded multi-AOI batch processing via :func:`run_hydroseason_many`.
+Optional geospatial dependencies stay inside :func:`_prepare_batch_aois` so
+importing the public batch API remains available on a core installation.
 """
 from __future__ import annotations
 

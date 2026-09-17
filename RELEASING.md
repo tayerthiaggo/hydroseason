@@ -79,7 +79,11 @@ uv lock --check
 python -m pytest -q -m "not experimental and not network and not performance" \
   --cov=hydroseason --cov-report=term-missing --cov-fail-under=80
 
-# 3. Reproducibility gates (require the [all,docs] extras)
+# 3. Method policy, documentation, and clean workspace verification
+python -m pytest tests/test_decision_policy_docs.py tests/test_release_metadata.py -v
+git ls-files -c -i --exclude-standard  # must be empty
+
+# 4. Reproducibility gates (require the [all,docs] extras)
 python scripts/prepare_case_study_data.py --check
 python scripts/_build_study_case_offline.py --check
 python scripts/_build_study_case_rainfall.py --check
@@ -87,7 +91,7 @@ python scripts/run_resolution_case_study.py --check --output-dir case_studies/re
 python scripts/render_case_study_docs.py --check
 python -m mkdocs build --strict
 
-# 4. Build and verify artifacts
+# 5. Build and verify artifacts
 python -m build
 python -m twine check dist/*
 check-wheel-contents dist/*.whl
