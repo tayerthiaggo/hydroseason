@@ -3,393 +3,47 @@
 All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-### Added
-- Opt-in `seasonality_policy="timing_recurrence"` candidate on `assess_water_regime`
-  and `analyze_catchment`: a binary seasonal/aseasonal classification from the
-  calendar recurrence of annual peak and trough timing, tested on a detrended
-  record. Default behaviour is unchanged.
-- `mean_monthly_peak_month` and `mean_monthly_trough_month` replace the
-  `climatological_*` spellings, which remain as deprecated aliases.
-
-### Known issues
-- `tests/test_release_metadata.py::test_published_pipeline_evaluation_is_not_stale`
-  fails. The published bundle
-  `case_studies/results/final-review-2026-09-08/validation/pipeline.json` was
-  already stale before this work: the test fails identically at commits
-  preceding every code change here. This work also moves that fingerprint
-  independently, because `_pipeline_manifest_hash` hashes
-  `_timing_identifiability.py`, whose duplicated detectability block was
-  consolidated into one shared helper. Regeneration via
-  `scripts/evaluate_final_pipeline.py` is deliberately deferred rather than
-  folded into this change, so that republishing a scientific artefact stays a
-  separate, deliberate act. Accepted and recorded 14 September 2026.
-
-### Fixed
-- The quality-sensitivity ensemble treated masking a single untrusted month
-  as a sensitivity test for `direct_profile_combined`, which gives such
-  months zero weight. Masking one cannot change that candidate's fit; it
-  only flips the span's contiguity and re-routes it through gap handling,
-  and the differing answer was then counted as instability. Daly River
-  HY2005 abstained despite eight scenarios agreeing on November. Those
-  per-month masking scenarios are now skipped for candidates that already
-  exclude untrusted months from the fit. The scenario masking every
-  untrusted month at once is kept for all candidates -- it is the only
-  check on a cycle whose whole trough is cloud-flagged, where the fit
-  otherwise rests on the trusted shoulders and reports a shallower low
-  state as confirmed. Bound substitution is kept too. `shape_fit` weights
-  untrusted months normally and is unaffected: verified unchanged on all
-  84 cycles across seven catchments. Refinement now applies to 77 of those
-  84 (from 66), with four boundary dates moving, each the last month of a
-  genuine tie.
-- `direct_profile_combined` let cloud-flagged months take full part in the
-  fit that chooses the low state. A corrupted observation often reads far
-  *below* the true trough (Daly River HY2005's January 2006: `0.0168` at
-  61% invalid, about a seventh of the real trough), and it won the
-  reference-level search outright — making that value the low state, so
-  every genuine trough month sat above the equivalence ceiling and none
-  could be selected. Untrusted months now carry zero weight in the profile
-  solve, so they neither define the low state, nor dominate the loss
-  comparison between candidate fits, nor drag the isotonic recovery branch.
-  Because zero weight makes an all-untrusted block free, the reference
-  level, the departure candidate and the final support cluster must each be
-  anchored by at least one trusted month. Detecting whether the untrusted
-  data could have changed the answer remains the sensitivity ensemble's job.
-- The sensitivity ensemble counted a scenario it could not evaluate as a
-  dissenting vote. Masking a cloud-flagged month against a span edge leaves
-  the pre-gap path nothing to fit, so the scenario reports nothing about
-  where the boundary lies — yet it vetoed the refinement outright: Gilbert
-  River HY2006's March 2006 (25% invalid, eight months before the trough)
-  collapsed 2 of 7 scenarios and discarded a 5-of-7 agreement on December.
-  Such rejections now carry the reason `span_not_evaluable` and are excluded
-  from the stability vote. A scenario that evaluated and then abstained on
-  the merits still dissents, and `shape_fit` never emits the reason, so its
-  behaviour is unchanged. Gilbert HY2006 now reports `2006-12`.
-- A boundary the record cannot actually resolve was reported as `confirmed`.
-  Where the month after the boundary clears the equivalence margin (so the
-  boundary stands) but still falls inside the record's own noise scale, the
-  result is now `provisional` with reason `recovery_within_noise`. The
-  operational date does not move: the equivalence margin still decides it,
-  and is deliberately not floored by the noise scale — see the migration
-  doc for why coupling them was rejected.
-
-### Changed
-- `direct_profile_combined`'s equivalence margin is now **proportional to the
-  low-state level** (`TroughRefinementPolicy.delta_rel`, a fraction) rather
-  than an absolute number of percentage points (`delta_pp`, removed). A month
-  counts as still in the low state when it is within `delta_rel * L` of the
-  reference level, floored by what the observation can physically resolve
-  (one pixel, or the caller's `measurement_tolerance_pct`).
-
-  An absolute margin could not serve even one catchment's own cycles:
-  Fitzroy River's trough level ranges 0.0249 to 0.0521 percentage points
-  across its own record, so a margin meaningful in one year silently
-  swallowed a real recovery in another. Reviewing all 42 cycles of Fitzroy
-  and Gilbert against the retired `delta_pp=0.02` found 9 where the
-  published boundary was the first month of the recovery rather than the
-  cycle's own trough (Fitzroy HY2005/2007/2008/2011/2015/2020, Gilbert
-  HY2009/2010/2019); each recovery step was 10.4%–56.8% above the trough but
-  under 0.02 pp absolute, so the band absorbed it. The two populations
-  separate cleanly in relative terms (accepted boundaries: 0.0% rise;
-  rejected: >=10.4%) and not at all in absolute ones. All 9 now report their
-  own trough; the only boundaries still past a trough are 0%–5% genuine
-  ties, which is the case where reporting the last month is correct.
-
-  The representative-date convention is unchanged — the boundary is still
-  the latest month of a genuine tie; only the test for "tied" became
-  scale-relative. `shape_fit` is unaffected. `delta_rel` still has no
-  default on the policy object and must be supplied explicitly; the frozen
-  `TROUGH_REFINEMENT_DIRECT_PROFILE_POLICY` ships `delta_rel=0.05`,
-  bracketed by that review on both sides (Gilbert HY2006's genuinely flat
-  +4.4% plateau must stay tied; the smallest rise that must be excluded is
-  +10.4%).
-
-### Fixed
-- `direct_profile_combined`'s gap-handling path (`_refine_gap_direct_profile`)
-  always treated the last OBSERVED pre-gap month as the low state's own
-  endpoint, checking only its quality and never whether its raw *value* was
-  actually a plausible low-state member. A real, fully-usable but sharply
-  elevated month immediately before a data gap (Daly River HY2016/HY2024:
-  December is usable-quality but ~2x the trough level, right before a
-  low-quality January) could pass the quality check while sitting well
-  outside the low state's own equivalence band. The nominal call already
-  excluded it correctly, but the sensitivity ensemble's own gap-masking
-  scenario reached it via this separate path, and
-  `_combine_sensitivity_results`'s "latest boundary wins" rule let it ship
-  anyway. The gap path now walks back to the latest month that is both
-  quality-reliable and within `delta_pp` of the segment's own natural
-  reference level (new reason `boundary_deferred_to_implausible_month`,
-  alongside the existing `boundary_deferred_to_reliable_month` and
-  `no_reliable_boundary_in_support`). Daly River HY2016 now reports
-  `2016-11` (was `2016-12`); HY2024 now reports `2024-11` (was `2024-12`).
-  `shape_fit` is unaffected (frozen; not in scope for this fix).
-- `direct_profile_combined` no longer publishes a heavily cloud-contaminated
-  month (`quality_state="low"`) as the operational end-of-dry boundary, even
-  when it is statistically part of the support cluster: the profile sees
-  the observation's *value*, not its reliability, so a plausible-looking
-  month can still be one where nearly half the AOI has no valid pixel that
-  month. The adopted boundary now defers to the latest RELIABLE month at or
-  before the naive pick (new reason `boundary_deferred_to_reliable_month`),
-  never later, and abstains (`unresolved`/`no_reliable_boundary_in_support`)
-  if no month in the cluster is reliable enough to publish. Applied in both
-  the main profile path and the gap-handling path (a sensitivity-ensemble
-  scenario that masks a later month as a gap can otherwise smuggle an
-  unreliable month back in as the winning boundary via
-  `_combine_sensitivity_results`'s "latest boundary wins" rule -- found via
-  the Gilbert River 2010 cycle, where December's 44%-invalid reading was
-  published as the boundary over a clean November reading one month
-  earlier). `shape_fit` is unaffected (frozen; not in scope for this fix).
-- `verdict_sentence()`: a `regime="seasonal"` record routed to
-  `event_characterisation` (calendar-year evidence looked seasonal, but too
-  few individual cycles resolved usable peak/trough timing -- see
-  `_catchment.py`'s `cycles_support_timing` gate) previously fell through to
-  "Hydrological year boundaries are applied," which is false when zero
-  hydro_years were published. Now surfaces `analysis.route_reason` (the
-  precise, already-computed explanation) and states plainly that boundaries
-  are withheld. Found on the Roper River NT report (SNR 2.14, seasonal, but
-  only 3 of 11 cycles resolved a usable trough).
+## [0.2.0] - 2026-09-17
 
 ### Added
-- Second trough-refinement candidate, `direct_profile_combined` (opt-in, not
-  promoted): profiles the equivalence-state low-state departure directly
-  over a bounded low-state reference-level grid, rather than mapping a
-  finite set of best trough fits through one fixed reference level. Select
-  via `TroughRefinementPolicy(candidate="direct_profile_combined", delta_rel=...)`
-  (`delta_rel` has no default — see the policy field's docstring) or the
-  frozen `TROUGH_REFINEMENT_DIRECT_PROFILE_POLICY` default. `shape_fit`
-  (`trough_refinement_candidate_0_2`) remains the default candidate and is
-  unaffected. `_refine_selected_span` is now a small dispatcher keyed on
-  `TroughRefinementPolicy.candidate`, so both candidates run through the
-  same peak/quality sensitivity ensemble with no monkeypatching. See
-  `docs/migrations/trough-refinement-candidate.md#direct_profile_combined-a-second-candidate-algorithm`
-  for wiring, evidence, and why promotion is still unavailable.
-
-### Fixed
-- Trough refinement: the adopted timing-support interval
-  (`trough_interval_start`/`trough_interval_end`) could extend past the
-  adopted operational boundary (`trough_month`) whenever the final support
-  cluster's near-exact-tied representative date (the existing convention
-  for both candidates) fell before the cluster's own last member. A real
-  Fitzroy River cycle under `direct_profile_combined` showed
-  `trough_month=2021-12-01` alongside `trough_interval_end=2022-01-01` --
-  January simultaneously "might still be this cycle's low state" per the
-  interval and "already the next cycle's rising limb" everywhere else in
-  the report. The adopted interval is now clipped to the adopted boundary;
-  the full, unclipped cluster remains available via
-  `trough_challenger_interval_end` for audit. Affects both candidates
-  wherever this situation arises, though it surfaces far more often under
-  `direct_profile_combined`'s wider, more calibrated support.
-- Trough refinement candidate (`trough_refinement_candidate_0_2`, opt-in,
-  still not promoted): corrected a calendar-gap defect where a genuinely
-  missing month could be silently treated as if it never existed during
-  quality-removal sensitivity scenarios, an amplitude-dependent loss-unit
-  bug at zero measurement scale, deletion of statistically plausible later
-  boundary candidates from the reported support set, a sensitivity-combine
-  bug that could report an operational boundary that no scenario actually
-  selected, and a gap-handling defect that could answer from the wrong
-  (pre-gap) segment when the true low state lay after a data gap. Corrected
-  `trough_boundary_date` in the compact export to always report the actual
-  operational boundary rather than the support interval's end date, which
-  differ once a boundary is refined. See
-  `docs/migrations/trough-refinement-candidate.md` for full before/after
-  evidence.
-- Replaced misleading trough-refinement validation metrics
-  (`boundary_set_inclusion` measured interval overlap, not full inclusion;
-  a synthetic truth-derived comparator was labelled as if it were real
-  pass-1 output; `peak_changed`/`duplicate_or_nonmonotonic`/
-  `new_uncomputable` were hardcoded constants, not measurements) with
-  honestly named, correctly measured equivalents, and added a new
-  full-pipeline evaluator (`scripts/evaluate_final_pipeline.py`) that
-  actually runs the detector twice (refinement off/on) on complete
-  synthetic records.
-- Following a further Codex review of the above (`case_studies/results/
-  final-review-2026-09-08/reviews/codex-final.md`): the gap-handling fix
-  above only checked the first post-gap value for a return to the pre-gap
-  low, so a later equivalent-low return was still silently excluded from
-  the reported support set; the per-cycle diff tool dropped rows whose only
-  change was outside a small hand-picked counter set (e.g.
-  `recovery_start_month`); the pipeline-evaluator source fingerprint hashed
-  a hand-picked function list rather than its actual dependency closure,
-  so a real scoring-affecting change could go undetected; and
-  `abstention_rate` was silently resolvable-truth-only, with no separate
-  all-case measure published as the plan required. See
-  `case_studies/results/final-review-2026-09-08/reviews/
-  fixes-for-codex-astra-6.md` for the full account and verification.
-
-## [0.2.0] - 2026-08-31
-### Changed
-- The flat 20% peak-quality cap is retired. A cycle's peak `invalid_pct` is
-  now judged against a per-record, per-calendar-month p90 climatology
-  (`peak_quality`: `normal`/`anomalous`), with an absolute floor at
-  `max_invalid_pct` below which nothing is anomalous and an absolute
-  backstop at 80% above which everything is. Only `peak_quality="anomalous"`
-  now downgrades a cycle to `status="partial"` /
-  `boundary_status="provisional"`, with the new `status_reason` value
-  `peak_quality_anomalous`. Across the three case-study catchments (daly,
-  fitzroy, gilbert; 63 cycles total), 10 cycles move `partial` -> `complete`
-  and none move the other way.
-- `peak_quality` is now exported in `HY_CSV_COLUMNS` and `STABLE_HY_COLUMNS`.
-
-## [0.2.0] - 2026-08-31 (corrected 2026-09-03, unlaunched)
-
-### Added
-- **Preflight**: `preflight`, `PreflightResult`, `PreflightThresholds`,
-  `FeasibilityResult`, `PreflightProfileUnavailable`, and
-  `HydroSeasonPreflightError` report whether an AOI's record can support the
-  analysis before any monthly acquisition is paid for. Regular DEA runs apply
-  the WOfS recurrent-water screen automatically (`>=10%` frequency with the
-  established contiguous-cluster rule), hand the same Statistics read on as
-  the reusable maximum-water mask, and raise `HydroSeasonPreflightError` for
-  an AOI with no recurrent water. A Statistics outage never becomes a
-  no-water result: `run_hydroseason` warns and continues, and the standalone
-  `feasibility_only=True` path re-raises instead. The broader
-  detection-support decisions (`candidate`, `monthly`, `timing`) are
-  available under `thresholds="diagnostic"` or a caller-supplied
-  `PreflightThresholds`; `thresholds="default"` raises
-  `PreflightProfileUnavailable` because the reviewed profile is not
-  calibrated yet. Documented in
-  [Preflight](https://tayerthiaggo.github.io/hydroseason/preflight/).
-- `HistoricalMaskRefreshedWarning` is now re-exported from the top-level
-  package alongside `HistoricalMaskCoverageWarning`, so both mask-provenance
-  warnings can be filtered without importing `hydroseason.io`.
-- `hydroseason doctor` now probes `scipy` and `dask_image` (both required by
-  the recurrent-water screen) and `psutil` (the batch scheduler's memory
-  admission), so an incomplete raster/STAC install is reported before a run
-  fails on the missing import rather than after.
-- **Calibrated Scientific Defaults**: Frozen defaults for `EvidenceThresholds`, `RecoverabilityThresholds`, and `PhaseThresholds` derived from lexicographic optimization across 190,080 evidence grid points and 144 phase grid points over 5,000 synthetic calibration seeds (`10000..14999`).
-- **Untouched Validation Report**: Independent validation across 5,000 validation seeds (`20000..24999`) under frozen constants, documenting evidence confusion matrices, false annualisation rates with Wilson score intervals, stratified length performance, boundary recoverability MAE and coverage, phase macro-accuracy, and sensitivity matrices (`docs/calibration/2026-08-21-validation-report.json`).
-- **Calibration Pipeline and Gating**: `scripts/run_calibration.py` with multi-worker ProcessPool execution, SHA-256 parameter and generator fingerprinting, and automated staleness assertion in `tests/test_release_metadata.py`.
-- **Distribution Packaging**: Calibration and validation JSON reports bundled into Python wheel (`share/hydroseason/calibration/`) and source distributions (`docs/calibration/`).
+- **Run provenance manifest**: Cryptographic run provenance manifests (`manifest.json` / `manifest`) exported across public analyses, CLI runs, and HTML reports, recording the package version, invocation arguments, exact method policy ID (`hydroseason-v0.2.0`), method policy fingerprint (`ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080`), input extent fingerprint, execution timestamps, platform environment, and run outcomes.
+- **Typed scientific fallback `BoundaryNotSupported`**: Separates expected scientific abstention and nonrecoverability (such as missing boundary support, insufficient cycles, or unresolvable transitions) from software exceptions, providing structured attributes (`reason`, `aoi_id`, `details`) and clean workflow/batch reporting.
+- **Extent fingerprinting**: Content-addressable SHA-256 fingerprinting of input time series (`extent_fingerprint`) detecting input divergence or extent/analysis mismatches across workflow stages to prevent silent data corruption.
+- **Preflight and feasibility assessment**: `preflight`, `PreflightResult`, `PreflightThresholds`, `FeasibilityResult`, `PreflightProfileUnavailable`, and `HydroSeasonPreflightError` determine whether an AOI supports analysis prior to fetching monthly acquisitions, including DEA WOfS recurrent-water screening.
+- **Calibrated scientific defaults**: Frozen parameters for evidence thresholds, boundary recoverability, and phase identification derived from lexicographic optimization across 190,080 evidence grid points and 5,000 synthetic calibration seeds (`10000..14999`).
+- **Canonical direct-profile refinement and circular Kuiper recurrence**: Pinned direct-profile refinement (`delta_rel=0.05`, `huber_k=1.345`) and circular Kuiper timing recurrence (`p_value <= 0.01`, `R >= 0.65`) integrated as the sole invariant detection pipeline under method policy `hydroseason-v0.2.0`.
+- **Distribution packaging**: Pre-computed calibration and validation JSON reports bundled into Python wheel (`share/hydroseason/calibration/`) and source distributions (`docs/calibration/`).
+- `HistoricalMaskRefreshedWarning` and `HistoricalMaskCoverageWarning` re-exported at top-level package for clean provenance warning filtering.
+- `hydroseason doctor` diagnostic command probing environment, native dependencies (`scipy`, `dask_image`, `psutil`), and netCDF4/NumPy ABI compatibility.
 
 ### Changed
-- Restored conservative dynamic-year defaults (`trough_search_radius_months=3`,
-  `min_usable_months_per_cycle=8`) and added an anchored adaptive retry for
-  short interior cycles, so isolated six-month years can be classified without
-  widening neighbouring years or crossing data gaps.
-- Uncached untiled DEA extent reads now overlap independent calendar years with
-  two workers by default; `year_workers=1` retains serial execution.
-- `DynamicHydroYearConfig` and `assess_water_regime` now use calibrated `EVIDENCE_DEFAULTS`, `RECOVERABILITY_DEFAULTS`, and `PHASE_DEFAULTS` by default.
-- Removed legacy uncalibrated bridge and fallback classifications.
-- Clarified four distinct uncertainty concepts across documentation, stating that `seasonal_cv_skill` is post-selection cross-validation skill and distinguishing empirical benchmark error bounds from real-world field validation.
+- **Pinned direct-profile equivalence margin**: Trough refinement equivalence margin is proportional to the low-state level (`delta_rel=0.05`, `huber_k=1.345`) rather than an absolute percentage threshold (`delta_pp`, removed), preventing misclassification of shallow dry-season recoveries while correctly preserving genuine low-state plateaus.
+- **Removal of SNR routing and method selectors**: Retired the heuristic signal-to-noise ratio (SNR) routing mechanism and eliminated method selection options (`--method-policy`, `--seasonality-policy`, `--trough-refinement-policy`, `method_policy=...`). All interfaces (Python, CLI, batch, reports) execute the single canonical `hydroseason-v0.2.0` method.
+- **Descriptive timing terminology**: `mean_monthly_peak_month` and `mean_monthly_trough_month` replace the misleading `climatological_*` names (which remain as deprecated aliases).
+- **Conservative dynamic-year defaults**: Restored conservative defaults (`trough_search_radius_months=3`, `min_usable_months_per_cycle=8`) and anchored adaptive retry for short interior cycles.
+- **Dynamic memory-bounded batch scheduler**: Memory-conscious batch processing defaults to 80% available RAM (`max_ram_fraction=0.8`) with auto-tuning of concurrent workers.
+- **Adaptive peak-quality assessment**: Replaced flat 20% peak invalid cap with a per-record, per-calendar-month p90 climatology threshold (`peak_quality`: `normal`/`anomalous`), preventing unwarranted downgrades of high-quality cycles in cloud-affected regions. Exported in `peak_quality` column.
+- **Lazy raster backend loading**: `xarray` and geospatial raster dependencies load lazily on demand rather than eagerly at package import.
 
 ### Fixed
-- **Recurrence Identifiability Correction**: Audited and corrected multi-pulse recurrence narrowing for `established_0_2_0`. Multi-pulse cycle windows now evaluate calibrated pure recurrence policy `annual_shape_match` instead of uninspected legacy heuristics, verified across 960 calibration seeds (`50000..50959`) and 960 untouched validation seeds (`60000..60959`), preserving both Wilson false-precision safety gates (<= 0.05) with zero reselection and byte-identical timing identifiability fingerprint `e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735`. The recurrence policy ships at `candidate_for_established_0_2_0` scope with fingerprint `4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00`: promotion to `established_0_2_0` is withheld because no uninspected real-catchment source root was available for the blinded cycle cohort, so that gate was never evaluated. Recorded in `docs/calibration/2026-09-03-recurrence-identifiability-promotion.json`.
-- `uv.lock` now records `scipy` and `dask-image`. Both were already declared
-  in the `raster` extra, but an environment installed from the lockfile
-  omitted them, so the recurrent-water screen failed with
-  `ModuleNotFoundError` at run time.
-- `import hydroseason` no longer imports `xarray` eagerly. It is resolved on
-  first use by the raster-backed monthly inputs that need it, which is the
-  only path that ever did.
-- Regenerated the checked case-study results, the documentation example
-  reports, and `notebooks/01_quickstart.ipynb` against the current detection
-  defaults and two-phase (`rising`/`receding`) vocabulary. The example
-  reports and the quickstart notebook's stored output still showed the
-  superseded `recovery`/`recession` labels.
-- **Calibration constants re-derived (`0.2.0-audit.1` -> `0.2.0-audit.2`).**
-  `4036213` restructured the calibration objective -- folding `_evidence` and
-  `_boundary_recoverability` into `_calibration.py` -- without re-running the
-  search, so `audit.1`'s constants and every metric printed beside them
-  described a superseded implementation. The recorded fingerprint was edited
-  by hand in both directions (`4036213` and `7e65985`) rather than
-  regenerated, which kept the staleness test quiet. Re-running the 5,000-seed
-  calibration partition on the current source moves two evidence thresholds:
-  `seasonal_cv_skill` `0.8` -> `0.3` and `periodicity_alpha` `0.1` -> `0.025`.
-  Recoverability and phase constants are unchanged. Released behaviour is
-  unaffected: evidence and recoverability are scoped
-  `experimental_challenger` and do not drive routing, the authoritative
-  `PHASE_DEFAULTS` did not move, and every checked case-study result is
-  byte-identical across the change. The validation report was regenerated
-  against the new constants. Its headline figures move materially, but only
-  some of that is the recalibration, and the two causes should not be
-  conflated:
-
-  *Changed by the new constants.* Every figure that flows through the
-  publish decision. False annualisation falls to `0.0` (20 events -> 0,
-  Wilson high `0.0108` -> `0.0013`), correct abstention rises slightly, and
-  per-year route coverage falls at every record length -- to zero below ten
-  years, where `min_timing_years=10` makes the challenger abstain outright.
-  The challenger now commits less often and is not wrong when it does.
-
-  *Not changed by the new constants.* Boundary recoverability
-  (within-one-month `0.837` -> `0.586`, MAE `0.78` -> `1.29` months, p90 `2`
-  -> `3`) and phase accuracy (`0.732` -> `0.719`). These are computed from
-  ground-truth boundary errors with no threshold in the path, and are
-  byte-identical when the same cache is evaluated under the old and new
-  constants. They did not regress; they had simply never been measured
-  against this implementation before. The old figures described the
-  pre-`4036213` code, so the two sets were never comparable -- visible in
-  `boundary_metrics.n` moving `29936` -> `30928`, which a fixed truth set
-  with cached errors cannot do.
-
-  No documentation quoted any of these values. The result reproduces
-  byte-for-byte across independent runs, and the evidence cache is identical
-  on Python 3.12 and 3.14, across processes, and under both the serial and
-  parallel build paths.
-- **`min_timing_years` shipped as 5, overriding the search's own answer of 10.**
-  The 190,080-point search reproducibly selects 10: `correct_abstention`
-  (favours a higher floor) is pruned before `min_timing_years` is ever
-  reached as a tie-break, so a higher floor keeps winning on the search's
-  own stated priority order. But a per-record-length sweep shows the floor
-  is a hard cliff at its own value with no effect above it -- 10 buys zero
-  coverage on 7-30 year records and removes all challenger coverage on 5-9
-  year records, while negative-control false annualisation is identical
-  (`0.0`) at 5, 7, and 10. `hydroseason/_regime.py`'s released
-  `_MIN_USABLE_YEARS=5` answers the same question for the path users
-  actually run; a challenger floor of 10 made the experimental second
-  opinion stricter than the tool it exists to check, for a benefit that
-  does not measurably exist above the floor it would remove. The search and
-  its objective are unchanged -- `select_evidence_defaults` still reports
-  10, recorded verbatim as `evidence_searched` in the calibration report --
-  and `_apply_min_timing_years_override` applies a documented, tested
-  override on top, recorded as `evidence_override` alongside the reasoning
-  and the false-annualisation comparison at both values. This is a policy
-  call about acceptable risk, not a correction to the search.
-- **Removed the unreachable four-phase labeller and its calibration.**
-  `assign_cycle_relative_phases` (dry/recovery/wet/recession, collapsed to
-  rising/receding) had no caller: `assign_monthly_phases` only ever
-  dispatched to `"none"` or `"two_phase"`, and `"four_phase"` has mapped to
-  `"two_phase"` with a deprecation warning since before this release. Its
-  removal also drops three declared-but-dead export columns
-  (`p_rising`, `p_receding`, `phase_stability` -- always NaN, silently
-  dropped by every CSV writer) and the `PHASE_DEFAULTS`/`PhaseThresholds`
-  calibration: a 144-point grid search, phase evidence cache, and
-  `phase_accuracy`/`phase_stability_calibration` validation metrics scoring a
-  path nothing could reach. `PHASE_AUTHORITY_SCOPE` was the calibration's only
-  `authoritative` scope; both remaining groups (evidence, recoverability) are
-  `experimental_challenger`. Released phase labelling is unaffected: two-phase
-  `rising`/`receding`, split at the observed peak, is unchanged, and it never
-  depended on calibrated constants. Confirmed on a freshly generated report:
-  rising/receding remain in the chart traces, legend, table filter, CSV, and
-  embedded payload exactly as before.
-- **Calibration selector picked from the unpruned candidate set.**
-  `select_evidence_defaults` narrowed a `survivors` array through fifteen
-  lexicographic pruning stages, then took its answer by sorting
-  `candidate_indices` -- still the whole stage-1 set. Every pruning stage was
-  dead work, and the counts published as `selection_survivors` described a set
-  the selection never used. The stages are not equivalent to the sort:
-  `_retain_metric` retains points within `np.isclose` of each stage optimum,
-  so a candidate whose routing recall is worse only by float noise stays
-  eligible and can win on the next metric, whereas sorting the unpruned set
-  applies exact ordering and lets that noise decide the outcome. The pick now
-  comes from `survivors`, the surviving count is recorded as
-  `final_survivors` rather than asserted, and a regression test requires the
-  recorded stages to narrow monotonically. On the shipped cache the corrected
-  selector reproduces the same constants.
-- The calibration staleness fingerprint no longer hashes the interpreter and
-  NumPy/pandas versions. Doing so made it environment-specific, so
-  `test_fingerprint_is_current` and `test_calibration_report_is_not_stale`
-  could hold on at most one row of a CI matrix spanning Python 3.10-3.13 plus
-  the pinned minimum-dependency floor. Those versions are now recorded as
-  provenance instead -- `CALIBRATION_ENVIRONMENT` in the generated defaults
-  module and `environment` in the calibration report -- and the fingerprint
-  tracks only the generator, grids, objectives, seed manifest, and selected
-  constants. The shipped constants are unchanged; the recorded fingerprint
-  value changes because the scheme did.
+- **Profile fit untrusted month masking**: Untrusted and cloud-flagged months carry zero weight in direct-profile low-state optimization, preventing corrupted observations from anchoring the low-state reference level or dominating loss calculations.
+- **Gap-handling walkback to reliable month**: When encountering data gaps, refinement walks back to the latest reliable month within the equivalence band rather than blindly adopting the last observed pre-gap month (`boundary_deferred_to_implausible_month`).
+- **Support interval boundary clipping**: Boundary support intervals are clipped to the adopted operational boundary date (`trough_interval_end <= trough_month`), resolving inconsistencies where the low-state interval overlapped the next cycle's rising limb.
+- **Cloud-contaminated boundary deferral**: High-cloud months (`quality_state="low"`) in the support cluster defer to the latest reliable month at or before the candidate date (`boundary_deferred_to_reliable_month`), or abstain if no reliable month exists.
+- **Sensitivity ensemble non-evaluable scenarios**: Sensitivity scenarios that cannot evaluate due to edge-of-record gaps receive status `span_not_evaluable` and are excluded from stability voting rather than counted as dissents.
+- **Provisional recovery classification within noise**: Boundaries where the recovery falls within record noise resolution are flagged as `provisional` with reason `recovery_within_noise`.
+- **Calibration selector pruning**: Corrected `select_evidence_defaults` to pick optimal constants from the lexicographically pruned survivor set rather than the unpruned candidate array. Monotonic pruning narrowing enforced.
+- **Environment-independent calibration fingerprinting**: Removed local Python/NumPy/pandas versions from the calibration cache hash to ensure reproducibility across Python 3.10–3.13 environments.
+- **Multi-pulse recurrence narrowing**: Multi-pulse cycle windows evaluate calibrated pure recurrence policy `annual_shape_match` instead of uninspected legacy heuristics.
+- **Accurate report route explanations**: `verdict_sentence()` accurately reports `analysis.route_reason` and notes withheld boundaries when a seasonal record lacks sufficient timing cycles.
 
 ### Removed
-- Removed the internal-only semi-Markov boundary challenger and promotion-gate
-  harness. `robust_extrema` is the only released boundary detector.
+- **Heuristic SNR routing**: Removed legacy SNR-based thresholding and routing.
+- **Method selection options**: Removed candidate selection options from `TroughRefinementPolicy`, `--method-policy`, `--seasonality-policy`, and `--trough-refinement-policy` CLI options.
+- **Shape-fit refinement candidate**: Removed obsolete `shape_fit` (`trough_refinement_candidate_0_2`) implementation in favor of canonical direct-profile refinement.
+- **Unreachable four-phase labeller**: Removed dead four-phase cycle assignment code (`assign_cycle_relative_phases`, unused export columns `p_rising`, `p_receding`, `phase_stability`) and associated grid searches, preserving the robust two-phase (`rising`/`receding`) model.
+- **Semi-Markov challenger**: Removed internal-only experimental semi-Markov boundary challenger and promotion harness.
+- **Uncalibrated legacy fallbacks**: Dropped uncalibrated heuristic bridge code in regime assessment.
 
 ## [0.1.1] - 2026-08-20
 
