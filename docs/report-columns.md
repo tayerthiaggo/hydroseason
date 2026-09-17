@@ -123,9 +123,8 @@ itself is identical either way:
   endpoint.
 - `"direct_profile_combined"` (authority scope `direct_profile_combined_v1`,
   requires `delta_rel`): profiles the equivalence-state departure directly
-  over a bounded low-state reference-level grid. See
-  [the migration doc](migrations/trough-refinement-candidate.md#direct_profile_combined)
-  for what it changes and its own evidence status.
+  over a bounded low-state reference-level grid. See prior development method
+  documentation for what it changes and its own evidence status.
 
 | Column | Meaning |
 |---|---|

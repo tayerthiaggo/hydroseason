@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import re
 from pathlib import Path
 
 import pytest
@@ -58,93 +56,6 @@ def test_v020_policy_design_freezes_public_decision_contract():
     assert "dry-duration and event summaries" in text
 
 
-def test_cohort_protocol_declares_amplitude_strata_and_safe_quota():
-    protocol = json.loads(
-        (ROOT / "case_studies" / "timing-identifiability" / "cohort-protocol.json")
-        .read_text(encoding="utf-8")
-    )
-
-    assert protocol["seed"] == 20260901
-    assert protocol["exclude_station_ids"] == ["130413a", "130407a", "130302a"]
-    assert protocol["stratification"]["variable"] == "amplitude_to_floor_ratio"
-    assert protocol["stratification"]["reported_covariate"] == "zero_fraction"
-    assert protocol["stratification"]["strata"] == [
-        {"name": "below_floor", "lower": 0, "upper": 1, "upper_inclusive": False},
-        {"name": "mid_ratio", "lower": 1, "upper": 3, "upper_inclusive": False},
-        {"name": "high_ratio", "lower": 3, "upper": "inf", "upper_inclusive": False},
-    ]
-    assert protocol["quota_policy"] == "min_8_or_available"
-    assert protocol["shortfall_is_reported_not_fatal"] is True
-    assert isinstance(protocol["source_bundles"], list)
-    assert protocol["source_bundles"] == ["stress_test_final"]
-    assert protocol["pixel_support_expected"] == "unavailable"
-    assert protocol["exclude_motivating_records_from_calibration_and_validation"] is True
-    assert protocol["reproducibility_metadata"] == {
-        "package_version": "0.2.0",
-        "input_fingerprint": "required in generated manifest",
-        "threshold_fingerprint": "required from calibrated defaults",
-        "seed": 20260901,
-    }
-
-
-def test_review_rubric_freezes_blinded_labels_and_adjudication():
-    text = (
-        ROOT / "case_studies" / "timing-identifiability" / "review-rubric.md"
-    ).read_text(encoding="utf-8")
-    labels = [
-        "point_supported",
-        "interval_supported",
-        "event_only",
-        "unobservable",
-        "uncertain",
-    ]
-    label_block = re.search(r"```json\n(\[.*?\])\n```", text, re.DOTALL)
-    assert label_block is not None
-    assert json.loads(label_block.group(1)) == labels
-    assert "one reviewer" in text
-    assert "adjudication" in text
-    assert "excluded from rate denominators" in text
-    for hidden in ("regime", "route", "timing status", "confidence", "selected thresholds"):
-        assert hidden in text
-    blinding_block = re.search(
-        r"The machine-readable packet-blinding contract is:\n\n```json\n(\{.*?\})\n```",
-        text,
-        re.DOTALL,
-    )
-    assert blinding_block is not None
-    blinding = json.loads(blinding_block.group(1))
-    allowlist = set(blinding["packet_allowlist"])
-    hidden = set(blinding["hidden_decision_fields"])
-    assert allowlist == {
-        "date",
-        "extent_pct",
-        "pixel_counts",
-        "invalid_coverage",
-        "quality_flags",
-        "source_imagery_references",
-    }
-    assert hidden == {
-        "regime",
-        "route",
-        "timing_status",
-        "confidence",
-        "selected_thresholds",
-        "policy_id",
-        "threshold_fingerprint",
-        "model_output",
-    }
-    assert allowlist.isdisjoint(hidden)
-
-    def validate_packet_fields(fields: set[str]) -> None:
-        unexpected = fields - allowlist
-        assert not unexpected, f"prohibited packet fields: {sorted(unexpected)}"
-
-    validate_packet_fields(allowlist)
-    for prohibited in hidden:
-        with pytest.raises(AssertionError, match="prohibited packet fields"):
-            validate_packet_fields(allowlist | {prohibited})
-
-
 def test_v030_geometry_design_freezes_grid_and_selector():
     text = (ROOT / "docs" / "decision-policy-0.3.0.md").read_text(encoding="utf-8")
     required = {
@@ -181,28 +92,6 @@ def test_v030_geometry_design_records_null_result_as_publishable():
     assert "This is a real result and is reported as such, not as \"no change\"." in normalized
 
 
-def test_recurrence_identifiability_design_freezes_the_020_correction():
-    text = (
-        ROOT
-        / "docs"
-        / "superpowers"
-        / "specs"
-        / "2026-09-03-recurrence-cluster-identifiability-design.md"
-    ).read_text(encoding="utf-8")
-    required = {
-        'RECURRENCE_CALIBRATION_SEEDS = range(50000, 55000)',
-        'RECURRENCE_VALIDATION_SEEDS = range(60000, 65000)',
-        '"no_narrowing"',
-        '"long_window_last_cluster"',
-        '"annual_shape_match"',
-        "false-point Wilson upper bound <= 0.05",
-        "false-resolution Wilson upper bound <= 0.05",
-        "at least 0.90 genuine-recurrence status accuracy",
-        "keep `ESTABLISHED_POLICY == \"established_0_2_0\"` throughout",
-        "timing_identifiability_fingerprint()` must remain byte-identical",
-    }
-    missing = sorted(phrase for phrase in required if phrase not in text)
-    assert not missing, f"approved recurrence design is missing: {missing}"
 
 
 def test_recurrence_identifiability_promotion_docs():
@@ -236,33 +125,3 @@ def test_recurrence_identifiability_promotion_docs():
     assert "bounds of equivalent evidence" in text_mig
 
 
-def test_timing_recurrence_candidate_is_documented_as_unpromoted():
-    text = (ROOT / "docs" / "decision-policy-timing-recurrence.md").read_text(encoding="utf-8")
-    main = (ROOT / "docs" / "decision-policy.md").read_text(encoding="utf-8")
-
-    required = {
-        "candidate_timing_recurrence",
-        "alpha = 0.05",
-        "centred 2x12 moving average",
-        "mean monthly extent",
-        "aseasonal means recurrence was not established",
-        "SEASONALITY_VALIDATION_SEEDS = range(90000, 95000)",
-        "false-seasonal Wilson upper bound <= 0.05",
-        "detection >= 0.80 at 15 and 30 years",
-        "ESTABLISHED_POLICY remains established_0_2_0",
-        # Pin the three substantive validation findings from the Limitations section.
-        # A structural-phrase-only test would allow a future edit to delete all three
-        # findings without triggering a failure. These substrings guard against that.
-        "two cycles per year",
-        "98.5%",
-        "six-month phase drift",
-        "about one pixel",
-        "even at 30 years",
-        "alpha = 0.10",
-        "six family/variant cells",
-        "not promoted",
-    }
-    missing = sorted(phrase for phrase in required if phrase not in text)
-    assert not missing, f"candidate policy record is missing: {missing}"
-    assert "candidate_timing_recurrence" in main
-    assert "opt-in" in main

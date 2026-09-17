@@ -109,13 +109,13 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
                         else None
                     ),
                     "water_extent_peak_month": (
-                        float(analysis.climatological_peak_month)
-                        if analysis.climatological_peak_month is not None
+                        float(analysis.mean_monthly_peak_month)
+                        if analysis.mean_monthly_peak_month is not None
                         else None
                     ),
                     "climatological_trough_month": (
-                        float(analysis.climatological_trough_month)
-                        if analysis.climatological_trough_month is not None
+                        float(analysis.mean_monthly_trough_month)
+                        if analysis.mean_monthly_trough_month is not None
                         else None
                     ),
                 }

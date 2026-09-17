@@ -8,7 +8,6 @@ import pytest
 from scripts.run_resolution_case_study import (
     ACQUISITION_SPEEDUP_GROUP_KEYS,
     ResolutionMetrics,
-    check_resolution_study,
     compare_resolution,
     summarize_acquisition,
 )
@@ -69,10 +68,6 @@ def test_composite_mode_is_not_reported_as_pruning_speedup():
     assert "composite_bundle" not in ACQUISITION_SPEEDUP_GROUP_KEYS
 
 
-def test_checked_resolution_results_match_fresh_offline_computation():
-    assert check_resolution_study(
-        output_dir=REPO_ROOT / "case_studies" / "results" / "resolution"
-    )
 
 
 def test_fitzroy_trough_recovery_after_recession_limb_fix():

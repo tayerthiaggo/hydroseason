@@ -5,17 +5,14 @@ HydroSeason 0.2.0 publishes regime, route, timing-identifiability status, and hy
 Trough-boundary refinement is a separate, additive axis and is not part of
 `established_0_2_0`: two opt-in, unpromoted challenger candidates
 (`shape_fit`, `direct_profile_combined`) exist behind an explicit
-`trough_refinement_policy`, off by default. See
-[the migration note](migrations/trough-refinement-candidate.md) — the same
-promotion gate below applies to either candidate before it could become
-authoritative.
+`trough_refinement_policy`, off by default; the same promotion gate below
+applies to either candidate before it could become authoritative.
 
 Seasonality classification has one opt-in, unpromoted candidate,
 `candidate_timing_recurrence`, selected with `seasonality_policy="timing_recurrence"`
 and off by default. It classifies a record `seasonal` or `aseasonal` from the
-calendar recurrence of annual peak and trough timing on a detrended record. See
-[the candidate record](decision-policy-timing-recurrence.md); the promotion gate
-below applies before it could become authoritative.
+calendar recurrence of annual peak and trough timing on a detrended record; the
+promotion gate below applies before it could become authoritative.
 
 ## Protected baseline
 
