@@ -74,7 +74,7 @@ HydroSeason v0.2.0 was verified across three formal validation stages whose exac
 
 | Validation Stage | Benchmark Denominator | Status | Verdict SHA-256 Digest |
 | :--- | :--- | :--- | :--- |
-| `multiscale_synthetic` | 1000 cases | Passed | `b467c6c26eadbee60dc38d1117b24ab49f65c3d095c5c0ed817952512794a7e9` |
+| `multiscale_synthetic` | 1056 cases | Passed | `b467c6c26eadbee60dc38d1117b24ab49f65c3d095c5c0ed817952512794a7e9` |
 | `full_pipeline_synthetic` | 12000 cases | Passed | `18bf46bb42187cb50a92f787a62191b588fca36b214073901666176a6513c5df` |
 | `camels_aus_validation` | 561 catchments | Passed | `9e4f669a8f3250475c9167689b661d8d860db922514ac4c0ae2cd8156ff93f35` |
 
@@ -83,7 +83,7 @@ HydroSeason v0.2.0 was verified across three formal validation stages whose exac
    - The initial 84-cycle manual expert review of boundary placements and candidate behaviors served strictly as exploratory development evidence.
    - Five protected benchmark catchments were verified: Daly, Fitzroy, and Gilbert remain seasonal/per-year; Lachlan and Moonie remain aseasonal/event-routed.
 2. **Synthetic Held-Out Matrix (`multiscale_synthetic`)**:
-   - 1,000 synthetic matrix cases evaluating boundary stability, multi-frequency components, and scale transitions.
+   - 1,056 synthetic matrix cases evaluating boundary stability, multi-frequency components, and scale transitions.
 3. **Full Pipeline Synthetic Suite (`full_pipeline_synthetic`)**:
    - 12,000 end-to-end synthetic cases testing the complete pipeline across 18 synthetic families (series lengths: 7, 15, and 30 years).
    - Note: The 54,000-record synthetic experiment validates the seasonality gate (omnibus Kuiper recurrence under noise and distortion), not trough boundary accuracy.

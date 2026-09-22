@@ -3,7 +3,7 @@
     "multiscale_synthetic": {
       "verdict_sha256": "b467c6c26eadbee60dc38d1117b24ab49f65c3d095c5c0ed817952512794a7e9",
       "status": "passed",
-      "cases": 1000
+      "cases": 1056
     },
     "full_pipeline_synthetic": {
       "verdict_sha256": "18bf46bb42187cb50a92f787a62191b588fca36b214073901666176a6513c5df",
@@ -20,7 +20,7 @@
   "evidence": [
     {
       "stage": "multiscale_synthetic",
-      "denominator": 1000,
+      "denominator": 1056,
       "status": "passed",
       "verdict_sha256": "b467c6c26eadbee60dc38d1117b24ab49f65c3d095c5c0ed817952512794a7e9"
     },

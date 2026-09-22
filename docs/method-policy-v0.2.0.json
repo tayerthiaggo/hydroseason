@@ -5,6 +5,11 @@
     "low_sigma": 1.0
   },
   "policy_id": "hydroseason-v0.2.0",
+  "recurrence_identifiability": {
+    "authority_scope": "candidate_for_established_0_2_0",
+    "fingerprint": "4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00",
+    "policy": "annual_shape_match"
+  },
   "seasonality": {
     "alpha": 0.05,
     "method": "timing_recurrence",

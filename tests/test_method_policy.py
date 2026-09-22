@@ -44,6 +44,11 @@ def test_v020_manifest_pins_every_scientific_constant():
         "alpha": 0.05,
         "min_detectable_years": 5,
     }
+    assert manifest["recurrence_identifiability"] == {
+        "authority_scope": "candidate_for_established_0_2_0",
+        "fingerprint": "4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00",
+        "policy": "annual_shape_match",
+    }
     assert manifest["trough_refinement"]["method"] == "direct_profile_combined"
     assert manifest["trough_refinement"]["huber_k"] == 1.345
     assert manifest["trough_refinement"]["profile_loss_cutoff"] == 0.05
@@ -126,5 +131,4 @@ def test_validation_receipt_authorizes_the_frozen_method():
     assert receipt["method_fingerprint"] == method_policy_fingerprint()
     method_bytes = Path("docs/method-policy-v0.2.0.json").read_bytes()
     assert hashlib.sha256(method_bytes).hexdigest() == receipt["method_manifest_sha256"]
-
 

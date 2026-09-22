@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from ._events import _DEFAULT_ENTER_K, _DEFAULT_EXIT_K, _DEFAULT_LOW_K
+from ._scientific_defaults import (
+    RECURRENCE_AUTHORITY_SCOPE,
+    RECURRENCE_FINGERPRINT,
+    RECURRENCE_POLICY,
+)
 from ._seasonality_test import TIMING_RECURRENCE_ALPHA
 from ._trough_refinement import TroughRefinementPolicy
 from ._trough_refinement_defaults import TROUGH_REFINEMENT_POLICY
@@ -41,6 +46,11 @@ def method_policy_manifest() -> dict[str, Any]:
             "method": "timing_recurrence",
             "min_detectable_years": CURRENT_METHOD_POLICY.min_detectable_years,
         },
+        "recurrence_identifiability": {
+            "authority_scope": RECURRENCE_AUTHORITY_SCOPE,
+            "fingerprint": RECURRENCE_FINGERPRINT,
+            "policy": RECURRENCE_POLICY,
+        },
         "trough_refinement": {
             "delta_rel": CURRENT_METHOD_POLICY.trough_refinement.delta_rel,
             "huber_k": CURRENT_METHOD_POLICY.trough_refinement.huber_k,
@@ -70,6 +80,7 @@ SCIENTIFIC_SOURCE_FILES = (
     "hydroseason/_seasonality_test.py",
     "hydroseason/_trough_refinement.py",
     "hydroseason/_trough_refinement_defaults.py",
+    "hydroseason/_scientific_defaults.py",
     "hydroseason/_regime.py",
     "hydroseason/_catchment.py",
     "hydroseason/_exceptions.py",
@@ -160,4 +171,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

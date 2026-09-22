@@ -20,11 +20,9 @@ def test_decision_policy_document_contains_complete_promotion_gate():
         "regenerating expected fixtures",
     )
     assert all(phrase in text for phrase in required)
-    # Promotion is complete (Task 8): the document now records the promoted
-    # identifier and the historical baseline it was measured against, not a
-    # pending-promotion state.
     normalized = " ".join(text.split())
-    assert "promoted to public policy identifier `established_0_2_0`" in normalized
+    assert "promotion to `established_0_2_0` remains withheld" in normalized
+    assert "runtime `decision_policy` value `hydroseason_0_2_0`" in normalized
     assert "established_0_1_1` remains the historical baseline" in normalized
 
 
@@ -144,6 +142,5 @@ def test_library_docs_do_not_claim_completed_evidence_absent_from_receipts():
     for item in receipts["evidence"]:
         assert item["stage"] in methods
         assert str(item["denominator"]) in methods
-
 
 
