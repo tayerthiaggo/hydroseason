@@ -325,8 +325,8 @@ does not mean 2x computational throughput.
 
 When an AOI is available, HydroSeason carries compact boundary geometry into
 the report and embeds Leaflet with that boundary. The report remains readable
-without map tiles. At view time its basemap requests tiles from OpenStreetMap
-(via CARTO basemaps); those requests go to OpenStreetMap / CARTO and require an
+without map tiles. At view time its basemap requests online tiles
+(from Esri World Topo Map / OpenStreetMap); those requests require an
 internet connection. The boundary is embedded locally, so it remains visible if
 tiles fail.
 

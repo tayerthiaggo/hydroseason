@@ -249,7 +249,7 @@ def test_generate_catchment_report_embeds_a_safe_aoi_map(tmp_path, seasonal_exte
 
     assert '<section id="aoi-context">' in html
     assert 'id="aoi-map-report"' in html
-    assert "basemaps.cartocdn.com" in html
+    assert "server.arcgisonline.com" in html
     assert "data:image/png;base64" not in html
     assert "&lt;/script&gt;" in html
     assert "<\\/script>" in html

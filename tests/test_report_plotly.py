@@ -358,6 +358,74 @@ class TestEndDryIntervalIsExplainedInTheLegend:
         assert interval_trace["x"] == ["2020-10-01"]
         assert interval_trace["marker"]["symbol"] == "circle-open"
 
+    def test_peak_interval_shading_and_hollow_marker_are_named_and_commanded(self):
+        monthly = pd.DataFrame({
+            "date": pd.to_datetime(["2020-01-01", "2020-02-01", "2020-10-01"]),
+            "extent_pct": [30.0, 29.8, 1.0],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "rising", "receding"],
+            "hy_year": [2020, 2020, 2020],
+        })
+        analysis = SimpleNamespace(
+            hydro_years=pd.DataFrame({
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-02-01")],
+                "peak_timing_status": ["interval"],
+                "peak_interval_start": [pd.Timestamp("2020-01-01")],
+                "peak_interval_end": [pd.Timestamp("2020-02-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "trough_timing_status": ["point"],
+                "confidence": ["high"],
+            })
+        )
+        figure = timeline_figure(monthly, analysis)
+        names = [trace.get("name") for trace in figure["data"]]
+        assert "Peak Interval" in names
+        assert "Peak (interval)" in names
+
+        peak_pt = next(t for t in figure["data"] if t.get("name") == "HY Peak")
+        peak_int = next(t for t in figure["data"] if t.get("name") == "Peak (interval)")
+        assert peak_pt["x"] == []
+        assert peak_pt["marker"]["symbol"] == "circle"
+        assert peak_int["x"] == ["2020-02-01"]
+        assert peak_int["marker"]["symbol"] == "circle-open"
+        assert peak_int["marker"]["color"] == peak_pt["marker"]["color"]
+
+        band = next(t for t in figure["data"] if t.get("name") == "Peak Interval")
+        shapes = [s for s in figure["layout"]["shapes"]
+                  if str(s.get("name", "")).startswith("timing_interval:peak")]
+        assert shapes, "expected a peak interval shape to explain"
+        assert band["line"]["color"] == shapes[0]["fillcolor"]
+        assert band["x"] == [None]
+        assert band.get("meta", {}).get("timing_interval") == "peak"
+
+    def test_point_and_interval_peaks_are_partitioned_into_separate_traces(self):
+        monthly = pd.DataFrame({
+            "date": pd.to_datetime(["2019-02-01", "2020-02-01"]),
+            "extent_pct": [30.0, 32.0],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "rising"],
+            "hy_year": [2019, 2020],
+        })
+        analysis = SimpleNamespace(
+            hydro_years=pd.DataFrame({
+                "hy_year": [2019, 2020],
+                "peak_month": [pd.Timestamp("2019-02-01"), pd.Timestamp("2020-02-01")],
+                "peak_timing_status": ["point", "interval"],
+                "peak_interval_start": [pd.Timestamp("2019-02-01"), pd.Timestamp("2020-01-01")],
+                "peak_interval_end": [pd.Timestamp("2019-02-01"), pd.Timestamp("2020-02-01")],
+                "trough_month": [pd.Timestamp("2019-10-01"), pd.Timestamp("2020-10-01")],
+                "trough_timing_status": ["point", "point"],
+            })
+        )
+        figure = timeline_figure(monthly, analysis)
+        point_trace = next(t for t in figure["data"] if t.get("name") == "HY Peak")
+        interval_trace = next(t for t in figure["data"] if t.get("name") == "Peak (interval)")
+        assert point_trace["x"] == ["2019-02-01"]
+        assert point_trace["marker"]["symbol"] == "circle"
+        assert interval_trace["x"] == ["2020-02-01"]
+        assert interval_trace["marker"]["symbol"] == "circle-open"
+
 
 def test_point_timing_status_still_gets_a_marker():
     monthly = pd.DataFrame(

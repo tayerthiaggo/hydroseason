@@ -50,7 +50,7 @@ def render_aoi_map_html(
     # markers nor layer controls, so no marker or layer-control images are needed.
     return f'''<style>{leaflet_css}</style>
 <div id="{element_id}" class="hydroseason-aoi-map" role="region" aria-label="Map of {display_name} boundary" tabindex="0" style="height: {height_px}px"></div>
-<p id="{element_id}-offline-notice" class="hydroseason-aoi-map-notice" aria-live="polite" hidden>The boundary remains available if tiles fail. Loading online tiles sends requests to OpenStreetMap (via CARTO) and requires an internet connection.</p>
+<p id="{element_id}-offline-notice" class="hydroseason-aoi-map-notice" aria-live="polite" hidden>The boundary remains available if tiles fail. Loading online tiles sends requests to Esri and requires an internet connection.</p>
 <script>{leaflet_js}</script>
 <script>
 (() => {{
@@ -60,10 +60,9 @@ def render_aoi_map_html(
     style: {{color: '#d1495b', weight: 3, opacity: 1, fillOpacity: 0.08}}
   }}).addTo(map);
   map.fitBounds(layer.getBounds(), {{padding: [20, 20], maxZoom: 12}});
-  const tiles = L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}.png', {{
+  const tiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
     maxZoom: 19,
-    subdomains: 'abcd',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> &mdash; Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
   }}).addTo(map);
   tiles.on('tileerror', () => {{
     document.getElementById('{element_id}-offline-notice').hidden = false;

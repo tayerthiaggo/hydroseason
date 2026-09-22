@@ -266,113 +266,87 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
     }
     rows = analysis.hydro_years if analysis.hydro_years is not None else pd.DataFrame()
     traces: list[dict[str, Any]] = []
+    interval_names = {
+        "HY Peak": "Peak (interval)",
+        "HY End Dry": "End Dry (interval)",
+    }
+    status_labels = {
+        "HY Peak": "peak",
+        "HY Mid Dry": "mid-dry",
+        "HY End Dry": "end-dry",
+    }
     for name, (column, color, symbol) in MARKERS.items():
-        if name == "HY End Dry":
-            point_x: list[str] = []
-            point_y: list[Any] = []
-            point_customdata: list[list[Any]] = []
-            interval_x: list[str] = []
-            interval_y: list[Any] = []
-            interval_customdata: list[list[Any]] = []
-            status_column = _MARKER_STATUS_COLUMN.get(name)
-            if column in rows.columns:
-                for _, row in rows.iterrows():
-                    date = _iso_date(row[column])
-                    if date is None:
-                        continue
-                    point = monthly_points.get(date)
-                    extent = point[2] if point is not None else None
-                    status = row.get(status_column) if status_column in rows.columns else "point"
-                    entry = [
-                        _clean_val(row.get("hy_year")), date, extent,
-                        point[3] if point is not None else None,
-                        point[4] if point is not None else _clean_val(row.get("confidence")),
-                        "end-dry",
-                    ]
-                    if status in ("interval", "broad"):
-                        interval_x.append(date)
-                        interval_y.append(extent)
-                        interval_customdata.append(entry)
-                    else:
-                        point_x.append(date)
-                        point_y.append(extent)
-                        point_customdata.append(entry)
-            traces.append({
-                "type": "scatter", "mode": "markers",
-                "name": f"{name} (imposed)" if imposed else name,
-                "legend": "legend",
-                "x": point_x, "y": point_y,
-                "customdata": point_customdata,
-                "hovertemplate": HOVER_TEMPLATE,
-                "marker": {
-                    "size": 8,
-                    "color": color,
-                    "symbol": symbol,
-                    "line": {"color": "#ffffff", "width": 1},
-                },
-                "meta": _scale_meta(point_y),
-            })
-            if interval_x:
-                interval_name = "End Dry (interval)"
-                traces.append({
-                    "type": "scatter", "mode": "markers",
-                    "name": f"{interval_name} (imposed)" if imposed else interval_name,
-                    "legend": "legend",
-                    "x": interval_x, "y": interval_y,
-                    "customdata": interval_customdata,
-                    "hovertemplate": HOVER_TEMPLATE,
-                    "marker": {
-                        "size": 8,
-                        "color": color,
-                        "symbol": f"{symbol}-open",
-                        "line": {"color": "#ffffff", "width": 1},
-                    },
-                    "meta": _scale_meta(interval_y),
-                })
-            continue
-
-        x: list[str] = []
-        y: list[Any] = []
-        customdata: list[list[Any]] = []
+        point_x: list[str] = []
+        point_y: list[Any] = []
+        point_customdata: list[list[Any]] = []
+        interval_x: list[str] = []
+        interval_y: list[Any] = []
+        interval_customdata: list[list[Any]] = []
         status_column = _MARKER_STATUS_COLUMN.get(name)
+        status_label = status_labels.get(name, "point")
+        supports_interval = name in interval_names
+
         if column in rows.columns:
             for _, row in rows.iterrows():
-                is_point = (
-                    status_column is None
-                    or status_column not in rows.columns
-                    or row.get(status_column) == "point"
-                )
-                if not is_point:
-                    continue
                 date = _iso_date(row[column])
                 if date is None:
                     continue
                 point = monthly_points.get(date)
                 extent = point[2] if point is not None else None
-                x.append(date)
-                y.append(extent)
-                customdata.append([
-                    _clean_val(row.get("hy_year")), date, extent,
+                status = row.get(status_column) if status_column in rows.columns else "point"
+                entry = [
+                    _clean_val(row.get("hy_year")),
+                    date,
+                    extent,
                     point[3] if point is not None else None,
                     point[4] if point is not None else _clean_val(row.get("confidence")),
-                    {"HY Peak": "peak", "HY Mid Dry": "mid-dry"}[name],
-                ])
-        marker = {
-            "size": 8,
-            "color": color,
-            "symbol": symbol,
-            "line": {"color": "#ffffff", "width": 1},
-        }
+                    status_label,
+                ]
+                if supports_interval and status in ("interval", "broad"):
+                    interval_x.append(date)
+                    interval_y.append(extent)
+                    interval_customdata.append(entry)
+                elif status_column is None or status_column not in rows.columns or status == "point":
+                    point_x.append(date)
+                    point_y.append(extent)
+                    point_customdata.append(entry)
+
         traces.append({
-            "type": "scatter", "mode": "markers",
+            "type": "scatter",
+            "mode": "markers",
             "name": f"{name} (imposed)" if imposed else name,
             "legend": "legend",
-            "x": x, "y": y,
-            "customdata": customdata,
+            "x": point_x,
+            "y": point_y,
+            "customdata": point_customdata,
             "hovertemplate": HOVER_TEMPLATE,
-            "marker": marker,
-            "meta": _scale_meta(y),
+            "marker": {
+                "size": 8,
+                "color": color,
+                "symbol": symbol,
+                "line": {"color": "#ffffff", "width": 1},
+            },
+            "meta": _scale_meta(point_y),
         })
+        if interval_x:
+            interval_name = interval_names[name]
+            traces.append({
+                "type": "scatter",
+                "mode": "markers",
+                "name": f"{interval_name} (imposed)" if imposed else interval_name,
+                "legend": "legend",
+                "x": interval_x,
+                "y": interval_y,
+                "customdata": interval_customdata,
+                "hovertemplate": HOVER_TEMPLATE,
+                "marker": {
+                    "size": 8,
+                    "color": color,
+                    "symbol": f"{symbol}-open",
+                    "line": {"color": "#ffffff", "width": 1},
+                },
+                "meta": _scale_meta(interval_y),
+            })
     return traces
 
 
@@ -597,15 +571,25 @@ def _phase_legend_traces(phases: list[str] | None = None) -> list[dict[str, Any]
     ]
 
 
-def _end_dry_interval_legend_traces(analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
-    """Name the end-of-dry interval shading in the legend to command layout shapes."""
+def _timing_interval_legend_traces(analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
+    """Name peak and end-of-dry interval shadings in the legend to command layout shapes."""
     rows = analysis.hydro_years if analysis.hydro_years is not None else pd.DataFrame()
-    if "trough_timing_status" not in getattr(rows, "columns", []):
-        return []
-    if not rows["trough_timing_status"].isin(("interval", "broad")).any():
-        return []
-    return [
-        {
+    traces: list[dict[str, Any]] = []
+    if "peak_timing_status" in getattr(rows, "columns", []) and rows["peak_timing_status"].isin(("interval", "broad")).any():
+        traces.append({
+            "type": "scatter",
+            "mode": "lines",
+            "name": "Peak Interval",
+            "legend": "legend",
+            "x": [None],
+            "y": [None],
+            "line": {"color": INTERVAL_SHADE_COLORS["peak"], "width": 10},
+            "showlegend": True,
+            "hoverinfo": "none",
+            "meta": {"timing_interval": "peak"},
+        })
+    if "trough_timing_status" in getattr(rows, "columns", []) and rows["trough_timing_status"].isin(("interval", "broad")).any():
+        traces.append({
             "type": "scatter",
             "mode": "lines",
             "name": "End Dry Interval",
@@ -616,8 +600,8 @@ def _end_dry_interval_legend_traces(analysis: CatchmentAnalysis) -> list[dict[st
             "showlegend": True,
             "hoverinfo": "none",
             "meta": {"timing_interval": "trough"},
-        },
-    ]
+        })
+    return traces
 
 
 def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[str, Any]:
@@ -692,7 +676,7 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
                 "meta": _scale_meta([median_baseline, median_baseline]),
             })
     data.extend(_marker_traces(monthly, analysis))
-    data.extend(_end_dry_interval_legend_traces(analysis))
+    data.extend(_timing_interval_legend_traces(analysis))
     has_rainfall = "rainfall_mm" in monthly.columns and monthly["rainfall_mm"].notna().any()
     if has_rainfall:
         data.append({"type": "bar", "name": "Rainfall", "legend": "legend2", "x": dates, "y": _clean_list(monthly["rainfall_mm"]),

@@ -39,14 +39,13 @@ def test_renders_self_contained_accessible_boundary_map_with_required_tile_behav
     assert "opacity: 1" in html
     assert "fillOpacity: 0.08" in html
     assert "fitBounds(layer.getBounds(), {padding: [20, 20], maxZoom: 12})" in html
-    assert "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png" in html
+    assert "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}" in html
     assert "maxZoom: 19" in html
-    assert "subdomains: 'abcd'" in html
-    assert "OpenStreetMap contributors" in html
-    assert "CARTO" in html
+    assert "Tiles &copy;" in html
+    assert "Esri" in html
     assert "tileerror" in html
     assert "boundary remains available if tiles fail" in html
-    assert "requests to OpenStreetMap" in html
+    assert "requests to Esri" in html
     assert "internet connection" in html
     assert "L.marker" not in html
     assert "L.control.layers" not in html
