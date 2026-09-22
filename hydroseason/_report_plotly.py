@@ -267,12 +267,74 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
     rows = analysis.hydro_years if analysis.hydro_years is not None else pd.DataFrame()
     traces: list[dict[str, Any]] = []
     for name, (column, color, symbol) in MARKERS.items():
+        if name == "HY End Dry":
+            point_x: list[str] = []
+            point_y: list[Any] = []
+            point_customdata: list[list[Any]] = []
+            interval_x: list[str] = []
+            interval_y: list[Any] = []
+            interval_customdata: list[list[Any]] = []
+            status_column = _MARKER_STATUS_COLUMN.get(name)
+            if column in rows.columns:
+                for _, row in rows.iterrows():
+                    date = _iso_date(row[column])
+                    if date is None:
+                        continue
+                    point = monthly_points.get(date)
+                    extent = point[2] if point is not None else None
+                    status = row.get(status_column) if status_column in rows.columns else "point"
+                    entry = [
+                        _clean_val(row.get("hy_year")), date, extent,
+                        point[3] if point is not None else None,
+                        point[4] if point is not None else _clean_val(row.get("confidence")),
+                        "end-dry",
+                    ]
+                    if status in ("interval", "broad"):
+                        interval_x.append(date)
+                        interval_y.append(extent)
+                        interval_customdata.append(entry)
+                    else:
+                        point_x.append(date)
+                        point_y.append(extent)
+                        point_customdata.append(entry)
+            traces.append({
+                "type": "scatter", "mode": "markers",
+                "name": f"{name} (imposed)" if imposed else name,
+                "legend": "legend",
+                "x": point_x, "y": point_y,
+                "customdata": point_customdata,
+                "hovertemplate": HOVER_TEMPLATE,
+                "marker": {
+                    "size": 8,
+                    "color": color,
+                    "symbol": symbol,
+                    "line": {"color": "#ffffff", "width": 1},
+                },
+                "meta": _scale_meta(point_y),
+            })
+            if interval_x:
+                interval_name = "End Dry (interval)"
+                traces.append({
+                    "type": "scatter", "mode": "markers",
+                    "name": f"{interval_name} (imposed)" if imposed else interval_name,
+                    "legend": "legend",
+                    "x": interval_x, "y": interval_y,
+                    "customdata": interval_customdata,
+                    "hovertemplate": HOVER_TEMPLATE,
+                    "marker": {
+                        "size": 8,
+                        "color": color,
+                        "symbol": f"{symbol}-open",
+                        "line": {"color": "#ffffff", "width": 1},
+                    },
+                    "meta": _scale_meta(interval_y),
+                })
+            continue
+
         x: list[str] = []
         y: list[Any] = []
         customdata: list[list[Any]] = []
-        symbols: list[str] = []
         status_column = _MARKER_STATUS_COLUMN.get(name)
-        always_mark = name in _ALWAYS_MARK
         if column in rows.columns:
             for _, row in rows.iterrows():
                 is_point = (
@@ -280,7 +342,7 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
                     or status_column not in rows.columns
                     or row.get(status_column) == "point"
                 )
-                if not is_point and not always_mark:
+                if not is_point:
                     continue
                 date = _iso_date(row[column])
                 if date is None:
@@ -289,17 +351,16 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
                 extent = point[2] if point is not None else None
                 x.append(date)
                 y.append(extent)
-                symbols.append(symbol if is_point else f"{symbol}-open")
                 customdata.append([
                     _clean_val(row.get("hy_year")), date, extent,
                     point[3] if point is not None else None,
                     point[4] if point is not None else _clean_val(row.get("confidence")),
-                    {"HY Peak": "peak", "HY Mid Dry": "mid-dry", "HY End Dry": "end-dry"}[name],
+                    {"HY Peak": "peak", "HY Mid Dry": "mid-dry"}[name],
                 ])
         marker = {
             "size": 8,
             "color": color,
-            "symbol": symbols if always_mark else symbol,
+            "symbol": symbol,
             "line": {"color": "#ffffff", "width": 1},
         }
         traces.append({
@@ -537,42 +598,24 @@ def _phase_legend_traces(phases: list[str] | None = None) -> list[dict[str, Any]
 
 
 def _end_dry_interval_legend_traces(analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
-    """Name the two end-of-dry cues the legend previously left unexplained.
-
-    A cycle whose trough timing is not a resolved point draws a red shaded
-    band over the equivalent-month span and switches its end-of-dry marker
-    to a hollow symbol. Both are drawn as layout shapes or per-point symbol
-    overrides, neither of which produces a legend entry of its own, so the
-    reader had no way to learn what they meant. These are legend-only
-    traces (no plotted point) added only when such a cycle exists, so a
-    fully resolved record does not gain entries explaining cues it never
-    shows.
-    """
+    """Name the end-of-dry interval shading in the legend to command layout shapes."""
     rows = analysis.hydro_years if analysis.hydro_years is not None else pd.DataFrame()
     if "trough_timing_status" not in getattr(rows, "columns", []):
         return []
     if not rows["trough_timing_status"].isin(("interval", "broad")).any():
         return []
-    colour = MARKERS["HY End Dry"][1]
     return [
         {
-            "type": "scatter", "mode": "markers",
-            "name": "End Dry (interval)",
-            "legend": "legend",
-            "x": [None], "y": [None],
-            "marker": {
-                "size": 8, "color": colour, "symbol": "circle-open",
-                "line": {"color": "#ffffff", "width": 1},
-            },
-            "showlegend": True, "hoverinfo": "none",
-        },
-        {
-            "type": "scatter", "mode": "lines",
+            "type": "scatter",
+            "mode": "lines",
             "name": "End Dry Interval",
             "legend": "legend",
-            "x": [None], "y": [None],
+            "x": [None],
+            "y": [None],
             "line": {"color": INTERVAL_SHADE_COLORS["trough"], "width": 10},
-            "showlegend": True, "hoverinfo": "none",
+            "showlegend": True,
+            "hoverinfo": "none",
+            "meta": {"timing_interval": "trough"},
         },
     ]
 

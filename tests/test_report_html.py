@@ -368,3 +368,49 @@ def test_year_cards_render_confidence_title_in_note_and_drawdown_stat():
     assert "Drawdown" not in html
     assert "MEDIUM CONFIDENCE" in html
 
+
+def test_year_cards_render_interval_months_in_key_events():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.date_range("2020-01-01", "2020-12-01", freq="MS"),
+            "extent_pct": 1.0,
+            "invalid_pct": 0.0,
+            "phase": "receding",
+        }
+    )
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2020,
+                "hy_start": pd.Timestamp("2020-01-01"),
+                "hy_end": pd.Timestamp("2020-12-01"),
+                "peak_month": pd.Timestamp("2020-02-01"),
+                "peak_timing_status": "interval",
+                "peak_interval_start": pd.Timestamp("2020-01-01"),
+                "peak_interval_end": pd.Timestamp("2020-03-01"),
+                "temporal_mid_dry_month": pd.Timestamp("2020-06-01"),
+                "trough_month": pd.Timestamp("2020-10-01"),
+                "trough_timing_status": "interval",
+                "trough_interval_start": pd.Timestamp("2020-09-01"),
+                "trough_interval_end": pd.Timestamp("2020-11-01"),
+                "confidence": "high",
+                "status": "complete",
+                "status_reason": "ok",
+            }
+        ]
+    )
+
+    html = _year_cards(monthly, hydro_years)
+
+    # Peak: Feb is Wet Peak (interval), Jan and Mar are Wet Interval
+    assert '<span class="cell-marker marker-wet">Wet Peak (interval)</span>' in html
+    assert '<span class="cell-marker marker-wet-interval">Wet Interval</span>' in html
+
+    # Mid dry: Jun is Mid Dry
+    assert '<span class="cell-marker marker-mid">Mid Dry</span>' in html
+
+    # Trough: Oct is Dry End (interval), Sep and Nov are Dry Interval
+    assert '<span class="cell-marker marker-dry">Dry End (interval)</span>' in html
+    assert '<span class="cell-marker marker-dry-interval">Dry Interval</span>' in html
+
+

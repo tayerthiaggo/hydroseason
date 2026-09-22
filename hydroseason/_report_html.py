@@ -348,6 +348,10 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             interval_start_names=("trough_interval_start",),
             interval_end_names=("trough_interval_end",),
         )
+        peak_interval_start = _safe_date(_row_value(row, "peak_interval_start"))
+        peak_interval_end = _safe_date(_row_value(row, "peak_interval_end"))
+        trough_interval_start = _safe_date(_row_value(row, "trough_interval_start"))
+        trough_interval_end = _safe_date(_row_value(row, "trough_interval_end"))
         segment = monthly_frame.loc[(monthly_frame.index >= start) & (monthly_frame.index <= end)]
         detail_rows: list[str] = []
         phase_display_map = {
@@ -376,6 +380,20 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
                 event = '<span class="cell-marker marker-mid">Mid Dry</span>'
             elif _safe_date(trough_date) == date:
                 event = f'<span class="cell-marker marker-dry">Dry End{trough_marker_suffix}</span>'
+            elif (
+                peak_interval_start is not None
+                and peak_interval_end is not None
+                and peak_timing_status in ("interval", "broad")
+                and min(peak_interval_start, peak_interval_end) <= date <= max(peak_interval_start, peak_interval_end)
+            ):
+                event = '<span class="cell-marker marker-wet-interval">Wet Interval</span>'
+            elif (
+                trough_interval_start is not None
+                and trough_interval_end is not None
+                and trough_timing_status in ("interval", "broad")
+                and min(trough_interval_start, trough_interval_end) <= date <= max(trough_interval_start, trough_interval_end)
+            ):
+                event = '<span class="cell-marker marker-dry-interval">Dry Interval</span>'
             extent_value = month.get("extent_pct")
             invalid_value = month.get("invalid_pct")
             invalid_text = "N/A" if pd.isna(invalid_value) else f"{float(invalid_value):.2f}%"
@@ -666,11 +684,12 @@ def render_report_html(
     .nested-table, .main-table {{ width: 100%; border-collapse: collapse; font-size: .82rem; background: var(--panel); }}
     .nested-table th, .nested-table td, .main-table th, .main-table td {{ padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; }}
     .nested-table th, .main-table th {{ background: #eef2f7; font-size: .75rem; }}
-    .phase-badge, .cell-marker {{ display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: .7rem; font-weight: 650; }}
     .phase-recovery, .phase-rising {{ background: #d3e9d2; color: #166534; }} .phase-wet {{ background: #b9d9ef; color: #075985; }}
     .phase-recession, .phase-receding {{ background: #f3e6c6; color: #92400e; }} .phase-dry {{ background: #f1d7d4; color: #991b1b; }}
     .phase-unassigned {{ background: #e2e8f0; color: #475569; }}
     .marker-wet {{ background: #2563eb; color: #fff; }} .marker-mid {{ background: #f97316; color: #fff; }} .marker-dry {{ background: #dc2626; color: #fff; }}
+    .marker-wet-interval {{ background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }}
+    .marker-dry-interval {{ background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }}
     .filters-row {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: end; padding: 14px; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }}
     .filter-item {{ display: flex; flex-direction: column; gap: 4px; min-width: 150px; }}
     .filter-item label {{ color: var(--muted); font-size: .75rem; }}
@@ -844,19 +863,33 @@ def render_report_html(
     logButton.setAttribute("aria-pressed", String(type === "log"));
   }}
 
-  function togglePhaseLegend(event) {{
+  function toggleCustomLegend(event) {{
     const trace = timeline.data[event.curveNumber];
-    const phase = trace.meta && trace.meta.phase_legend;
-    if (!phase) return;
-    const hidden = trace.visible !== "legendonly";
-    const nextVisible = hidden ? "legendonly" : true;
-    const phaseName = "phase:" + phase;
-    const shapes = (timeline.layout.shapes || []).map(shape =>
-      shape.name === phaseName ? Object.assign({{}}, shape, {{visible: !hidden}}) : shape
-    );
-    Plotly.restyle(timeline, {{visible: nextVisible}}, [event.curveNumber]);
-    Plotly.relayout(timeline, {{shapes}});
-    return false;
+    if (!trace || !trace.meta) return;
+    const phase = trace.meta.phase_legend;
+    const timingInterval = trace.meta.timing_interval;
+    if (phase) {{
+      const hidden = trace.visible !== "legendonly";
+      const nextVisible = hidden ? "legendonly" : true;
+      const phaseName = "phase:" + phase;
+      const shapes = (timeline.layout.shapes || []).map(shape =>
+        shape.name === phaseName ? Object.assign({{}}, shape, {{visible: !hidden}}) : shape
+      );
+      Plotly.restyle(timeline, {{visible: nextVisible}}, [event.curveNumber]);
+      Plotly.relayout(timeline, {{shapes}});
+      return false;
+    }}
+    if (timingInterval) {{
+      const hidden = trace.visible !== "legendonly";
+      const nextVisible = hidden ? "legendonly" : true;
+      const prefix = "timing_interval:" + timingInterval;
+      const shapes = (timeline.layout.shapes || []).map(shape =>
+        shape.name && shape.name.startsWith(prefix) ? Object.assign({{}}, shape, {{visible: !hidden}}) : shape
+      );
+      Plotly.restyle(timeline, {{visible: nextVisible}}, [event.curveNumber]);
+      Plotly.relayout(timeline, {{shapes}});
+      return false;
+    }}
   }}
 
   Promise.all([
@@ -865,7 +898,7 @@ def render_report_html(
   ]).then(() => {{
     linearButton.addEventListener("click", () => setScale("linear"));
     logButton.addEventListener("click", () => setScale("log"));
-    timeline.on("plotly_legendclick", togglePhaseLegend);
+    timeline.on("plotly_legendclick", toggleCustomLegend);
     if (document.querySelectorAll) document.querySelectorAll("details.report-section").forEach(section => {{
       section.addEventListener("toggle", () => {{
         if (!section.open) return;
