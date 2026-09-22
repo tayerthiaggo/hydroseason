@@ -8,7 +8,7 @@ dictionary: [Report Export Columns](../report-columns.md).
 When `generate_catchment_report` receives `aoi_context`, the self-contained
 HTML embeds a compact Leaflet runtime and boundary GeoJSON. The boundary
 remains readable without tiles. The basemap is deliberately not embedded:
-viewing the report requests standard OpenStreetMap tiles and therefore needs
+viewing the report requests OpenStreetMap tiles (via CARTO basemaps) and therefore needs
 an internet connection; a tile failure only exposes the offline notice and
 does not affect report content. `aoi_context` geometry may be simplified for
 display and must not be treated as the analysed footprint.

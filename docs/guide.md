@@ -325,9 +325,10 @@ does not mean 2x computational throughput.
 
 When an AOI is available, HydroSeason carries compact boundary geometry into
 the report and embeds Leaflet with that boundary. The report remains readable
-without map tiles. At view time its basemap requests tiles from OpenStreetMap;
-those requests go to OpenStreetMap and require an internet connection. The
-boundary is embedded locally, so it remains visible if tiles fail.
+without map tiles. At view time its basemap requests tiles from OpenStreetMap
+(via CARTO basemaps); those requests go to OpenStreetMap / CARTO and require an
+internet connection. The boundary is embedded locally, so it remains visible if
+tiles fail.
 
 `show_map="auto"` previews the boundary before acquisition only in a Jupyter
 or IPython kernel. `show_map=True` requests an inline preview (and warns if it

@@ -853,7 +853,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 	}
 </style>
 <div id="aoi-map-report" class="hydroseason-aoi-map" role="region" aria-label="Map of Fitzroy River (WA) boundary" tabindex="0" style="height: 360px"></div>
-<p id="aoi-map-report-offline-notice" class="hydroseason-aoi-map-notice" aria-live="polite" hidden>The boundary remains available if tiles fail. Loading online tiles sends requests to OpenStreetMap and requires an internet connection.</p>
+<p id="aoi-map-report-offline-notice" class="hydroseason-aoi-map-notice" aria-live="polite" hidden>The boundary remains available if tiles fail. Loading online tiles sends requests to OpenStreetMap (via CARTO) and requires an internet connection.</p>
 <script>/* @preserve
  * Leaflet 1.9.4, a JS library for interactive maps. https://leafletjs.com
  * (c) 2010-2023 Vladimir Agafonkin, (c) 2010-2011 CloudMade
@@ -868,9 +868,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
     style: {color: '#d1495b', weight: 3, opacity: 1, fillOpacity: 0.08}
   }).addTo(map);
   map.fitBounds(layer.getBounds(), {padding: [20, 20], maxZoom: 12});
-  const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  const tiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+    subdomains: 'abcd',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>'
   }).addTo(map);
   tiles.on('tileerror', () => {
     document.getElementById('aoi-map-report-offline-notice').hidden = false;
