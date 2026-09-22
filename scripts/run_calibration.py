@@ -19,7 +19,6 @@ if str(_REPO_ROOT) not in sys.path:
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-import psutil  # noqa: E402
 
 from hydroseason._calibration import (  # noqa: E402
     AUTHORITY_SCOPE,
@@ -80,6 +79,10 @@ _CALIBRATION_VERSION = "0.2.0-audit.2"
 
 def _rss_tree_mb() -> float:
     """Current resident memory for this process and its live workers."""
+    try:
+        import psutil
+    except ImportError:
+        return 0.0
     process = psutil.Process()
     processes = [process, *process.children(recursive=True)]
     total = 0

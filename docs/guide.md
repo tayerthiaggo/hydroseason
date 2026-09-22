@@ -221,9 +221,9 @@ Full CSV column dictionary: [Report Export Columns](report-columns.md).
 ## Which route did my catchment take?
 
 `analyze_catchment` is the routing authority behind `run_hydroseason`. It
-assesses annual amplitude (signal-to-noise ratio, SNR) and the reproducibility
-of one annual peak month per usable year. Timing is circular: for peak month
-`m_y` in year `y`, it calculates
+assesses calendar timing recurrence and the reproducibility of annual peak and
+trough months per usable year. Timing is circular: for peak month `m_y` in
+year `y`, it calculates
 
 ```text
 theta_y = 2*pi*(m_y - 1)/12
@@ -239,40 +239,18 @@ test complements `R` by testing the discrete 12-month uniform null.
 
 | Regime | Decision rule | Interpretation |
 |---|---|---|
-| Seasonal | SNR >= 2 and peak `R` 95% CI lower bound >= 0.70 | A repeatable annual peak is supported. |
-| Aseasonal | SNR < 0.70, or peak uniformity p >= 0.10 with at least 10 timing years | Do not force a hydrological year; report events and low spells. |
-| Marginal | Otherwise | Evidence sits between the gates; a fixed climatological window is used only when both peak and trough evidence support it. |
-| Insufficient record | <5 usable annual timings | Do not infer lack of seasonality from inadequate data. |
+| Seasonal | Peak Kuiper p < 0.05 and trough Kuiper p < 0.05, with >= 5 detectable years | Calendar recurrence of annual peak and trough timing is established. |
+| Aseasonal | Recurrence not established (peak or trough Kuiper p >= 0.05, or < 5 detectable years) | Timing recurrence is not established; do not force a hydrological year. Report discrete wet events and low-extent spells. |
+| Insufficient record | < 5 qualifying calendar years (>= 9 candidate-usable months each) | Do not infer lack of seasonality from inadequate data. |
 
-The regime label and the route are related but separate, and since v0.2.0 the
-route additionally requires that annual timing be *identifiable*, not just that
-the record be seasonal or marginal. Each qualifying year's peak and trough are
-independently classified `point` (a defensible exact month), `interval` (a
-defensible bounded span, e.g. a broad low-water plateau), or `unresolved` (a
-flat or below-floor year, or a diffuse extremum that clears no calibrated
-threshold) using a detectability floor derived from measurement tolerance,
-robust noise, and pixel resolution when available. Record-level
-`timing_evidence` is `insufficient` when
-`min(n_peak_timing_years, n_trough_timing_years)` — the count of years whose
-peak/trough is independently identifiable — falls below a calibrated
-`min_informative_years`; `unsupported` when the established seasonality
-evidence above already rejects an annual cycle; otherwise `supported`.
+The regime label and the route are related but separate. In v0.2.0, the
+route additionally requires that annual timing be *identifiable* and satisfy the
+**seven-cycle annualization guard**:
+- `per_year_detection` is used only for a seasonal record where at least 7 informative peak cycles and at least 7 informative trough cycles are resolved.
+- If fewer than 7 cycles are resolved, dynamic annual boundaries are withheld, and the catchment routes to `event_characterisation` instead — wet events and low-extent spells are reported, but no dynamic hydrological-year boundary is published.
 
-`per_year_detection` is used only for a seasonal or marginal record whose
-timing evidence is `supported`. A seasonal or marginal record with
-insufficient identifiable timing keeps its regime label but routes to
-`event_characterisation` instead — wet events and low-extent spells are
-still reported, but no hydrological-year boundary is published. The
-`fixed_climatological_window` route exists in the type system for backward
-compatibility but is not reachable under the current established policy: no
-regime/timing combination selects it. `n_timing_years` counts qualifying
-**years**, not months, and keeps its historical peak-derived meaning (it
-equals `n_peak_timing_years`); the conservative minimum of peak and trough
-years is used only inside the route gate, never as a public field's value.
 Fewer than 30 usable annual timings (not 30 months) keeps the classification
-but warns that uncertainty intervals may be wide. The approved 10-year guard
-keeps a strong 5–9-year record marginal when a Kuiper uniformity result has
-little power.
+but warns that uncertainty intervals may be wide.
 
 Exact-zero extent is a valid dry observation, not missing data, and zero
 frequency (`n_zero_months`, `zero_month_fraction`, `n_whole_zero_years`) is

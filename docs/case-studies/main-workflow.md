@@ -19,7 +19,7 @@ This case study demonstrates the single route-aware HydroSeason workflow across 
 
 ## Methodology and Routing Authority
 
-HydroSeason uses `analyze_catchment` under the `established_0_2_0` decision policy as the single routing authority. Before extracting annual boundaries or summary metrics, the pipeline assesses whether a catchment exhibits a stable, reproducible annual seasonal cycle with identifiable annual timing (`per_year_detection`) or an irregular, non-seasonal hydrological regime, or a seasonal/marginal regime whose timing is not identifiable (`event_characterisation`).
+HydroSeason uses `analyze_catchment` under the `hydroseason-v0.2.0` method policy as the single routing authority. Before extracting annual boundaries or summary metrics, the pipeline assesses whether a catchment exhibits a stable, reproducible annual seasonal cycle with identifiable annual timing (`per_year_detection`) or an irregular, non-seasonal hydrological regime (`event_characterisation`).
 
 The checked case-study build uses `quality_policy="flag"`: finite monthly
 observations remain available for cycle mapping, while `invalid_pct` is carried
@@ -38,7 +38,6 @@ the count of annual timings. IQR remains descriptive; route eligibility uses
 the trough timing concentration confidence interval.
 
 - **Seasonal catchments** (`per_year_detection`): Hydrological year boundaries are anchored to climatological troughs, and annual recharge/trough metrics are computed for complete hydrological years.
-- **Marginal catchments** (`fixed_climatological_window`): A fixed climatological window is retained as an explicitly imposed frame; boundary rows can still be provisional when observed markers have high invalid coverage.
 - **Aseasonal catchments** (`event_characterisation`): No hydrological years are forced. The workflow reports discrete water inundation events, low-water spell durations, and overall extent variability.
 
 > [!IMPORTANT]
@@ -51,30 +50,30 @@ the trough timing concentration confidence interval.
 ## Main Study Results
 
 <!-- BEGIN GENERATED MAIN RESULTS -->
-| Catchment | Regime | Route | SNR | Peak R | Trough R | Trough R CI low | Peak-month IQR (months) | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Daly River (NT) | seasonal | per_year_detection | 2.46 | 0.864 | 0.800 | 0.703 | 2.0 | 21 | 21 | 6 | Mar | Nov |
-| Fitzroy River (WA) | seasonal | per_year_detection | 2.65 | 0.907 | 0.919 | 0.881 | 1.0 | 21 | 18 | 8 | Feb | Nov |
-| Gilbert River (QLD) | seasonal | per_year_detection | 3.62 | 0.934 | 0.975 | 0.967 | 1.0 | 21 | 24 | 10 | Feb | Nov |
-| Lachlan River (NSW) | aseasonal | event_characterisation | 0.67 | 0.324 | 0.604 | 0.455 | 4.0 | 0 | 5 | 55 | N/A | N/A |
-| Moonie River (QLD/NSW) | aseasonal | event_characterisation | 0.62 | 0.532 | 0.687 | 0.549 | 3.0 | 0 | 14 | 22 | N/A | N/A |
+| Catchment | Regime | Route | Peak R | Trough R | Trough R CI low | Peak-month IQR (months) | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Daly River (NT) | seasonal | per_year_detection | 0.864 | 0.800 | 0.703 | 2.0 | 21 | 21 | 6 | Mar | Nov |
+| Fitzroy River (WA) | seasonal | per_year_detection | 0.907 | 0.919 | 0.881 | 1.0 | 21 | 18 | 8 | Feb | Nov |
+| Gilbert River (QLD) | seasonal | per_year_detection | 0.934 | 0.975 | 0.967 | 1.0 | 21 | 24 | 10 | Feb | Nov |
+| Lachlan River (NSW) | aseasonal | event_characterisation | 0.324 | 0.604 | 0.455 | 4.0 | 0 | 5 | 55 | N/A | N/A |
+| Moonie River (QLD/NSW) | aseasonal | event_characterisation | 0.532 | 0.687 | 0.549 | 3.0 | 0 | 14 | 22 | N/A | N/A |
 <!-- END GENERATED MAIN RESULTS -->
 
 ### Why Daly River is seasonal and supports per-year boundaries
 
-HydroSeason requires **both** a strong annual swing and reproducible timing
-before it permits independently detected boundaries for each year. Daly
-passes the strength gate: its water-extent SNR is 2.46, above the seasonal
-minimum of 2.0. Its peak timing concentration is stable (R 0.864), and its
-trough timing confidence interval lower bound is 0.703, above the 0.70
-boundary-eligibility threshold. Daly is therefore `seasonal` and uses
-`per_year_detection`. Its 2.0-month peak IQR is retained as a descriptive
-spread, not a route threshold.
+HydroSeason evaluates seasonality strictly by the calendar recurrence of annual
+timing. Daly River satisfies the recurrence conjunction: both annual peak
+timing (R = 0.864) and trough timing (R = 0.800) reject the discrete uniform
+null under circular Kuiper tests. Furthermore, with its trough timing
+concentration 95% bootstrap CI lower bound at 0.703, and 21 resolved cycles
+satisfying the seven-cycle annualization guard, Daly is classified as `seasonal`
+and routed to `per_year_detection`. Its 2.0-month peak IQR is retained as a
+descriptive spread, not a route threshold.
 
 The low-confidence March 2011 maximum (87.2% invalid pixels) is a separate
 boundary-quality warning. It does not alter the record-level regime label or
-the trough-timing route decision. Likewise, Daly's rainfall SNR of 5.81 does
-not promote its water route: rainfall is ancillary, while routing is decided
+the trough-timing route decision. Likewise, Daly's rainfall timing
+does not promote its water route: rainfall is ancillary, while routing is decided
 from observed water extent.
 
 ## Findings
@@ -84,7 +83,9 @@ from observed water extent.
    supports per-year boundaries because its trough timing lower confidence
    bound meets the R >= 0.70 route rule. Its March 2011 observed maximum
    remains visible but low confidence because 87.2% of pixels were invalid.
-2. **Inland/Low-Relief Catchments (Lachlan, Moonie):** SNR below 0.7 and broad
-   year-to-year peak timing route both records to event characterisation.
-   Lachlan has 5 wet events and a 55-month longest low spell; Moonie has 14
-   events and a 22-month longest low spell. No annual boundaries are forced.
+2. **Inland/Low-Relief Catchments (Lachlan, Moonie):** Calendar timing
+   recurrence was not established across either record (broad year-to-year
+   timing scatter failing the Kuiper recurrence conjunction), routing both
+   records to event characterisation. Lachlan has 5 wet events and a 55-month
+   longest low spell; Moonie has 14 events and a 22-month longest low spell.
+   No annual boundaries are forced.

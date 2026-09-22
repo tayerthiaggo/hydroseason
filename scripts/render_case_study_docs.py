@@ -24,11 +24,10 @@ def render_main_results_table(summary_csv: Path) -> str:
         else "climatological_peak_month"
     )
     lines = [
-        "| Catchment | Regime | Route | SNR | Peak R | Trough R | Trough R CI low | Peak-month IQR (months) | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Catchment | Regime | Route | Peak R | Trough R | Trough R CI low | Peak-month IQR (months) | Hydro Years | Events | Longest Low Spell (months) | Peak Month | Trough Month |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for _, row in df.iterrows():
-        snr_str = f"{row['amplitude_snr']:.2f}"
         peak_r_str = (
             f"{row['peak_timing_concentration']:.3f}"
             if pd.notna(row.get("peak_timing_concentration"))
@@ -60,7 +59,7 @@ def render_main_results_table(summary_csv: Path) -> str:
             else "N/A"
         )
         lines.append(
-            f"| {row['name']} | {row['regime']} | {row['route']} | {snr_str} | "
+            f"| {row['name']} | {row['regime']} | {row['route']} | "
             f"{peak_r_str} | {trough_r_str} | {trough_ci_str} | {peak_iqr_str} | "
             f"{row['n_hydro_years']} | {row['n_events']} | {row['longest_low_spell_months']} | "
             f"{peak_str} | {trough_str} |"
@@ -72,8 +71,8 @@ def render_rainfall_results_table(summary_csv: Path) -> str:
     """Render rainfall-augmented main study Markdown table from summary.csv."""
     df = pd.read_csv(summary_csv)
     lines = [
-        "| Catchment | Water Regime | Rainfall Regime | Water SNR | Rainfall SNR | Water Peak R | Rainfall Peak R | Divergence | Peak Lag (months) |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Catchment | Water Regime | Rainfall Regime | Water Peak R | Rainfall Peak R | Divergence | Peak Lag (months) |",
+        "|---|---|---|---|---|---|---|",
     ]
     for _, row in df.iterrows():
         lag_str = (
@@ -93,7 +92,6 @@ def render_rainfall_results_table(summary_csv: Path) -> str:
         )
         lines.append(
             f"| {row['name']} | {row['regime']} | {row['rainfall_regime']} | "
-            f"{row['amplitude_snr']:.2f} | {row['rainfall_amplitude_snr']:.2f} | "
             f"{water_r_str} | {rain_r_str} | "
             f"{row['rainfall_divergence']} | {lag_str} |"
         )

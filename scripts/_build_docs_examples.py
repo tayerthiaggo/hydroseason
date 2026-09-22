@@ -41,7 +41,7 @@ fitzroy_html = _build_example(
     water_source=(
         REPO_ROOT / "case_studies" / "data" / "extent" / "fitzroy_river_wa_30m.csv"
     ),
-    aoi=REPO_ROOT / "data" / "catchments" / "fitzroy_river_wa_boundary.geojson",
+    aoi=REPO_ROOT / "data" / "fitzroy_catchment.geojson",
     aoi_name="Fitzroy River (WA)",
     report_title="Fitzroy River (WA)",
     report_subtitle="Surface Water Dynamics Report",
@@ -54,7 +54,7 @@ fitzroy_rain_html = _build_example(
     water_source=(
         REPO_ROOT / "case_studies" / "data" / "extent" / "fitzroy_river_wa_30m.csv"
     ),
-    aoi=REPO_ROOT / "data" / "catchments" / "fitzroy_river_wa_boundary.geojson",
+    aoi=REPO_ROOT / "data" / "fitzroy_catchment.geojson",
     rainfall_csv_path=(
         REPO_ROOT
         / "case_studies"
@@ -74,7 +74,7 @@ lachlan_html = _build_example(
     water_source=(
         REPO_ROOT / "case_studies" / "data" / "extent" / "lachlan_river_nsw_30m.csv"
     ),
-    aoi=REPO_ROOT / "data" / "catchments" / "lachlan_river_nsw_boundary.geojson",
+    aoi=None,
     aoi_name="Lachlan River (NSW)",
     report_title="Lachlan River (NSW)",
     report_subtitle="Surface Water Dynamics Report",

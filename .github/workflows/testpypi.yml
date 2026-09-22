@@ -56,8 +56,6 @@ jobs:
         run: |
           python -m pip install -e ".[all,docs]"
           python scripts/prepare_case_study_data.py --check
-          python scripts/_build_study_case_offline.py --check
-          python scripts/_build_study_case_rainfall.py --check
           python scripts/render_case_study_docs.py --check
           python -m mkdocs build --strict
 

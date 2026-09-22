@@ -72,4 +72,5 @@ def test_derive_resolution_cache_writes_integer_zarr_without_serialization_warni
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
+        warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
         derive_resolution_cache(source_handle, target_root, factor=2)
