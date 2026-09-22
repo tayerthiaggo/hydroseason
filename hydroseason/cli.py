@@ -137,6 +137,7 @@ def _summary(result) -> dict:
         "hydro_years_csv": str(result.artifacts.hydro_years_csv),
         "wet_event_csv": str(result.artifacts.wet_event_csv),
         "low_spells_csv": str(result.artifacts.low_spells_csv),
+        "manifest_json": str(result.artifacts.manifest_json),
         "warnings": list(result.warnings),
     }
 
@@ -200,6 +201,7 @@ def _run(args: argparse.Namespace) -> int:
     print(f"hydro years csv  : {summary['hydro_years_csv']}")
     print(f"wet events csv   : {summary['wet_event_csv']}")
     print(f"low spells csv   : {summary['low_spells_csv']}")
+    print(f"run manifest     : {summary['manifest_json']}")
     for message in summary["warnings"]:
         print(f"warning: {message}", file=sys.stderr)
     return 0

@@ -43,6 +43,16 @@ from ._aoi_context import AOIContext, build_aoi_context
 from ._aoi_map import display_aoi_map
 from ._catchment import CatchmentAnalysis, analyze_catchment
 from ._diagnostics import missing_rainfall_dependencies
+from ._io_dea_stats import DEAStatsUnavailable
+from ._io_preflight_stats import AnnualStatisticsUnavailable
+from ._phase_scheme import (
+    PHASE_SCHEME_UNSET,
+    LegacyPhaseModel,
+    PhaseScheme,
+    UnsetPhaseScheme,
+    inject_phase_options,
+)
+from ._preflight_feasibility import FeasibilityResult
 from ._progress import ProgressEvent, WorkflowProgress, resolve_progress_reporter
 from ._rainfall import (
     align_monthly_rainfall,
@@ -51,6 +61,7 @@ from ._rainfall import (
     normalise_monthly_rainfall,
 )
 from ._regime_compare import RegimeComparison, compare_rainfall_to_extent_regime
+from ._run_manifest import sha256_file
 from ._workflow_input import (
     DEFAULT_STAC_COLLECTION,
     DEFAULT_STAC_URL,
@@ -58,6 +69,10 @@ from ._workflow_input import (
     resolve_water_input,
 )
 from .io import load_aoi
+from .preflight import (
+    RegularWorkflowPreflight,
+    run_regular_preflight as run_preflight,
+)
 from .report import CatchmentReportPaths, generate_catchment_report
 
 RainfallStatus = Literal[
@@ -88,6 +103,20 @@ class HydroSeasonRunResult:
     warnings: tuple[str, ...]
     aoi_context: AOIContext | None
     artifacts: CatchmentReportPaths
+    preflight_result: FeasibilityResult | None = None
+
+
+class HydroSeasonPreflightError(RuntimeError):
+    """The regular DEA workflow found no usable recurrent surface water."""
+
+    def __init__(self, result: FeasibilityResult):
+        self.result = result
+        super().__init__(
+            "DEA WOfS preflight rejected this AOI: "
+            f"{result.reason} (core pixels={result.core_pixel_count}, "
+            f"largest contiguous cluster={result.largest_cluster_pixels}, "
+            f"minimum={result.minimum_cluster_pixels})"
+        )
 
 
 def _warn(messages: list[str], message: str) -> None:
@@ -113,6 +142,22 @@ def _resolve_show_map(show_map: Literal["auto"] | bool) -> bool:
     raise ValueError("show_map must be 'auto', True, or False.")
 
 
+REMOVED_METHOD_OPTIONS = frozenset(
+    {"method_policy", "seasonality_policy", "trough_refinement_policy"}
+)
+
+
+def validate_analysis_options(options: Mapping[str, Any] | None) -> None:
+    if options is None:
+        return
+    removed = REMOVED_METHOD_OPTIONS.intersection(options)
+    if removed:
+        key = sorted(removed)[0]
+        raise ValueError(
+            f"{key} was removed in HydroSeason 0.2.0; the current method is mandatory"
+        )
+
+
 def run_hydroseason(
     water_source=None,
     *,
@@ -128,6 +173,8 @@ def run_hydroseason(
     stac_collection: str = DEFAULT_STAC_COLLECTION,
     statistics_stac_url: str | None = None,
     cache_dir: str | Path | None = None,
+    phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET,
+    phase_model: LegacyPhaseModel | None = None,
     analysis_options: Mapping[str, Any] | None = None,
     report_title: str | None = None,
     report_subtitle: str | None = None,
@@ -157,6 +204,7 @@ def run_hydroseason(
     ``rainfall_comparison_error``), and warned via ``UserWarning`` -- it never
     raises.
     """
+    validate_analysis_options(analysis_options)
     show_aoi_map = _resolve_show_map(show_map)
     messages: list[str] = []
     aoi_gdf = None
@@ -181,19 +229,62 @@ def run_hydroseason(
     # fetch the rainfall branch is hours away, and "No module named 's3fs'"
     # arriving then wastes the whole run. A supplied CSV never touches SILO,
     # so it is not probed.
-    preflight: list[str] = []
+    ancillary_preflight: list[str] = []
     if fetch_rainfall and rainfall_csv_path is None:
         absent = missing_rainfall_dependencies()
         if absent:
-            preflight.append(
+            ancillary_preflight.append(
                 "Ancillary SILO rainfall will fail: this environment cannot "
                 f"import {', '.join(absent)}. Install the raster extra "
                 '(pip install "hydroseason[raster]") or drop '
                 "fetch_rainfall=True. The water analysis and report are "
         "unaffected; abort now if rainfall output is required."
             )
-    for message in preflight:
+    for message in ancillary_preflight:
         py_warnings.warn(message, UserWarning, stacklevel=2)
+
+    # DEA acquisition is expensive. Read the all-time WOfS Statistics raster
+    # once, screen it, and retain its exact max-water mask for monthly WOfS.
+    # This is deliberately only for the remote DEA path: supplied
+    # extents/masks are already data chosen by the caller.
+    preflight_result: FeasibilityResult | None = None
+    historical_water_mask = None
+    if water_source is None and aoi_gdf is not None and start_date is not None and end_date is not None:
+        try:
+            preflight_output = run_preflight(
+                aoi_gdf,
+                start_date,
+                end_date,
+                stac_url=statistics_stac_url or stac_url,
+                resolution=30.0,
+            )
+            # Keep compatibility with existing narrow workflow test seams and
+            # downstream callers that monkeypatch the former feasibility-only
+            # return shape. Production returns the reusable handoff object.
+            if isinstance(preflight_output, FeasibilityResult):
+                preflight_result = preflight_output
+            elif isinstance(preflight_output, RegularWorkflowPreflight):
+                preflight_result = preflight_output.feasibility
+                historical_water_mask = preflight_output.historical_water_mask
+            else:
+                raise TypeError(
+                    "regular DEA preflight returned an unsupported result: "
+                    f"{type(preflight_output).__name__}"
+                )
+        except (AnnualStatisticsUnavailable, DEAStatsUnavailable, OSError, TimeoutError) as exc:
+            # Statistics are a screening aid, not the scientific monthly
+            # denominator. If the statistics service is unavailable, retain
+            # the existing full monthly path rather than turning an outage
+            # into a false "no water" decision.
+            preflight_warning = (
+                "DEA WOfS preflight unavailable; continuing with monthly "
+                f"acquisition: {type(exc).__name__}: {exc}"
+            )
+            py_warnings.warn(preflight_warning, UserWarning, stacklevel=2)
+            ancillary_preflight.append(preflight_warning)
+
+        if preflight_result is not None and not preflight_result.feasible:
+            raise HydroSeasonPreflightError(preflight_result)
 
     tracker.start(
         1,
@@ -213,14 +304,19 @@ def run_hydroseason(
         cache_dir=cache_dir,
         progress=tracker.renders_subprogress,
         progress_desc=tracker.subprogress_desc(1),
+        historical_water_mask=historical_water_mask,
     )
     tracker.finish(1, f"{len(resolved.extent)} months, {resolved.source_kind}")
 
     tracker.start(2)
-    options = dict(analysis_options or {})
+    options = inject_phase_options(
+        analysis_options,
+        phase_scheme=phase_scheme,
+        phase_model=phase_model,
+    )
     analysis = analyze_catchment(resolved.extent, **options)
     tracker.finish(2, f"{analysis.route} route")
-    messages = messages + list(analysis.warnings) + preflight + list(resolved.warnings)
+    messages = messages + list(analysis.warnings) + ancillary_preflight + list(resolved.warnings)
 
     rainfall: pd.DataFrame | None = None
     comparison: RegimeComparison | None = None
@@ -298,6 +394,55 @@ def run_hydroseason(
         )
 
     tracker.start(5)
+    acquisition_info: dict[str, Any] = {
+        "source_kind": resolved.source_kind,
+    }
+    if start_date is not None:
+        acquisition_info["start_date"] = start_date
+    if end_date is not None:
+        acquisition_info["end_date"] = end_date
+
+    if water_source is None:
+        acquisition_info["stac_url"] = stac_url
+        acquisition_info["stac_collection"] = stac_collection
+        if statistics_stac_url is not None:
+            acquisition_info["statistics_stac_url"] = statistics_stac_url
+        if cache_dir is not None:
+            acquisition_info["cache_dir"] = str(cache_dir)
+        if historical_water_mask is not None:
+            acquisition_info["historical_water_mask"] = (
+                getattr(historical_water_mask, "name", None) or "provided"
+            )
+    elif isinstance(water_source, (str, Path)):
+        p = Path(water_source)
+        acquisition_info["path"] = str(p)
+        if p.is_file():
+            try:
+                acquisition_info["sha256"] = sha256_file(p)
+            except Exception:
+                pass
+        if water_mask_variable is not None:
+            acquisition_info["water_mask_variable"] = water_mask_variable
+    elif isinstance(water_source, pd.DataFrame):
+        acquisition_info["source_kind"] = "extent_dataframe"
+    else:
+        if water_mask_variable is not None:
+            acquisition_info["water_mask_variable"] = water_mask_variable
+
+    if aoi is not None:
+        if isinstance(aoi, (str, Path)):
+            acquisition_info["aoi"] = str(aoi)
+    if aoi_name is not None:
+        acquisition_info["aoi_name"] = aoi_name
+    if aoi_gdf is not None and hasattr(aoi_gdf, "crs") and aoi_gdf.crs is not None:
+        acquisition_info["crs"] = str(aoi_gdf.crs)
+
+    preflight_info = preflight_result.to_dict() if preflight_result is not None else {}
+    run_context = {
+        "acquisition": acquisition_info,
+        "preflight": preflight_info,
+    }
+
     artifacts = generate_catchment_report(
         resolved.extent,
         output_dir,
@@ -311,6 +456,7 @@ def run_hydroseason(
         aoi_context=aoi_context,
         title=report_title,
         subtitle=report_subtitle,
+        run_context=run_context,
     )
     tracker.finish(5, artifacts.html.name)
     return HydroSeasonRunResult(
@@ -326,12 +472,16 @@ def run_hydroseason(
         warnings=tuple(messages),
         aoi_context=aoi_context,
         artifacts=artifacts,
+        preflight_result=preflight_result,
     )
 
 
 __all__ = [
     "HydroSeasonRunResult",
+    "HydroSeasonPreflightError",
     "RainfallSource",
     "RainfallStatus",
+    "REMOVED_METHOD_OPTIONS",
     "run_hydroseason",
+    "validate_analysis_options",
 ]

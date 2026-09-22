@@ -75,7 +75,7 @@ def test_year_cards_render_one_card_per_hydrological_year():
                 "drawdown_pct": 0.68,
                 "confidence": "medium",
                 "status": "partial",
-                "status_reason": "peak_low_quality",
+                "status_reason": "peak_quality_anomalous",
             }
         ]
     )
@@ -216,3 +216,201 @@ def test_year_cards_explain_insufficient_cycle_coverage_on_bounded_card():
     assert "HY 2005" in html
     assert "year-card-unbounded" not in html
     assert "enough usable months" in html.lower()
+
+
+def test_year_cards_show_interval_range_instead_of_a_fabricated_exact_date():
+    monthly = _monthly()
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2006,
+                "hy_start": pd.Timestamp("2005-11-01"),
+                "hy_end": pd.Timestamp("2006-10-01"),
+                "peak_month": pd.Timestamp("2006-01-01"),
+                "trough_month": pd.Timestamp("2006-09-01"),
+                "cycle_months": 12.0,
+                "drawdown_pct": 0.68,
+                "confidence": "low",
+                "status": "partial",
+                "status_reason": "unresolved_timing",
+                "peak_timing_status": "point",
+                "trough_timing_status": "interval",
+                "trough_interval_start": pd.Timestamp("2006-08-01"),
+                "trough_interval_end": pd.Timestamp("2006-10-01"),
+            }
+        ]
+    )
+
+    html = _year_cards(monthly, hydro_years)
+
+    assert "August 2006 – October 2006" in html
+    assert "Dry End (interval)" in html
+    assert "September 2006</span>" not in html
+
+
+def test_year_cards_show_broad_trough_as_a_bounded_range_not_unresolved():
+    monthly = _monthly()
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2006,
+                "hy_start": pd.Timestamp("2005-11-01"),
+                "hy_end": pd.Timestamp("2006-10-01"),
+                "peak_month": pd.Timestamp("2006-01-01"),
+                "trough_month": pd.Timestamp("2006-09-01"),
+                "cycle_months": 12.0,
+                "drawdown_pct": 0.68,
+                "confidence": "low",
+                "status": "partial",
+                "status_reason": "unresolved_timing",
+                "peak_timing_status": "point",
+                "trough_timing_status": "broad",
+                "trough_interval_start": pd.Timestamp("2006-07-01"),
+                "trough_interval_end": pd.Timestamp("2006-10-01"),
+            }
+        ]
+    )
+
+    html = _year_cards(monthly, hydro_years)
+
+    assert "July 2006 – October 2006" in html
+    assert "Dry End (broad)" in html
+    assert "Unresolved" not in html
+
+
+def test_year_cards_report_unresolved_timing_explicitly():
+    monthly = _monthly()
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2006,
+                "hy_start": pd.Timestamp("2005-11-01"),
+                "hy_end": pd.Timestamp("2006-10-01"),
+                "peak_month": pd.Timestamp("2006-01-01"),
+                "trough_month": pd.Timestamp("2006-09-01"),
+                "cycle_months": 12.0,
+                "drawdown_pct": 0.68,
+                "confidence": "low",
+                "status": "partial",
+                "status_reason": "unresolved_timing",
+                "peak_timing_status": "unresolved",
+                "trough_timing_status": "point",
+            }
+        ]
+    )
+
+    html = _year_cards(monthly, hydro_years)
+
+    assert "Unresolved" in html
+
+
+def test_year_cards_point_timing_status_shows_exact_date_as_before():
+    monthly = _monthly()
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2006,
+                "hy_start": pd.Timestamp("2005-11-01"),
+                "hy_end": pd.Timestamp("2006-10-01"),
+                "peak_month": pd.Timestamp("2006-01-01"),
+                "trough_month": pd.Timestamp("2006-10-01"),
+                "cycle_months": 12.0,
+                "drawdown_pct": 0.68,
+                "confidence": "high",
+                "status": "complete",
+                "status_reason": "ok",
+                "peak_timing_status": "point",
+                "trough_timing_status": "point",
+            }
+        ]
+    )
+
+    html = _year_cards(monthly, hydro_years)
+
+    assert "January 2006</span>" in html
+    assert "October 2006</span>" in html
+    assert "(interval)" not in html
+    assert "(unresolved)" not in html
+
+
+def test_year_cards_render_confidence_title_in_note_and_drawdown_stat():
+    monthly = _monthly()
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2025,
+                "hy_start": pd.Timestamp("2024-10-01"),
+                "hy_end": pd.Timestamp("2025-12-01"),
+                "peak_month": pd.Timestamp("2025-02-01"),
+                "trough_month": pd.Timestamp("2025-12-01"),
+                "cycle_months": 15.0,
+                "drawdown_pct": 0.32559,
+                "amplitude_pct": 0.45,
+                "annual_condition": "typical_or_mixed",
+                "confidence": "medium",
+                "status": "partial",
+                "status_reason": "boundary_provisional",
+            }
+        ]
+    )
+
+    html = _year_cards(monthly, hydro_years)
+
+    # The annual condition label was dropped from the year cards: it is a
+    # separate condition-model verdict, not a property of the cycle's
+    # timing, and it crowded the stats row it shared with cycle length,
+    # amplitude and drawdown.
+    assert "Condition:" not in html
+    assert "Typical / Mixed" not in html
+    assert "Medium confidence: Boundary is provisional and was not confirmed." in html
+    assert "Cycle: <strong>15.0 mos</strong>" in html
+    assert "Amplitude: <strong>0.45%</strong>" in html
+    assert "Drawdown" not in html
+    assert "MEDIUM CONFIDENCE" in html
+
+
+def test_year_cards_render_interval_months_in_key_events():
+    monthly = pd.DataFrame(
+        {
+            "date": pd.date_range("2020-01-01", "2020-12-01", freq="MS"),
+            "extent_pct": 1.0,
+            "invalid_pct": 0.0,
+            "phase": "receding",
+        }
+    )
+    hydro_years = pd.DataFrame(
+        [
+            {
+                "hy_year": 2020,
+                "hy_start": pd.Timestamp("2020-01-01"),
+                "hy_end": pd.Timestamp("2020-12-01"),
+                "peak_month": pd.Timestamp("2020-02-01"),
+                "peak_timing_status": "interval",
+                "peak_interval_start": pd.Timestamp("2020-01-01"),
+                "peak_interval_end": pd.Timestamp("2020-03-01"),
+                "temporal_mid_dry_month": pd.Timestamp("2020-06-01"),
+                "trough_month": pd.Timestamp("2020-10-01"),
+                "trough_timing_status": "interval",
+                "trough_interval_start": pd.Timestamp("2020-09-01"),
+                "trough_interval_end": pd.Timestamp("2020-11-01"),
+                "confidence": "high",
+                "status": "complete",
+                "status_reason": "ok",
+            }
+        ]
+    )
+
+    html = _year_cards(monthly, hydro_years)
+
+    # Peak: Feb is Wet Peak (interval), Jan and Mar are Wet Interval
+    assert '<span class="cell-marker marker-wet">Wet Peak (interval)</span>' in html
+    assert '<span class="cell-marker marker-wet-interval">Wet Interval</span>' in html
+
+    # Mid dry: Jun is Mid Dry
+    assert '<span class="cell-marker marker-mid">Mid Dry</span>' in html
+
+    # Trough: Oct is Dry End (interval), Sep and Nov are Dry Interval
+    assert '<span class="cell-marker marker-dry">Dry End (interval)</span>' in html
+    assert '<span class="cell-marker marker-dry-interval">Dry Interval</span>' in html
+
+

@@ -13,12 +13,15 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-
-from hydroseason import analyze_catchment, load_extent_csv
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+from hydroseason import analyze_catchment, load_extent_csv  # noqa: E402
+
 DEFAULT_DATA_DIR = REPO_ROOT / "case_studies" / "data" / "extent"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "case_studies" / "results" / "resolution"
 
@@ -81,8 +84,8 @@ def compare_resolution(
     denom = max(float(np.max(native_pct)), 1e-6)
     nmae = mad / denom
 
-    native_analysis = analyze_catchment(native, phase_model="rule_based")
-    cand_analysis = analyze_catchment(candidate, phase_model="rule_based")
+    native_analysis = analyze_catchment(native, phase_scheme="two_phase")
+    cand_analysis = analyze_catchment(candidate, phase_scheme="two_phase")
 
     amp_bias = float(cand_analysis.regime.amplitude_snr - native_analysis.regime.amplitude_snr)
     regime_match = bool(native_analysis.regime.regime == cand_analysis.regime.regime)

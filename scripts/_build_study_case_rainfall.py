@@ -19,13 +19,17 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pandas as pd
-
-from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv
-from hydroseason._rainfall import align_monthly_rainfall, load_monthly_rainfall_csv
-from hydroseason._regime_compare import compare_rainfall_to_extent_regime
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+import pandas as pd  # noqa: E402
+
+from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv  # noqa: E402
+from hydroseason._rainfall import align_monthly_rainfall, load_monthly_rainfall_csv  # noqa: E402
+from hydroseason._regime_compare import compare_rainfall_to_extent_regime  # noqa: E402
+from scripts._scientific_baseline_guard import refuse_protected_baseline_output  # noqa: E402
+
 DEFAULT_EXTENT_DIR = REPO_ROOT / "case_studies" / "data" / "extent"
 DEFAULT_RAINFALL_DIR = REPO_ROOT / "case_studies" / "data" / "rainfall"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "case_studies" / "results" / "main_rainfall"
@@ -46,6 +50,7 @@ def build_rainfall_study(
     extent_dir = Path(extent_dir)
     rainfall_dir = Path(rainfall_dir)
     output_dir = Path(output_dir)
+    refuse_protected_baseline_output(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     rows: list[dict] = []
@@ -69,7 +74,7 @@ def build_rainfall_study(
             # is laid alongside.
             analysis = analyze_catchment(
                 extent,
-                phase_model="rule_based",
+                phase_scheme="two_phase",
                 quality_policy="flag",
             )
             rainfall = load_monthly_rainfall_csv(rainfall_csv)
@@ -127,13 +132,13 @@ def build_rainfall_study(
                         else None
                     ),
                     "water_extent_peak_month": (
-                        float(analysis.climatological_peak_month)
-                        if analysis.climatological_peak_month is not None
+                        float(analysis.mean_monthly_peak_month)
+                        if analysis.mean_monthly_peak_month is not None
                         else None
                     ),
                     "climatological_trough_month": (
-                        float(analysis.climatological_trough_month)
-                        if analysis.climatological_trough_month is not None
+                        float(analysis.mean_monthly_trough_month)
+                        if analysis.mean_monthly_trough_month is not None
                         else None
                     ),
                     "rainfall_regime": (

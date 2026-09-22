@@ -4,8 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from hydroseason import (
-    DynamicHydroYearConfig,
-    detect_dynamic_hydrological_years,
+    analyze_catchment,
     detect_hydrological_years,
     suggest_hydro_year_config,
 )
@@ -101,9 +100,13 @@ def _fitzroy_trough_truth() -> pd.DataFrame:
 
 
 def test_dynamic_fitzroy_troughs_meet_unblocking_gate():
-    monthly = pd.read_csv(FIXTURES / "fitzroy_kimberley_monthly.csv", parse_dates=["date"]).set_index("date")
-    config = DynamicHydroYearConfig(expected_trough_month=11, trough_search_radius_months=3, max_invalid_pct=95.0)
-    actual = detect_dynamic_hydrological_years(monthly, config=config)
+    monthly = pd.read_csv(FIXTURES / "fitzroy_kimberley_monthly.csv", parse_dates=["date"])
+    analysis = analyze_catchment(monthly, date_col="date")
+    assert analysis.regime.regime == "seasonal"
+    assert analysis.route == "per_year_detection"
+    assert len(analysis.hydro_years) == 11
+
+    actual = analysis.hydro_years
     assert actual["hy_year"].is_unique
     trough_actual = actual.rename(columns={"trough_month": "actual_month"})[["actual_month"]]
     trough_truth = _fitzroy_trough_truth()
@@ -115,3 +118,4 @@ def test_dynamic_fitzroy_troughs_meet_unblocking_gate():
     assert metrics["within_1_month"] >= 0.80, metrics
     assert metrics["p90_abs_error_months"] <= 2.0, metrics
     assert metrics["max_abs_error_months"] < 11.0, metrics
+

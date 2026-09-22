@@ -39,13 +39,13 @@ def test_consecutive_counts_only_follow_joint_extremes():
 
 
 def test_provisional_boundary_excluded_from_baseline_blocks_activation():
-    # Ten otherwise-complete cycles, but one carries a provisional trough
+    # Five otherwise-complete cycles, but one carries a provisional trough
     # boundary. Because a provisional boundary may not anchor the baseline, only
-    # nine cycles remain eligible -- below min_baseline_cycles (10) -- so the
+    # four cycles remain eligible -- below min_baseline_cycles (5) -- so the
     # public condition must stay insufficient_baseline rather than activating.
-    annual = _annual().iloc[:10].copy()
+    annual = _annual().iloc[:5].copy()
     annual["boundary_status"] = "confirmed"
-    annual.loc[annual["hy_year"] == 2005, "boundary_status"] = "provisional"
+    annual.loc[annual["hy_year"] == 2002, "boundary_status"] = "provisional"
     result = classify_annual_surface_water_condition(annual)
     assert set(result["annual_condition"]) == {"insufficient_baseline"}
     assert set(result["recharge_condition"]) == {"insufficient_baseline"}
@@ -53,10 +53,10 @@ def test_provisional_boundary_excluded_from_baseline_blocks_activation():
 
 
 def test_all_confirmed_boundaries_activate_baseline():
-    # Sanity counterpart: the same ten cycles with every boundary confirmed do
+    # Sanity counterpart: the same five cycles with every boundary confirmed do
     # reach the baseline threshold and produce real (non-insufficient) labels,
     # proving the gate above blocks specifically on the provisional boundary.
-    annual = _annual().iloc[:10].copy()
+    annual = _annual().iloc[:5].copy()
     annual["boundary_status"] = "confirmed"
     result = classify_annual_surface_water_condition(annual)
     assert (result["annual_condition"] != "insufficient_baseline").any()
@@ -194,6 +194,26 @@ def test_timing_confidence_from_amplitude_vs_noise():
     assert (unknown["timing_confidence"] == "unknown").all()
 
 
+def test_interval_timing_status_excluded_from_baseline_despite_confirmed_boundary():
+    # Five confirmed-boundary cycles, but one has only interval (not point)
+    # timing -- an internal operational date, not a defensible exact extremum.
+    # It must not anchor the baseline even though its boundary is confirmed.
+    annual = _annual().iloc[:5].copy()
+    annual["boundary_status"] = "confirmed"
+    annual["timing_status"] = "point"
+    annual.loc[annual["hy_year"] == 2002, "timing_status"] = "interval"
+    result = classify_annual_surface_water_condition(annual, min_baseline_cycles=5)
+    assert set(result["annual_condition"]) == {"insufficient_baseline"}
+
+
+def test_point_timing_status_activates_baseline_when_boundary_confirmed():
+    annual = _annual().iloc[:5].copy()
+    annual["boundary_status"] = "confirmed"
+    annual["timing_status"] = "point"
+    result = classify_annual_surface_water_condition(annual, min_baseline_cycles=5)
+    assert (result["annual_condition"] != "insufficient_baseline").any()
+
+
 def test_existing_columns_unchanged_for_full_record_mode():
     # The default (full_record) call must yield the same pre-existing columns
     # it always did; new columns are purely additive.
@@ -216,3 +236,28 @@ def test_existing_columns_unchanged_for_full_record_mode():
     assert (result["recharge_condition_qualified"] == result["recharge_condition"]).all()
     assert (result["refuge_condition_qualified"] == result["refuge_condition"]).all()
     assert (result["annual_condition_qualified"] == result["annual_condition"]).all()
+
+
+def test_anomalous_peak_excluded_from_baseline_blocks_activation():
+    """An anomalous peak must never anchor a historical condition baseline.
+
+    Cycle completeness no longer depends on routine peak cloud, so such cycles
+    reach this function marked complete with a confirmed boundary. The guard is
+    therefore stated explicitly here instead of being inherited from the cycle
+    having been marked partial upstream.
+    """
+    annual = _annual().iloc[:5].copy()
+    annual["boundary_status"] = "confirmed"
+    annual["peak_quality"] = "normal"
+    annual.loc[annual["hy_year"] == 2002, "peak_quality"] = "anomalous"
+    result = classify_annual_surface_water_condition(annual)
+    assert set(result["annual_condition"]) == {"insufficient_baseline"}
+
+
+def test_baseline_ignores_peak_quality_when_the_column_is_absent():
+    """Callers that never ran the robust detector keep the original behaviour."""
+    annual = _annual().iloc[:5].copy()
+    annual["boundary_status"] = "confirmed"
+    assert "peak_quality" not in annual.columns
+    result = classify_annual_surface_water_condition(annual)
+    assert (result["annual_condition"] != "insufficient_baseline").any()

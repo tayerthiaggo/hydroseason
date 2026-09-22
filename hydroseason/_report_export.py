@@ -36,6 +36,7 @@ STABLE_HY_COLUMNS = [
     "duration_months",
     "status",
     "peak_selection_status",
+    "peak_quality",
     "half_loss_month",
     "boundary_basis",
     "catchment",
@@ -58,6 +59,7 @@ MONTHLY_CSV_COLUMNS = [
     "usable_month",
     "quality_state",
     "hy_year",
+    "confidence",
     "phase",
     "phase_status",
     "is_hy_peak",
@@ -79,6 +81,7 @@ HY_CSV_COLUMNS = [
     "peak_date",
     "mid_dry_date",
     "trough_date",
+    "trough_boundary_date",
     "peak_extent_pct",
     "mid_dry_extent_pct",
     "trough_extent_pct",
@@ -86,12 +89,23 @@ HY_CSV_COLUMNS = [
     "mid_dry_invalid_pct",
     "trough_invalid_pct",
     "drawdown_pct",
+    "annual_condition",
     "confidence",
     "status",
+    "peak_quality",
     "boundary_status",
     "boundary_basis",
     "regime",
     "route",
+    "timing_status",
+    "peak_timing_status",
+    "peak_interval_start_date",
+    "peak_interval_end_date",
+    "trough_timing_status",
+    "trough_interval_start_date",
+    "trough_interval_end_date",
+    "detectability_floor_pp",
+    "amplitude_to_floor_ratio",
 ]
 
 EVENT_CSV_COLUMNS = [
@@ -174,6 +188,7 @@ def build_monthly_export(
     out["quality_state"] = prepared["quality_state"]
 
     out["hy_year"] = pd.Series(index=prepared.index, dtype="Int64")
+    out["confidence"] = pd.Series(index=prepared.index, dtype=object)
     out["phase"] = phase_df["phase"].to_numpy() if "phase" in phase_df.columns else "unspecified"
     out["is_hy_peak"] = False
     out["is_hy_trough"] = False
@@ -185,6 +200,8 @@ def build_monthly_export(
             end_dt = pd.Timestamp(row.hy_end)
             mask = (out["date"] >= start_dt) & (out["date"] <= end_dt)
             out.loc[mask, "hy_year"] = int(row.hy_year)
+            if hasattr(row, "confidence") and pd.notna(row.confidence):
+                out.loc[mask, "confidence"] = str(row.confidence)
 
             if hasattr(row, "peak_month") and pd.notna(row.peak_month):
                 p_dt = pd.Timestamp(row.peak_month)
@@ -195,6 +212,7 @@ def build_monthly_export(
                 out.loc[out["date"] == t_dt, "is_hy_trough"] = True
     else:
         out["hy_year"] = pd.Series(index=prepared.index, dtype="Int64")
+        out["confidence"] = pd.Series(index=prepared.index, dtype=object)
         out["phase"] = "unspecified"
         out["is_hy_peak"] = False
         out["is_hy_trough"] = False
@@ -381,18 +399,52 @@ def build_user_hydro_years_export(hydro_years: pd.DataFrame) -> pd.DataFrame:
         ),
         "trough_extent_pct": ("trough_extent_pct", "end_dry_extent_pct"),
         "peak_invalid_pct": ("peak_invalid_pct",),
-        "mid_dry_invalid_pct": ("mid_dry_invalid_pct",),
+        "mid_dry_invalid_pct": (
+            "mid_dry_invalid_pct",
+            "temporal_mid_dry_invalid_pct",
+        ),
         "trough_invalid_pct": ("trough_invalid_pct",),
         "drawdown_pct": ("drawdown_pct", "amplitude_pct"),
+        "annual_condition": ("annual_condition", "annual_condition_qualified"),
         "confidence": ("confidence",),
         "status": ("status",),
+        "peak_quality": ("peak_quality",),
         "boundary_status": ("boundary_status",),
         "boundary_basis": ("boundary_basis",),
         "regime": ("regime",),
         "route": ("route",),
+        "timing_status": ("timing_status",),
+        "peak_timing_status": ("peak_timing_status",),
+        "peak_interval_start_date": ("peak_interval_start",),
+        "peak_interval_end_date": ("peak_interval_end",),
+        "trough_timing_status": ("trough_timing_status",),
+        "trough_interval_start_date": ("trough_interval_start",),
+        "trough_interval_end_date": ("trough_interval_end",),
+        "detectability_floor_pp": ("detectability_floor_pp",),
+        "amplitude_to_floor_ratio": ("amplitude_to_floor_ratio",),
     }
     for target, source_names in aliases.items():
         out[target] = _first_column(hydro_years, *source_names).to_numpy()
+
+    # The cycle boundary and the scientific window serve different consumers
+    # and must not share one field. `trough_date` keeps its strict
+    # point-only meaning below; `trough_boundary_date` is the actual
+    # operational date used for cycle segmentation (`trough_month`), which a
+    # refined boundary can legitimately place strictly inside its support
+    # interval -- it is NOT always the interval's last month. It is `NaT`
+    # only for a cycle with no detected trough at all (a blank cycle), same
+    # as `trough_date`'s own `NaT` for that row. Derived before the nulling
+    # below, while `trough_date` still holds `trough_month` unconditionally.
+    out["trough_boundary_date"] = out["trough_date"]
+
+    # A public exact-date field is populated only when timing status is
+    # "point": an interval or unresolved extremum has no defensible single
+    # date. Callers whose frame carries no timing_status (the fixed-window
+    # detector) keep the original, unconditional date behaviour.
+    if "peak_timing_status" in out.columns:
+        out.loc[out["peak_timing_status"] != "point", "peak_date"] = pd.NaT
+    if "trough_timing_status" in out.columns:
+        out.loc[out["trough_timing_status"] != "point", "trough_date"] = pd.NaT
 
     # Stable empty files still have the same header as populated files.
     return out.reindex(columns=HY_CSV_COLUMNS).reset_index(drop=True)
@@ -463,12 +515,29 @@ def write_report_csvs(
 
     for key, target in targets.items():
         df = frames[key]
-        with tempfile.NamedTemporaryFile(
-            mode="w", dir=out_path, delete=False, suffix=".tmp", encoding="utf-8"
-        ) as tmp:
-            df.to_csv(tmp.name, index=False)
-            tmp_name = tmp.name
-        Path(tmp_name).replace(target)
+        tmp_name = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", dir=out_path, delete=False, suffix=".tmp", encoding="utf-8"
+            ) as tmp:
+                df.to_csv(tmp.name, index=False)
+                tmp_name = tmp.name
+            Path(tmp_name).replace(target)
+        except (PermissionError, OSError) as exc:
+            if tmp_name is not None:
+                try:
+                    Path(tmp_name).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            try:
+                df.to_csv(target, index=False)
+            except (PermissionError, OSError):
+                import warnings
+                warnings.warn(
+                    f"Could not overwrite {target} (file may be open in another application): {exc}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
 
     return targets
 

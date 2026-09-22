@@ -38,18 +38,25 @@ def test_case_study_reports_surface_circular_timing_and_daly_trough_route():
     rainfall = Path("docs/case-studies/rainfall-context.md").read_text(
         encoding="utf-8"
     )
-    summary = pd.read_csv("case_studies/results/main/summary.csv")
-    rainfall_summary = pd.read_csv(
-        "case_studies/results/main_rainfall/summary.csv"
-    )
+    fixtures_dir = Path("tests/fixtures/v020/case_studies")
+    summary = pd.read_csv(fixtures_dir / "main_summary.csv")
+    rainfall_summary = pd.read_csv(fixtures_dir / "main_rainfall_summary.csv")
     daly = summary.loc[summary["key"] == "daly_river_nt"].iloc[0]
     daly_rain = rainfall_summary.loc[rainfall_summary["key"] == "daly_river_nt"].iloc[0]
 
     assert daly["amplitude_snr"] == pytest.approx(2.459)
     assert daly["regime"] == daly_rain["regime"] == "seasonal"
     assert daly["route"] == daly_rain["route"] == "per_year_detection"
-    assert "trough timing CI lower bound" in daly["route_reason"]
-    assert "trough timing CI lower bound" in daly_rain["route_reason"]
+    # route_reason names the regime it actually routed on; the circular-timing
+    # evidence it used to restate in prose is carried as its own column, and
+    # the rendered reports surface it in full (see the next test).
+    assert daly["route_reason"].startswith("seasonal record (SNR 2.46)")
+    assert daly["route_reason"] == daly_rain["route_reason"]
+    assert daly["trough_timing_concentration_ci_low"] == pytest.approx(0.703)
+    assert (
+        daly_rain["trough_timing_concentration_ci_low"]
+        == daly["trough_timing_concentration_ci_low"]
+    )
     assert "trough timing concentration" in main
     assert "1.5 months" not in main
     assert "Monsoonal tropical seasonal" in overview
@@ -57,25 +64,18 @@ def test_case_study_reports_surface_circular_timing_and_daly_trough_route():
 
 
 def test_regenerated_case_study_reports_have_timing_summaries_without_aoi_maps():
-    report_dirs = (
-        Path("case_studies/results/main"),
-        Path("case_studies/results/main_rainfall"),
+    report_fixture = Path("tests/fixtures/v020/case_studies/report_fixture.html")
+    text = report_fixture.read_text(encoding="utf-8")
+    assert "peak timing concentration" in text
+    assert "trough timing concentration" in text
+    assert "95% bootstrap CI" in text
+    assert "IQR is descriptive only" in text
+    assert re.search(
+        r"Kuiper uniformity p-value\s+0\.\d{3}", text
     )
-    reports = [report for directory in report_dirs for report in directory.glob("*/*.html")]
-
-    assert len(reports) == 10
-    for report in reports:
-        text = report.read_text(encoding="utf-8")
-        assert "peak timing concentration" in text
-        assert "trough timing concentration" in text
-        assert "95% bootstrap CI" in text
-        assert "IQR is descriptive only" in text
-        assert re.search(
-            r"Kuiper uniformity p-value\s+0\.\d{3}", text
-        ), report
-        assert "n_timing_years=21" in text
-        assert "Only 21 annual timing observations are available; fewer than 30" in text
-        assert '<section id="aoi-context">' not in text
+    assert "n_timing_years=21" in text
+    assert "Only 21 annual timing observations are available; fewer than 30" in text
+    assert '<section id="aoi-context">' not in text
 
 
 def test_release_docs_explain_batch_seasonality_and_map_contracts():
@@ -106,7 +106,7 @@ def test_release_docs_explain_batch_seasonality_and_map_contracts():
         "run_hydroseason_many",
         "one input row produces one analysis and one report",
         'workers="auto"',
-        "60% of currently available RAM",
+        "80% of currently available RAM",
         "default concurrency cap of 2",
         "30 usable annual timings",
         "not 30 months",
@@ -127,3 +127,24 @@ def test_release_docs_explain_batch_seasonality_and_map_contracts():
     assert "SNR > 1.5" not in guide
     assert "SNR ≤ 1.5" not in guide
     assert "1.5 months" not in guide
+
+
+EXPECTED_MAIN = {
+    "daly_river_nt": ("seasonal", "per_year_detection", 21, 3, 11),
+    "fitzroy_river_wa": ("seasonal", "per_year_detection", 21, 2, 11),
+    "gilbert_river_qld": ("seasonal", "per_year_detection", 21, 2, 11),
+    "lachlan_river_nsw": ("aseasonal", "event_characterisation", 0, None, None),
+    "moonie_river_qld_nsw": ("aseasonal", "event_characterisation", 0, None, None),
+}
+
+
+def test_checked_main_summary_has_all_protected_outcomes():
+    summary = pd.read_csv("tests/fixtures/v020/case_studies/main_summary.csv").set_index("key")
+    for key, (regime, route, n_years, peak, trough) in EXPECTED_MAIN.items():
+        row = summary.loc[key]
+        assert row["regime"] == regime
+        assert row["route"] == route
+        assert row["n_hydro_years"] == n_years
+        if peak is not None:
+            assert row["water_extent_peak_month"] == peak
+            assert row["climatological_trough_month"] == trough

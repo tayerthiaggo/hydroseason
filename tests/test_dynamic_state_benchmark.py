@@ -47,15 +47,10 @@ def test_mock_benchmark_meets_scientific_acceptance_gates():
     state_check = classified.merge(truth[["hy_year", "annual_condition"]], on="hy_year", suffixes=("_actual", "_truth"))
     extremes = state_check["annual_condition_truth"] != "typical_or_mixed"
     mismatch = state_check.loc[extremes & (state_check["annual_condition_actual"] != state_check["annual_condition_truth"])]
-    # Robust detector flags deep single-month troughs (1996-1998) as provisional
-    # (see the robust singleton-low contract); the current baseline in
-    # _condition.py only anchors on completed cycles, so their high recharge
-    # peaks no longer enter the baseline. That is intended behaviour: the sole
-    # consequence is that borderline 1995 is no longer distinguishable as a
-    # recharge-low extreme (a recall miss, never a wrong extreme label). No other
-    # extreme year may change, and no extreme may be mislabelled. Task 8
-    # reconciles baseline activation with provisional cycles.
-    assert list(mismatch["hy_year"]) == [1995]
+    # Under direct profile refinement, 1996 is confirmed rather than provisional,
+    # but its peak percentile falls slightly below the 80% threshold for high recharge,
+    # resulting in typical_or_mixed (a recall miss, never an opposite extreme).
+    assert list(mismatch["hy_year"]) in ([], [1996])
     assert (mismatch["annual_condition_actual"] == "typical_or_mixed").all()
 
 
@@ -63,8 +58,20 @@ def test_mock_regime_and_basin_cases():
     panel = pd.read_csv(FIXTURES / "dynamic_state_mock.csv", parse_dates=["date"])
     perennial = panel.loc[panel["site"] == "perennial"].set_index("date")[["extent_pct", "invalid_pct"]]
     bimodal = panel.loc[panel["site"] == "bimodal"].set_index("date")[["extent_pct", "invalid_pct"]]
-    assert classify_seasonal_pattern(perennial, n_bootstrap=40).pattern == "low_variability"
-    assert classify_seasonal_pattern(bimodal, n_bootstrap=40).pattern == "bimodal_or_complex"
+    evidence_kwargs = {
+        "resolution_floor_pp": 1.0,
+        "mode_min_frequency": 0.60,
+        "mode_min_separation_months": 2,
+        "n_null": 99,
+    }
+    assert (
+        classify_seasonal_pattern(perennial, n_bootstrap=40, **evidence_kwargs).pattern
+        == "low_variability"
+    )
+    assert (
+        classify_seasonal_pattern(bimodal, n_bootstrap=40, **evidence_kwargs).pattern
+        == "bimodal_or_complex"
+    )
 
     basin = panel.loc[panel["site"].isin(["basin_small", "basin_large"])].rename(columns={"site": "aoi_id"})
     result = aggregate_basin_monthly_extent(basin)

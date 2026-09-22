@@ -10,14 +10,14 @@ Prefer the versioned GitHub/Zenodo release.
 @software{tayer_hydroseason,
   author  = {Tayer, Thiaggo C.},
   title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
-  version = {0.1.1},
+  version = {0.2.0},
   year    = {2026},
   url     = {https://github.com/tayerthiaggo/hydroseason}
 }
 ```
 
 The README badge links the Zenodo concept DOI for the project; once Zenodo mints
-a DOI for 0.1.1, cite that version-specific DOI when referring to HydroSeason 0.1.1.
+a DOI for 0.2.0, cite that version-specific DOI when referring to HydroSeason 0.2.0.
 
 ## Scope note
 
@@ -46,8 +46,10 @@ documents geographic variation in US flood seasonality
 
 These papers motivate transparent circular effect sizes and uncertainty
 reporting; they do **not** prescribe HydroSeason's package thresholds. The
-SNR, bootstrap-CI, and p-value cutoffs are explicit software decisions and
-are documented in the [Usage Guide](guide.md#which-route-did-my-catchment-take).
+circular Kuiper recurrence conjunction, detectability floors, five-detectable-year
+guard, seven-cycle annualization guard, and direct-profile refinement thresholds are
+explicit software decisions frozen under `hydroseason-v0.2.0` and are documented in
+the [Methods Reference](methods.md).
 
 ### Interpretation limitations
 
@@ -60,7 +62,7 @@ are documented in the [Usage Guide](guide.md#which-route-did-my-catchment-take).
 - Calendar months are the available monthly-resolution timing units. A peak
   can move within a month and a monthly water mask can miss short floods;
   results should not be interpreted as daily discharge timing.
-- Fewer than 30 usable annual timings (not 30 months) retain the calculated
-  classification but may have wide intervals. With 5–9 annual timings, the
-  approved 10-year low-power guard prevents a non-significant Kuiper result
-  from automatically declaring a strong record aseasonal; it remains marginal.
+- Under `hydroseason-v0.2.0`, at least 5 detectable years are strictly required
+  for the recurrence gate; records with fewer than 5 detectable years cannot
+  establish recurrence and are classified as aseasonal/insufficient. Dynamic
+  per-year boundaries additionally require at least 7 resolved peak and trough cycles.

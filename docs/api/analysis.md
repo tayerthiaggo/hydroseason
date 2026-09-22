@@ -29,20 +29,21 @@ months.
 
 | Field | Units / range | `None` or zero when | Meaning |
 |---|---|---|---|
-| `amplitude_snr` | Unitless, >=0 (may be `inf`) | `0.0` for insufficient records | Climatological amplitude divided by mean within-month interannual SD. |
+| `amplitude_snr` | Unitless, >=0 (finite float) | `0.0` for insufficient records | Climatological amplitude divided by mean within-month interannual SD. |
 | `peak_timing_concentration`, `trough_timing_concentration` | Unitless mean resultant length, 0–1 | `None` for insufficient records | Concentration of annual peak/trough months. |
 | `*_timing_concentration_ci_low`, `*_ci_high` | Unitless 0–1 | `None` for insufficient records | Percentile 95% bootstrap bounds for the corresponding `R`. |
-| `peak_timing_uniformity_p`, `trough_timing_uniformity_p` | Probability 0–1 | `None` for insufficient records | Deterministic Monte Carlo Kuiper p-value for the discrete 12-month uniform null. |
+| `peak_timing_uniformity_p`, `trough_timing_uniformity_p` | p-value 0–1 | `None` for insufficient records | Deterministic Monte Carlo Kuiper p-value for the discrete 12-month uniform null. |
 | `peak_phase_iqr_months`, `trough_phase_iqr_months` | Months, 0–12 approximately | `None` when fewer than four timings or insufficient | Circular IQR; descriptive only and never a regime decision. |
-| `n_timing_years` | Integer >=0 years | `0` for insufficient records | Number of qualifying annual timing observations. |
-| `climatological_peak_month`, `climatological_trough_month` | Calendar month 1–12 | `None` for aseasonal/insufficient records | Pooled monthly-climatology extrema when the record supports reporting them. |
+| `n_timing_years` | Integer >=0 years | `0` for insufficient records | Number of qualifying annual timing observations. Equals `n_peak_timing_years`; kept as a separate published field from the conservative `min()` used in the route gate. |
+| `n_peak_timing_years`, `n_trough_timing_years` | Integer >=0 years | -- | Count of calendar years whose peak/trough extremum is independently identifiable under the calibrated timing-identifiability thresholds. |
+| `n_zero_months` | Integer >=0 months | -- | Total usable months with exact-zero observed extent. Descriptive only; never a route or timing predicate. |
+| `zero_month_fraction` | Unitless, 0–1 | -- | Fraction of usable months that are exact zero. |
+| `n_whole_zero_years` | Integer >=0 years | -- | Count of years whose usable months are all exact zero. Contributes to dry-duration/event summaries but no timing observation. |
+| `pixel_support_status` | `"available"` \| `"unavailable"` | -- | Whether pixel counts (`n_water`/`n_valid`/`n_invalid`/`n_aoi`) are present. Percentage-only inputs report `"unavailable"`, and the calibrated `min_peak_water_pixels` threshold is not consulted for them. |
+| `timing_evidence` | `"supported"` \| `"insufficient"` \| `"unsupported"` | -- | `insufficient` when `min(n_peak_timing_years, n_trough_timing_years) < min_informative_years`; `unsupported` when established seasonality/uniformity evidence rejects an annual cycle; otherwise `supported`. |
+| `mean_monthly_peak_month`, `mean_monthly_trough_month` (deprecated aliases `climatological_*`) | Calendar month 1–12 | `None` for aseasonal/insufficient records | Extrema of mean monthly extent when the record supports reporting them. |
 
-The classifier uses peak evidence: seasonal requires SNR >= 2.0 and peak `R`
-CI low >= 0.70; aseasonal is SNR < 0.70 or a peak Kuiper p >= 0.10 with at
-least 10 timing years; marginal is otherwise; fewer than five usable annual
-timings is insufficient. Trough `R` CI low >= 0.70 separately authorises
-per-year boundaries. `R` can be small because of cancellation by bimodal
-timing, so the Kuiper result is a complement rather than a replacement.
+Public regime assessment and routing emit the runtime `decision_policy` value `hydroseason_0_2_0` while using exact empirical monthly extrema, circular timing statistics, and calibrated timing-identifiability thresholds. Extent is observed surface-water availability, not rainfall, discharge, storage volume, a climate variable, or natural-condition hydrology. A record's route is `per_year_detection` only when its regime is seasonal or marginal *and* its timing evidence is supported; a seasonal or marginal record with insufficient identifiable timing keeps its regime label but routes to `event_characterisation`. The recurrence-narrowing promotion record remains withheld pending the blinded cohort review described in [Decision Policy](../decision-policy.md); see that page and the [0.2.0 migration notes](../migrations/0.2.0-timing-identifiability.md) for the full contract.
 
 ::: hydroseason._regime
     options:

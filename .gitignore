@@ -21,11 +21,7 @@ wheels/
 
 # ── Virtual environments ──────────────────────────────────────────────────────
 .env
-.venv
-.venv_*/
-.venv-release/
-.venv-wheel-test/
-.venv-wheel-final/
+.venv*
 env/
 venv/
 ENV/
@@ -63,8 +59,10 @@ Thumbs.db
 
 # ── Pipeline output ───────────────────────────────────────────────────────────
 output/
+notebooks/output/
 notebooks/*.html
 notebooks/*_export/
+*.tmp
 data/era5_cache/
 data/era5_cache_check/
 data/global_chirps_era5_stress_cache/
@@ -90,7 +88,25 @@ overnight-wofs_resume.ps1
 overnight-wofs.ps1
 
 # ── Agent / session scratch (never part of a release) ─────────────────────────
+# `*.tmp` above only matches that extension, so dated scratch directories such
+# as `.tmp-audit-full-20260906/` were showing up as untracked noise.
+.tmp-*/
 pipelines/
 preview_report/
 docs/plans/
-docs/superpowers/
+!docs/superpowers/
+docs/superpowers/*
+!docs/superpowers/plans/
+docs/superpowers/plans/*
+!docs/superpowers/plans/2026-09-06-two-pass-trough-refinement.md
+!docs/superpowers/plans/2026-09-09-low-state-direct-profile-coding.md
+!docs/superpowers/plans/2026-09-11-camels-aus-validation-handoff.md
+!docs/superpowers/plans/2026-09-12-seasonality-timing-recurrence-candidate.md
+!docs/superpowers/specs/
+docs/superpowers/specs/*
+!docs/superpowers/specs/2026-09-06-two-pass-trough-refinement-design.md
+!docs/superpowers/specs/2026-09-09-low-state-endpoint-contract.md
+!docs/superpowers/specs/2026-09-09-low-state-validation-protocol.md
+!docs/superpowers/specs/2026-09-09-low-state-direct-profile-numerics.md
+!docs/superpowers/specs/2026-09-11-seasonality-gate-comparison-design.md
+!docs/superpowers/specs/2026-09-11-seasonality-timing-recurrence-design.md

@@ -109,3 +109,210 @@ def test_no_gitignored_or_process_files_are_tracked_in_git():
     if res.returncode == 0:
         tracked_ignored = [f for f in res.stdout.splitlines() if f.strip()]
         assert tracked_ignored == [], f"Tracked files matching .gitignore: {tracked_ignored}"
+
+
+def test_calibration_report_is_not_stale():
+    from hydroseason import _scientific_defaults as defaults
+    from hydroseason._calibration import fingerprint
+
+    assert defaults.CALIBRATION_FINGERPRINT == fingerprint(), (
+        "calibration inputs changed since constants were generated; "
+        "re-run scripts/run_calibration.py and start a new calibration version"
+    )
+
+
+def test_package_ships_the_calibration_report():
+    """Source-tree presence is covered here; Task 7 checks built artifacts."""
+    assert Path("docs/calibration/2026-08-21-calibration-report.json").is_file()
+
+
+def test_release_runtime_has_no_uncalibrated_bridge():
+    source = Path("hydroseason/_regime.py").read_text(encoding="utf-8")
+
+    assert "calibration defaults not installed" not in source
+
+
+def test_docs_never_call_quality_grades_probabilities():
+    import re
+
+    banned = re.compile(
+        r"probability of (?:being )?correct|confidence that .* is (?:true|correct)",
+        re.I,
+    )
+    for path in list(Path("docs").rglob("*.md")) + [Path("README.md")]:
+        assert not banned.search(
+            path.read_text(encoding="utf-8")
+        ), f"{path} describes a grade as a probability"
+
+
+def test_docs_describe_seasonal_cv_skill_as_post_selection():
+    text = Path("docs/guide.md").read_text(encoding="utf-8").lower()
+
+    assert "post-selection" in text
+
+
+def test_release_metadata_reports_020():
+    import hydroseason
+
+    assert hydroseason.__version__.startswith("0.2.0")
+
+
+def test_built_distributions_ship_calibration_reports(tmp_path):
+    import subprocess
+    import sys
+    import tarfile
+    import zipfile
+
+    subprocess.run(
+        [sys.executable, "-m", "build", "--outdir", str(tmp_path)],
+        check=True,
+    )
+    wheel = next(tmp_path.glob("*.whl"))
+    sdist = next(tmp_path.glob("*.tar.gz"))
+
+    with zipfile.ZipFile(wheel) as archive:
+        wheel_names = set(archive.namelist())
+    with tarfile.open(sdist) as archive:
+        sdist_names = set(archive.getnames())
+
+    assert any(
+        name.endswith(
+            "share/hydroseason/calibration/2026-08-21-calibration-report.json"
+        )
+        or "2026-08-21-calibration-report.json" in name
+        for name in wheel_names
+    )
+    assert any(
+        name.endswith("docs/calibration/2026-08-21-calibration-report.json")
+        for name in sdist_names
+    )
+
+
+def minimal_release_tree(tmp_path, *, version="0.2.0"):
+    (tmp_path / "hydroseason").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname="hydroseason"\nversion="{version}"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "hydroseason" / "__init__.py").write_text(
+        f'__version__ = "{version}"\n', encoding="utf-8"
+    )
+    (tmp_path / "CITATION.cff").write_text(
+        f'version: "{version}"\ndate-released: "2026-09-15"\n',
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_release_mode_rejects_duplicate_version_headings(tmp_path):
+    root = minimal_release_tree(tmp_path, version="0.2.0")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n## [0.2.0] - 2026-09-15\n## [0.2.0] - 2026-09-15\n",
+        encoding="utf-8",
+    )
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert "CHANGELOG contains duplicate [0.2.0] headings" in errors
+
+
+def test_publish_workflow_does_not_build_research_archive():
+    workflow = Path(".github/workflows/publish.yml").read_text(encoding="utf-8")
+    assert "case-studies.zip" not in workflow
+    assert "zip -r" not in workflow
+
+
+def test_release_metadata_enforces_clean_scope(tmp_path):
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        return
+
+    root = minimal_release_tree(tmp_path, version="0.2.0")
+    (root / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True, capture_output=True)
+
+    forbidden_file = root / "docs" / "paper" / "draft.tex"
+    forbidden_file.parent.mkdir(parents=True, exist_ok=True)
+    forbidden_file.write_text("content", encoding="utf-8")
+    subprocess.run(["git", "add", "docs/paper/draft.tex"], cwd=root, check=True, capture_output=True)
+
+    errors = validate_release_metadata(root, require_released=False)
+    assert any("Forbidden tracked files" in e and "docs/paper/draft.tex" in e for e in errors)
+
+
+def test_release_metadata_enforces_tracked_gitignored_scope(tmp_path):
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        return
+
+    root = minimal_release_tree(tmp_path, version="0.2.0")
+    (root / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True, capture_output=True)
+
+    (root / ".gitignore").write_text("*.secret\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root, check=True, capture_output=True)
+
+    secret_file = root / "test.secret"
+    secret_file.write_text("shh", encoding="utf-8")
+    subprocess.run(["git", "add", "-f", "test.secret"], cwd=root, check=True, capture_output=True)
+
+    errors = validate_release_metadata(root, require_released=False)
+    assert any("Tracked gitignored files" in e and "test.secret" in e for e in errors)
+
+
+def test_release_metadata_validates_method_policy_and_receipt(tmp_path):
+    import json
+
+    root = minimal_release_tree(tmp_path, version="0.2.0")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n## [0.2.0] - 2026-09-15\n", encoding="utf-8"
+    )
+
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert any("Method policy manifest" in e for e in errors)
+    assert any("Method validation receipt" in e for e in errors)
+
+    docs = root / "docs"
+    docs.mkdir(parents=True, exist_ok=True)
+    (docs / "method-policy-v0.2.0.json").write_text('{"policy_id": "hydroseason-v0.2.0"}', encoding="utf-8")
+
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert not any("Method policy manifest" in e for e in errors)
+    assert any("Method validation receipt" in e for e in errors)
+
+    receipt_data = {
+        "release_decision": "fail",
+        "method_policy_id": "hydroseason-v0.2.0",
+        "validation_environment": {"python_version": "3.12.0"},
+    }
+    receipt_file = docs / "method-policy-v0.2.0-validation.json"
+    receipt_file.write_text(json.dumps(receipt_data), encoding="utf-8")
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert any("release_decision must be 'pass'" in e for e in errors)
+
+    receipt_data["release_decision"] = "pass"
+    receipt_data["method_policy_id"] = "wrong-policy"
+    receipt_file.write_text(json.dumps(receipt_data), encoding="utf-8")
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert any("policy ID" in e and "wrong-policy" in e for e in errors)
+
+    receipt_data["method_policy_id"] = "hydroseason-v0.2.0"
+    receipt_data["validation_environment"] = {"python_version": "3.14.1"}
+    receipt_file.write_text(json.dumps(receipt_data), encoding="utf-8")
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert any("Python version" in e and ">=3.10,<3.14" in e for e in errors)
+
+    receipt_data["validation_environment"] = {"python_version": "3.12.3"}
+    receipt_file.write_text(json.dumps(receipt_data), encoding="utf-8")
+    errors = validate_release_metadata(root, expected_tag="v0.2.0", require_released=True)
+    assert errors == []
+
+

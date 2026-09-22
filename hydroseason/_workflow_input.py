@@ -128,6 +128,7 @@ def resolve_water_input(
     progress: bool = False,
     progress_desc: str | None = None,
     on_warning: Callable[[str], None] | None = None,
+    historical_water_mask=None,
 ) -> ResolvedWaterInput:
     if water_source is None:
         if aoi is None or start_date is None or end_date is None:
@@ -139,12 +140,7 @@ def resolve_water_input(
             if on_warning is not None:
                 on_warning(message)
 
-        extent = load_wofs_monthly_extent(
-            stac_url,
-            stac_collection,
-            aoi,
-            start_date,
-            end_date,
+        load_kwargs = dict(
             cache_dir=cache_dir,
             # One configured endpoint configures the whole DEA path. The
             # historical-statistics search (ga_ls_wo_fq_myear_3, which defines
@@ -158,6 +154,20 @@ def resolve_water_input(
             progress=progress,
             progress_desc=progress_desc,
             on_warning=_collect_warning,
+        )
+        # The regular workflow has already loaded and screened the exact
+        # all-time Statistics raster. Forward it only when present so legacy
+        # direct callers retain their original call shape; the monthly loader
+        # then skips its own Statistics read.
+        if historical_water_mask is not None:
+            load_kwargs["historical_water_mask"] = historical_water_mask
+        extent = load_wofs_monthly_extent(
+            stac_url,
+            stac_collection,
+            aoi,
+            start_date,
+            end_date,
+            **load_kwargs,
         )
         return ResolvedWaterInput(
             _normalise_extent_frame(extent, start_date=start_date, end_date=end_date),

@@ -6,44 +6,33 @@ why. Nothing prompts and nothing raises on a difficult record: a catchment
 with no detectable annual cycle returns event descriptors and an empty
 hydrological-year table rather than an exception or -- worse -- a full set of
 confidently-labelled boundaries fitted to noise.
-
-The three routes:
-
-``per_year_detection``
-    Seasonal record. Per-year peak and trough are reproducible, so the full
-    dynamic pipeline runs and its boundaries are marked ``detected_per_year``.
-
-``fixed_climatological_window``
-    Marginal record. Individual years disagree on timing, but the pooled
-    climatology has a stable phase, so one fixed window derived from that
-    climatology is applied to every year. Those boundaries are marked
-    ``imposed_fixed_window`` because they are an assumption the workflow
-    made, not a feature it found.
-
-``event_characterisation``
-    Aseasonal record. No hydrological year is defined at all. Wet episodes
-    and low-extent spells carry the description instead.
-
-Event descriptors are computed on every route, since they are the one view
-that never presumes a cycle exists.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Literal
 
 import pandas as pd
 
-from ._boundary import robust_scale
+from ._decision_policy import DECISION_POLICY, DecisionPolicy, Route
 from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
-from ._phase import assign_rule_based_phases
+from ._exceptions import BoundaryNotSupported
+from ._fingerprint import extent_fingerprint
+from ._method_policy import CURRENT_METHOD_POLICY, method_policy_fingerprint
+from ._phase_scheme import (
+    PHASE_SCHEME_UNSET,
+    LegacyPhaseModel,
+    PhaseScheme,
+    UnsetPhaseScheme,
+    resolve_phase_scheme,
+)
 from ._regime import WaterRegimeAssessment, assess_water_regime
 from ._state_input import QualityPolicy, prepare_monthly_extent
-from .hydro_year import HydroYearConfig, detect_hydrological_years
 from .hydrological_state import HydrologicalStateResult, analyze_hydrological_state
 
-Route = str
+__all__ = ["CatchmentAnalysis", "Route", "analyze_catchment"]
+
+_CYCLE_TIMING_INFORMATIVE_STATUSES: frozenset[str] = frozenset({"point", "interval", "broad"})
 
 
 @dataclass(frozen=True)
@@ -56,25 +45,30 @@ class CatchmentAnalysis:
     hydro_years: pd.DataFrame
     events: WaterEventResult
     monthly: pd.DataFrame
-    climatological_peak_month: int | None = None
-    climatological_trough_month: int | None = None
-    # Phase labels for routes that carry annual cycles but no
-    # ``HydrologicalStateResult`` to hang them off. The seasonal route reaches
-    # its phases through ``state.monthly_phase``; the imposed-window route has
-    # no state object, so without this field its phases had nowhere to live and
-    # the report fell back to a fully ``unspecified`` monthly frame.
+    mean_monthly_peak_month: int | None = None
+    mean_monthly_trough_month: int | None = None
     monthly_phase: pd.DataFrame | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
     state: HydrologicalStateResult | None = None
-    # Retain the quality policy used to construct this analysis so report
-    # exports validate and label months against the same candidate set.
     quality_policy: QualityPolicy = "flag"
     max_invalid_pct: float = 20.0
+    decision_policy: DecisionPolicy = DECISION_POLICY
+    method_policy_id: str = CURRENT_METHOD_POLICY.policy_id
+    method_policy_fingerprint: str = field(
+        default_factory=method_policy_fingerprint
+    )
+    random_state: int = 0
+    input_fingerprint: str = ""
+
+    @property
+    def public_route(self) -> Route:
+        return self.route
 
     def summary_row(self, *, name: str) -> dict:
         """Flat one-row-per-catchment record for a cross-catchment table."""
         return {
             "catchment": name,
+            "decision_policy": self.decision_policy,
             "regime": self.regime.regime,
             "route": self.route,
             "amplitude_snr": round(self.regime.amplitude_snr, 3),
@@ -101,6 +95,13 @@ class CatchmentAnalysis:
             "trough_timing_uniformity_p": _rounded(self.regime.trough_timing_uniformity_p, 3),
             "trough_phase_iqr_months": _rounded(self.regime.trough_phase_iqr_months, 2),
             "n_timing_years": self.regime.n_timing_years,
+            "n_peak_timing_years": self.regime.n_peak_timing_years,
+            "n_trough_timing_years": self.regime.n_trough_timing_years,
+            "n_zero_months": self.regime.n_zero_months,
+            "zero_month_fraction": _rounded(self.regime.zero_month_fraction, 4),
+            "n_whole_zero_years": self.regime.n_whole_zero_years,
+            "pixel_support_status": self.regime.pixel_support_status,
+            "timing_evidence": self.regime.timing_evidence,
             "n_usable_years": self.regime.n_usable_years,
             "n_usable_months": self.regime.n_usable_months,
             "n_hydro_years": int(len(self.hydro_years)),
@@ -109,8 +110,8 @@ class CatchmentAnalysis:
                 if not self.hydro_years.empty
                 else "none"
             ),
-            "climatological_peak_month": self.climatological_peak_month,
-            "climatological_trough_month": self.climatological_trough_month,
+            "mean_monthly_peak_month": self.mean_monthly_peak_month,
+            "mean_monthly_trough_month": self.mean_monthly_trough_month,
             "n_wet_events": self.events.summary["n_events"],
             "median_event_duration_months": self.events.summary["median_event_duration_months"],
             "longest_low_spell_months": self.events.summary["longest_low_spell_months"],
@@ -124,104 +125,14 @@ def _rounded(value: float | None, decimals: int) -> float | None:
     return round(value, decimals) if value is not None else None
 
 
-def _wrap_month(month: int) -> int:
-    """Map any integer onto a 1-based calendar month."""
-    return ((month - 1) % 12) + 1
-
-
-def _fixed_config_from_climatology(peak_month: int) -> HydroYearConfig:
-    """Build a fixed wet/dry window spanning an observed climatological peak.
-
-    The wet window is centred so the peak sits inside it, not at its edge: a
-    window ending at the peak leaves too few months for the dry window and the
-    detector rejects every year.
-
-    Windows are cyclic month ranges (see ``HydroYearConfig``), so any
-    climatological peak phase is representable -- tropical year-boundary wet
-    seasons and mid-year / winter-rainfall phases alike. The six-month wet
-    window is ``peak-2 .. peak+3``; the dry window is the six months that
-    follow. Callers must still mark every emitted row
-    ``boundary_basis="imposed_fixed_window"``: this is average behaviour
-    imposed from climatology, not a per-year detection.
-    """
-    if peak_month < 1 or peak_month > 12:
-        raise ValueError(f"peak_month must be in 1..12, got {peak_month}")
-    wet_start = _wrap_month(peak_month - 2)
-    wet_end = _wrap_month(peak_month + 3)
-    dry_start = _wrap_month(wet_end + 1)
-    dry_end = _wrap_month(dry_start + 5)
-    return HydroYearConfig(
-        wet_start_month=wet_start,
-        wet_end_month=wet_end,
-        dry_start_month=dry_start,
-        dry_end_month=dry_end,
-    )
-
-
-def _annotate_fixed_window_quality(
-    years: pd.DataFrame,
-    extent,
-    *,
-    value_col: str,
-    date_col: str | None,
-    max_invalid_pct: float,
-    quality_policy: QualityPolicy,
-) -> pd.DataFrame:
-    """Carry invalid-coverage diagnostics into imposed-window HY rows.
-
-    The fixed-window route predates the robust dynamic schema.  It still needs
-    the same trust signal: observed boundary months are retained, but any
-    boundary touching a low-quality month is explicitly provisional/low.
-    ``quality_policy`` controls which finite months are exported as usable;
-    the invalid percentage itself remains the evidence used for the flag.
-    """
-    if years.empty:
-        return years
-    prepared = prepare_monthly_extent(
-        extent,
-        value_col=value_col,
-        date_col=date_col,
-        max_invalid_pct=max_invalid_pct,
-        quality_policy=quality_policy,
-    )
-    out = years.copy()
-
-    def _invalid(month) -> float:
-        if pd.isna(month) or pd.Timestamp(month) not in prepared.index:
-            return float("nan")
-        value = prepared.loc[pd.Timestamp(month), "invalid_pct"]
-        return float(value) if pd.notna(value) else float("nan")
-
-    def _support(value: float) -> float:
-        return max(0.0, min(1.0, 1.0 - value / 100.0)) if pd.notna(value) else 0.0
-
-    peak_invalid = [_invalid(value) for value in out["peak_month"]]
-    mid_invalid = [_invalid(value) for value in out["mid_dry_month"]]
-    trough_invalid = [_invalid(value) for value in out["end_dry_month"]]
-    out["peak_invalid_pct"] = peak_invalid
-    out["mid_dry_invalid_pct"] = mid_invalid
-    out["trough_invalid_pct"] = trough_invalid
-    out["temporal_mid_dry_month"] = out["mid_dry_month"]
-    out["temporal_mid_dry_extent_pct"] = out["mid_extent_pct"]
-    # The fixed-window detector names the cycle's closing boundary
-    # ``end_dry_month``; the dynamic schema every consumer downstream reads
-    # calls it ``trough_month``. Without the alias the report silently drops
-    # the End Dry marker, phase labelling cannot resolve an amplitude, and
-    # ``is_hy_trough`` stays False for every row -- all three failing quietly
-    # because a missing column reads as "no such boundary" rather than an error.
-    out["trough_month"] = out["end_dry_month"]
-    out["trough_extent_pct"] = out["end_extent_pct"]
-    bad = [
-        any(pd.isna(value) or float(value) > max_invalid_pct for value in values)
-        for values in zip(peak_invalid, mid_invalid, trough_invalid)
-    ]
-    out["peak_selection_status"] = ["low_quality" if value else "raw" for value in bad]
-    out["peak_selection_support"] = [_support(value) for value in peak_invalid]
-    out["boundary_status"] = ["provisional" if value else "confirmed" for value in bad]
-    out["status"] = ["partial" if value else "complete" for value in bad]
-    out["status_reason"] = ["boundary_low_quality" if value else "ok" for value in bad]
-    out.loc[out["status"] == "partial", "confidence"] = "low"
-    return out
+def _policy_evidence(regime: WaterRegimeAssessment) -> str:
+    """Name the evidence the active policy actually decided on."""
+    test = regime.seasonality_test
+    if test is None:
+        return f"SNR {regime.amplitude_snr:.2f}"
+    peak_p = "n/a" if test.peak.uniformity_p is None else f"{test.peak.uniformity_p:.3f}"
+    trough_p = "n/a" if test.trough.uniformity_p is None else f"{test.trough.uniformity_p:.3f}"
+    return f"peak p={peak_p}, trough p={trough_p}"
 
 
 def analyze_catchment(
@@ -232,7 +143,9 @@ def analyze_catchment(
     min_months_per_year: int = 9,
     max_invalid_pct: float = 20.0,
     quality_policy: QualityPolicy = "flag",
-    phase_model: Literal["none", "rule_based"] = "rule_based",
+    measurement_tolerance_pct: float = 0.0,
+    phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET,
+    phase_model: LegacyPhaseModel | None = None,
     n_bootstrap: int = 200,
     random_state: int = 0,
 ) -> CatchmentAnalysis:
@@ -243,8 +156,15 @@ def analyze_catchment(
     detectors directly, which makes the override explicit in their own code
     rather than hidden in a flag here.
     """
-    if phase_model not in {"none", "rule_based"}:
-        raise ValueError("phase_model must be 'none' or 'rule_based'")
+    input_fingerprint = extent_fingerprint(
+        extent,
+        value_col=value_col,
+        date_col=date_col,
+    )
+    canonical_scheme = resolve_phase_scheme(
+        phase_scheme=phase_scheme,
+        phase_model=phase_model,
+    )
 
     regime = assess_water_regime(
         extent,
@@ -253,6 +173,7 @@ def analyze_catchment(
         min_months_per_year=min_months_per_year,
         max_invalid_pct=max_invalid_pct,
         quality_policy=quality_policy,
+        measurement_tolerance_pct=measurement_tolerance_pct,
         n_bootstrap=n_bootstrap,
         random_state=random_state,
     )
@@ -282,24 +203,51 @@ def analyze_catchment(
             warnings=tuple(warnings),
             quality_policy=quality_policy,
             max_invalid_pct=max_invalid_pct,
+            decision_policy=regime.decision_policy,
+            random_state=random_state,
+            input_fingerprint=input_fingerprint,
         )
 
-    if regime.supports_per_year_boundaries:
+    if regime.regime == "seasonal":
         try:
-            config = DynamicHydroYearConfig(
-                expected_trough_month=int(regime.climatological_trough_month),
-                expected_peak_month=int(regime.climatological_peak_month),
-                max_invalid_pct=max_invalid_pct,
-                quality_policy=quality_policy,
-                detector="robust_extrema",
-                phase_model=phase_model,
-            )
             state_extent = prepare_monthly_extent(
                 extent,
                 value_col=value_col,
                 date_col=date_col,
                 max_invalid_pct=max_invalid_pct,
                 quality_policy=quality_policy,
+            )
+            operational_climatology = state_extent.loc[
+                state_extent["candidate_usable"]
+            ].groupby(state_extent.loc[state_extent["candidate_usable"]].index.month)[
+                "extent_pct"
+            ].mean()
+            operational_peak_month = (
+                regime.mean_monthly_peak_month
+                if regime.mean_monthly_peak_month is not None
+                else int(operational_climatology.idxmax())
+            )
+            operational_trough_month = (
+                regime.mean_monthly_trough_month
+                if regime.mean_monthly_trough_month is not None
+                else int(operational_climatology.idxmin())
+            )
+            if (
+                regime.mean_monthly_peak_month is None
+                or regime.mean_monthly_trough_month is None
+            ):
+                warnings.append(
+                    "a diffuse annual timing summary has no dominant month; "
+                    "the dynamic detector uses a private mean-monthly-extent anchor"
+                )
+            config = DynamicHydroYearConfig(
+                expected_trough_month=operational_trough_month,
+                expected_peak_month=operational_peak_month,
+                max_invalid_pct=max_invalid_pct,
+                quality_policy=quality_policy,
+                measurement_tolerance_pct=measurement_tolerance_pct,
+                detector="robust_extrema",
+                phase_scheme=canonical_scheme,
             )
             state = analyze_hydrological_state(
                 state_extent,
@@ -308,7 +256,7 @@ def analyze_catchment(
                 random_state=random_state,
                 quality_policy=quality_policy,
             )
-        except ValueError as exc:
+        except BoundaryNotSupported as exc:
             warnings.append(f"per-year boundary detection failed; using events: {exc}")
             return CatchmentAnalysis(
                 regime=regime,
@@ -324,133 +272,111 @@ def analyze_catchment(
                 warnings=tuple(warnings),
                 quality_policy=quality_policy,
                 max_invalid_pct=max_invalid_pct,
+                decision_policy=regime.decision_policy,
+                random_state=random_state,
+                input_fingerprint=input_fingerprint,
             )
         years = state.hydro_years.copy()
-        if not years.empty:
-            years["boundary_basis"] = "detected_per_year"
+        if years.empty:
+            reason = "per-year boundary detection returned no hydrological years"
+            warnings.append(f"{reason}; using events")
+            return CatchmentAnalysis(
+                regime=regime,
+                route="event_characterisation",
+                route_reason=f"{reason}; using event characterisation",
+                hydro_years=empty_years,
+                events=events,
+                monthly=pd.DataFrame(),
+                state=None,
+                warnings=tuple(warnings),
+                quality_policy=quality_policy,
+                max_invalid_pct=max_invalid_pct,
+                decision_policy=regime.decision_policy,
+                random_state=random_state,
+                input_fingerprint=input_fingerprint,
+            )
+        years["boundary_basis"] = "detected_per_year"
         state = replace(state, hydro_years=years)
+
+        min_informative = config.timing_identifiability_thresholds.min_informative_years
+        n_peak_cycles = (
+            int(years["peak_timing_status"].isin(_CYCLE_TIMING_INFORMATIVE_STATUSES).sum())
+            if "peak_timing_status" in years.columns
+            else 0
+        )
+        n_trough_cycles = (
+            int(years["trough_timing_status"].isin(_CYCLE_TIMING_INFORMATIVE_STATUSES).sum())
+            if "trough_timing_status" in years.columns
+            else 0
+        )
+        cycles_support_timing = min(n_peak_cycles, n_trough_cycles) >= min_informative
+
+        if not cycles_support_timing:
+            reason = (
+                f"{regime.regime} record ({_policy_evidence(regime)}): calendar-year "
+                "timing evidence appeared sufficient, but the detected hydrological-year "
+                f"cycles do not support it (peak cycles resolved={n_peak_cycles}, "
+                f"trough cycles resolved={n_trough_cycles}, need >={min_informative} on "
+                "each); using event characterisation"
+            )
+            warnings.append(reason)
+            return CatchmentAnalysis(
+                regime=regime,
+                route="event_characterisation",
+                route_reason=reason,
+                hydro_years=empty_years,
+                events=events,
+                monthly=pd.DataFrame(),
+                state=None,
+                warnings=tuple(warnings),
+                quality_policy=quality_policy,
+                max_invalid_pct=max_invalid_pct,
+                decision_policy=regime.decision_policy,
+                random_state=random_state,
+                input_fingerprint=input_fingerprint,
+            )
+
+        route_reason = (
+            f"seasonal record ({_policy_evidence(regime)}): "
+            "per-year dynamic boundaries are reproducible"
+        )
         return CatchmentAnalysis(
             regime=regime,
             route="per_year_detection",
-            route_reason=(
-                f"seasonal record (SNR {regime.amplitude_snr:.2f}, trough timing "
-                f"CI lower bound {regime.trough_timing_concentration_ci_low:.2f}): "
-                "per-year boundaries are reproducible"
-            ),
+            route_reason=route_reason,
             hydro_years=years,
             events=events,
             monthly=pd.DataFrame(),
             state=state,
-            climatological_peak_month=regime.climatological_peak_month,
-            climatological_trough_month=regime.climatological_trough_month,
+            mean_monthly_peak_month=regime.mean_monthly_peak_month,
+            mean_monthly_trough_month=regime.mean_monthly_trough_month,
+            monthly_phase=state.monthly_phase,
             warnings=tuple(warnings),
             quality_policy=quality_policy,
             max_invalid_pct=max_invalid_pct,
+            decision_policy=regime.decision_policy,
+            random_state=random_state,
+            input_fingerprint=input_fingerprint,
         )
 
-    if not regime.supports_fixed_window:
-        return CatchmentAnalysis(
-            regime=regime,
-            route="event_characterisation",
-            route_reason=(
-                f"{regime.regime} record (SNR {regime.amplitude_snr:.2f}): complex or "
-                "diffuse timing does not support a fixed climatological window, so no "
-                "hydrological year is defined"
-            ),
-            hydro_years=empty_years,
-            events=events,
-            monthly=pd.DataFrame(),
-            state=None,
-            climatological_peak_month=None,
-            climatological_trough_month=None,
-            warnings=tuple(warnings),
-            quality_policy=quality_policy,
-            max_invalid_pct=max_invalid_pct,
-        )
-
-    # The evidence permits one shared climatological window but not an
-    # independent boundary for every year.
-    # HydroYearConfig is cyclic, so every calendar peak phase is valid -- no
-    # tropical-only geometry gate and no silent downgrade to events-only.
-    config = _fixed_config_from_climatology(int(regime.climatological_peak_month))
-    try:
-        years = detect_hydrological_years(
-            extent,
-            value_col=value_col,
-            date_col=date_col,
-            config=config,
-            quality_policy="flag",
-            missing_month_policy="ignore",
-        )
-    except ValueError as exc:  # pragma: no cover - defensive; routing should prevent
-        warnings.append(f"boundary detection failed, falling back to events: {exc}")
-        return CatchmentAnalysis(
-            regime=regime,
-            route="event_characterisation",
-            route_reason=f"detection failed on a {regime.regime} record: {exc}",
-            hydro_years=empty_years,
-            events=events,
-            monthly=pd.DataFrame(),
-            state=None,
-            warnings=tuple(warnings),
-            quality_policy=quality_policy,
-            max_invalid_pct=max_invalid_pct,
-        )
-
-    route = "fixed_climatological_window"
-    basis = "imposed_fixed_window"
-    reason = (
-        f"{regime.regime} record (SNR {regime.amplitude_snr:.2f}): timing evidence "
-        "supports a fixed climatological window, so it is imposed on every year"
+    route_reason = (
+        f"{regime.regime} record ({_policy_evidence(regime)}): recurrence was not "
+        "established, so no hydrological year is defined"
     )
-    monthly_phase: pd.DataFrame | None = None
-    if not years.empty:
-        years = years.copy()
-        years["boundary_basis"] = basis
-        years = _annotate_fixed_window_quality(
-            years,
-            extent,
-            value_col=value_col,
-            date_col=date_col,
-            max_invalid_pct=max_invalid_pct,
-            quality_policy=quality_policy,
-        )
-        # Phases describe observed within-cycle structure, so they are as
-        # available here as on the seasonal route: the cycle they subdivide is
-        # imposed, but recovery/wet/recession/dry are still read off the data.
-        # ``boundary_basis`` carries the imposed provenance forward so a
-        # consumer can tell the two apart.
-        if phase_model == "rule_based":
-            phase_input = prepare_monthly_extent(
-                extent,
-                value_col=value_col,
-                date_col=date_col,
-                max_invalid_pct=max_invalid_pct,
-                quality_policy=quality_policy,
-            )
-            _, noise_pp = robust_scale(phase_input)
-            monthly_phase = assign_rule_based_phases(
-                phase_input,
-                years,
-                noise_pp=noise_pp,
-                boundary_basis=basis,
-            )
-
     return CatchmentAnalysis(
         regime=regime,
-        route=route,
-        route_reason=reason,
-        hydro_years=years,
+        route="event_characterisation",
+        route_reason=route_reason,
+        hydro_years=empty_years,
         events=events,
         monthly=pd.DataFrame(),
         state=None,
-        climatological_peak_month=regime.climatological_peak_month,
-        climatological_trough_month=regime.climatological_trough_month,
-        monthly_phase=monthly_phase,
+        mean_monthly_peak_month=None,
+        mean_monthly_trough_month=None,
         warnings=tuple(warnings),
         quality_policy=quality_policy,
         max_invalid_pct=max_invalid_pct,
+        decision_policy=regime.decision_policy,
+        random_state=random_state,
+        input_fingerprint=input_fingerprint,
     )
-
-
-__all__ = ["CatchmentAnalysis", "Route", "analyze_catchment"]

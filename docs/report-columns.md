@@ -36,7 +36,8 @@ month; percentages are 0--100.
 | `usable_month` | Whether the month is admitted by the configured quality policy. In the review-oriented `flag` workflow, finite partial-invalid months remain usable and are flagged by `quality_state`. |
 | `quality_state` | Quality label for the month (`usable`, `low`, `missing`, or `unknown`). |
 | `hy_year` | Hydrological-year identifier, blank when the selected route does not define years. |
-| `phase` | Phase label when a hydrological-year phase model is available. With `rule_based`, phases use the month-specific Reference Median: recovery (trough to rising baseline crossing), wet (through peak to half peak anomaly), recession (to the falling baseline crossing), then dry (to trough). Partial cycles are labelled provisionally; `unspecified` is reserved for months outside a resolvable cycle or routes without phases. |
+| `confidence` | Hydrological-year confidence level (`high`, `medium`, `low`), blank when outside a resolved hydrological year. |
+| `phase` | Phase label according to the selected `phase_scheme` (`two_phase` [default]: `rising`/`receding`, split at the observed peak; deprecated `four_phase` is an alias for the same labels; `none`: `unspecified`). |
 | `phase_status` | Phase provenance (`ok`, `provisional`, `unresolved_cycle`, `outside_cycle`, `unusable`, or `disabled`). |
 | `is_hy_peak` | `True` for the detected annual maximum month. |
 | `is_hy_mid_dry` | `True` for the temporal mid-dry marker. |
@@ -44,6 +45,7 @@ month; percentages are 0--100.
 | `in_wet_event` / `wet_event_id` | Whether the month belongs to a wet event and its identifier. |
 | `in_low_spell` / `low_spell_id` | Whether the month belongs to a low-extent spell and its identifier. |
 | `regime` / `route` | The regime decision and analysis route applied to the record. |
+| `decision_policy` | Decision policy identifier controlling public routing (`hydroseason-v0.2.0`). |
 | `rainfall_mm` / `rain_anomaly_mm` | Optional supplied-CSV or SILO rainfall context, written only when rainfall loads successfully. The anomaly is rainfall minus the median for the same calendar month. These fields never drive regime routing, boundaries, phases, events, or low spells. |
 
 ## Hydrological years (`<stem>_hydro_years.csv`)
@@ -60,10 +62,92 @@ not define hydrological years. Date columns are month starts.
 | `peak_extent_pct` / `mid_dry_extent_pct` / `trough_extent_pct` | Extent observed at each marker. |
 | `peak_invalid_pct` / `mid_dry_invalid_pct` / `trough_invalid_pct` | Invalid-pixel percentage at each marker. High values make the marker provisional/low confidence. |
 | `drawdown_pct` | Peak-to-trough extent range when available. |
-| `confidence` | Overall confidence assigned to the row. |
+| `confidence` | Deterministic quality grade (`high`, `medium`, `low`) assigned based on data completeness and observation flags. This is an empirical quality grade, not a probability. |
 | `status` / `boundary_status` | Result status and whether boundaries are exact, provisional, or otherwise constrained. |
-| `boundary_basis` | Whether the boundary was detected per year or imposed from a fixed climatological window. |
+| `peak_quality` | The peak observation judged against its own month-of-year norm: `normal` or `anomalous`. Only `anomalous` downgrades the cycle. |
+| `boundary_basis` | Whether the boundary was detected per year or imposed from a fixed window derived from mean monthly extent. |
 | `regime` / `route` | Record-level routing metadata. |
+| `timing_status` | Aggregate timing identifiability for the row (`point`, `interval`, or `unresolved`): the weaker of `peak_timing_status` and `trough_timing_status`. `boundary_status` describes selection/data admissibility; `timing_status` describes temporal identifiability -- the two are independent. |
+| `peak_timing_status` / `trough_timing_status` | Whether the peak/trough resolves to an exact month (`point`), a bounded interval (`interval`), or cannot be resolved (`unresolved`). |
+| `peak_date` / `trough_date` | Populated only when the corresponding `*_timing_status` is `point`; blank for `interval` or `unresolved` so a broad plateau or diffuse peak is never presented as a fabricated exact date. |
+| `trough_boundary_date` | The **operational** boundary used for cycle segmentation, populated whenever a trough was detected regardless of timing status (blank only for a blank cycle with no trough opportunity at all). This is always `trough_month`, the actual date used to define `hy_start`/`hy_end` -- it is **not** the same as `trough_interval_end_date`: a refined boundary can sit strictly inside its own support interval, so the two must not be assumed equal. Use `trough_date` for a strict point-only claim and `trough_boundary_date` for "what date this cycle actually uses". |
+| `peak_interval_start_date` / `peak_interval_end_date` / `trough_interval_start_date` / `trough_interval_end_date` | Bounds of equivalent evidence for that extremum across the cycle window (or robust-loss profile support interval for refined troughs). Populated for `point` and `interval`; also populated for `unresolved` when candidate extrema exist to preserve complete equivalent evidence. These are deterministic non-parametric support bounds, not nominal confidence intervals or probability distributions. |
+| `detectability_floor_pp` | The record's detectability floor for that cycle, in percentage points: `max(measurement_tolerance_pct, robust_noise_pp, peak_resolution_pp, trough_resolution_pp, machine epsilon)`. |
+| `amplitude_to_floor_ratio` | That cycle's amplitude divided by `detectability_floor_pp`; `0.0` when the amplitude is at or below the floor. |
+
+### Trough search geometry diagnostics
+
+These six columns appear on the diagnostic hydrological-year frame and in
+`build_hydro_years_export`. They are **report-only**: they describe how a
+boundary was found and never take part in finding one. They are not present in
+the compact CSV bundle, whose column set (`STABLE_HY_COLUMNS`) is unchanged.
+
+| Column | Meaning |
+|---|---|
+| `trough_search_radius_used` | Radius in months actually used for this year's window. Equals the configured `trough_search_radius_months` unless the adaptive retry widened this year. |
+| `boundary_at_search_edge` | The published boundary sits exactly at an edge month of its own window. A warning that a lower continuation may lie outside; not a defect. |
+| `boundary_search_edge_side` | `left`, `right`, or `none`. |
+| `outside_window_observed` | Every month of the outside-audit span was present in the prepared frame. The span reaches at most five months from the anchor — the radius the adaptive retry can already use — so it never names a month the detector could not have selected. |
+| `outside_window_lower` | A strictly lower raw observed extent exists in that span. |
+| `retry_outcome` | `not_attempted`, `applied`, or `rolled_back`. |
+
+`outside_window_lower` is a **challenge count, not a clipping rate**. It states
+that a lower raw value was observed outside the window. It does not state that
+the outside month is the correct boundary: a wider search can select a
+competing event or damage cycle geometry. Confirming a challenge needs
+per-cycle truth, which no real record supplies.
+
+The two derived rates have different denominators and must not be compared:
+`boundary_search_edge_rate` is over published boundaries, and
+`outside_window_lower_rate` is over boundaries with `outside_window_observed`.
+Both publish numerator, denominator, and an interval. Within one catchment that
+interval is Wilson and is labelled an understatement, because cycles inside one
+catchment are serially dependent; across a cohort it is a catchment-level
+bootstrap.
+
+### Trough refinement evidence (candidate — not authoritative) { #trough-refinement-evidence-candidate--not-authoritative }
+
+These columns appear on the diagnostic hydrological-year frame and in
+`build_hydro_years_export`. They record what the two-pass trough refinement
+challenger found. **Every policy here is a candidate, not promoted**: it is
+off unless a caller passes `trough_refinement_policy`, and it is not present
+in the compact CSV bundle — `STABLE_HY_COLUMNS` is unchanged.
+
+Two candidate algorithms exist behind `TroughRefinementPolicy.candidate`,
+selecting which challenger produces every column below — the column set
+itself is identical either way:
+
+- `"shape_fit"` (default; authority scope `trough_refinement_candidate_0_2`):
+  maps a finite set of best-fitting valley shapes to an exact-loss-optimum
+  endpoint.
+- `"direct_profile_combined"` (authority scope `direct_profile_combined_v1`,
+  requires `delta_rel`): profiles the equivalence-state departure directly
+  over a bounded low-state reference-level grid. See prior development method
+  documentation for what it changes and its own evidence status.
+
+| Column | Meaning |
+|---|---|
+| `pass1_trough_month` / `pass1_trough_interval_start` / `pass1_trough_interval_end` / `pass1_trough_timing_status` | The pass-1 boundary and its timing status, retained unchanged so any refinement can be audited against what it replaced. |
+| `trough_challenger_month` / `trough_challenger_interval_start` / `trough_challenger_interval_end` / `trough_challenger_timing_status` | What the challenger proposed. **Populated even when pass 1 wins** — a rejected challenger is evidence about the cycle, not noise to discard. |
+| `trough_challenger_low_state_start` / `trough_challenger_low_state_end` | The fitted low-state occupancy span. Distinct from endpoint uncertainty: a long flat low is not the same claim as an imprecisely located one. |
+| `recovery_start_month` | First month of sustained recovery out of the low state. |
+| `trough_refinement_status` | `confirmed`, `provisional`, `unresolved`, `unavailable`, or `awaiting_next_peak`. |
+| `trough_refinement_reason` | Why that status was reached, e.g. `low_quality_peak`, `recovery_crosses_gap`, `gap_overlaps_low_state`, `gap_before_low_state` (a fully-observed post-gap month sits materially below the pre-gap fitted low level, so the low state is not confined to before the gap and the pre-gap segment cannot answer for it), `unstable_peak_sensitivity`, `unstable_quality_sensitivity`, `not_requested`. `direct_profile_combined` only: `boundary_deferred_to_reliable_month` (the naive latest support-cluster/pre-gap month was too cloud-contaminated to publish, so the boundary moved to the latest reliable month instead), `boundary_deferred_to_implausible_month` (the naive latest pre-gap month was reliable-quality but its raw value sat outside the low state's own equivalence band -- a real spike immediately before a data gap -- so the boundary moved to the latest month that was both reliable and plausible), `no_reliable_boundary_in_support` (no month in the support cluster was reliable and plausible enough to publish at all), `recovery_within_noise` (the month after the boundary clears the equivalence margin, so the boundary stands, but it still falls inside the record's own noise scale -- the call is real but finer than the observation comfortably supports, so it is not reported as confirmed), and `span_not_evaluable` (the span's geometry left nothing to fit -- more than one gap, or a gap against a span edge; a sensitivity-ensemble scenario carrying this is excluded from the stability vote rather than counted as dissent, since it reports nothing about where the boundary lies). |
+| `trough_refinement_applied` | Whether the challenger's boundary was actually adopted. |
+| `trough_pulse_months` | Months detected as rewetting pulses inside the span. |
+| `trough_local_scale_pp` / `trough_profile_best_loss` / `trough_profile_cutoff` / `trough_effective_support` | Fit diagnostics: local noise scale, achieved loss, the frozen admissibility cutoff, and effective observation support. |
+| `trough_refinement_policy_version` | The frozen policy version that produced these values. |
+| `trough_loss_basis` | Which loss the fit actually used: `standardized_huber` when a positive scale (residual noise, pixel floor, or an explicit measurement tolerance) was available, or `exact_l1` when no positive scale exists at all. `exact_l1` reports a deterministic exact-minimum support set up to numerical tolerance -- it carries **no claimed confidence level**; it is not a calibrated interval and must not be read as one. `unavailable` when the challenger did not run. |
+
+`unavailable` and `unresolved` are **different claims and are never
+collapsed**. `unavailable` means the challenger did not run for this cycle
+(commonly `not_requested`); `unresolved` means it ran and the observations did
+not support a refined boundary. Reading the first as the second would turn "not
+attempted" into "attempted and found nothing".
+
+Applying a refinement is atomic across the two cycles that share the moved
+boundary: either both are updated or neither is, so a boundary can never be
+adopted on one side and not the other.
 
 ## Wet events (`<stem>_wet_event.csv`)
 
@@ -112,7 +196,15 @@ them should use the analysis result or a full summary export.
 | `peak_timing_concentration_ci_low`, `peak_timing_concentration_ci_high`, `trough_timing_concentration_ci_low`, `trough_timing_concentration_ci_high` | Unitless 0–1, 95% bootstrap bounds | `null` for insufficient records. |
 | `peak_timing_uniformity_p`, `trough_timing_uniformity_p` | Kuiper probability 0–1 | `null` for insufficient records. |
 | `peak_phase_iqr_months`, `trough_phase_iqr_months` | Circular months | `null` with fewer than four timing observations or an insufficient record; IQR is descriptive only. |
-| `n_timing_years` | Non-negative integer **years** | `0` for insufficient records; it is not a count of months. |
+| `n_timing_years` | Non-negative integer **years** | `0` for insufficient records; it is not a count of months. Equals `n_peak_timing_years` -- it keeps its historical peak-derived meaning and is never silently redefined as a minimum. |
+| `n_peak_timing_years`, `n_trough_timing_years` | Non-negative integer **years** | Count of calendar years whose peak/trough extremum is independently identifiable (not `unresolved`). The conservative `min()` of the two is used only in the route gate, and is not itself a published field. |
+| `n_zero_months` | Non-negative integer **months** | Total months with exact-zero observed extent among usable months. Descriptive only; it never enters a route or timing decision. |
+| `zero_month_fraction` | Unitless, 0–1 | Fraction of usable months that are exact zero. |
+| `n_whole_zero_years` | Non-negative integer **years** | Count of years whose usable months are all exact zero. A whole-zero year still contributes to dry-duration and event summaries; it contributes no peak or trough timing observation. |
+| `pixel_support_status` | `"available"` or `"unavailable"` | Whether the record carries pixel counts (`n_water`/`n_valid`/`n_invalid`/`n_aoi`). Percentage-only inputs always report `"unavailable"`, and their `min_peak_water_pixels` threshold is not consulted. |
+| `timing_evidence` | `"supported"`, `"insufficient"`, or `"unsupported"` | Record-level timing verdict: `insufficient` when `min(n_peak_timing_years, n_trough_timing_years) < min_informative_years`; `unsupported` when the established seasonality/uniformity evidence rejects an annual cycle (today this is reachable only when `regime == "aseasonal"`); otherwise `supported`. |
+| `mean_monthly_peak_month`, `mean_monthly_trough_month` | Calendar month 1–12 | Month of the maximum/minimum of mean monthly extent over qualifying years. `null` unless the record is routed with identifiable annual timing. |
+| `climatological_peak_month`, `climatological_trough_month` | Calendar month 1–12 | Deprecated spellings of the two fields above, emitted unchanged for compatibility. Removed when the seasonality candidate is promoted. |
 
 `R` and confidence intervals are rounded to three decimal places in the
 summary; IQR is rounded to two decimal places. The report uses peak `R` for

@@ -507,7 +507,15 @@ def _validate_supplied_historical_water_mask(
         raise ValueError("historical_water_mask digest does not match mask values and grid")
 
     requested_crs = f"EPSG:{crs}" if isinstance(crs, int) else (crs or "EPSG:3577")
-    if str(mask.crs) != str(requested_crs):
+    try:
+        import pyproj
+
+        same_crs = pyproj.CRS.from_user_input(mask.crs) == pyproj.CRS.from_user_input(
+            requested_crs
+        )
+    except Exception as exc:
+        raise ValueError("historical_water_mask has an invalid CRS") from exc
+    if not same_crs:
         raise ValueError("historical_water_mask crs does not match requested grid")
     if resolution is not None and not np.allclose(
         mask_resolution, (float(resolution), float(resolution)), rtol=1e-9, atol=1e-9
@@ -638,7 +646,7 @@ def load_wofs_monthly_extent(
     read_workers: int | None = None,
     diagnostics_callback: Callable[[dict[str, int]], None] | None = None,
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
-    year_workers: int = 1,
+    year_workers: int | None = None,
     wet_mask: Literal["off", "dea_stats"] = "off",
     use_historical_water_mask: bool = True,
     historical_water_mask: HistoricalWaterMask | None = None,
@@ -679,6 +687,12 @@ def load_wofs_monthly_extent(
     dask's scheduler untouched); only pass an explicit value if you have
     profiled your own machine and confirmed it helps there -- it very
     likely will not.
+
+    ``year_workers`` controls independent calendar-year acquisitions. The
+    default ``None`` uses two workers for an uncached, untiled first pass;
+    this overlaps independent DEA/STAC reads without multiplying dask's
+    decode worker count. Cached acquisition remains serial by default. Pass
+    ``1`` to force serial execution or a profiled positive integer to tune it.
 
     ``auto_tiling=True`` (the default) degrades a requested tiled load to the
     plain untiled path when the AOI's bounding box provably fits inside one
@@ -765,6 +779,8 @@ def load_wofs_monthly_extent(
     """
     if time_block < 1:
         raise ValueError("time_block must be at least 1.")
+    if year_workers is not None and year_workers < 1:
+        raise ValueError("year_workers must be positive or None.")
     if tile_pixels is not None:
         if tile_pixels < 1:
             raise ValueError("tile_pixels must be at least 1.")
@@ -924,7 +940,7 @@ def load_wofs_monthly_extent(
                 compute_batch_size=16,
                 read_workers=read_workers,
                 resampling_policy=resampling_policy,
-                year_workers=year_workers,
+                year_workers=year_workers or 1,
                 wet_mask=wet_mask,
                 historical_water_mask=resolved_historical_mask,
                 planning_footprint=planning_footprint,
@@ -1025,12 +1041,87 @@ def load_wofs_monthly_extent(
     # pruning-gated fallback) to reflect the true wet-AOI geometry.
     effective_wet_aoi = wet_aoi if full_ts is not None else None
 
-    year_iter = _year_windows(start, end)
-    if progress:
+    year_windows = list(_year_windows(start, end))
+
+    def _load_uncached_year(year_start: pd.Timestamp, year_end: pd.Timestamp) -> pd.DataFrame:
+        load_kwargs = {
+            "crs": crs,
+            "resolution": resolution,
+            "chunk_x": chunk_x,
+            "chunk_y": chunk_y,
+            "time_chunk": time_block,
+            "majority": majority,
+        }
+        if resolved_historical_mask is not None:
+            # The direct loader owns the one AOI clip. Thread the exact,
+            # grid-aligned mask into that clip instead of applying a second
+            # full-cube clip after the loader returns.
+            load_kwargs["historical_water_mask"] = resolved_historical_mask
+        try:
+            water_mask = _io.load_wofs_from_stac(
+                stac_url,
+                collection,
+                aoi,
+                year_start.strftime("%Y-%m-%d"),
+                year_end.strftime("%Y-%m-%d"),
+                **load_kwargs,
+            )
+        except ValueError as exc:
+            if "No STAC items found" not in str(exc):
+                raise
+            return _missing_year_extent(
+                year_start, year_end, historical_water_mask=resolved_historical_mask
+            )
+        return monthly_water_extent(
+            water_mask,
+            time_block=time_block,
+            wet_aoi=wet_aoi,
+            read_workers=read_workers,
+        )
+
+    # The no-cache first pass used to serialize independent annual reads.
+    # Keep cache/tile acquisition serial by default because those paths have
+    # resumable writes, but overlap uncached untiled reads.
+    uncached_workers = 2 if year_workers is None else year_workers
+    if cache_root is None and tile_pixels is None and uncached_workers > 1 and len(year_windows) > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        completed: dict[pd.Timestamp, pd.DataFrame] = {}
+        with ThreadPoolExecutor(max_workers=min(uncached_workers, len(year_windows))) as pool:
+            futures = {
+                pool.submit(_load_uncached_year, year_start, year_end): (year_start, year_end)
+                for year_start, year_end in year_windows
+            }
+            if progress:
+                from tqdm.auto import tqdm
+
+                progress_bar = tqdm(
+                    total=len(year_windows),
+                    desc=progress_desc if progress_desc else "years",
+                    unit="yr",
+                    position=progress_position,
+                    leave=progress_position is not None,
+                )
+            else:
+                progress_bar = None
+            try:
+                for future in as_completed(futures):
+                    year_start, _ = futures[future]
+                    completed[year_start] = future.result()
+                    if progress_bar is not None:
+                        progress_bar.update(1)
+            finally:
+                if progress_bar is not None:
+                    progress_bar.close()
+        parts.extend(completed[year_start] for year_start, _ in year_windows)
+        year_windows = []
+
+    year_iter = year_windows
+    if progress and year_windows:
         from tqdm.auto import tqdm
 
         tqdm_kwargs = {
-            "total": end.year - start.year + 1,
+            "total": len(year_windows),
             "desc": progress_desc if progress_desc else "years",
             "unit": "yr",
         }
@@ -1163,37 +1254,7 @@ def load_wofs_monthly_extent(
             parts.append(extent)
             continue
 
-        try:
-            water_mask = _io.load_wofs_from_stac(
-                stac_url,
-                collection,
-                aoi,
-                year_start.strftime("%Y-%m-%d"),
-                year_end.strftime("%Y-%m-%d"),
-                crs=crs,
-                resolution=resolution,
-                chunk_x=chunk_x,
-                chunk_y=chunk_y,
-                time_chunk=time_block,
-                majority=majority,
-            )
-        except ValueError as exc:
-            if "No STAC items found" not in str(exc):
-                raise
-            extent = _missing_year_extent(
-                year_start, year_end, historical_water_mask=resolved_historical_mask
-            )
-        else:
-            extent = monthly_water_extent(
-                _apply_historical_water_mask(
-                    water_mask,
-                    aoi=aoi,
-                    historical_water_mask=resolved_historical_mask,
-                    io_facade=_io,
-                ),
-                time_block=time_block, wet_aoi=wet_aoi,
-                read_workers=read_workers,
-            )
+        extent = _load_uncached_year(year_start, year_end)
         if cache_path is not None:
             _write_extent_atomic(extent, cache_path)
         parts.append(extent)
