@@ -320,6 +320,7 @@ class TestEndDryIntervalIsExplainedInTheLegend:
         assert shapes, "expected a trough interval shape to explain"
         assert swatch["line"]["color"] == shapes[0]["fillcolor"]
         assert swatch["x"] == [None]
+        assert swatch.get("legend") == "legend3"
         assert swatch.get("meta", {}).get("timing_interval") == "trough"
 
     def test_a_fully_resolved_record_gets_neither_entry(self):
@@ -397,7 +398,34 @@ class TestEndDryIntervalIsExplainedInTheLegend:
         assert shapes, "expected a peak interval shape to explain"
         assert band["line"]["color"] == shapes[0]["fillcolor"]
         assert band["x"] == [None]
+        assert band.get("legend") == "legend3"
         assert band.get("meta", {}).get("timing_interval") == "peak"
+
+    def test_polygon_legend_line_order_matches_spec(self):
+        monthly = pd.DataFrame({
+            "date": pd.to_datetime(["2020-01-01", "2020-02-01", "2020-08-01", "2020-10-01"]),
+            "extent_pct": [30.0, 29.8, 1.02, 1.0],
+            "invalid_pct": 0.0,
+            "phase": ["rising", "rising", "receding", "receding"],
+            "hy_year": [2020, 2020, 2020, 2020],
+        })
+        analysis = SimpleNamespace(
+            hydro_years=pd.DataFrame({
+                "hy_year": [2020],
+                "peak_month": [pd.Timestamp("2020-02-01")],
+                "peak_timing_status": ["interval"],
+                "peak_interval_start": [pd.Timestamp("2020-01-01")],
+                "peak_interval_end": [pd.Timestamp("2020-02-01")],
+                "trough_month": [pd.Timestamp("2020-10-01")],
+                "trough_timing_status": ["interval"],
+                "trough_interval_start": [pd.Timestamp("2020-08-01")],
+                "trough_interval_end": [pd.Timestamp("2020-10-01")],
+                "confidence": ["high"],
+            })
+        )
+        figure = timeline_figure(monthly, analysis)
+        polygon_traces = [t["name"] for t in figure["data"] if t.get("legend") == "legend3"]
+        assert polygon_traces == ["Rising", "Receding", "Peak Interval", "End Dry Interval"]
 
     def test_point_and_interval_peaks_are_partitioned_into_separate_traces(self):
         monthly = pd.DataFrame({

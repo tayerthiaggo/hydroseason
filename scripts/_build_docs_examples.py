@@ -74,7 +74,7 @@ lachlan_html = _build_example(
     water_source=(
         REPO_ROOT / "case_studies" / "data" / "extent" / "lachlan_river_nsw_30m.csv"
     ),
-    aoi=None,
+    aoi=REPO_ROOT / "data" / "lachlan_catchment.geojson",
     aoi_name="Lachlan River (NSW)",
     report_title="Lachlan River (NSW)",
     report_subtitle="Surface Water Dynamics Report",

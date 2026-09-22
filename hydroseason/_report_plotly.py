@@ -580,7 +580,7 @@ def _timing_interval_legend_traces(analysis: CatchmentAnalysis) -> list[dict[str
             "type": "scatter",
             "mode": "lines",
             "name": "Peak Interval",
-            "legend": "legend",
+            "legend": "legend3",
             "x": [None],
             "y": [None],
             "line": {"color": INTERVAL_SHADE_COLORS["peak"], "width": 10},
@@ -593,7 +593,7 @@ def _timing_interval_legend_traces(analysis: CatchmentAnalysis) -> list[dict[str
             "type": "scatter",
             "mode": "lines",
             "name": "End Dry Interval",
-            "legend": "legend",
+            "legend": "legend3",
             "x": [None],
             "y": [None],
             "line": {"color": INTERVAL_SHADE_COLORS["trough"], "width": 10},
@@ -676,12 +676,12 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
                 "meta": _scale_meta([median_baseline, median_baseline]),
             })
     data.extend(_marker_traces(monthly, analysis))
-    data.extend(_timing_interval_legend_traces(analysis))
     has_rainfall = "rainfall_mm" in monthly.columns and monthly["rainfall_mm"].notna().any()
     if has_rainfall:
         data.append({"type": "bar", "name": "Rainfall", "legend": "legend2", "x": dates, "y": _clean_list(monthly["rainfall_mm"]),
                      "yaxis": "y2", "marker": {"color": "rgba(148, 163, 184, 0.4)"}})
     data.extend(_phase_legend_traces(_active_phases(monthly, analysis)))
+    data.extend(_timing_interval_legend_traces(analysis))
 
     layout = _base_layout(rangeslider=False)
     hydro_shapes, hydro_annotations = _hydro_year_context(analysis)
