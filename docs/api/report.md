@@ -14,8 +14,12 @@ does not affect report content. `aoi_context` geometry may be simplified for
 display and must not be treated as the analysed footprint.
 
 `generate_catchment_report(..., aoi_context=None)` preserves existing
-map-free reports. `CatchmentReportPaths` remains the five generated paths:
-Reports display public results derived under `established_0_2_0`.
+map-free reports. `CatchmentReportPaths` returns the six generated paths: the
+HTML report, monthly CSV, hydrological-years CSV, wet-events CSV, low-spells
+CSV, and manifest JSON.
+
+Reports display public results derived under the runtime `decision_policy`
+value `hydroseason_0_2_0`.
 
 ::: hydroseason.report
     options:
