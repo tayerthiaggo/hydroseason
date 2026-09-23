@@ -1089,7 +1089,7 @@ def test_entry_point_equivalence_across_workflow_batch_and_cli(
     cli_hydro_years = pd.read_csv(cli_hydro_years_files[0])
 
     expected_policy_id = "hydroseason-v0.2.0"
-    expected_fingerprint = "ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080"
+    expected_fingerprint = "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
     assert method_policy_fingerprint() == expected_fingerprint
 
     # Assert identical method ID

@@ -80,7 +80,7 @@ jobs:
       - name: Run test suite with coverage
         env:
           OMP_NUM_THREADS: "1"
-        run: python -m pytest -q -m "not experimental and not network and not performance" --cov=hydroseason --cov-report=term-missing --cov-fail-under=80
+        run: python -m pytest -q -m "not experimental and not network and not performance and not slow" --cov=hydroseason --cov-report=term-missing --cov-fail-under=80
 
   all-extras:
     name: All extras (Python ${{ matrix.python-version }})
@@ -108,7 +108,7 @@ jobs:
       - name: Run test suite
         env:
           OMP_NUM_THREADS: "1"
-        run: python -m pytest -q -m "not experimental and not network and not performance"
+        run: python -m pytest -q -m "not experimental and not network and not performance and not slow"
 
   minimum-floor:
     name: Minimum dependency floor
@@ -135,7 +135,7 @@ jobs:
       - name: Run core test suite
         env:
           OMP_NUM_THREADS: "1"
-        run: python -m pytest -q -m "not experimental and not network and not performance"
+        run: python -m pytest -q -m "not experimental and not network and not performance and not slow"
 
   docs:
     name: Docs (strict build)

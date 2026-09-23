@@ -259,8 +259,7 @@ whole-zero year still contributes to dry-duration and event summaries; it
 contributes no peak or trough timing observation. See
 [Dynamic Hydrological State](hydrological-state.md#diagnostic-columns) for the
 per-cycle `timing_status` fields and
-[the 0.2.0 migration notes](migrations/0.2.0-timing-identifiability.md) for
-what changed from `established_0_1_1`.
+[Methods Reference](methods.md) for method specifications.
 
 ---
 

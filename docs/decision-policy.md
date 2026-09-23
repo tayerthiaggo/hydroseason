@@ -1,6 +1,6 @@
 # Decision policy and scientific baseline
 
-HydroSeason freezes a single authoritative runtime method: `hydroseason-v0.2.0` (payload SHA-256 fingerprint: `ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080`).
+HydroSeason freezes a single authoritative runtime method: `hydroseason-v0.2.0` (payload SHA-256 fingerprint: `4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de`).
 
 There are no competing, alternate, or unversioned runtime method policies. Earlier experimental flags, candidate selectors (including unpromoted shape-fit trough refinement, SNR routing, and opt-in seasonality selectors), and selectable policy flags have been removed. Trough refinement is frozen to direct-profile refinement (`direct_profile_combined_v1`), and seasonality classification is frozen to mandatory circular timing recurrence with the five-detectable-year guard. See [Methods Reference](methods.md) and [the 0.2.0 design](decision-policy-0.2.0.md).
 

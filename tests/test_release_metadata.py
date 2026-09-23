@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 try:
     import tomllib
 except ImportError:
@@ -157,35 +159,22 @@ def test_release_metadata_reports_020():
     assert hydroseason.__version__.startswith("0.2.0")
 
 
-def test_built_distributions_ship_calibration_reports(tmp_path):
+@pytest.mark.slow
+def test_built_distributions_do_not_bundle_calibration_reports(tmp_path):
     import subprocess
     import sys
-    import tarfile
     import zipfile
 
     subprocess.run(
-        [sys.executable, "-m", "build", "--outdir", str(tmp_path)],
+        [sys.executable, "-m", "build", "--wheel", "--outdir", str(tmp_path)],
         check=True,
     )
     wheel = next(tmp_path.glob("*.whl"))
-    sdist = next(tmp_path.glob("*.tar.gz"))
 
     with zipfile.ZipFile(wheel) as archive:
         wheel_names = set(archive.namelist())
-    with tarfile.open(sdist) as archive:
-        sdist_names = set(archive.getnames())
 
-    assert any(
-        name.endswith(
-            "share/hydroseason/calibration/2026-08-21-calibration-report.json"
-        )
-        or "2026-08-21-calibration-report.json" in name
-        for name in wheel_names
-    )
-    assert any(
-        name.endswith("docs/calibration/2026-08-21-calibration-report.json")
-        for name in sdist_names
-    )
+    assert not any("calibration" in name for name in wheel_names)
 
 
 def minimal_release_tree(tmp_path, *, version="0.2.0"):

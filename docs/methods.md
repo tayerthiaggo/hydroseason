@@ -7,8 +7,8 @@ This document provides the authoritative scientific and algorithmic reference fo
 HydroSeason v0.2.0 freezes a single authoritative method policy. There are no competing, alternate, or unversioned runtime method policies.
 
 - **Method Identifier**: `hydroseason-v0.2.0`
-- **Method Payload SHA-256 Fingerprint**: `ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080`
-- **Method Manifest SHA-256 Digest**: `b0f294c644409d5acbf03f268696d1c684bdaec3b5147213c91dfd853f009384`
+- **Method Payload SHA-256 Fingerprint**: `4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de`
+- **Method Manifest SHA-256 Digest**: `03fd7bd687bd9528bb8f4f1b094361c447bd47bd5da0b04584a804dab07e09c3`
 - **Run Manifest Schema**: `hydroseason-run-manifest-v1`
 
 Every execution writes a cryptographic run manifest (`<stem>_manifest.json`) capturing the exact method payload fingerprint, software versions, input data digests, configuration parameters, and output artifacts.

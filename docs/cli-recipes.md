@@ -204,13 +204,13 @@ hydroseason run --water-source monthly_extent.csv --output-dir out --json
 
 HydroSeason v0.2.0 operates strictly under the frozen scientific method `hydroseason-v0.2.0`. There is **no runtime method selector** (runtime configuration is immutable).
 
-Every execution automatically generates an immutable cryptographic run manifest (`<stem>_manifest.json`) complying with schema `hydroseason-run-manifest-v1`. It records the exact method policy fingerprint (`ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080`), runtime platform, input provenance, and output file checksums:
+Every execution automatically generates an immutable cryptographic run manifest (`<stem>_manifest.json`) complying with schema `hydroseason-run-manifest-v1`. It records the exact method policy fingerprint (`4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de`), runtime platform, input provenance, and output file checksums:
 
 ```json
 {
   "$schema": "hydroseason-run-manifest-v1",
   "method_policy_id": "hydroseason-v0.2.0",
-  "method_fingerprint": "ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080",
+  "method_fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de",
   "environment": {
     "os": "Windows",
     "python_version": "3.12.13"

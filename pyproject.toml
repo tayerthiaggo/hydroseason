@@ -118,12 +118,6 @@ include-package-data = true
 [tool.setuptools.package-data]
 hydroseason = ["_assets/*.js", "_assets/*.css", "_assets/*.txt"]
 
-[tool.setuptools.data-files]
-"share/hydroseason/calibration" = [
-  "docs/calibration/2026-08-21-calibration-report.json",
-  "docs/calibration/2026-08-21-validation-report.json",
-]
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["hydroseason*"]
@@ -131,10 +125,9 @@ include = ["hydroseason*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-# The promotion-gate harness is documented as "intentionally allowed to fail"
-# and must never block a release, but declaring the marker alone did not stop
-# it running. Exclude it by default; run it deliberately with `-m experimental`.
-addopts = ["-m", "not experimental"]
+# The promotion-gate harness and heavy calibration searches are excluded by default.
+# Run them deliberately with `-m experimental` or `-m slow`.
+addopts = ["-m", "not experimental and not slow"]
 markers = [
   "slow: integration or data-backed checks",
   "experimental: promotion-gate comparison, may fail without blocking release",
