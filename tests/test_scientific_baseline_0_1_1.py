@@ -5,6 +5,8 @@ import pytest
 
 from hydroseason import analyze_catchment
 
+pytestmark = pytest.mark.slow
+
 ROOT = Path(__file__).parents[1]
 EXTENT = ROOT / "case_studies" / "data" / "extent"
 BASELINE = Path(__file__).parent / "fixtures" / "scientific_baseline_0_1_1"

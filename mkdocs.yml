@@ -66,6 +66,3 @@ markdown_extensions:
 exclude_docs: |
   plans/**
   superpowers/**
-  decision-policy*.md
-  migrations/**
-  calibration/**

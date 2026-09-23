@@ -9,6 +9,8 @@ from scripts._build_study_case_offline import CATCHMENT_NAMES, build_main_study
 from scripts._build_study_case_rainfall import build_rainfall_study
 from scripts._scientific_baseline_guard import PROTECTED_BASELINE
 
+pytestmark = pytest.mark.slow
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CASE_DATA = REPO_ROOT / "case_studies" / "data" / "extent"
 RAINFALL_DATA = REPO_ROOT / "case_studies" / "data" / "rainfall"

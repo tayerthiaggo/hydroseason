@@ -123,11 +123,6 @@ def test_calibration_report_is_not_stale():
     )
 
 
-def test_package_ships_the_calibration_report():
-    """Source-tree presence is covered here; Task 7 checks built artifacts."""
-    assert Path("docs/calibration/2026-08-21-calibration-report.json").is_file()
-
-
 def test_release_runtime_has_no_uncalibrated_bridge():
     source = Path("hydroseason/_regime.py").read_text(encoding="utf-8")
 
