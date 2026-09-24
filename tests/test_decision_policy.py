@@ -1,4 +1,4 @@
-﻿from hydroseason._decision_policy import (
+from hydroseason._decision_policy import (
     DECISION_POLICY,
     decide_regime,
 )

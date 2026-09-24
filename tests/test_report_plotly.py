@@ -34,7 +34,7 @@ def _marginal_frames():
     )
     analysis = analyze_catchment(
         extent,
-        phase_scheme="four_phase",
+        phase_scheme="two_phase",
         n_bootstrap=20,
     )
     assert analysis.regime.regime == "seasonal"

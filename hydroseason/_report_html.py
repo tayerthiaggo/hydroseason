@@ -60,14 +60,6 @@ def _kpi_cards(kpis: list[dict[str, str]]) -> str:
     return "".join(cards)
 
 
-def _format_metric(value: object, *, digits: int = 2) -> str:
-    if value is None or pd.isna(value):
-        return "N/A"
-    if isinstance(value, (float, int)):
-        return f"{float(value):.{digits}f}"
-    return str(value)
-
-
 def _rainfall_details(context: dict[str, Any] | None) -> str:
     if context is None:
         return ""

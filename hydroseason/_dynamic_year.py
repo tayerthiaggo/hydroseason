@@ -58,8 +58,7 @@ _DEFAULT_PULSE_REJECTION_WINDOW_MONTHS = 4
 
 # Default adaptive geometry.  These are the shipped values and the defaults for
 # the matching ``DynamicHydroYearConfig`` fields.  They are inherited from the
-# first dynamic-year implementation and have never been selected against truth;
-# ``docs/decision-policy-0.3.0.md`` specifies the sweep that will select them.
+# first dynamic-year implementation and have not been selected against truth.
 _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS = 5
 _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE = 6
 

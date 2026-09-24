@@ -16,7 +16,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 def _assert_rule_based_fixture(monthly: pd.DataFrame, config: DynamicHydroYearConfig) -> None:
     base = dataclasses.replace(config, phase_scheme="none")
-    phased = dataclasses.replace(config, phase_scheme="four_phase")
+    phased = dataclasses.replace(config, phase_scheme="two_phase")
     annual_base = detect_dynamic_hydrological_years(monthly, config=base)
     annual_phased = detect_dynamic_hydrological_years(monthly, config=phased)
     pd.testing.assert_frame_equal(annual_base, annual_phased)

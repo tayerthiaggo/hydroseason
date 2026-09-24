@@ -72,41 +72,17 @@ data/silo_cache/
 data/fitzroy_era5_*.csv
 data/catchments/
 
-# ── Development-only folder (raw data, paper drafts, prototypes) ──────────────
+# ── Local development and agent scratch (never part of a release) ────────────
 dev/
-
-
 .agents/
 .claude/
 .ruff_cache/
 .superpowers/
 .uv-cache/
 .worktrees/
-
-overnight-wofs_2.ps1
-overnight-wofs_resume.ps1
-overnight-wofs.ps1
-
-# ── Agent / session scratch (never part of a release) ─────────────────────────
-# `*.tmp` above only matches that extension, so dated scratch directories such
-# as `.tmp-audit-full-20260906/` were showing up as untracked noise.
 .tmp-*/
 pipelines/
 preview_report/
 docs/plans/
-!docs/superpowers/
-docs/superpowers/*
-!docs/superpowers/plans/
-docs/superpowers/plans/*
-!docs/superpowers/plans/2026-09-06-two-pass-trough-refinement.md
-!docs/superpowers/plans/2026-09-09-low-state-direct-profile-coding.md
-!docs/superpowers/plans/2026-09-11-camels-aus-validation-handoff.md
-!docs/superpowers/plans/2026-09-12-seasonality-timing-recurrence-candidate.md
-!docs/superpowers/specs/
-docs/superpowers/specs/*
-!docs/superpowers/specs/2026-09-06-two-pass-trough-refinement-design.md
-!docs/superpowers/specs/2026-09-09-low-state-endpoint-contract.md
-!docs/superpowers/specs/2026-09-09-low-state-validation-protocol.md
-!docs/superpowers/specs/2026-09-09-low-state-direct-profile-numerics.md
-!docs/superpowers/specs/2026-09-11-seasonality-gate-comparison-design.md
-!docs/superpowers/specs/2026-09-11-seasonality-timing-recurrence-design.md
+docs/superpowers/
+overnight-wofs*.ps1

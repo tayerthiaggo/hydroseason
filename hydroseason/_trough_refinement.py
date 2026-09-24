@@ -106,38 +106,6 @@ class _CandidateFit:
 _RELATIVE_CONVERGENCE = float(np.sqrt(np.finfo(float).eps))
 
 
-def _weighted_pava(
-    values: np.ndarray,
-    weights: np.ndarray,
-    *,
-    increasing: bool,
-) -> np.ndarray:
-    """Weighted least-squares isotonic fit using pooled adjacent violators."""
-    if values.size == 0:
-        return values.copy()
-    work = values if increasing else -values
-    blocks: list[list[float | int]] = []
-    for position, (value, weight) in enumerate(zip(work, weights, strict=True)):
-        blocks.append([position, position + 1, float(weight), float(weight * value)])
-        while len(blocks) >= 2:
-            previous = blocks[-2]
-            current = blocks[-1]
-            previous_mean = float(previous[3]) / float(previous[2])
-            current_mean = float(current[3]) / float(current[2])
-            if previous_mean <= current_mean:
-                break
-            blocks[-2:] = [[
-                int(previous[0]),
-                int(current[1]),
-                float(previous[2]) + float(current[2]),
-                float(previous[3]) + float(current[3]),
-            ]]
-    fitted = np.empty(values.size, dtype=float)
-    for start, stop, weight, weighted_sum in blocks:
-        fitted[int(start):int(stop)] = float(weighted_sum) / float(weight)
-    return fitted if increasing else -fitted
-
-
 def _fit_valley_l1(
     values: np.ndarray,
     weights: np.ndarray,
@@ -436,13 +404,6 @@ def _support_weights(frame: pd.DataFrame) -> np.ndarray:
 
 def _month_span(start: pd.Timestamp, end: pd.Timestamp) -> int:
     return (end.year - start.year) * 12 + end.month - start.month
-
-
-def _huber_value(standardized: float, huber_k: float) -> float:
-    magnitude = abs(standardized)
-    if magnitude <= huber_k:
-        return 0.5 * magnitude**2
-    return huber_k * magnitude - 0.5 * huber_k**2
 
 
 def _pulse_dates(

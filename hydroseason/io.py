@@ -116,8 +116,8 @@ def open_completed_extent_counts(*args, **kwargs):
 def verify_cache_footprints(*args, **kwargs):
     """Read, independently re-rasterize, and verify a cache's persisted AOI/analysis footprints.
 
-    Public reader/verifier counterpart to :func:`acquire_wofs_cache` (Task
-    W2.3): given a :class:`WOfSCacheHandle`, reads the full-AOI and
+    Public reader/verifier counterpart to :func:`acquire_wofs_cache`: given
+    a :class:`WOfSCacheHandle`, reads the full-AOI and
     analysis-footprint geometry/counts/digests persisted in the store's root
     manifest, re-rasterizes each geometry from its persisted canonical WKB,
     and cross-checks both the digest and the pixel count against what was
@@ -136,7 +136,7 @@ def open_completed_dual_extent_counts(*args, **kwargs):
     """Read back the second (any-day-wet ``max_water``) composite's per-month pixel counts.
 
     Public reader counterpart to :func:`acquire_wofs_cache` when it was
-    called with ``composite_bundle="dual_composite_v1"`` (Task W2.2): given
+    called with ``composite_bundle="dual_composite_v1"``: given
     a :class:`WOfSCacheHandle` and a ``[start_date, end_date]`` range,
     returns a ``pandas.DataFrame`` combining every completed year's
     ``years/<year>/dual_extent_counts.json`` sidecar -- the SECONDARY

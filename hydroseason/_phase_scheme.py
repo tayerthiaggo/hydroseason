@@ -3,7 +3,7 @@ from __future__ import annotations
 import warnings
 from typing import Any, Literal, Mapping, cast
 
-PhaseScheme = Literal["two_phase", "four_phase", "none"]
+PhaseScheme = Literal["two_phase", "none"]
 LegacyPhaseModel = Literal["cycle_relative", "rule_based", "none"]
 
 
@@ -31,13 +31,6 @@ def resolve_phase_scheme(
         )
         return "none" if phase_model == "none" else "two_phase"
     selected = "two_phase" if phase_scheme is PHASE_SCHEME_UNSET else phase_scheme
-    if selected == "four_phase":
-        warnings.warn(
-            "phase_scheme='four_phase' is deprecated; using two rising/receding phases",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-        return "two_phase"
     if selected not in {"two_phase", "none"}:
         raise ValueError("phase_scheme must be 'two_phase' or 'none'")
     return cast(PhaseScheme, selected)

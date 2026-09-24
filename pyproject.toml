@@ -87,7 +87,7 @@ case-study = [
   "hydroseason[stac]",
 ]
 docs = [
-  "mkdocs>=1.6",
+  "mkdocs>=1.6,<2",
   "mkdocs-material>=9.5",
   "mkdocstrings[python]>=0.25"
 ]
@@ -149,11 +149,8 @@ omit = [
   "hydroseason/_io_resolution.py",
   "hydroseason/_io_stac_cache.py",
   "hydroseason/_io_wofs_acquire.py",
-  "hydroseason/_io_wofs_coarsen.py",
-  "hydroseason/_io_wofs_compare.py",
   "hydroseason/_io_wofs_zarr.py",
   "hydroseason/_spatial_plan.py",
-  "hydroseason/_study_aois.py",
   "hydroseason/_wet_aoi.py",
   "hydroseason/io.py",
 ]

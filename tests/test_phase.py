@@ -127,7 +127,7 @@ def test_disabled_phase_frame_has_one_row_per_month(prepared_extent):
 
 def test_rule_based_phases_honor_peak_and_trough(monsonal_extent):
     base = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="none")
-    phased = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="four_phase")
+    phased = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="two_phase")
     annual_base = detect_dynamic_hydrological_years(monsonal_extent, config=base)
     annual_phased = detect_dynamic_hydrological_years(monsonal_extent, config=phased)
     pd.testing.assert_frame_equal(annual_base, annual_phased)
@@ -290,15 +290,6 @@ def test_two_phase_is_dispatched_by_default(seasonal_frame):
     assert (result.monthly_phase["phase_method"] == "two_phase").all()
 
 
-def test_deprecated_four_phase_selector_uses_two_phase_labels(seasonal_frame):
-    result = analyze_hydrological_state(
-        seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
-    )
-
-    assert (result.monthly_phase["phase_method"] == "two_phase").all()
-    assert set(result.monthly_phase["phase"].dropna()) <= {"rising", "receding", "unspecified"}
-
-
 def test_no_four_phase_scores_are_exposed(seasonal_frame):
     """Four-phase products are gone from the schema, not merely left empty.
 
@@ -309,7 +300,7 @@ def test_no_four_phase_scores_are_exposed(seasonal_frame):
     release does not compute.
     """
     result = analyze_hydrological_state(
-        seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
+        seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="two_phase")
     )
 
     for column in ("p_rising", "p_receding", "phase_stability"):
@@ -338,7 +329,7 @@ def test_none_model_still_disables_labelling(seasonal_frame):
 
 def test_insufficient_cycle_amplitude_is_recorded(flat_frame):
     result = analyze_hydrological_state(
-        flat_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="four_phase")
+        flat_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="two_phase")
     )
     statuses = set(result.monthly_phase["phase_status"])
 

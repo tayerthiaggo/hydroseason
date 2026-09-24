@@ -1,4 +1,4 @@
-﻿"""Tests for canonical extent table fingerprinting."""
+"""Tests for canonical extent table fingerprinting."""
 
 from __future__ import annotations
 

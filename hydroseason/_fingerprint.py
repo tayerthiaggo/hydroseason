@@ -1,4 +1,4 @@
-﻿"""Canonical extent fingerprinting for HydroSeason."""
+"""Canonical extent fingerprinting for HydroSeason."""
 
 from __future__ import annotations
 

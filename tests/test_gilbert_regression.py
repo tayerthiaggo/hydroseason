@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from hydroseason import analyze_catchment
-from hydroseason._boundary_validation import align_events_by_interval, summarize_timing
+from tests._support.boundary_validation import align_events_by_interval, summarize_timing
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

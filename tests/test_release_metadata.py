@@ -113,16 +113,6 @@ def test_no_gitignored_or_process_files_are_tracked_in_git():
         assert tracked_ignored == [], f"Tracked files matching .gitignore: {tracked_ignored}"
 
 
-def test_calibration_report_is_not_stale():
-    from hydroseason import _scientific_defaults as defaults
-    from hydroseason._calibration import fingerprint
-
-    assert defaults.CALIBRATION_FINGERPRINT == fingerprint(), (
-        "calibration inputs changed since constants were generated; "
-        "re-run scripts/run_calibration.py and start a new calibration version"
-    )
-
-
 def test_release_runtime_has_no_uncalibrated_bridge():
     source = Path("hydroseason/_regime.py").read_text(encoding="utf-8")
 

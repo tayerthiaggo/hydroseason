@@ -1,4 +1,4 @@
-﻿"""Domain exceptions for HydroSeason scientific boundary routing and fallback."""
+"""Domain exceptions for HydroSeason scientific boundary routing and fallback."""
 
 from __future__ import annotations
 

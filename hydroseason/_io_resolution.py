@@ -15,9 +15,9 @@ from hydroseason._state_input import prepare_monthly_extent
 
 # NOTE: ``load_wofs_from_stac`` is intentionally NOT imported at module level.
 # ``probe_amplitude`` looks it up on ``hydroseason.io`` at call time so that
-# ``monkeypatch.setattr(hydroseason.io, "load_wofs_from_stac", ...)`` in
-# tests/test_run_multi_catchment_report.py is honoured (a name bound into this
-# module's globals would be invisible to a setattr on the facade).
+# ``monkeypatch.setattr(hydroseason.io, "load_wofs_from_stac", ...)`` in tests
+# is honoured (a name bound into this module's globals would be invisible to a
+# setattr on the facade).
 
 
 def plan_resolution(

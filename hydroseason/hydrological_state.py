@@ -32,7 +32,6 @@ from ._dynamic_year import (
 from ._phase import assign_monthly_phases
 from ._seasonality import SeasonalPatternResult, classify_seasonal_pattern
 from ._state_input import QualityPolicy, prepare_monthly_extent
-from ._trough_refinement import TroughRefinementPolicy
 
 
 @dataclass(frozen=True)
@@ -115,7 +114,7 @@ def analyze_hydrological_state(
 
 
 __all__ = [
-    "DynamicHydroYearConfig", "TroughRefinementPolicy", "HydrologicalStateResult", "SeasonalPatternResult",
+    "DynamicHydroYearConfig", "HydrologicalStateResult", "SeasonalPatternResult",
     "aggregate_basin_monthly_extent", "analyze_hydrological_state",
     "classify_annual_surface_water_condition", "classify_seasonal_pattern",
     "compute_monthly_surface_water_condition", "detect_dynamic_hydrological_years",

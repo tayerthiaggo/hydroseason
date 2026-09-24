@@ -7,7 +7,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from ._timing_identifiability import (
+from hydroseason._timing_identifiability import (
     PixelSupportStatus,
     TimingIdentifiabilityThresholds,
     TimingStatus,

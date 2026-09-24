@@ -1,24 +1,14 @@
-"""Direct-profile low-state-departure challenger (candidate: direct_profile_combined).
+"""Direct-profile trough refinement (``direct_profile_combined_v1``).
 
-Profiles the equivalence-state departure ``T(f, L, delta)`` directly over
-a bounded grid of the low-state reference level ``L``, rather than mapping a
-finite set of best trough fits through one fixed reference level. Ported
-from the Stage B research module
-(``case_studies/results/low-state-direct-profile-v2/direct_profile.py``)
-after its development/validation gates passed (see that directory's
-``findings.md``) and an informal real-catchment spot check (17 disagreement
-cases against ``shape_fit``, reviewed by the domain expert; see
-``docs/migrations/trough-refinement-candidate.md``).
+Pass 2 of the ``hydroseason-v0.2.0`` boundary method. Profiles the
+equivalence-state departure ``T(f, L, delta)`` directly over a bounded grid of
+the low-state reference level ``L``, rather than mapping a finite set of best
+trough fits through one fixed reference level.
 
 ``refine_selected_span_direct_profile`` matches
-``_trough_refinement._refine_selected_span``'s exact calling contract, so
-``refine_trough_span``'s dispatcher (keyed on
-``TroughRefinementPolicy.candidate``) can route to it for the full peak/
-quality sensitivity ensemble -- no monkeypatching, unlike the research
-module's ``_with_sensitivity`` wrapper, which this replaces.
-
-Still opt-in and unpromoted: see ``TroughRefinementPolicy.candidate``'s
-docstring and the migration doc for what "opt-in" gates concretely.
+``_trough_refinement._refine_selected_span``'s calling contract, so
+``refine_trough_span`` runs it inside the full peak/quality sensitivity
+ensemble.
 """
 from __future__ import annotations
 

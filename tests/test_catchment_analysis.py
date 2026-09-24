@@ -81,14 +81,14 @@ def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_popula
     full_aoi, historical = _percentage_equivalent_varying_coverage_series()
     full_prepared = prepare_monthly_extent(full_aoi)
     historical_prepared = prepare_monthly_extent(historical)
-    full_result = _calibrated(full_aoi, phase_scheme="four_phase", n_bootstrap=40)
-    historical_result = _calibrated(historical, phase_scheme="four_phase", n_bootstrap=40)
+    full_result = _calibrated(full_aoi, phase_scheme="two_phase", n_bootstrap=40)
+    historical_result = _calibrated(historical, phase_scheme="two_phase", n_bootstrap=40)
 
     assert full_result.regime.regime == historical_result.regime.regime
     # On percentage series where count-based resolution floors are not activated,
     # percentage-equivalent populations produce identical cycles, events, and low spells:
-    full_pct = _calibrated(full_prepared[["extent_pct", "invalid_pct"]], phase_scheme="four_phase", n_bootstrap=40)
-    historical_pct = _calibrated(historical_prepared[["extent_pct", "invalid_pct"]], phase_scheme="four_phase", n_bootstrap=40)
+    full_pct = _calibrated(full_prepared[["extent_pct", "invalid_pct"]], phase_scheme="two_phase", n_bootstrap=40)
+    historical_pct = _calibrated(historical_prepared[["extent_pct", "invalid_pct"]], phase_scheme="two_phase", n_bootstrap=40)
     selection_cols = [
         "hy_year",
         "status",

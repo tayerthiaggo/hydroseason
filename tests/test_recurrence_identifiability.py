@@ -1,38 +1,15 @@
 import pandas as pd
 import pytest
 
-from hydroseason._dynamic_year import (
-    DynamicHydroYearConfig,
-    detect_dynamic_hydrological_years,
-)
-from hydroseason._recurrence_calibration import (
-    RecurrenceEvaluation,
-    evaluate_recurrence_records,
-    recurrence_fingerprint,
-    score_recurrence_policy,
-    select_recurrence_policy,
-)
 from hydroseason._recurrence_identifiability import (
     ELIGIBLE_RECURRENCE_POLICIES,
     narrow_most_recent_recurrence,
-)
-from hydroseason._recurrence_synthetic import (
-    RECURRENCE_CALIBRATION_SEEDS,
-    RECURRENCE_FAMILIES,
-    RECURRENCE_VALIDATION_SEEDS,
-    generate_recurrence_record,
-)
-from hydroseason._synthetic import (
-    CALIBRATION_SEEDS,
-    GEOMETRY_CALIBRATION_SEEDS,
-    GEOMETRY_VALIDATION_SEEDS,
-    VALIDATION_SEEDS,
-    generate_trough_geometry_record,
 )
 from hydroseason._timing_identifiability import (
     TimingIdentifiabilityThresholds,
     assess_window_timing,
 )
+from tests._support.recurrence_synthetic import generate_recurrence_record
 
 
 def _dates(*values: str) -> tuple[pd.Timestamp, ...]:
@@ -215,46 +192,6 @@ def test_explicit_non_month_start_bound_is_rejected():
         )
 
 
-def test_recurrence_seed_partitions_are_disjoint_from_every_existing_corpus():
-    groups = [
-        set(CALIBRATION_SEEDS), set(VALIDATION_SEEDS),
-        set(GEOMETRY_CALIBRATION_SEEDS), set(GEOMETRY_VALIDATION_SEEDS),
-        set(RECURRENCE_CALIBRATION_SEEDS), set(RECURRENCE_VALIDATION_SEEDS),
-    ]
-    assert all(left.isdisjoint(right) for i, left in enumerate(groups) for right in groups[i + 1 :])
-
-
-def test_first_960_seeds_balance_eight_families_exactly():
-    records = [generate_recurrence_record(seed, partition="calibration") for seed in range(50000, 50960)]
-    counts = pd.Series([record.family for record in records]).value_counts().to_dict()
-    assert set(counts) == set(RECURRENCE_FAMILIES)
-    assert set(counts.values()) == {120}
-
-
-def test_recurrence_truth_is_generator_owned_and_reachable():
-    for offset, family in enumerate(RECURRENCE_FAMILIES):
-        record = generate_recurrence_record(50000 + offset, partition="calibration")
-        assert record.family == family
-        assert record.window_start <= record.values.index.min()
-        assert record.values.index.max() <= record.window_end
-        if family.startswith("annual_") and family != "annual_aligned_fragment_trap":
-            assert record.truth.status in {"point", "interval"}
-            assert record.truth.latest_dates
-        else:
-            assert record.truth.status == "unresolved"
-            assert record.truth.latest_dates == ()
-
-
-def test_corpus_is_deterministic_and_partitions_differ():
-    first = generate_recurrence_record(50007, partition="calibration")
-    again = generate_recurrence_record(50007, partition="calibration")
-    validation = generate_recurrence_record(60007, partition="validation")
-    pd.testing.assert_series_equal(first.values, again.values)
-    pd.testing.assert_frame_equal(first.rows, again.rows)
-    assert first.truth == again.truth
-    assert not first.values.equals(validation.values) or first.window_end != validation.window_end
-
-
 def _assess_record(record, policy):
     result = assess_window_timing(
         record.values,
@@ -287,120 +224,3 @@ def test_annual_shape_candidate_recovers_positive_families():
         status, dates = _assess_record(record, "annual_shape_match")
         assert status == record.truth.status
         assert dates == record.truth.latest_dates
-
-
-def _evaluation(policy, truth, predicted, exact=False, family="fixture"):
-    return RecurrenceEvaluation(
-        policy=policy,
-        family=family,
-        kind="trough",
-        pixel_support_status="unavailable",
-        truth_status=truth,
-        predicted_status=predicted,
-        exact_latest_dates=exact,
-    )
-
-
-def test_false_point_and_false_resolution_denominators_are_distinct():
-    rows = [
-        _evaluation("annual_shape_match", "interval", "point"),
-        _evaluation("annual_shape_match", "unresolved", "interval"),
-        _evaluation("annual_shape_match", "point", "point", exact=True),
-    ]
-    score = score_recurrence_policy(rows, "annual_shape_match")
-    assert (score.false_point_k, score.false_point_n) == (1, 2)
-    assert (score.false_resolution_k, score.false_resolution_n) == (1, 1)
-    # Denominator is every genuine-recurrence row, not just the ones the policy
-    # got right: the interval row predicted as a point counts against it.
-    assert score.exact_latest_date_accuracy == 0.5
-
-
-def test_selector_rejects_unsafe_accuracy_winner():
-    safe = [_evaluation("no_narrowing", "unresolved", "unresolved") for _ in range(120)]
-    unsafe = [_evaluation("annual_shape_match", "unresolved", "point") for _ in range(120)]
-    policy, score, counts = select_recurrence_policy(safe + unsafe)
-    assert policy == "no_narrowing"
-    assert score.false_point_k == 0
-    assert counts["false_point_wilson"] == 1
-
-
-def test_selector_prefers_exact_recovery_after_safety_gates():
-    rows = []
-    for policy, exact in (("no_narrowing", False), ("annual_shape_match", True)):
-        rows.extend(_evaluation(policy, "unresolved", "unresolved") for _ in range(120))
-        rows.extend(
-            _evaluation(policy, "point", "point" if exact else "unresolved", exact=exact)
-            for _ in range(120)
-        )
-    policy, _score, counts = select_recurrence_policy(rows)
-    assert policy == "annual_shape_match"
-    assert counts["exact_latest_date_accuracy"] == 1
-
-
-def test_fingerprint_changes_with_metrics_seed_or_policy():
-    metrics = {"false_point_k": 0, "false_point_n": 120}
-    base = recurrence_fingerprint(
-        "annual_shape_match", seeds=list(range(50000, 50960)), metrics=metrics
-    )
-    assert base != recurrence_fingerprint(
-        "no_narrowing", seeds=list(range(50000, 50960)), metrics=metrics
-    )
-    assert base != recurrence_fingerprint(
-        "annual_shape_match", seeds=list(range(50000, 50959)), metrics=metrics
-    )
-    assert base != recurrence_fingerprint(
-        "annual_shape_match",
-        seeds=list(range(50000, 50960)),
-        metrics={"false_point_k": 1, "false_point_n": 120},
-    )
-
-
-def test_selector_raises_when_no_policy_satisfies_safety_gates():
-    unsafe = [
-        _evaluation(policy, "unresolved", "point")
-        for policy in ELIGIBLE_RECURRENCE_POLICIES
-        for _ in range(120)
-    ]
-    with pytest.raises(
-        RuntimeError,
-        match="no recurrence policy satisfies both false-precision safety gates",
-    ):
-        select_recurrence_policy(unsafe)
-
-
-def test_evaluate_recurrence_records_runs_production_assessor():
-    records = [generate_recurrence_record(50000 + i, partition="calibration") for i in range(8)]
-    evals = evaluate_recurrence_records(records, policies=ELIGIBLE_RECURRENCE_POLICIES)
-    assert len(evals) == 8 * len(ELIGIBLE_RECURRENCE_POLICIES)
-    pos_eval = next(
-        e
-        for e in evals
-        if e.policy == "annual_shape_match" and e.family == "annual_point_recurrence"
-    )
-    assert pos_eval.truth_status == "point"
-    assert pos_eval.predicted_status == "point"
-    assert pos_eval.exact_latest_dates is True
-
-
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "corpus families assume pre-recession-limb candidate generation; "
-        "deferred to the corpus truth review named in the spec"
-    ),
-)
-def test_geometry_seed_30035_no_longer_publishes_hy1993_false_point():
-    record = generate_trough_geometry_record(30035, partition="calibration")
-    annual = detect_dynamic_hydrological_years(
-        record.frame,
-        config=DynamicHydroYearConfig(
-            expected_trough_month=record.truth.climatological_trough_month,
-            trough_search_radius_months=3,
-            adaptive_trough_search_radius_months=5,
-            adaptive_min_usable_months_per_cycle=6,
-        ),
-    )
-    row = annual.loc[annual["hy_year"] == 1993].iloc[0]
-    assert row["trough_timing_status"] == "unresolved"
-    assert pd.isna(row["trough_interval_start"]) is False
-    assert pd.isna(row["trough_interval_end"]) is False
