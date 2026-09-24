@@ -4,7 +4,16 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 
 ## Key Findings
 
-1. **Scientific Effect of Resolution Coarsening:** Coarsening resolution from 30 m down to 60 m, 90 m, or 300 m alters surface water extent precision and regime classification. The effect is not uniform across the candidates. **60 m reproduces the 30 m result closely**: it routes all five catchments identically to 30 m (5/5 route agreement), correlates at 0.9997 with median nMAE 0.0030, and places every peak and trough within one month. It misses the pre-declared gate set on one criterion only — a maximum event-count delta of 2 against a declared ceiling of 1. **90 m and 300 m degrade substantively**: for low-SNR catchments (e.g., Lachlan River) both distort seasonal signal detection, causing route classification mismatches (`event_characterisation` vs `per_year_detection`). Strictly, no coarsened candidate clears every pre-declared gate, so 30 m remains the release standard; but 60 m is the only candidate whose disagreement with 30 m is confined to a single discrete count.
+1. **Resolution coarsening:** All three coarser resolutions (60, 90, 300 m)
+   route every catchment the same way as 30 m (5/5). What changes is the
+   detail. **60 m tracks 30 m closely** (median correlation 0.9997, median
+   nMAE 0.0030, every peak and trough within one month, at most one event
+   different) but misses the pre-declared gate on one criterion: its longest
+   low spell differs by up to 3 months against a ceiling of 2. **90 m** fails
+   the same criterion by more (4 months). **300 m** also fails on correlation
+   (0.9907 < 0.995) and event count (up to 3 events different), and places
+   only 95.2% of peaks and troughs within a month. No coarsened resolution
+   clears every gate, so 30 m remains the release standard.
 2. **Bounded historical-mask comparison:** The opt-in acquisition benchmark is
    restricted to the 2015 Fitzroy and Gilbert AOIs at 30 m in EPSG:3577. It
    compares a full-AOI reference, a planning-only workflow using a conservative
@@ -21,16 +30,29 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 |---|---|---|---|---|---|---|---|---|
 | 60 m | 5/5 | 0.9997 | 0.0030 | 100.0% | 100.0% | 1 | 3 | False |
 | 90 m | 5/5 | 0.9991 | 0.0058 | 100.0% | 100.0% | 1 | 4 | False |
-| 300 m | 4/5 | 0.9907 | 0.0198 | 100.0% | 100.0% | 3 | 6 | False |
+| 300 m | 5/5 | 0.9907 | 0.0198 | 95.2% | 95.2% | 3 | 6 | False |
 <!-- END GENERATED RESOLUTION RESULTS -->
 
-> [!NOTE]
-> **Decision Rationale:** All candidate coarsened resolutions fail one or more pre-declared scientific quality gates (route agreement 5/5, median correlation ≥ 0.995, median nMAE ≤ 0.05, max event delta ≤ 1, max low spell delta ≤ 2 months). The gates were fixed before the results were computed and have not been revised in light of them, so 30 m spatial resolution is maintained as the single release standard for HydroSeason.
->
-> **Practical reading of the 60 m result.** 60 m fails on one criterion, by one event, while agreeing with 30 m on every routing decision and placing all peaks and troughs within a month. For a user who is compute- or bandwidth-constrained on a **large** catchment, 60 m is a defensible working resolution: it will not change which analysis route a catchment takes, and its extent series tracks the 30 m series almost exactly. It is not endorsed as equivalent, and it is not the release default.
+!!! note "Decision rationale"
+    Every coarsened resolution fails at least one pre-declared gate (route
+    agreement 5/5, median correlation ≥ 0.995, median nMAE ≤ 0.05, max event
+    delta ≤ 1, max low-spell delta ≤ 2 months). The gates were fixed before the
+    results were computed and have not been revised, so 30 m stays the single
+    release standard.
 
-> [!WARNING]
-> **Coarsening penalty scales inversely with AOI size.** These five catchments are large; every result above is measured on them. The coarser the pixel relative to the catchment, the greater the share of the water signal that a single pixel decides — so on a **small** AOI, or one dominated by narrow channels rather than broad floodplain, 60 m will distort extent considerably more than this table implies, and the 30 m default matters correspondingly more. Do not generalise the 60 m result to a small AOI without re-running this study against it.
+    **Practical reading of the 60 m result.** 60 m fails one criterion, by one
+    month of low-spell duration, while agreeing with 30 m on every route and
+    placing all peaks and troughs within a month. For a compute- or
+    bandwidth-constrained run on a **large** catchment, 60 m is a defensible
+    working resolution. It is not endorsed as equivalent and is not the
+    default.
+
+!!! warning "Coarsening penalty grows as the AOI shrinks"
+    These five catchments are large. On a **small** AOI, or one dominated by
+    narrow channels rather than broad floodplain, each coarse pixel decides a
+    bigger share of the water signal, so 60 m will distort extent much more
+    than this table implies. Do not generalise the 60 m result to a small AOI
+    without re-running this study on it.
 
 ## Acquisition Performance and Pruning
 
@@ -41,13 +63,12 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 | `planning_footprint` | 30 m | Opt-in Benchmark | Opt-in Benchmark |
 <!-- END GENERATED ACQUISITION RESULTS -->
 
-> [!IMPORTANT]
-> **External Benchmark Gate:** Live Digital Earth Australia STAC acquisition
-> benchmarks are opt-in performance tests that run outside ordinary offline
-> CI. No historical-mask timing results have been recorded in this document.
-> The harness returns nonzero for exact monthly `n_water` or containment
-> mismatch, and also for deterministic execution errors. Performance is
-> reported as measured evidence, never as a promised threshold.
+!!! note "Opt-in benchmark"
+    Live DEA STAC acquisition benchmarks run outside offline CI, and no timing
+    results are recorded here yet. The harness
+    (`scripts/benchmark_wofs_cache.py`) fails on any monthly `n_water` or
+    containment mismatch; performance numbers are reported as measurements,
+    never as promised thresholds.
 
 ## Composite Bundle Validation
 

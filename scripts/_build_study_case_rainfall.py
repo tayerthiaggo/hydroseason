@@ -33,6 +33,8 @@ from scripts._scientific_baseline_guard import refuse_protected_baseline_output 
 DEFAULT_EXTENT_DIR = REPO_ROOT / "case_studies" / "data" / "extent"
 DEFAULT_RAINFALL_DIR = REPO_ROOT / "case_studies" / "data" / "rainfall"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "case_studies" / "results" / "main_rainfall"
+CHECKED_RESULTS_DIR = REPO_ROOT / "tests" / "fixtures" / "v020" / "case_studies"
+CHECKED_SUMMARY_CSV = CHECKED_RESULTS_DIR / "main_rainfall_summary.csv"
 
 CATCHMENT_NAMES = {
     "daly_river_nt": "Daly River (NT)",
@@ -182,7 +184,7 @@ def build_rainfall_study(
 def check_rainfall_study(
     extent_dir: Path = DEFAULT_EXTENT_DIR,
     rainfall_dir: Path = DEFAULT_RAINFALL_DIR,
-    target_summary_csv: Path = DEFAULT_OUTPUT_DIR / "summary.csv",
+    target_summary_csv: Path = CHECKED_SUMMARY_CSV,
 ) -> bool:
     """Verify built rainfall study summary matches target summary CSV."""
     if not target_summary_csv.exists():
@@ -236,7 +238,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.check:
-        ok = check_rainfall_study(args.extent_dir, args.rainfall_dir, args.output_dir / "summary.csv")
+        ok = check_rainfall_study(args.extent_dir, args.rainfall_dir)
         sys.exit(0 if ok else 1)
 
     print(
@@ -244,6 +246,8 @@ def main() -> None:
         f"to {args.output_dir}..."
     )
     summary = build_rainfall_study(args.extent_dir, args.rainfall_dir, args.output_dir)
+    summary.to_csv(CHECKED_SUMMARY_CSV, index=False, lineterminator="\n")
+    print(f"Updated checked summary: {CHECKED_SUMMARY_CSV}")
     print(f"Successfully generated rainfall case study for {len(summary)} catchments.")
     print(summary.to_string(index=False))
 

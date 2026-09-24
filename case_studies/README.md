@@ -1,74 +1,59 @@
 # HydroSeason Case Studies: Reproduction and Provenance
 
-This directory contains the committed, reproducible inputs and checked results for HydroSeason release case studies.
+This directory holds the committed inputs for the three HydroSeason case
+studies. The write-ups are in the documentation:
+[main workflow](https://tayerthiaggo.github.io/hydroseason/case-studies/main-workflow/),
+[resolution](https://tayerthiaggo.github.io/hydroseason/case-studies/resolution-and-acquisition/),
+and [rainfall context](https://tayerthiaggo.github.io/hydroseason/case-studies/rainfall-context/).
 
-## Case Study Overview
+All three use five Australian catchments (Daly, Fitzroy, Gilbert, Lachlan,
+Moonie) over `2005-01-01` to `2025-12-01` (252 months).
 
-1. **Main HydroSeason Workflow (Case Study 1)**
-   - Evaluates the standard HydroSeason analysis pipeline across five representative Australian river catchments covering distinct hydrological regimes (monsoonal/tropical, semi-arid, dryland/intermittent).
-   - Analysis window: `2005-01-01` through `2025-12-01` (21 complete years, 252 monthly observations).
-   - Inputs: 30 metre surface-water extent series derived from DEA Water Observations.
+1. **Main workflow** — the standard `run_hydroseason` analysis on the 30 m
+   whole-catchment extent series.
+2. **Resolution** — the same analysis on 60, 90, and 300 m versions of each
+   series, compared against 30 m.
+3. **Rainfall context** — the main workflow with monthly SILO rainfall
+   attached. Every water-only column matches the main workflow exactly; only
+   the rainfall-comparison columns are new.
 
-2. **Resolution Comparison Study (Case Study 2)**
-   - Evaluates analytical fidelity and performance across four spatial resolutions (30 m, 60 m, 90 m, and 300 m) across all five publish catchments.
-   - Provides evidence-based recommendations for optimal resolution trade-offs.
-
-3. **Rainfall-Augmented Main Workflow (Case Study 1b)**
-   - Re-runs Case Study 1's five catchments with monthly SILO gridded rainfall attached as ancillary context (`workflow.run_hydroseason`'s rainfall path), via the same `compare_rainfall_to_extent_regime` comparison used by the public API.
-   - Rainfall is strictly additive: it is resolved *after* the water-only `analyze_catchment` call and can never influence regime, route, or hydrological-year boundaries. `summary.csv`'s water-only columns (`regime`, `route`, `amplitude_snr`, `peak_phase_iqr_months`, `n_hydro_years`, ...) are byte-identical to Case Study 1's; only the rainfall-comparison columns (`rainfall_regime`, `rainfall_amplitude_snr`, `rainfall_divergence`, `rainfall_peak_lag_months`) are new.
-   - Same analysis window and extent inputs as Case Study 1; rainfall inputs are monthly SILO rainfall (`silo-open-data`, Official archive), pre-fetched and trimmed to `2005-01-01`-`2025-12-01`.
-
-## Directory Structure
+## Layout
 
 ```
 case_studies/
-├── README.md                          # Reproduction guide and entry point
-├── data/
-│   ├── extent/                        # Normalized 20-input extent matrix (5 catchments x 4 resolutions)
-│   │   ├── daly_river_nt_30m.csv
-│   │   ├── fitzroy_river_wa_30m.csv
-│   │   └── ... (20 files)
-│   ├── rainfall/                      # Monthly SILO rainfall, one CSV per catchment (Case Study 1b)
-│   │   ├── daly_river_nt_silo_rainfall.csv
-│   │   └── ... (5 files)
-│   ├── manifest.json                  # Hashes, row counts, CRS, bounds, generator commit
-│   └── DEA-WATER-OBSERVATIONS-LICENSE.md # CC BY 4.0 data attribution notice
-└── results/                           # Checked results produced by case study scripts
-    ├── main/                          # Main workflow outputs (Case Study 1)
-    ├── resolution/                    # Resolution comparison outputs (Case Study 2)
-    └── main_rainfall/                 # Rainfall-augmented main workflow outputs (Case Study 1b)
+├── README.md
+└── data/
+    ├── extent/      # 20 monthly extent CSVs: 5 catchments x 4 resolutions
+    ├── rainfall/    # 5 monthly SILO rainfall CSVs
+    ├── manifest.json                      # hashes, row counts, CRS, bounds
+    └── DEA-WATER-OBSERVATIONS-LICENSE.md  # CC BY 4.0 attribution
 ```
 
-## Reproduction Instructions
+The checked results the documentation tables are rendered from live in
+`tests/fixtures/v020/case_studies/`.
 
-To verify data integrity:
+## Reproduce
+
+From the repository root, with `pip install -e ".[all,docs]"`:
 
 ```bash
-python scripts/prepare_case_study_data.py --check
+python scripts/prepare_case_study_data.py --check    # input integrity
+python scripts/_build_study_case_offline.py --check  # main workflow
+python scripts/_build_study_case_rainfall.py --check # rainfall context
+python scripts/run_resolution_case_study.py --check  # resolution
+python scripts/render_case_study_docs.py --check     # docs tables
 ```
 
-To rebuild or verify Case Study 1 (main workflow):
+Each check rebuilds the results offline and compares them with the checked
+results. Drop `--check` to regenerate.
 
-```bash
-python scripts/_build_study_case_offline.py --check
-```
+## Provenance and licensing
 
-To rebuild or verify Case Study 1b (rainfall-augmented main workflow):
-
-```bash
-python scripts/_build_study_case_rainfall.py --check
-```
-
-To run unit tests verifying normalizer and manifest contracts:
-
-```bash
-python -m pytest tests/test_prepare_case_study_data.py -q
-```
-
-## Data Provenance and Licensing
-
-- Source Data: Geoscience Australia / Digital Earth Australia Water Observations (`ga_ls_wo_3`), DOI: [10.26186/146257](https://doi.org/10.26186/146257).
-- Rainfall Data: SILO gridded monthly rainfall (Queensland Government / Longpaddock), fetched from the public `silo-open-data` S3 archive.
-- Data License: [CC BY 4.0](data/DEA-WATER-OBSERVATIONS-LICENSE.md).
-- Code License: MIT License (see repository root `LICENSE`).
-- Source Inclusion: Case study input data are committed to the GitHub repository and source distribution archives (Zenodo), but explicitly excluded from PyPI package distributions (`.whl` and `.tar.gz` sdist).
+- Extent: Geoscience Australia / Digital Earth Australia Water Observations
+  (`ga_ls_wo_3`), DOI [10.26186/146257](https://doi.org/10.26186/146257).
+- Rainfall: SILO gridded monthly rainfall (Queensland Government), from the
+  public `silo-open-data` archive.
+- Data license: [CC BY 4.0](data/DEA-WATER-OBSERVATIONS-LICENSE.md). Code
+  license: MIT (repository `LICENSE`).
+- These files are in the GitHub repository and Zenodo archive but not in the
+  PyPI wheel or sdist.

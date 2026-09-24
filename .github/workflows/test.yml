@@ -159,6 +159,12 @@ jobs:
       - name: Check case-study data is reproducible
         run: python scripts/prepare_case_study_data.py --check
 
+      - name: Check main case study matches checked results
+        run: python scripts/_build_study_case_offline.py --check
+
+      - name: Check rainfall case study matches checked results
+        run: python scripts/_build_study_case_rainfall.py --check
+
       - name: Check rendered docs match checked results
         run: python scripts/render_case_study_docs.py --check
 

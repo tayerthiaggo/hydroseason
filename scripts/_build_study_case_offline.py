@@ -22,6 +22,8 @@ from scripts._scientific_baseline_guard import refuse_protected_baseline_output 
 
 DEFAULT_DATA_DIR = REPO_ROOT / "case_studies" / "data" / "extent"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "case_studies" / "results" / "main"
+CHECKED_RESULTS_DIR = REPO_ROOT / "tests" / "fixtures" / "v020" / "case_studies"
+CHECKED_SUMMARY_CSV = CHECKED_RESULTS_DIR / "main_summary.csv"
 
 CATCHMENT_NAMES = {
     "daly_river_nt": "Daly River (NT)",
@@ -136,9 +138,9 @@ def build_main_study(data_dir: Path, output_dir: Path) -> pd.DataFrame:
 
 def check_main_study(
     data_dir: Path = DEFAULT_DATA_DIR,
-    target_summary_csv: Path = DEFAULT_OUTPUT_DIR / "summary.csv",
+    target_summary_csv: Path = CHECKED_SUMMARY_CSV,
 ) -> bool:
-    """Verify built main study summary matches target summary CSV."""
+    """Verify built main study summary matches the checked summary CSV."""
     if not target_summary_csv.exists():
         print(f"CHECK FAIL: Target summary CSV missing: {target_summary_csv}", file=sys.stderr)
         return False
@@ -175,21 +177,23 @@ def main() -> None:
         "--output-dir",
         type=Path,
         default=DEFAULT_OUTPUT_DIR,
-        help="Output directory for main case study results",
+        help="Output directory for the per-catchment report bundles",
     )
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Verify built main study summary against committed results without modifying files",
+        help="Verify a fresh build against the checked summary without modifying files",
     )
     args = parser.parse_args()
 
     if args.check:
-        ok = check_main_study(args.data_dir, args.output_dir / "summary.csv")
+        ok = check_main_study(args.data_dir)
         sys.exit(0 if ok else 1)
 
     print(f"Building main case study from {args.data_dir} to {args.output_dir}...")
     summary = build_main_study(args.data_dir, args.output_dir)
+    summary.to_csv(CHECKED_SUMMARY_CSV, index=False, lineterminator="\n")
+    print(f"Updated checked summary: {CHECKED_SUMMARY_CSV}")
     print(f"Successfully generated main case study for {len(summary)} catchments.")
     print(summary.to_string(index=False))
 

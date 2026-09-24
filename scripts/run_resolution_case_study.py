@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import shutil
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ from hydroseason import analyze_catchment, load_extent_csv  # noqa: E402
 
 DEFAULT_DATA_DIR = REPO_ROOT / "case_studies" / "data" / "extent"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "case_studies" / "results" / "resolution"
+CHECKED_RESULTS_DIR = REPO_ROOT / "tests" / "fixtures" / "v020" / "case_studies"
 
 CATCHMENTS = [
     "daly_river_nt",
@@ -387,14 +389,14 @@ def validate_composites(output_dir: Path = DEFAULT_OUTPUT_DIR) -> None:
 
 def check_resolution_study(
     data_dir: Path = DEFAULT_DATA_DIR,
-    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    checked_dir: Path = CHECKED_RESULTS_DIR,
 ) -> bool:
-    """Check integrity of resolution case study CSVs against fresh offline computation."""
-    fidelity_csv = output_dir / "fidelity.csv"
-    decision_csv = output_dir / "decision.csv"
+    """Check the checked resolution CSVs against a fresh offline computation."""
+    fidelity_csv = checked_dir / "fidelity.csv"
+    decision_csv = checked_dir / "decision.csv"
 
     if not fidelity_csv.exists() or not decision_csv.exists():
-        print(f"CHECK FAIL: Missing target CSV(s) in {output_dir}", file=sys.stderr)
+        print(f"CHECK FAIL: Missing checked CSV(s) in {checked_dir}", file=sys.stderr)
         return False
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -435,6 +437,12 @@ def check_resolution_study(
     return True
 
 
+def _update_checked_results(output_dir: Path) -> None:
+    for name in ("fidelity.csv", "decision.csv"):
+        shutil.copyfile(output_dir / name, CHECKED_RESULTS_DIR / name)
+    print(f"Updated checked results in {CHECKED_RESULTS_DIR}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -472,12 +480,13 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.check:
-        ok = check_resolution_study(args.data_dir, args.output_dir)
+        ok = check_resolution_study(args.data_dir)
         sys.exit(0 if ok else 1)
 
     if args.fidelity:
         print(f"Running resolution fidelity study from {args.data_dir}...")
         fidelity, decision = compute_fidelity(args.data_dir, args.output_dir)
+        _update_checked_results(args.output_dir)
         print("\n=== Resolution Fidelity Summary ===")
         print(fidelity.to_string(index=False))
         print("\n=== Resolution Decision Summary ===")
@@ -493,6 +502,7 @@ def main() -> None:
         # Default: run fidelity and validate composites
         print(f"Running default resolution study tasks to {args.output_dir}...")
         compute_fidelity(args.data_dir, args.output_dir)
+        _update_checked_results(args.output_dir)
         run_benchmark(args.output_dir)
         validate_composites(args.output_dir)
 

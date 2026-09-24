@@ -1,25 +1,20 @@
 # Rainfall Context Case Study
 
-This study re-runs [Case Study 1's](main-workflow.md) five catchments with
-monthly SILO gridded rainfall attached as ancillary context
-(`run_hydroseason`'s rainfall path), using the same
-`compare_rainfall_to_extent_regime` comparison exposed by the public API.
-
-Same analysis window and extent inputs as the main workflow study
-(2005-01-01 through 2025-12-01, 252 monthly observations); rainfall inputs
-are monthly SILO rainfall (`silo-open-data`, Official archive), pre-fetched
-and trimmed to the same range.
+This study re-runs the [main workflow's](main-workflow.md) five catchments
+with monthly SILO rainfall attached as context (`run_hydroseason`'s rainfall
+path). The window and extent inputs are the same (2005-01-01 to 2025-12-01,
+252 months); rainfall is monthly SILO (`silo-open-data`), pre-fetched and
+trimmed to that range.
 
 ## Rainfall is strictly additive
 
-Rainfall is resolved *after* the water-only `analyze_catchment` call and can
-never influence regime, route, or hydrological-year boundaries. Every
-water-only column in `case_studies/results/main_rainfall/summary.csv`
-(`regime`, `route`, `amplitude_snr`, `peak_phase_iqr_months`, `n_hydro_years`,
-`n_events`, `longest_low_spell_months`, `water_extent_peak_month`,
-`climatological_trough_month`, ...) is identical to
-[Case Study 1's](main-workflow.md) `summary.csv`. Only four rainfall-
-comparison columns are new: `rainfall_regime`, `rainfall_amplitude_snr`,
+Rainfall is resolved *after* the water-only `analyze_catchment` call and
+cannot change regime, route, or hydrological-year boundaries. Every
+water-only column of this study's summary (`regime`, `route`, `route_reason`,
+timing statistics, `n_hydro_years`, `n_events`, `longest_low_spell_months`,
+...) is identical to the main workflow's. Only the rainfall-comparison
+columns are new: `rainfall_regime`, `rainfall_amplitude_snr`,
+`rainfall_peak_timing_concentration`, `rainfall_trough_timing_concentration`,
 `rainfall_divergence`, and `rainfall_peak_lag_months`.
 
 ## Results
@@ -27,46 +22,37 @@ comparison columns are new: `rainfall_regime`, `rainfall_amplitude_snr`,
 <!-- BEGIN GENERATED RAINFALL RESULTS -->
 | Catchment | Water Regime | Rainfall Regime | Water Peak R | Rainfall Peak R | Divergence | Peak Lag (months) |
 |---|---|---|---|---|---|---|
-| Daly River (NT) | seasonal | seasonal | 0.864 | 0.867 | agree | 2 |
-| Fitzroy River (WA) | seasonal | seasonal | 0.907 | 0.902 | agree | 1 |
-| Gilbert River (QLD) | seasonal | seasonal | 0.934 | 0.922 | agree | 1 |
-| Lachlan River (NSW) | aseasonal | marginal | 0.324 | 0.365 | extent_damped | N/A |
-| Moonie River (QLD/NSW) | aseasonal | marginal | 0.532 | 0.579 | extent_damped | N/A |
+| Daly River (NT) | seasonal | seasonal | 0.878 | 0.874 | agree | 2 |
+| Fitzroy River (WA) | seasonal | seasonal | 0.900 | 0.908 | agree | 1 |
+| Gilbert River (QLD) | seasonal | seasonal | 0.934 | 0.914 | agree | 1 |
+| Lachlan River (NSW) | aseasonal | aseasonal | 0.393 | 0.416 | agree | N/A |
+| Moonie River (QLD/NSW) | aseasonal | seasonal | 0.444 | 0.594 | extent_damped | N/A |
 <!-- END GENERATED RAINFALL RESULTS -->
 
-`rainfall_divergence` describes how the rainfall-only regime compares to the
-water-extent regime: `agree` means both series indicate the same regime
-strength; `extent_damped` means rainfall shows a stronger seasonal signal
-than the observed surface-water extent (expected — a river's inundation
-footprint smooths and lags rainfall's raw seasonal swing).
+`rainfall_divergence` compares the rainfall-only regime with the water
+regime: `agree` means both give the same regime; `extent_damped` means
+rainfall shows a seasonal signal that surface-water extent does not.
 
 ## Findings
 
-1. **Rainfall consistently shows a sharper seasonal concentration than extent.**
-   Rainfall arrives and recedes more sharply than the surface water it drives,
-   which integrates, lags, and drains more slowly.
-2. **Peak lag is short and consistent for seasonal catchments.** Fitzroy and
-   Gilbert both show extent peaking 1 month after rainfall; Daly (routed to
-   `per_year_detection` from its water-only trough timing evidence) shows a
-   2-month lag. Daly's rainfall classification does not override its water
-   regime: the water route is decided from its own circular timing evidence,
-   and rainfall is ancillary by design.
-3. **Aseasonal catchments stay aseasonal in both series.** Lachlan's
-   rainfall recurrence is not established, agreeing with its
-   `event_characterisation` water route. Moonie's water extent is `aseasonal`,
-   exhibiting an `extent_damped` divergence where diffuse timing does not
-   support annual hydrological-year boundaries.
-4. **None of this changes routing.** As designed, the water-only columns
-   above are byte-identical to Case Study 1 regardless of what rainfall
-   shows — rainfall is context for interpretation, never an input to
-   detection.
+1. **Seasonal catchments agree.** Daly, Fitzroy, and Gilbert are seasonal in
+   both series, with similar peak timing concentration (R within 0.03).
+2. **Extent lags rainfall by one to two months.** Fitzroy and Gilbert peak
+   1 month after rainfall, Daly 2 months.
+3. **Lachlan is aseasonal in both series.** Neither rainfall nor water shows
+   a recurring annual cycle.
+4. **Moonie shows `extent_damped`.** Its rainfall is seasonal, but its
+   surface water is not: peak water timing does not recur (p = 0.232), so no
+   hydrological year is defined. Rainfall does not override that:
+   rainfall is ancillary by design.
+5. **None of this changes routing.** The water-only columns are identical to
+   the main workflow whatever rainfall shows.
 
 ## Reproduction
 
 ```bash
 python scripts/_build_study_case_rainfall.py --check
-python -m pytest tests/test_prepare_case_study_data.py -q
 ```
 
 See [case_studies/README.md](https://github.com/tayerthiaggo/hydroseason/blob/main/case_studies/README.md)
-for full data provenance and licensing.
+for data provenance and licensing.

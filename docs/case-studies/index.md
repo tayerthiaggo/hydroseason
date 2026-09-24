@@ -16,7 +16,7 @@ Demonstrates the single route-aware `analyze_catchment` workflow across five Aus
 [Resolution Fidelity and Acquisition Evidence](resolution-and-acquisition.md)
 
 Evaluates spatial resolution coarsening (30 m baseline vs. 60 m, 90 m, and 300 m) and acquisition footprint performance:
-- **Scientific Resolution Fidelity:** Shows why 30 m whole-catchment resolution remains necessary for route agreement and event accuracy.
+- **Scientific Resolution Fidelity:** Coarser resolutions keep every route but drift on event counts and low-spell durations, so 30 m stays the release standard.
 - **Acquisition Pruning:** Documents the conservative planning footprint (`planning_footprint` / `WetPlanningFootprint`) I/O optimization.
 - **Composite Bundles:** Validates the default `single_mask` bundle vs. `dual_composite_v1` dual-count composite bundles.
 

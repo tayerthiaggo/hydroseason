@@ -1,5 +1,6 @@
 {
-  "source": "case_studies/results/main_rainfall/summary.csv",
-  "source_sha256": "83db08702af3ae6ca7022e79c355309d5039f71f72f8952c1c531c265e3b9e15",
-  "method_fingerprint": "ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080"
+  "source": "tests/fixtures/v020/case_studies/main_rainfall_summary.csv",
+  "generator": "scripts/_build_study_case_rainfall.py",
+  "source_sha256": "3aaf79dbc26428d9b5e612e683ab843753236ad5adaf6fa111d523530eab4730",
+  "method_fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
 }
