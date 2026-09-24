@@ -11,6 +11,9 @@ cd hydroseason
 pip install -e ".[dev,docs,all]"
 ```
 
+On Windows, GDAL/rasterio wheels can be fragile; `conda env create -f
+environment.yml` installs the native stack from conda-forge first.
+
 ## Running the tests
 
 The test suite requires Node.js 20 or newer for the real JavaScript interaction
@@ -20,12 +23,32 @@ test used by the offline manager report.
 python -m pytest -q
 ```
 
-Optional checks:
+Slow calibration-style checks are excluded by default; run them with
+`-m slow`. Tests that need live DEA access are marked `network`.
+
+Lint and docs:
 
 ```bash
-ruff check hydroseason tests      # lint
-python -m mkdocs build --strict   # docs build
+python -m ruff check hydroseason tests scripts
+python -m mkdocs build --strict
 ```
+
+## Case-study reproducibility
+
+The case-study inputs live in `case_studies/data/` and the checked results in
+`tests/fixtures/v020/case_studies/`. After any change that can move results:
+
+```bash
+python scripts/prepare_case_study_data.py --check    # input data integrity
+python scripts/_build_study_case_offline.py --check  # main workflow results
+python scripts/_build_study_case_rainfall.py --check # rainfall-context results
+python scripts/run_resolution_case_study.py --check  # resolution results
+python scripts/render_case_study_docs.py --check     # docs tables match results
+```
+
+Drop `--check` to regenerate, review the diff, and commit it. After
+regenerating, rebuild the example reports with
+`python scripts/_build_docs_examples.py`.
 
 ## Coding conventions
 

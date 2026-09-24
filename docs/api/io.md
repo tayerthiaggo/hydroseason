@@ -26,6 +26,8 @@ for narrative context before diving into individual signatures below.
         - open_completed_dual_extent_counts
         - verify_cache_footprints
         - WOfSCacheHandle
+        - HistoricalMaskCoverageWarning
+        - HistoricalMaskRefreshedWarning
       show_root_heading: true
       show_source: false
       heading_level: 2

@@ -62,7 +62,3 @@ the [Methods Reference](methods.md).
 - Calendar months are the available monthly-resolution timing units. A peak
   can move within a month and a monthly water mask can miss short floods;
   results should not be interpreted as daily discharge timing.
-- Under `hydroseason-v0.2.0`, at least 5 detectable years are strictly required
-  for the recurrence gate; records with fewer than 5 detectable years cannot
-  establish recurrence and are classified as aseasonal/insufficient. Dynamic
-  per-year boundaries additionally require at least 7 resolved peak and trough cycles.

@@ -30,11 +30,10 @@ Pass `DynamicHydroYearConfig(expected_trough_month=...)` when local knowledge sh
 
 Monthly phases are descriptive labels attached after annual cycle detection.
 They never alter `hydro_years`, annual condition baselines, peaks, troughs, or
-cycle boundaries. HydroSeason 0.2.0 provides two phase schemes via `phase_scheme`:
+cycle boundaries. Select them with `phase_scheme`:
 
 - `phase_scheme="two_phase"` (default): labels months inside detected cycles as `rising` or `receding`.
 - `phase_scheme="none"`: disables phase labelling and returns `phase="unspecified"` with `phase_status="disabled"`.
-- `phase_scheme="four_phase"` is a deprecated alias accepted for compatibility; it produces the same two labels.
 
 Each detected cycle is split at its observed peak:
 
@@ -59,8 +58,6 @@ condition ranks historical wet/dry extremeness, while phase describes within
 cycle timing.
 
 Legacy parameter `phase_model` maps to `phase_scheme` with a deprecation warning (`rule_based` and `cycle_relative` -> `two_phase`, `none` -> `none`). Legacy aliases are targeted for removal in 0.3.0. Phase selection cannot change regime, route, extrema, boundaries, events, or low spells.
-
-HydroSeason 0.2.0 also evaluates an experimental challenger model for harmonic evidence and boundary recoverability; this experimental challenger does not control public regime, route, extrema, or hydrological-year boundaries.
 
 ```python
 from hydroseason import DynamicHydroYearConfig, analyze_hydrological_state
@@ -206,7 +203,3 @@ values.
 ## Limitations
 
 Surface extent is not volume or depth. Extent-discharge relationships may be lagged or hysteretic. Optical classifiers under-detect narrow, shaded, turbid, or vegetated water. Monthly composites miss short events. AOI changes alter the series meaning. Managed releases, barriers, and groundwater can decouple extent from flow. High trough extent alone does not prove ecological resilience. Basin aggregation can hide local refuge failure, so report AOI results alongside basin results.
-
-## Validation direction for Australia
-
-Use the frozen Fitzroy/Kimberley comparison first. Next replicate the Gilbert River dynamic hydrological-year and persistent-pool work (Tayer et al. 2023, 2026; open dataset DOI `10.26182/866c-5c36`). Use Warrego-Darling/Toorale event records for dry-sequence and reconnection direction, Macquarie Marshes as a vegetated-water limitation test, and nearby BoM Hydrologic Reference Stations only where gauge and mapped reach processes are spatially comparable.

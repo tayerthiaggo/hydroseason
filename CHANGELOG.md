@@ -3,47 +3,69 @@
 All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [0.2.0] - 2026-09-17
+## [0.2.0] - 2026-09-24
+
+This release replaces the heuristic regime rules of 0.1.x with one frozen,
+versioned method (`hydroseason-v0.2.0`). Regime labels, routes, and some
+boundaries can differ from 0.1.1 for the same input.
 
 ### Added
-- **Run provenance manifest**: Cryptographic run provenance manifests (`manifest.json` / `manifest`) exported across public analyses, CLI runs, and HTML reports, recording the package version, invocation arguments, exact method policy ID (`hydroseason-v0.2.0`), method policy fingerprint (`ac32ad6bcce4c30f6406bb5b4f2e205a02d56a045448706fe7d9e5f086aa4080`), input extent fingerprint, execution timestamps, platform environment, and run outcomes.
-- **Typed scientific fallback `BoundaryNotSupported`**: Separates expected scientific abstention and nonrecoverability (such as missing boundary support, insufficient cycles, or unresolvable transitions) from software exceptions, providing structured attributes (`reason`, `aoi_id`, `details`) and clean workflow/batch reporting.
-- **Extent fingerprinting**: Content-addressable SHA-256 fingerprinting of input time series (`extent_fingerprint`) detecting input divergence or extent/analysis mismatches across workflow stages to prevent silent data corruption.
-- **Preflight and feasibility assessment**: `preflight`, `PreflightResult`, `PreflightThresholds`, `FeasibilityResult`, `PreflightProfileUnavailable`, and `HydroSeasonPreflightError` determine whether an AOI supports analysis prior to fetching monthly acquisitions, including DEA WOfS recurrent-water screening.
-- **Calibrated scientific defaults**: Frozen parameters for evidence thresholds, boundary recoverability, and phase identification derived from lexicographic optimization across 190,080 evidence grid points and 5,000 synthetic calibration seeds (`10000..14999`).
-- **Canonical direct-profile refinement and circular Kuiper recurrence**: Pinned direct-profile refinement (`delta_rel=0.05`, `huber_k=1.345`) and circular Kuiper timing recurrence (`p_value <= 0.01`, `R >= 0.65`) integrated as the sole invariant detection pipeline under method policy `hydroseason-v0.2.0`.
-- **Distribution packaging**: Pre-computed calibration and validation JSON reports bundled into Python wheel (`share/hydroseason/calibration/`) and source distributions (`docs/calibration/`).
-- `HistoricalMaskRefreshedWarning` and `HistoricalMaskCoverageWarning` re-exported at top-level package for clean provenance warning filtering.
-- `hydroseason doctor` diagnostic command probing environment, native dependencies (`scipy`, `dask_image`, `psutil`), and netCDF4/NumPy ABI compatibility.
+- **Frozen method policy `hydroseason-v0.2.0`.** Every run uses the same
+  method; its parameters are published in `docs/method-policy-v0.2.0.json`
+  and fingerprinted (`4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de`).
+- **Run manifest.** `run_hydroseason` and `hydroseason run` write
+  `<stem>_manifest.json` (schema `hydroseason-run-manifest-v1`) with the
+  package and dependency versions, method fingerprint, input SHA-256, and
+  output checksums. `CatchmentReportPaths.manifest_json` points to it.
+- **Preflight.** `preflight`, `FeasibilityResult`, `PreflightResult`,
+  `PreflightThresholds`, `PreflightProfileUnavailable`, and
+  `HydroSeasonPreflightError`. A DEA run first checks that the AOI holds
+  recurrent surface water and stops early if it does not.
+- **Direct-profile trough refinement.** Seasonal boundaries are refined with a
+  Huber-loss profile fit (`huber_k=1.345`, `delta_rel=0.05`) and carry support
+  intervals, reason codes, and `BoundaryNotSupported` abstentions.
+- **New hydrological-year CSV columns:** `trough_boundary_date`,
+  `annual_condition`, `peak_quality`, `timing_status`, `peak_timing_status`,
+  `trough_timing_status`, `peak_interval_start_date`/`_end_date`,
+  `trough_interval_start_date`/`_end_date`, `detectability_floor_pp`, and
+  `amplitude_to_floor_ratio`. The monthly CSV gains `confidence`.
+- `CatchmentAnalysis` and `WaterRegimeAssessment` gain provenance and timing
+  fields (`method_policy_id`, `method_policy_fingerprint`, `input_fingerprint`,
+  `seasonality_test`, `n_peak_timing_years`, `n_trough_timing_years`,
+  zero-extent counts, and others).
+- `phase_scheme` on `run_hydroseason`, `analyze_catchment`, and
+  `DynamicHydroYearConfig`.
+- `HistoricalMaskRefreshedWarning` is now exported from the package root.
 
 ### Changed
-- **Pinned direct-profile equivalence margin**: Trough refinement equivalence margin is proportional to the low-state level (`delta_rel=0.05`, `huber_k=1.345`) rather than an absolute percentage threshold (`delta_pp`, removed), preventing misclassification of shallow dry-season recoveries while correctly preserving genuine low-state plateaus.
-- **Removal of SNR routing and method selectors**: Retired the heuristic signal-to-noise ratio (SNR) routing mechanism and eliminated method selection options (`--method-policy`, `--seasonality-policy`, `--trough-refinement-policy`, `method_policy=...`). All interfaces (Python, CLI, batch, reports) execute the single canonical `hydroseason-v0.2.0` method.
-- **Descriptive timing terminology**: `mean_monthly_peak_month` and `mean_monthly_trough_month` replace the misleading `climatological_*` names (which remain as deprecated aliases).
-- **Conservative dynamic-year defaults**: Restored conservative defaults (`trough_search_radius_months=3`, `min_usable_months_per_cycle=8`) and anchored adaptive retry for short interior cycles.
-- **Dynamic memory-bounded batch scheduler**: Memory-conscious batch processing defaults to 80% available RAM (`max_ram_fraction=0.8`) with auto-tuning of concurrent workers.
-- **Adaptive peak-quality assessment**: Replaced flat 20% peak invalid cap with a per-record, per-calendar-month p90 climatology threshold (`peak_quality`: `normal`/`anomalous`), preventing unwarranted downgrades of high-quality cycles in cloud-affected regions. Exported in `peak_quality` column.
-- **Lazy raster backend loading**: `xarray` and geospatial raster dependencies load lazily on demand rather than eagerly at package import.
+- **Seasonality test.** A record is `seasonal` only when circular Kuiper tests
+  reject uniform timing for both annual peaks and troughs (p < 0.05) over at
+  least five detectable years; otherwise it is `aseasonal` (or
+  `insufficient_record`). The amplitude/SNR rules and the `marginal` regime
+  are gone.
+- **Routing.** Per-year boundaries also require at least seven resolved peak
+  and trough cycles; otherwise the record gets event and low-spell analysis.
+- **Monthly phases** are now `rising` / `receding`, split at each cycle's
+  observed peak (previously `recovery` / `wet` / `recession` / `dry`).
+- **Peak quality** is judged against the record's own per-calendar-month
+  invalid coverage (`peak_quality`: `normal` / `anomalous`) instead of a flat
+  20% cap, so routine wet-season cloud no longer makes a cycle provisional.
+- `peak_date` / `trough_date` in the hydrological-year CSV are blank unless
+  the timing resolves to a single month; use the interval columns or
+  `trough_boundary_date` otherwise.
+- `climatological_peak_month` / `climatological_trough_month` are renamed
+  `mean_monthly_peak_month` / `mean_monthly_trough_month` (no alias).
+- `phase_model` is deprecated in favour of `phase_scheme` (`rule_based` maps
+  to `two_phase`).
+- `xarray` and other raster dependencies are imported lazily.
 
 ### Fixed
-- **Profile fit untrusted month masking**: Untrusted and cloud-flagged months carry zero weight in direct-profile low-state optimization, preventing corrupted observations from anchoring the low-state reference level or dominating loss calculations.
-- **Gap-handling walkback to reliable month**: When encountering data gaps, refinement walks back to the latest reliable month within the equivalence band rather than blindly adopting the last observed pre-gap month (`boundary_deferred_to_implausible_month`).
-- **Support interval boundary clipping**: Boundary support intervals are clipped to the adopted operational boundary date (`trough_interval_end <= trough_month`), resolving inconsistencies where the low-state interval overlapped the next cycle's rising limb.
-- **Cloud-contaminated boundary deferral**: High-cloud months (`quality_state="low"`) in the support cluster defer to the latest reliable month at or before the candidate date (`boundary_deferred_to_reliable_month`), or abstain if no reliable month exists.
-- **Sensitivity ensemble non-evaluable scenarios**: Sensitivity scenarios that cannot evaluate due to edge-of-record gaps receive status `span_not_evaluable` and are excluded from stability voting rather than counted as dissents.
-- **Provisional recovery classification within noise**: Boundaries where the recovery falls within record noise resolution are flagged as `provisional` with reason `recovery_within_noise`.
-- **Calibration selector pruning**: Corrected `select_evidence_defaults` to pick optimal constants from the lexicographically pruned survivor set rather than the unpruned candidate array. Monotonic pruning narrowing enforced.
-- **Environment-independent calibration fingerprinting**: Removed local Python/NumPy/pandas versions from the calibration cache hash to ensure reproducibility across Python 3.10–3.13 environments.
-- **Multi-pulse recurrence narrowing**: Multi-pulse cycle windows evaluate calibrated pure recurrence policy `annual_shape_match` instead of uninspected legacy heuristics.
-- **Accurate report route explanations**: `verdict_sentence()` accurately reports `analysis.route_reason` and notes withheld boundaries when a seasonal record lacks sufficient timing cycles.
-
-### Removed
-- **Heuristic SNR routing**: Removed legacy SNR-based thresholding and routing.
-- **Method selection options**: Removed candidate selection options from `TroughRefinementPolicy`, `--method-policy`, `--seasonality-policy`, and `--trough-refinement-policy` CLI options.
-- **Shape-fit refinement candidate**: Removed obsolete `shape_fit` (`trough_refinement_candidate_0_2`) implementation in favor of canonical direct-profile refinement.
-- **Unreachable four-phase labeller**: Removed dead four-phase cycle assignment code (`assign_cycle_relative_phases`, unused export columns `p_rising`, `p_receding`, `phase_stability`) and associated grid searches, preserving the robust two-phase (`rising`/`receding`) model.
-- **Semi-Markov challenger**: Removed internal-only experimental semi-Markov boundary challenger and promotion harness.
-- **Uncalibrated legacy fallbacks**: Dropped uncalibrated heuristic bridge code in regime assessment.
+- Cloud-flagged months carry zero weight in the low-state fit, and a boundary
+  on a cloud-contaminated month moves to the latest reliable month or abstains.
+- Boundary support intervals no longer extend past the adopted boundary into
+  the next cycle's rising limb.
+- Report route explanations state the actual route reason, including when a
+  seasonal record has too few cycles for per-year boundaries.
 
 ## [0.1.1] - 2026-08-20
 

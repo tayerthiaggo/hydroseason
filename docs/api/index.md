@@ -48,11 +48,13 @@ return types are on each linked page.
 | `open_completed_dual_extent_counts` | Read back dual max/median-water pixel counts (`composite_bundle="dual_composite_v1"`) | [Loading Data](io.md) |
 | `verify_cache_footprints` | Verify a cache's persisted AOI/analysis footprints | [Loading Data](io.md) |
 | `WOfSCacheHandle` | Pointer to a (possibly complete) on-disk WOfS cache store | [Loading Data](io.md) |
+| `HistoricalMaskCoverageWarning` | Requested window falls outside the historical mask's coverage | [Loading Data](io.md) |
+| `HistoricalMaskRefreshedWarning` | A newer statistics vintage was adopted, shifting `extent_pct` | [Loading Data](io.md) |
 | `analyze_catchment` | Assess regime, then run the analysis that regime supports (routing authority) | [Analysis](analysis.md) |
 | `CatchmentAnalysis` | Everything the record supports, plus how that was decided | [Analysis](analysis.md) |
 | `assess_water_regime` | Assess what the observed surface-water record supports | [Analysis](analysis.md) |
 | `WaterRegimeAssessment` | What the record supports, and what it does not | [Analysis](analysis.md) |
-| `Regime` | Regime classification (`seasonal` / `marginal` / `aseasonal`) | [Analysis](analysis.md) |
+| `Regime` | Regime classification (`seasonal` / `aseasonal` / `insufficient_record`) | [Analysis](analysis.md) |
 | `extract_water_events` | Extract wet episodes and dry spells from a monthly record | [Analysis](analysis.md) |
 | `WaterEventResult` | Wet episodes, dry spells, and record-level summaries | [Analysis](analysis.md) |
 | `detect_hydrological_years` | Detect hydrological years from a quality-screened monthly series | [Analysis](analysis.md) |
@@ -62,7 +64,14 @@ return types are on each linked page.
 | `HydroYearConfig` | Wet/dry search windows, at any phase of the calendar year | [Analysis](analysis.md) |
 | `analyze_hydrological_state` | Run the dynamic hydrological-year + phase pipeline | [Analysis](analysis.md) |
 | `detect_dynamic_hydrological_years` | Robust-extrema trough/peak boundary detection | [Analysis](analysis.md) |
-| `classify_seasonal_pattern` | Classify a record as seasonal / marginal / aseasonal | [Analysis](analysis.md) |
+| `classify_seasonal_pattern` | Advisory seasonal-shape summary (does not set the route) | [Analysis](analysis.md) |
+| `suggest_dynamic_hydro_year_config` | Propose a `DynamicHydroYearConfig` from the record | [Analysis](analysis.md) |
+| `DynamicHydroYearConfig` | Search windows, quality policy, and phase scheme for dynamic years | [Analysis](analysis.md) |
+| `HydrologicalStateResult` | Output of `analyze_hydrological_state` | [Analysis](analysis.md) |
+| `SeasonalPatternResult` | Output of `classify_seasonal_pattern` | [Analysis](analysis.md) |
+| `classify_annual_surface_water_condition` | Rank annual peaks/troughs against the record's own cycles | [Analysis](analysis.md) |
+| `compute_monthly_surface_water_condition` | Monthly wet/dry extremeness relative to the record | [Analysis](analysis.md) |
+| `aggregate_basin_monthly_extent` | Combine AOIs into a basin series by summed counts or area weights | [Analysis](analysis.md) |
 | `generate_catchment_report` | Write the self-contained HTML report plus the 4-CSV bundle | [Reporting](report.md) |
 | `generate_html_report` | Compatibility API: render HTML from a supplied `hydro_years` DataFrame | [Reporting](report.md) |
 | `CatchmentReportPaths` | Paths written by `generate_catchment_report` | [Reporting](report.md) |

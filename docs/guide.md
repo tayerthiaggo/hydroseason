@@ -2,11 +2,9 @@
 
 ## Start here: one call
 
-`run_hydroseason` is the function almost everyone needs. Executing under the frozen
-`hydroseason-v0.2.0` runtime method, it analyzes satellite water data — from a CSV,
+`run_hydroseason` is the function almost everyone needs. It analyzes satellite water data — from a CSV,
 a raster, or fetched directly from DEA WOfS — and writes back a self-contained HTML
-report, an immutable run manifest (`_manifest.json`, schema `hydroseason-run-manifest-v1`),
-and four CSVs.
+report, four CSVs, and a run manifest (`<stem>_manifest.json`).
 
 ```python
 from hydroseason import run_hydroseason
@@ -19,49 +17,12 @@ result = run_hydroseason(
 
 print(f"Regime: {result.analysis.regime.regime} | Route: {result.analysis.route}")
 print(f"HTML report: {result.artifacts.html}")
-print(f"Manifest: {result.artifacts.manifest}")
+print(f"Manifest: {result.artifacts.manifest_json}")
 ```
 
 See real output first: [Fitzroy River report](examples/fitzroy-river-wa.html)
 (seasonal regime) and [Lachlan River report](examples/lachlan-river-nsw.html)
 (aseasonal regime).
-
----
-
-## Many AOIs: one row, one analysis
-
-For independent DEA/STAC analyses from a multi-row vector layer (GeoPackage, Shapefile,
-GeoJSON), use `run_hydroseason_many`. One input row produces one analysis, one output
-directory, and one cryptographic run manifest; each result is isolated under its resolved identifier.
-This differs from `run_hydroseason`, which treats a multi-row AOI as one combined analysis over
-its union footprint. A one-row `MultiPolygon` is still one AOI.
-
-```python
-from hydroseason import run_hydroseason_many
-
-batch = run_hydroseason_many(
-    "catchments.gpkg",
-    output_dir="results",
-    cache_dir="cache",
-    start_date="2000-01-01",
-    end_date="2025-12-01",
-    id_col="catchment_id",
-    workers="auto",
-)
-for outcome in batch.outcomes:
-    if outcome.succeeded:
-        print(outcome.id, outcome.result.artifacts.html)
-    else:
-        print(outcome.id, outcome.error_type, outcome.error_message)
-batch.raise_for_failures()
-```
-
-### Memory-bounded scheduling (80% RAM budget)
-
-`run_hydroseason_many` schedules tasks dynamically based on system resource availability:
-- `workers="auto"` uses a default concurrency cap of 2 and schedules work dynamically.
-- Work is admitted only within an **80% RAM budget** (`max_ram_fraction=0.8` / "80% of currently available RAM"), evaluated via pre-flight memory estimation (`estimate_aoi_peak_gb`).
-- Tasks queue safely if memory is constrained, avoiding out-of-memory worker termination during large satellite raster extractions.
 
 ---
 
@@ -211,6 +172,8 @@ instead; see [CLI Recipes](cli-recipes.md).
 | `.artifacts.hydro_years_csv` | Hydrological-year markers CSV |
 | `.artifacts.wet_event_csv` | Wet inundation events CSV |
 | `.artifacts.low_spells_csv` | Low-extent spells CSV |
+| `.artifacts.manifest_json` | Run manifest: method fingerprint, input and output checksums, versions |
+| `.preflight_result` | DEA recurrent-water screen result (`None` for CSV/raster input) |
 | `.rainfall`, `.rainfall_status`, `.rainfall_comparison` | Present only when rainfall was requested |
 | `.warnings` | Non-fatal issues encountered (e.g. rainfall fetch failure) |
 
@@ -265,14 +228,11 @@ per-cycle `timing_status` fields and
 
 ## Many AOIs: one row, one analysis
 
-Use `run_hydroseason_many` for a DEA/STAC run that keeps each source vector row
-independent. `run_hydroseason` accepts a multi-row AOI as one combined analysis
-over the union footprint; `run_hydroseason_many` preserves rows, so one input
-row produces one analysis and one report. A one-row `MultiPolygon` stays one
-AOI. Results remain in input order even though the scheduler may start larger
-AOIs first.
-
-In other words: one input row produces one analysis and one report.
+Use `run_hydroseason_many` for a DEA/STAC run over a multi-row vector layer
+(GeoPackage, Shapefile, GeoJSON): one input row produces one analysis and one report.
+`run_hydroseason`, by contrast, treats a multi-row AOI as one combined analysis
+over the union footprint. A one-row `MultiPolygon` stays one AOI. Results
+remain in input order even though the scheduler may start larger AOIs first.
 
 ```python
 from hydroseason import run_hydroseason_many
@@ -306,8 +266,9 @@ error for all failures.
 ### Batch memory and threads
 
 With `workers="auto"`, HydroSeason chooses at most the available logical CPU
-count but applies a default concurrency cap of 2. It reserves 20% and uses
-80% of currently available RAM (`max_ram_fraction=0.8`) as the global admission budget. Before each
+count but applies a default concurrency cap of 2. By default it uses 80% of
+currently available RAM as the global admission budget; pass
+`memory_budget_gb=` to set it explicitly. Before each
 run, a conservative native-30 m peak-memory estimate is calculated from the
 AOI bounding box; the box is intentionally conservative because it includes
 space outside irregular geometry. An AOI estimated above the budget emits a
@@ -381,13 +342,11 @@ Boundary recoverability metrics (such as leave-one-year-out within-one-month acc
 
 ## Advanced: calling the building blocks directly
 
-> [!NOTE]
-> Skip `run_hydroseason` and call `load_extent_csv`/`analyze_catchment`/`generate_catchment_report` yourself
-
-Useful when you need custom loading, or want to inspect/modify the
+Skip `run_hydroseason` and call `load_extent_csv`, `analyze_catchment`, and
+`generate_catchment_report` yourself. Useful when you need custom loading, or want to inspect/modify the
 analysis before generating a report.
 
-### Path 1: Extent CSV (Lightweight / Core Only)
+### Extent CSV (core install)
 
 ```python
 from hydroseason import analyze_catchment, load_extent_csv
@@ -396,7 +355,7 @@ extent = load_extent_csv("monthly_extent.csv", date_col="date", value_col="exten
 analysis = analyze_catchment(extent)
 ```
 
-### Path 2: Generic Rasters or Local Zarr
+### Rasters or local Zarr
 
 Requires `pip install "hydroseason[raster]"`.
 
@@ -410,7 +369,7 @@ masks = load_monthly_masks(
 extent = monthly_water_extent(masks)
 ```
 
-### Path 3: WOfS / STAC Acquisition
+### DEA WOfS via STAC
 
 Requires `pip install "hydroseason[stac]"`.
 
@@ -428,7 +387,7 @@ extent = load_wofs_monthly_extent(
 )
 ```
 
-### HTML & CSV Report Bundle Export
+### Report bundle
 
 ```python
 from hydroseason import analyze_catchment, generate_catchment_report, load_extent_csv
@@ -450,18 +409,14 @@ paths = generate_catchment_report(
 named catchment). If omitted or blank, the report uses **HydroSeason
 results** and the files use the `hydroseason-results` stem.
 
-When run via the orchestrator (`run_hydroseason`), an immutable cryptographic
-run manifest (`<stem>_manifest.json`, schema `hydroseason-run-manifest-v1`) is
-automatically generated alongside the HTML and CSVs, recording the frozen method
-policy (`hydroseason-v0.2.0`), its SHA-256 fingerprint, runtime environment, and
-output checksums.
+`generate_catchment_report` also writes the run manifest
+(`<stem>_manifest.json`, schema `hydroseason-run-manifest-v1`) recording the
+method policy (`hydroseason-v0.2.0`) and its fingerprint, package and
+dependency versions, and output checksums; `paths.manifest_json` points to it.
 
 ---
 
 ## Advanced: DEA acquisition internals
-
-> [!NOTE]
-> Canonical mask codes, the fixed historical water mask, planning footprints, and cache integrity
 
 ### Canonical Mask Shape
 
@@ -500,25 +455,34 @@ stats = open_wo_statistics(stac_url="https://explorer.dea.ga.gov.au/stac", aoi="
 ```
 
 ### 2. Conservative Planning Footprint (`WetPlanningFootprint`)
-To optimize tile acquisition and I/O without shrinking the scientific denominator, generate a conservative max-pooled planning footprint:
+To limit tile reads without shrinking the scientific denominator, build a
+conservative max-pooled planning footprint from the WOfS statistics:
+
 ```python
-from hydroseason import build_wet_planning_footprint, acquire_wofs_cache
+from hydroseason import acquire_wofs_cache, build_wet_planning_footprint, open_wo_statistics
 
-footprint = build_wet_planning_footprint(aoi="aoi.geojson", resolution_m=30)
+stats = open_wo_statistics("aoi.geojson")
+footprint = build_wet_planning_footprint(stats, requested_years=range(2005, 2026))
 
-# Pass footprint as performance-only I/O filter
 handle = acquire_wofs_cache(
-    stac_url="https://explorer.dea.ga.gov.au/stac",
-    aoi="aoi.geojson",
-    planning_footprint=footprint,
+    "https://explorer.dea.ga.gov.au/stac",
+    "ga_ls_wo_3",
+    "aoi.geojson",
+    "2005-01-01",
+    "2025-12-01",
+    cache_root="output/wofs_cache",
+    planning_footprint=footprint,  # performance-only read filter
 )
-    ```
+```
 
-> [!IMPORTANT]
-> **Superset Guarantee:** `WetPlanningFootprint` expands native wet pixels via max pooling. All historical-mask pixels remain inside the planning footprint. The exact historical raster, not this performance-only superset, determines `n_aoi` and `invalid_pct`.
+!!! important "Superset guarantee"
+    `WetPlanningFootprint` expands native wet pixels via max pooling. All historical-mask pixels remain inside the planning footprint.
+    The exact historical raster, not this performance-only superset, determines
+    `n_aoi` and `invalid_pct`.
 
-> [!NOTE]
-> **Full-AOI diagnostic mode:** Pass `use_historical_water_mask=False`, or use `--full-aoi` in the extraction script, only when an explicit full-AOI diagnostic/reference result is required.
+!!! note "Full-AOI diagnostic mode"
+    Pass `use_historical_water_mask=False` to `load_wofs_monthly_extent` only
+    when an explicit full-AOI diagnostic/reference result is required.
 
 ### 3. Mask Cache Integrity & Dual Composite Bundles
 Local cache stores record persistent metadata to prevent tamper or mismatched parameters:

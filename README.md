@@ -6,45 +6,45 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/tayerthiaggo/hydroseason/blob/main/LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21866898.svg)](https://doi.org/10.5281/zenodo.21866898)
 
-**HydroSeason is an open-source Python package for hydrological-year detection and seasonal/aseasonal analysis from monthly satellite-derived surface-water extent.**
+**Find the hydrological year in satellite surface-water data — or learn that there isn't one.**
 
-HydroSeason turns a monthly surface-water record into a hydrological year report — from a satellite-derived water-mask time series (such as Digital Earth Australia Water Observations), it works out when a catchment floods and dries, where each hydrological year begins and ends, and whether the pattern is even seasonal at all.
+HydroSeason reads a monthly surface-water extent record (for example, from
+Digital Earth Australia Water Observations) and tells you whether the
+catchment floods and dries on a reliable annual cycle. If it does, you get
+per-year boundaries and wet/dry phases. If it doesn't, you get flood events
+and low-water spells instead of a forced calendar.
 
-> [!NOTE]
-> HydroSeason analyzes surface-water extent percentages. It does **not** estimate river discharge, channel depth, total water volume, or groundwater storage.
-
----
+> **Scope:** HydroSeason measures surface-water **extent**. It does not
+> estimate discharge, depth, volume, or groundwater.
 
 ## What you get
 
 [![HydroSeason report preview](https://raw.githubusercontent.com/tayerthiaggo/hydroseason/main/docs/assets/report-preview.png)](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa.html)
 
-One function call gives you one self-contained HTML report, an immutable
-run manifest (`_manifest.json`), an interactive water-extent timeline with
-each hydrological year, its wet and dry phases, and the flood events and low
-spells found in the record. Plus four CSVs carrying the same numbers for your
-own analysis: `_monthly`, `_hydro_years`, `_wet_event`, and `_low_spells`.
+One call writes a self-contained HTML report, four CSVs (`_monthly`,
+`_hydro_years`, `_wet_event`, `_low_spells`), and a run manifest that
+records the method version and input checksums.
 
-Open a real one (no install needed):
+Open a real report (no install needed):
 
-- [Fitzroy River (WA)](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa.html) — a strongly seasonal monsoonal catchment
-- [Lachlan River (NSW)](https://tayerthiaggo.github.io/hydroseason/examples/lachlan-river-nsw.html) — an aseasonal one, characterized by flood events and dry spells instead of forced hydrological years
-- [Fitzroy River, with rainfall context](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa-rainfall.html) — the same water analysis, with rainfall added purely as annotation
+- [Fitzroy River (WA)](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa.html) — seasonal: per-year boundaries
+- [Lachlan River (NSW)](https://tayerthiaggo.github.io/hydroseason/examples/lachlan-river-nsw.html) — aseasonal: events and dry spells
+- [Fitzroy River + rainfall](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa-rainfall.html) — rainfall shown as context only
 
----
-
-## Installation
+## Install
 
 ```bash
-pip install hydroseason              # Core: CSV detection & reports (pandas, numpy)
-pip install "hydroseason[raster]"    # + xarray, rioxarray, rasterio, geopandas, dask, zarr
-pip install "hydroseason[stac]"      # + pystac-client, odc-stac (DEA STAC acquisition)
-pip install "hydroseason[all]"       # Complete raster + STAC dependencies
+pip install hydroseason              # CSV input (pandas + numpy only)
+pip install "hydroseason[raster]"    # + NetCDF/Zarr/xarray input and SILO rainfall
+pip install "hydroseason[stac]"      # + fetch DEA Water Observations directly
 ```
 
----
+Python 3.10–3.13. Run `hydroseason doctor` to check which inputs your
+environment supports.
 
 ## Quickstart
+
+From a monthly extent CSV (`date`, `extent_pct`, optional `invalid_pct`):
 
 ```python
 from hydroseason import run_hydroseason
@@ -54,140 +54,50 @@ result = run_hydroseason(
     output_dir="output/report",
     aoi_name="My AOI",
 )
-
-print(f"Regime: {result.analysis.regime.regime}")
-print(f"Route: {result.analysis.route}")
-print(f"HTML: {result.artifacts.html}")
+print(result.analysis.regime.regime)  # "seasonal", "aseasonal", or "insufficient_record"
+print(result.analysis.route)          # "per_year_detection", "event_characterisation", ...
+print(result.artifacts.html)
 ```
 
-`run_hydroseason` is the one function most people need — see
-[the four ways to run it](#the-four-ways-to-run-it) below for rasters,
-DEA fetching, and optional rainfall context.
-
-### Many AOIs: one vector row, one report
-
-For independent DEA/STAC analyses from a multi-row vector layer, use
-`run_hydroseason_many`. One input row produces one analysis and one report;
-each result is isolated under its resolved identifier. This differs from
-`run_hydroseason`, which treats a multi-row AOI as one combined analysis over
-its union footprint. A one-row `MultiPolygon` is still one AOI.
-
-```python
-from hydroseason import run_hydroseason_many
-
-batch = run_hydroseason_many(
-    "catchments.gpkg",
-    output_dir="results",
-    cache_dir="cache",
-    start_date="2000-01-01",
-    end_date="2025-12-01",
-    id_col="catchment_id",
-    workers="auto",
-)
-for outcome in batch.outcomes:
-    if outcome.succeeded:
-        print(outcome.id, outcome.result.artifacts.html)
-    else:
-        print(outcome.id, outcome.error_type, outcome.error_message)
-batch.raise_for_failures()
-```
-
-`workers="auto"` uses a default concurrency cap of 2 and an automatic memory budget of 80% of currently available RAM (`max_ram_fraction=0.8`). See the [Usage Guide](https://tayerthiaggo.github.io/hydroseason/guide/#batch-memory-and-threads) for memory and scheduling details.
-
-For runs long enough to outlive a notebook session, use the CLI — same
-orchestrator, its own process, resumable via `--cache-dir`:
+Or fetch DEA data for a polygon, from the command line:
 
 ```bash
-hydroseason run --aoi data/fitzroy_kimberley_aoi.geojson --aoi-name "Fitzroy River (WA)" \
+hydroseason run --aoi catchment.geojson --aoi-name "My catchment" \
   --start-date 2005-01-01 --end-date 2025-12-01 \
-  --output-dir output/fitzroy --cache-dir cache/fitzroy
+  --output-dir output/report --cache-dir cache
 ```
 
-`hydroseason doctor` reports whether an environment has the optional
-dependencies a given path needs. Full recipes:
-[CLI Recipes](https://tayerthiaggo.github.io/hydroseason/cli-recipes/).
-
----
+The same function also takes NetCDF/Zarr rasters, optional rainfall, and —
+through `run_hydroseason_many` — many AOIs at once. See the
+[Usage Guide](https://tayerthiaggo.github.io/hydroseason/guide/) and the
+[notebooks](https://github.com/tayerthiaggo/hydroseason/tree/main/notebooks/).
 
 ## How it works
-Under the frozen sole method policy (`hydroseason-v0.2.0`), the workflow operates deterministically:
 
-1. **You give it monthly water-extent data** — a CSV you already have, a raster/NetCDF/Zarr cube, or nothing at all (it fetches Digital Earth Australia satellite data for you).
-2. **On a DEA fetch, it screens the AOI first** — one all-time WOfS Statistics read checks the catchment actually holds recurrent surface water before any monthly data is paid for; an AOI with none raises `HydroSeasonPreflightError` instead of returning an empty analysis. A Statistics outage never becomes a "no water" answer.
-3. **It tests whether the catchment has an established recurring annual cycle** — applying circular Kuiper uniformity tests on detrended series for both peaks and troughs with a mandatory five-detectable-year guard.
-4. **It picks the matching analysis automatically** — a record with confirmed recurring annual timing and at least seven detectable cycles receives per-year dynamic boundaries refined via direct-profile Huber loss; an irregular, dryland, or cycle-sparse catchment gets discrete flood-event and low-extent spell characterization instead, rather than forcing a yearly pattern that isn't supported.
-5. **Optional rainfall adds context, never changes the answer** — rainfall can be fetched or supplied alongside the water data, but it only annotates the report; it is completely independent and can never alter the regime, route, boundaries, phases, events, or spells decided from water alone.
-6. **It writes one self-contained HTML report, an immutable run manifest, and four CSVs** — open the HTML anywhere, verify execution provenance via the run manifest (`hydroseason-run-manifest-v1`), and use the CSVs for downstream analysis.
+1. **Screen** — on a DEA fetch, one read of the all-time WOfS statistics
+   checks the AOI holds recurrent water before any monthly data is downloaded.
+2. **Test seasonality** — circular Kuiper tests ask whether annual peaks
+   *and* troughs recur in the same calendar months (at least five detectable
+   years required).
+3. **Route** — a seasonal record with at least seven resolved cycles gets
+   per-year boundaries, refined with a robust (Huber) profile fit. Anything
+   else gets flood-event and low-spell analysis.
+4. **Report** — rainfall, if added, annotates the report but never changes
+   the answer, which is decided from water alone.
 
-```
-CSV, raster, or DEA fetch  →  run_hydroseason (v0.2.0)  →  seasonal or aseasonal route  →  HTML report + manifest + 4 CSVs
-```
+Every run uses one frozen method, `hydroseason-v0.2.0`, recorded in the run
+manifest. Details: [Methods Reference](https://tayerthiaggo.github.io/hydroseason/methods/).
 
----
+## Case studies
 
-## The four ways to run it
-
-| You have... | Pass it as `water_source` | Extra required |
-|---|---|---|
-| A monthly extent CSV or `pandas.DataFrame` | the CSV path or the DataFrame | none (core install) |
-| A NetCDF/Zarr file, or an `xarray` object | the file path, or the `Dataset`/`DataArray` | `hydroseason[raster]` |
-| Nothing yet — fetch it from DEA | `None`, plus `aoi=`, `start_date=`, `end_date=` | `hydroseason[stac]` |
-| Any of the above, plus rainfall context | add `fetch_rainfall=True` or `rainfall_csv_path=` | `hydroseason[raster]` for SILO fetch |
-
-Runnable examples for each: [Usage Guide — The four ways to run it](https://tayerthiaggo.github.io/hydroseason/guide/#the-four-ways-to-run-it),
-or the [notebooks](https://github.com/tayerthiaggo/hydroseason/tree/main/notebooks/) — start with
-[01_quickstart.ipynb](https://github.com/tayerthiaggo/hydroseason/blob/main/notebooks/01_quickstart.ipynb).
-Acquisition internals (the fixed historical water mask, planning
-footprints, cache integrity, composite bundles) are documented in
-[Advanced: DEA acquisition internals](https://tayerthiaggo.github.io/hydroseason/guide/#advanced-dea-acquisition-internals).
-
----
-
-## Case Studies
-
-Three fully reproducible offline case studies using 2005–2025 DEA 30 m
-whole-catchment extent data across five Australian catchments (Daly,
-Fitzroy, Gilbert, Lachlan, Moonie):
-
-1. **[Main Catchment Workflow](https://tayerthiaggo.github.io/hydroseason/case-studies/main-workflow/)** — Route-aware analysis across five catchments: three seasonal/marginal monsoonal basins, two aseasonal dryland basins.
-2. **[Resolution and Acquisition Evidence](https://tayerthiaggo.github.io/hydroseason/case-studies/resolution-and-acquisition/)** — Why 30 m resolution is the release standard: 60/90/300 m coarsening fails pre-declared fidelity gates for low-SNR catchments.
-3. **[Rainfall Context](https://tayerthiaggo.github.io/hydroseason/case-studies/rainfall-context/)** — Proves rainfall is strictly additive: every water-only column stays byte-identical with rainfall attached.
-
----
-
-## Scientific Limitations
-
-- **Timing evidence**: Fewer than 30 usable annual timings (not 30 months) can make bootstrap intervals wide; fewer than five usable annual timings is insufficient for regime assessment.
-- **Circular timing**: A low mean resultant length can mean diffuse timing or two cancelling preferred seasons; inspect the accompanying Kuiper uniformity result and trough evidence.
-
-- **Extent is not Volume or Discharge**: Surface area percentage (`extent_pct`) dilutes narrow river channels and misses sub-canopy water.
-- **Cloud Gaps**: High cloud/shadow invalid coverage (`invalid_pct`) distorts extent statistics if unflagged.
-- **Resolution**: Coarsening spatial resolution distorts peak/trough timing and event boundaries. 30 m resolution remains authoritative.
-
----
-
-## Entry Points
-
-| Symbol | Purpose |
-|---|---|
-| `run_hydroseason` | One-call orchestrator: resolve water input, analyze, optional rainfall, write report |
-| `HydroSeasonRunResult` | Everything a `run_hydroseason` call produced (`.analysis`, `.artifacts`, `.rainfall_status`, ...) |
-| `run_hydroseason_many` | DEA/STAC batch orchestrator: preserve each input vector row as one independent run |
-| `HydroSeasonBatchResult` | Source-ordered successful and failed per-row outcomes; call `.raise_for_failures()` after inspection |
-| `load_extent_csv` | Read a monthly extent CSV directly, for the lower-level building blocks |
-| `analyze_catchment` | Assess regime, then run the analysis that regime supports (the routing authority) |
-| `generate_catchment_report` | Write the self-contained HTML report plus the 4-CSV bundle |
-| `load_wofs_monthly_extent` | Fetch DEA WOfS directly, without the full orchestrator |
-| `preflight` | Report what an AOI's record can support, before analysing it ([guide](https://tayerthiaggo.github.io/hydroseason/preflight/)) |
-| `HydroSeasonPreflightError` | Raised when the DEA screen finds no recurrent surface water; carries the measured counts |
-
-Full API reference, grouped by task: [Workflow, Loading Data, Analysis, Reporting](https://tayerthiaggo.github.io/hydroseason/api/).
-
----
+Three reproducible studies on five Australian catchments (DEA 30 m,
+2005–2025): the [main workflow](https://tayerthiaggo.github.io/hydroseason/case-studies/main-workflow/),
+[resolution sensitivity](https://tayerthiaggo.github.io/hydroseason/case-studies/resolution-and-acquisition/),
+and [rainfall context](https://tayerthiaggo.github.io/hydroseason/case-studies/rainfall-context/).
 
 ## Citation
 
-If you use HydroSeason in your research, please cite the **software release** (see [`CITATION.cff`](https://github.com/tayerthiaggo/hydroseason/blob/main/CITATION.cff)):
+Please cite the software release ([`CITATION.cff`](https://github.com/tayerthiaggo/hydroseason/blob/main/CITATION.cff)):
 
 ```bibtex
 @software{tayer_hydroseason,
@@ -199,10 +109,8 @@ If you use HydroSeason in your research, please cite the **software release** (s
 }
 ```
 
-Full citation guidance, including the version-specific DOI policy, is in [docs/citation.md](https://tayerthiaggo.github.io/hydroseason/citation/).
-
----
+See [Citation](https://tayerthiaggo.github.io/hydroseason/citation/) for version-specific DOIs.
 
 ## License
 
-MIT License — see [LICENSE](https://github.com/tayerthiaggo/hydroseason/blob/main/LICENSE).
+MIT — see [LICENSE](https://github.com/tayerthiaggo/hydroseason/blob/main/LICENSE).

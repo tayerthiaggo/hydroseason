@@ -29,7 +29,7 @@ months.
 
 | Field | Units / range | `None` or zero when | Meaning |
 |---|---|---|---|
-| `amplitude_snr` | Unitless, >=0 (finite float) | `0.0` for insufficient records | Climatological amplitude divided by mean within-month interannual SD. |
+| `amplitude_snr` | Unitless, >=0 (finite float) | `0.0` for insufficient records | Climatological amplitude divided by mean within-month interannual SD. Descriptive only; does not set the regime. |
 | `peak_timing_concentration`, `trough_timing_concentration` | Unitless mean resultant length, 0–1 | `None` for insufficient records | Concentration of annual peak/trough months. |
 | `*_timing_concentration_ci_low`, `*_ci_high` | Unitless 0–1 | `None` for insufficient records | Percentile 95% bootstrap bounds for the corresponding `R`. |
 | `peak_timing_uniformity_p`, `trough_timing_uniformity_p` | p-value 0–1 | `None` for insufficient records | Deterministic Monte Carlo Kuiper p-value for the discrete 12-month uniform null. |
@@ -41,9 +41,9 @@ months.
 | `n_whole_zero_years` | Integer >=0 years | -- | Count of years whose usable months are all exact zero. Contributes to dry-duration/event summaries but no timing observation. |
 | `pixel_support_status` | `"available"` \| `"unavailable"` | -- | Whether pixel counts (`n_water`/`n_valid`/`n_invalid`/`n_aoi`) are present. Percentage-only inputs report `"unavailable"`, and the calibrated `min_peak_water_pixels` threshold is not consulted for them. |
 | `timing_evidence` | `"supported"` \| `"insufficient"` \| `"unsupported"` | -- | `insufficient` when `min(n_peak_timing_years, n_trough_timing_years) < min_informative_years`; `unsupported` when established seasonality/uniformity evidence rejects an annual cycle; otherwise `supported`. |
-| `mean_monthly_peak_month`, `mean_monthly_trough_month` (deprecated aliases `climatological_*`) | Calendar month 1–12 | `None` for aseasonal/insufficient records | Extrema of mean monthly extent when the record supports reporting them. |
+| `mean_monthly_peak_month`, `mean_monthly_trough_month` | Calendar month 1–12 | `None` for aseasonal/insufficient records | Extrema of mean monthly extent when the record supports reporting them. |
 
-Public regime assessment and routing emit the runtime `decision_policy` value `hydroseason_0_2_0` while using exact empirical monthly extrema, circular timing statistics, and calibrated timing-identifiability thresholds. Extent is observed surface-water availability, not rainfall, discharge, storage volume, a climate variable, or natural-condition hydrology. A record's route is `per_year_detection` only when its regime is seasonal or marginal *and* its timing evidence is supported; a seasonal or marginal record with insufficient identifiable timing keeps its regime label but routes to `event_characterisation`. The recurrence-narrowing promotion record remains withheld pending blinded cohort review; see the [Methods Reference](../methods.md) for the frozen runtime method specification.
+Public regime assessment and routing emit the runtime `decision_policy` value `hydroseason_0_2_0` while using exact empirical monthly extrema, circular timing statistics, and calibrated timing-identifiability thresholds. Extent is observed surface-water availability, not rainfall, discharge, storage volume, a climate variable, or natural-condition hydrology. A record's route is `per_year_detection` only when its regime is seasonal *and* its timing evidence is supported; a seasonal record with insufficient identifiable timing keeps its regime label but routes to `event_characterisation`. See the [Methods Reference](../methods.md) for the method specification.
 
 ::: hydroseason._regime
     options:

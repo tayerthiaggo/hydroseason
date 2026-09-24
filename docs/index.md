@@ -1,46 +1,35 @@
 # HydroSeason
 
-Remote-sensing-first hydrological year detection and regime routing from **monthly surface-water extent**.
+Hydrological-year detection and seasonal/aseasonal analysis from **monthly
+satellite surface-water extent**, such as Digital Earth Australia Water
+Observations.
 
-HydroSeason detects wet/dry timing, hydrological year boundaries, and inundation regimes in satellite-derived water-mask time series (such as Digital Earth Australia Water Observations).
+HydroSeason tests whether a catchment floods and dries on a reliable annual
+cycle. If it does, you get per-year boundaries and wet/dry phases. If it
+doesn't, you get flood events and low-water spells instead of a forced
+calendar.
 
-> [!NOTE]
-> HydroSeason analyzes surface-water extent percentages. It does **not** estimate river discharge, channel depth, total water volume, or groundwater storage.
-
----
+!!! note "Scope"
+    HydroSeason measures surface-water **extent**. It does not estimate
+    discharge, depth, volume, or groundwater.
 
 ## What you get
 
 [![HydroSeason report preview](assets/report-preview.png)](examples/fitzroy-river-wa.html)
 
-One self-contained HTML report plus four CSVs per catchment, from one call
-to `run_hydroseason`. Live examples:
-[Fitzroy River](examples/fitzroy-river-wa.html) (seasonal regime) ·
-[Lachlan River](examples/lachlan-river-nsw.html) (aseasonal regime) ·
+One call writes a self-contained HTML report, four CSVs, and a run manifest.
+Live examples:
+[Fitzroy River](examples/fitzroy-river-wa.html) (seasonal) ·
+[Lachlan River](examples/lachlan-river-nsw.html) (aseasonal) ·
 [Fitzroy + rainfall context](examples/fitzroy-river-wa-rainfall.html).
 
----
-
-## Installation
+## Install
 
 ```bash
-pip install hydroseason              # Core: CSV detection & reports (pandas, numpy)
-pip install "hydroseason[raster]"    # + xarray, rioxarray, rasterio, geopandas, dask, zarr
-pip install "hydroseason[stac]"      # + pystac-client, odc-stac (DEA STAC acquisition)
-pip install "hydroseason[all]"       # Complete raster + STAC dependencies
+pip install hydroseason              # CSV input (pandas + numpy only)
+pip install "hydroseason[raster]"    # + NetCDF/Zarr/xarray input and SILO rainfall
+pip install "hydroseason[stac]"      # + fetch DEA Water Observations directly
 ```
-
----
-
-## Input Paths
-
-| Input Type | Entry Point | Required Extra |
-|---|---|---|
-| Monthly extent CSV | [`load_extent_csv`](guide.md#path-1-extent-csv-lightweight-core-only) | Core only |
-| Generic water-mask rasters / Zarr | [`load_monthly_masks`](guide.md#path-2-generic-rasters-or-local-zarr) | `[raster]` |
-| Digital Earth Australia (DEA) STAC | [`open_wo_statistics`](guide.md#path-3-wofs-stac-acquisition) | `[stac]` |
-
----
 
 ## Quickstart
 
@@ -58,33 +47,16 @@ print(f"Route: {result.analysis.route}")
 print(f"HTML: {result.artifacts.html}")
 ```
 
-See [Start here: one call](guide.md#start-here-one-call) in the Usage Guide
-for the other three ways to run it (rasters/NetCDF/Zarr, DEA fetch, and
-optional rainfall context), or call the lower-level building blocks
-(`load_extent_csv`, `analyze_catchment`, `generate_catchment_report`)
-directly — see [Advanced: calling the building blocks directly](guide.md#advanced-calling-the-building-blocks-directly).
-
----
-
-## Multi-AOI runs
-
-`run_hydroseason_many` is the DEA/STAC entry point for a vector layer with
-many independent AOIs. It preserves source rows: one input row produces one
-analysis and one report, while one-row `MultiPolygon` geometries remain one
-AOI. See [Many AOIs: one row, one analysis](guide.md#many-aois-one-row-one-analysis).
-
-## Navigation & Documentation
+## Where next
 
 | Page | Contents |
 |---|---|
-| [User Guide](guide.md) | Start with `run_hydroseason`, the four ways to run it, routing, data quality, and advanced DEA internals |
-| [CLI Recipes](cli-recipes.md) | Run the same orchestrator from the command line, with progress, log redirection, cache reuse, and exit status |
+| [Usage Guide](guide.md) | The four ways to run `run_hydroseason`, batches, routing, data quality, DEA internals |
+| [Methods Reference](methods.md) | The frozen `hydroseason-v0.2.0` method and its validation |
+| [CLI Recipes](cli-recipes.md) | The same workflow from the command line: progress, logs, resuming, exit codes |
 | [Preflight](preflight.md) | What an AOI's record can support, decided before acquisition |
-| [Hydrological State](hydrological-state.md) | Dynamic years, trough diagnostics, and phase models |
-| [Case Studies Overview](case-studies/index.md) | Three reproducible studies across five catchments |
-| [Main Workflow Study](case-studies/main-workflow.md) | Case Study 1 — Route-aware analysis across 5 catchments |
-| [Resolution & Acquisition Evidence](case-studies/resolution-and-acquisition.md) | Case Study 2 — Resolution fidelity and pruning benchmarks |
-| [Rainfall Context](case-studies/rainfall-context.md) | Case Study 3 — Rainfall as strictly additive context |
-| [Report Export Columns](report-columns.md) | CSV column dictionary for generated report bundles |
-| [API Reference](api/index.md) | Public functions, classes, and exported entry points |
-| [Citation](citation.md) | Software and paper citation details |
+| [Dynamic Hydrological State](hydrological-state.md) | Per-year boundaries, trough diagnostics, and phases |
+| [Case Studies](case-studies/index.md) | Three reproducible studies across five Australian catchments |
+| [Export Columns](report-columns.md) | Column dictionary for the four CSVs |
+| [API Reference](api/index.md) | Every public function and class |
+| [Citation](citation.md) | How to cite HydroSeason |

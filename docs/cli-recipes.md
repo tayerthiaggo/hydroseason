@@ -16,11 +16,9 @@ In-memory DataFrames and xarray objects stay kernel-only, as do advanced
 ## 1. Install
 
 ```bash
-pip install hydroseason                    # core: CSV/DataFrame input
-pip install "hydroseason[raster]"          # NetCDF/Zarr/xarray + SILO rainfall
-pip install "hydroseason[stac]"            # + DEA WOfS fetching
-pip install "hydroseason[all]"             # raster + stac
-pip install "hydroseason[case-study,docs]" # reproducibility + docs builds
+pip install hydroseason              # core: CSV/DataFrame input
+pip install "hydroseason[raster]"    # + NetCDF/Zarr/xarray and SILO rainfall
+pip install "hydroseason[stac]"      # + DEA WOfS fetching
 ```
 
 Check what an environment can actually do:
@@ -56,12 +54,7 @@ hydroseason run \
   --aoi-name "Fitzroy River (WA)"
 ```
 
-```bash
-python -m hydroseason run \
-  --water-source monthly_extent.csv \
-  --output-dir output/fitzroy \
-  --aoi-name "Fitzroy River (WA)"
-```
+`python -m hydroseason run ...` is equivalent.
 
 ## 3. Run rasters, NetCDF, or Zarr
 
@@ -200,44 +193,34 @@ output for scripting:
 hydroseason run --water-source monthly_extent.csv --output-dir out --json
 ```
 
-## 7. Method Policy and Run Manifest
+## 7. Run manifest
 
-HydroSeason v0.2.0 operates strictly under the frozen scientific method `hydroseason-v0.2.0`. There is **no runtime method selector** (runtime configuration is immutable).
-
-Every execution automatically generates an immutable cryptographic run manifest (`<stem>_manifest.json`) complying with schema `hydroseason-run-manifest-v1`. It records the exact method policy fingerprint (`4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de`), runtime platform, input provenance, and output file checksums:
+Every run writes `<stem>_manifest.json` (schema `hydroseason-run-manifest-v1`)
+next to the report. There is no method selector: every run uses the frozen
+`hydroseason-v0.2.0` method, and the manifest records its fingerprint with the
+input and output checksums. Abridged:
 
 ```json
 {
-  "$schema": "hydroseason-run-manifest-v1",
-  "method_policy_id": "hydroseason-v0.2.0",
-  "method_fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de",
-  "environment": {
-    "os": "Windows",
-    "python_version": "3.12.13"
+  "schema": "hydroseason-run-manifest-v1",
+  "hydroseason_version": "0.2.0",
+  "python": "3.12.13",
+  "method": {
+    "policy_id": "hydroseason-v0.2.0",
+    "fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
   },
-  "inputs": {
-    "water_source": "data/fitzroy_kimberley_aoi.geojson"
+  "input": {
+    "date_min": "2005-01-01",
+    "date_max": "2025-12-01",
+    "n_rows": 252,
+    "extent_sha256": "0725dc45..."
   },
+  "analysis": {"regime": "seasonal", "route": "per_year_detection", "n_hydro_years": 21},
   "outputs": {
-    "html": "output/fitzroy/fitzroy-river-wa.html",
-    "manifest": "output/fitzroy/fitzroy-river-wa_manifest.json",
-    "monthly_csv": "output/fitzroy/fitzroy-river-wa_monthly.csv",
-    "hydro_years_csv": "output/fitzroy/fitzroy-river-wa_hydro_years.csv"
+    "html": {"path": "output/fitzroy/fitzroy-river-wa.html", "sha256": "...", "size_bytes": 1500994}
   }
 }
 ```
 
-## 8. Repository checks
-
-Maintainer and reproducibility commands, for a source checkout rather than
-an installed package:
-
-```text
-python scripts/prepare_case_study_data.py --check
-python scripts/_build_study_case_offline.py --check
-python scripts/_build_study_case_rainfall.py --check
-python scripts/run_resolution_case_study.py --check --output-dir case_studies/results/resolution
-python scripts/render_case_study_docs.py --check
-python -m mkdocs serve
-python -m mkdocs build --strict
-```
+The full file also lists dependency versions, the acquisition source, the
+complete method parameters, preflight results, and every CSV output.

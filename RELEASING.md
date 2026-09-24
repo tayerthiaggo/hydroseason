@@ -94,6 +94,7 @@ git ls-files -c -i --exclude-standard  # must be empty
 python scripts/prepare_case_study_data.py --check
 python scripts/_build_study_case_offline.py --check
 python scripts/_build_study_case_rainfall.py --check
+python scripts/run_resolution_case_study.py --check
 python scripts/render_case_study_docs.py --check
 python -m mkdocs build --strict
 
