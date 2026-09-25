@@ -17,7 +17,18 @@ from affine import Affine
 
 
 @pytest.fixture
-def benchmark_module():
+def benchmark_module(monkeypatch):
+    # The script drops PROJ_LIB/PROJ_DATA at import so its child processes use
+    # pyproj's own database. Snapshot them through monkeypatch so the removal
+    # is undone after the test instead of leaking into later tests in the same
+    # process (a stale PostGIS PROJ_LIB then changes CRS behaviour mid-run).
+    import os
+
+    for name in ("PROJ_LIB", "PROJ_DATA"):
+        if name in os.environ:
+            monkeypatch.setenv(name, os.environ[name])
+        else:
+            monkeypatch.delenv(name, raising=False)
     script = Path(__file__).resolve().parents[1] / "scripts" / "benchmark_wofs_cache.py"
     spec = importlib.util.spec_from_file_location("benchmark_wofs_cache_under_test", script)
     assert spec.loader is not None

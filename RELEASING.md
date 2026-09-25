@@ -83,7 +83,7 @@ python scripts/check_release_metadata.py --tag "v<version>" --require-released
 # 2. Lint, lockfile, and tests
 python -m ruff check hydroseason tests scripts
 uv lock --check
-python -m pytest -q -m "not experimental and not network and not performance" \
+python -m pytest -q -n auto -m "not experimental and not network and not performance" \
   --cov=hydroseason --cov-report=term-missing --cov-fail-under=80
 
 # 3. Method policy, documentation, and clean workspace verification

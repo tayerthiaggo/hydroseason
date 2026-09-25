@@ -8,6 +8,17 @@ import pandas as pd
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _restore_proj_environment(monkeypatch):
+    # Importing scripts/benchmark_wofs_cache.py drops PROJ_LIB/PROJ_DATA;
+    # snapshot them so the removal does not leak into later tests.
+    for name in ("PROJ_LIB", "PROJ_DATA"):
+        if name in os.environ:
+            monkeypatch.setenv(name, os.environ[name])
+        else:
+            monkeypatch.delenv(name, raising=False)
+
+
 def test_benchmark_exactness_uses_pickled_dataframe(tmp_path):
     import importlib.util
 

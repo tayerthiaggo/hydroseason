@@ -20,7 +20,7 @@ The test suite requires Node.js 20 or newer for the real JavaScript interaction
 test used by the offline manager report.
 
 ```bash
-python -m pytest -q
+python -m pytest -q -n auto   # parallel; drop -n auto to run serially
 ```
 
 Slow calibration-style checks are excluded by default; run them with
