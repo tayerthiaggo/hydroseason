@@ -15,6 +15,8 @@ and low-water spells instead of a forced calendar.
 > **Scope:** HydroSeason measures surface-water **extent**. It does not
 > estimate discharge, depth, volume, or groundwater.
 
+**Documentation:** [tayerthiaggo.github.io/hydroseason](https://tayerthiaggo.github.io/hydroseason/)
+
 ## What you get
 
 [![HydroSeason report preview](https://raw.githubusercontent.com/tayerthiaggo/hydroseason/main/docs/assets/report-preview.png)](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa.html)

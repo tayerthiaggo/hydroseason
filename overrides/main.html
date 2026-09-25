@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{# Home page tab reads "HydroSeason - <description>"; other pages keep "<page> - HydroSeason". #}
+{% block htmltitle %}
+  {% if page.is_homepage and page.meta and page.meta.title %}
+    <title>{{ config.site_name }} - {{ page.meta.title }}</title>
+  {% else %}
+    {{ super() }}
+  {% endif %}
+{% endblock %}

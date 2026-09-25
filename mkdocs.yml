@@ -6,6 +6,7 @@ repo_name: tayerthiaggo/hydroseason
 
 theme:
   name: material
+  custom_dir: overrides
   features:
     - content.code.copy
     - navigation.sections
