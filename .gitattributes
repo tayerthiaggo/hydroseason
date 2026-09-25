@@ -1,2 +1,3 @@
 case_studies/data/** -text
 docs/method-policy* text eol=lf
+docs/examples/** -text
