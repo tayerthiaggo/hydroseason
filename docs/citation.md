@@ -4,7 +4,7 @@ If you use HydroSeason in research, cite the **software release**.
 
 ## Software
 
-Prefer the versioned GitHub/Zenodo release.
+Cite the version you used. For HydroSeason 0.2.0:
 
 ```bibtex
 @software{tayer_hydroseason,
@@ -12,12 +12,15 @@ Prefer the versioned GitHub/Zenodo release.
   title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
   version = {0.2.0},
   year    = {2026},
-  url     = {https://github.com/tayerthiaggo/hydroseason}
+  url     = {https://github.com/tayerthiaggo/hydroseason},
+  doi     = {10.5281/zenodo.22956109}
 }
 ```
 
-The README badge links the Zenodo concept DOI for the project; once Zenodo mints
-a DOI for 0.2.0, cite that version-specific DOI when referring to HydroSeason 0.2.0.
+Version DOI (0.2.0): [10.5281/zenodo.22956109](https://doi.org/10.5281/zenodo.22956109).
+To cite the project as a whole, across versions, use the concept DOI
+[10.5281/zenodo.21866898](https://doi.org/10.5281/zenodo.21866898), which the
+README badge links and which always resolves to the latest release.
 
 ## Scope note
 
