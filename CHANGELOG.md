@@ -3,6 +3,13 @@
 All notable changes to HydroSeason are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- The build requirement is now `setuptools>=77`. The PEP 639 `license`
+  metadata used since 0.2.0 fails to build with older setuptools, which the
+  previous `>=68` floor allowed.
+
 ## [0.2.0] - 2026-09-24
 
 This release replaces the heuristic regime rules of 0.1.x with one frozen,
