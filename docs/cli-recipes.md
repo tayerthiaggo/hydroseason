@@ -217,10 +217,13 @@ input and output checksums. Abridged:
   },
   "analysis": {"regime": "seasonal", "route": "per_year_detection", "n_hydro_years": 21},
   "outputs": {
-    "html": {"path": "output/fitzroy/fitzroy-river-wa.html", "sha256": "...", "size_bytes": 1500994}
+    "html": {"path": "fitzroy-river-wa.html", "sha256": "...", "size_bytes": 1757906}
   }
 }
 ```
 
 The full file also lists dependency versions, the acquisition source, the
 complete method parameters, preflight results, and every CSV output.
+Output paths are relative to the manifest, so a moved or shared bundle can
+still be verified. A complete example:
+[`fitzroy-river-wa_manifest.json`](https://github.com/tayerthiaggo/hydroseason/blob/main/docs/examples/fitzroy-river-wa/fitzroy-river-wa_manifest.json).

@@ -415,7 +415,7 @@ def run_hydroseason(
             )
     elif isinstance(water_source, (str, Path)):
         p = Path(water_source)
-        acquisition_info["path"] = str(p)
+        acquisition_info["path"] = p.as_posix()
         if p.is_file():
             try:
                 acquisition_info["sha256"] = sha256_file(p)
@@ -431,7 +431,7 @@ def run_hydroseason(
 
     if aoi is not None:
         if isinstance(aoi, (str, Path)):
-            acquisition_info["aoi"] = str(aoi)
+            acquisition_info["aoi"] = Path(aoi).as_posix()
     if aoi_name is not None:
         acquisition_info["aoi_name"] = aoi_name
     if aoi_gdf is not None and hasattr(aoi_gdf, "crs") and aoi_gdf.crs is not None:

@@ -89,7 +89,8 @@ def test_manifest_outputs_integrity_and_no_self_hash(tmp_path, seasonal_extent):
     assert "manifest" not in outputs
 
     for key, item in outputs.items():
-        p = Path(item["path"])
+        assert item["path"] == Path(item["path"]).name, "output paths are manifest-relative"
+        p = paths.manifest_json.parent / item["path"]
         assert p.exists(), f"Output file for {key} does not exist: {p}"
         assert item["size_bytes"] == p.stat().st_size
         assert item["sha256"] == sha256_file(p)

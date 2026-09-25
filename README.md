@@ -6,8 +6,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/tayerthiaggo/hydroseason/blob/main/LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21866898.svg)](https://doi.org/10.5281/zenodo.21866898)
 
-**Find the hydrological year in satellite surface-water data — or learn that there isn't one.**
-
 HydroSeason reads a monthly surface-water extent record (for example, from
 Digital Earth Australia Water Observations) and tells you whether the
 catchment floods and dries on a reliable annual cycle. If it does, you get
@@ -31,12 +29,22 @@ Open a real report (no install needed):
 - [Lachlan River (NSW)](https://tayerthiaggo.github.io/hydroseason/examples/lachlan-river-nsw.html) — aseasonal: events and dry spells
 - [Fitzroy River + rainfall](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa-rainfall.html) — rainfall shown as context only
 
+Browse a complete output folder (no install needed):
+[`docs/examples/fitzroy-river-wa/`](https://github.com/tayerthiaggo/hydroseason/tree/main/docs/examples/fitzroy-river-wa)
+— the HTML report, the four CSVs
+([monthly](https://github.com/tayerthiaggo/hydroseason/blob/main/docs/examples/fitzroy-river-wa/fitzroy-river-wa_monthly.csv),
+[hydro years](https://github.com/tayerthiaggo/hydroseason/blob/main/docs/examples/fitzroy-river-wa/fitzroy-river-wa_hydro_years.csv),
+[wet events](https://github.com/tayerthiaggo/hydroseason/blob/main/docs/examples/fitzroy-river-wa/fitzroy-river-wa_wet_event.csv),
+[low spells](https://github.com/tayerthiaggo/hydroseason/blob/main/docs/examples/fitzroy-river-wa/fitzroy-river-wa_low_spells.csv)),
+and the [run manifest](https://github.com/tayerthiaggo/hydroseason/blob/main/docs/examples/fitzroy-river-wa/fitzroy-river-wa_manifest.json).
+
 ## Install
 
 ```bash
 pip install hydroseason              # CSV input (pandas + numpy only)
 pip install "hydroseason[raster]"    # + NetCDF/Zarr/xarray input and SILO rainfall
 pip install "hydroseason[stac]"      # + fetch DEA Water Observations directly
+pip install "hydroseason[all]"       # everything: all inputs, DEA fetch, rainfall
 ```
 
 Python 3.10–3.13. Run `hydroseason doctor` to check which inputs your

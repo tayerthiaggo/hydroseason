@@ -16,7 +16,9 @@ boundaries can differ from 0.1.1 for the same input.
 - **Run manifest.** `run_hydroseason` and `hydroseason run` write
   `<stem>_manifest.json` (schema `hydroseason-run-manifest-v1`) with the
   package and dependency versions, method fingerprint, input SHA-256, and
-  output checksums. `CatchmentReportPaths.manifest_json` points to it.
+  output checksums. Output paths are relative to the manifest, so a bundle
+  can be moved and still verified. `CatchmentReportPaths.manifest_json`
+  points to it.
 - **Preflight.** `preflight`, `FeasibilityResult`, `PreflightResult`,
   `PreflightThresholds`, `PreflightProfileUnavailable`, and
   `HydroSeasonPreflightError`. A DEA run first checks that the AOI holds

@@ -1,3 +1,7 @@
+---
+title: Hydrological-year detection from satellite surface-water extent
+---
+
 # HydroSeason
 
 Hydrological-year detection and seasonal/aseasonal analysis from **monthly
@@ -23,12 +27,16 @@ Live examples:
 [Lachlan River](examples/lachlan-river-nsw.html) (aseasonal) ·
 [Fitzroy + rainfall context](examples/fitzroy-river-wa-rainfall.html).
 
+The complete Fitzroy output folder — HTML, four CSVs, and run manifest — is
+[browsable on GitHub](https://github.com/tayerthiaggo/hydroseason/tree/main/docs/examples/fitzroy-river-wa).
+
 ## Install
 
 ```bash
 pip install hydroseason              # CSV input (pandas + numpy only)
 pip install "hydroseason[raster]"    # + NetCDF/Zarr/xarray input and SILO rainfall
 pip install "hydroseason[stac]"      # + fetch DEA Water Observations directly
+pip install "hydroseason[all]"       # everything: all inputs, DEA fetch, rainfall
 ```
 
 ## Quickstart

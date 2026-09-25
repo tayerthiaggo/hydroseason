@@ -211,7 +211,9 @@ def build_run_manifest(
         "warnings": list(analysis.warnings),
     }
 
-    # Outputs section (manifest does not hash itself)
+    # Outputs section (manifest does not hash itself). Every output sits next
+    # to the manifest, so paths are recorded relative to it: the bundle stays
+    # verifiable after it is moved and never embeds the writer's local paths.
     outputs: dict[str, dict[str, Any]] = {}
     for key, path in sorted(artifacts.items()):
         p = Path(path).resolve()
@@ -222,7 +224,7 @@ def build_run_manifest(
             size_bytes = 0
             digest = ""
         outputs[key] = {
-            "path": str(p),
+            "path": p.name,
             "sha256": digest,
             "size_bytes": size_bytes,
         }

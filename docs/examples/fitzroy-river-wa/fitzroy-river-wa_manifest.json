@@ -1,0 +1,123 @@
+{
+  "acquisition": {
+    "aoi": "data/fitzroy_catchment.geojson",
+    "aoi_name": "Fitzroy River (WA)",
+    "crs": "EPSG:4326",
+    "path": "case_studies/data/extent/fitzroy_river_wa_30m.csv",
+    "sha256": "148e578bf5256fac0644949fb7c1d51f8ca2df1cca534f833afe9f307eb30f97",
+    "source_kind": "extent_csv"
+  },
+  "analysis": {
+    "n_events": 18,
+    "n_hydro_years": 21,
+    "pass2_abstained_count": 0,
+    "pass2_applied_count": 20,
+    "reason": "seasonal record (peak p=0.001, trough p=0.001): per-year dynamic boundaries are reproducible",
+    "reason_codes": {
+      "accepted": 7,
+      "essential_low_quality_recovery": 2,
+      "interval_peak": 3,
+      "low_quality_peak": 6,
+      "open_span": 1,
+      "recovery_within_noise": 2
+    },
+    "regime": "seasonal",
+    "route": "per_year_detection",
+    "warnings": [
+      "extent_pct measures observed surface water (water availability), not rainfall and not a climate variable",
+      "river regulation, extraction, diversion and land-use change move surface-water extent independently of rainfall, so regime here describes the catchment as observed, not its natural condition",
+      "seasonality policy hydroseason-v0.2.0: class decided by calendar recurrence of annual peak and trough timing at alpha 0.05; aseasonal means recurrence was not established, not that timing is uniform",
+      "3 of 21 usable years contain no wet event above 20% invalid ceiling"
+    ]
+  },
+  "created_at_utc": "2026-09-25T02:50:12.603100+00:00",
+  "dependencies": {
+    "affine": "2.4.0",
+    "dask": "2026.3.0",
+    "dask-image": "2026.5.0",
+    "geopandas": "1.1.3",
+    "h5netcdf": "1.8.1",
+    "h5py": "3.16.0",
+    "numcodecs": "0.13.1",
+    "numpy": "2.4.6",
+    "odc-stac": "0.5.2",
+    "pandas": "3.0.3",
+    "psutil": "7.2.2",
+    "pystac": "1.15.1",
+    "pystac-client": "0.9.0",
+    "rasterio": "1.5.0",
+    "rioxarray": "0.22.0",
+    "s3fs": "2026.7.0",
+    "scipy": "1.18.1",
+    "shapely": "2.1.2",
+    "tqdm": "4.70.0",
+    "zarr": "2.18.3"
+  },
+  "hydroseason_version": "0.2.0",
+  "input": {
+    "date_max": "2025-12-01",
+    "date_min": "2005-01-01",
+    "extent_sha256": "0725dc45baf8c975b8088e12e1007ec3c021f7562abc36b990f9996859e69931",
+    "n_rows": 252
+  },
+  "method": {
+    "event_thresholds": {
+      "enter_sigma": 3.0,
+      "exit_sigma": 1.0,
+      "low_sigma": 1.0
+    },
+    "fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de",
+    "policy_id": "hydroseason-v0.2.0",
+    "recurrence_identifiability": {
+      "authority_scope": "candidate_for_established_0_2_0",
+      "fingerprint": "4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00",
+      "policy": "annual_shape_match"
+    },
+    "seasonality": {
+      "alpha": 0.05,
+      "method": "timing_recurrence",
+      "min_detectable_years": 5
+    },
+    "trough_refinement": {
+      "delta_rel": 0.05,
+      "huber_k": 1.345,
+      "l_uncertainty_k": 2.0,
+      "method": "direct_profile_combined",
+      "profile_loss_cutoff": 0.05,
+      "pulse_z": 1.5,
+      "scale_mode": "combined",
+      "version": "direct_profile_combined_v1"
+    }
+  },
+  "outputs": {
+    "html": {
+      "path": "fitzroy-river-wa.html",
+      "sha256": "c0ca9fe50566446c7fe2186314d04b92b104ee3ee0839926610c3f740228d46d",
+      "size_bytes": 1757906
+    },
+    "hydro_years_csv": {
+      "path": "fitzroy-river-wa_hydro_years.csv",
+      "sha256": "12a15eeeeb0032bdc427df60ddfaf5a17f112ef3f77f4e145e1515ad69b7653e",
+      "size_bytes": 9333
+    },
+    "low_spells_csv": {
+      "path": "fitzroy-river-wa_low_spells.csv",
+      "sha256": "4ecab0dcdf0062b45fb1cfa2ff4449dc0746c22d68f409ae59a8fe7fd3da1679",
+      "size_bytes": 854
+    },
+    "monthly_csv": {
+      "path": "fitzroy-river-wa_monthly.csv",
+      "sha256": "256a563366d74da37faf7ff0f75c8a6319d6df94039304fa50a2c298e12ada98",
+      "size_bytes": 42917
+    },
+    "wet_event_csv": {
+      "path": "fitzroy-river-wa_wet_event.csv",
+      "sha256": "d9b5dd84977d5af8423e2c7218751ae3192f555b18b12f98a245c83ff2026bf5",
+      "size_bytes": 1465
+    }
+  },
+  "preflight": {},
+  "python": "3.12.13",
+  "random_state": 0,
+  "schema": "hydroseason-run-manifest-v1"
+}
