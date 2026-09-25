@@ -142,17 +142,26 @@ filterwarnings = [
 # Core CI runs without optional raster/STAC dependencies. Those modules are
 # exercised by the all-extras job instead of lowering the pandas-only gate.
 omit = [
+  "hydroseason/_aoi_context.py",
   "hydroseason/_historical_water_mask.py",
   "hydroseason/_io_dea_stats.py",
   "hydroseason/_io_extent_cache.py",
   "hydroseason/_io_geo.py",
+  "hydroseason/_io_preflight_stats.py",
   "hydroseason/_io_resolution.py",
   "hydroseason/_io_stac_cache.py",
   "hydroseason/_io_wofs_acquire.py",
   "hydroseason/_io_wofs_zarr.py",
+  "hydroseason/_preflight_candidate.py",
+  "hydroseason/_preflight_feasibility.py",
+  "hydroseason/_preflight_monthly.py",
+  "hydroseason/_preflight_monthly_input.py",
+  "hydroseason/_rainfall.py",
   "hydroseason/_spatial_plan.py",
   "hydroseason/_wet_aoi.py",
+  "hydroseason/batch.py",
   "hydroseason/io.py",
+  "hydroseason/preflight.py",
 ]
 
 [tool.ruff]
