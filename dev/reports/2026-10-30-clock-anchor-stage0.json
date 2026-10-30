@@ -1,0 +1,281 @@
+{
+ "rule": {
+  "version": "stage0_rise_v1",
+  "extent": "valid_denominator: extent_pct / (1 - invalid_pct / 100)",
+  "level": "median of the valid-denominator extent over the trough band (trough_interval_start_date..trough_interval_end_date, else the boundary month)",
+  "floor_pp_min": 1.0,
+  "threshold": "level + max(detectability_floor_pp, floor_pp_min)",
+  "search": "months after the trough band end up to and including the window end; abstain if the first post-band month is unobserved",
+  "window_end": "next cycle's peak_date, else its peak_interval_start_date, else its trough_boundary_date",
+  "confirm_max_gap_months": 2,
+  "confirmation": "the next observed month, at most confirm_max_gap_months later and inside the window, must also exceed the threshold; a single exceedance followed by a return below it is a pulse and the search continues",
+  "status": {
+   "point": "confirmed, and the calendar month before the rise month was observed below the threshold",
+   "interval": "confirmed, but the last observed low month is more than one month earlier (or the band-end month was not an observed low); interval = [last low month + 1, rise month]",
+   "unconfirmed": "an exceedance with no following observation inside the window within confirm_max_gap_months",
+   "no_rise": "nothing exceeds the threshold before the window end",
+   "no_observed_months": "no observed month after the band end through the window end",
+   "missing_first_post_band_month": "the first month after the band end is unobserved",
+   "no_band_level": "no observed month inside the trough band",
+   "no_window": "no boundary, no following cycle, or a window end at or before the boundary or band end"
+  },
+  "scored_month": "the rise month (first observed exceedance; the interval's end)",
+  "scored_statuses": [
+   "point",
+   "interval"
+  ]
+ },
+ "margin": {
+  "min_within_1": 0.9,
+  "min_gain_over_end_dry": 0.05,
+  "min_coverage": 0.9,
+  "big_tile_min_px": 3000,
+  "min_other_tiles": 3,
+  "min_scored_tile_years": 500,
+  "hy_first": 1988,
+  "hy_last": 2025,
+  "primary_metric": "pooled share of big-tile tile-years within +-1 month of the leave-target-out channel-pixel-weighted median of the same year",
+  "coverage": "point + interval over all eligible big tile-years, including no_window"
+ },
+ "variants": [
+  {
+   "name": "primary",
+   "extent": "valid_denominator",
+   "floor_pp_min": 1.0,
+   "confirm_max_gap_months": 2
+  },
+  {
+   "name": "floor_2pp",
+   "extent": "valid_denominator",
+   "floor_pp_min": 2.0,
+   "confirm_max_gap_months": 2
+  },
+  {
+   "name": "floor_only",
+   "extent": "valid_denominator",
+   "floor_pp_min": 0.0,
+   "confirm_max_gap_months": 2
+  },
+  {
+   "name": "exported_extent",
+   "extent": "exported",
+   "floor_pp_min": 1.0,
+   "confirm_max_gap_months": 2
+  },
+  {
+   "name": "confirm_1",
+   "extent": "valid_denominator",
+   "floor_pp_min": 1.0,
+   "confirm_max_gap_months": 1
+  }
+ ],
+ "script_sha256": "e935821cab8632e0335c03e14907a00b9cc10d0e3ff9e0f5d6573346ea3df729",
+ "git_head": "bf2ae59cc24ec2414b26cd3977d8ab1f18c3a845",
+ "manifest_sha256": "1f1500ee7d7bb97d01cb690e3ec6f21067cfe4ca7c8213bf7ad7407ae9f7de00",
+ "inputs": {
+  "tile01/channel_monthly_extent.csv": "1e39ee29f8f6904f23ec07eb87ee28a3e5b9be0638ad532d522554eb2b5de5b7",
+  "tile01/fitzroy-tile01_hydro_years.csv": "b891b68b48f3f820aa9119b45bca780519e96669dd826197d021a828ca25b3d9",
+  "tile02/channel_monthly_extent.csv": "6d3a6f889166625dcd7c2cbc3d952bbacb4bdefb04f87611cc88fddb62b899d4",
+  "tile02/fitzroy-tile02_hydro_years.csv": "80d20f7589f8c8de0102a1e9611b662998b8e5df2db7cf8588d0a2723dbf4fc9",
+  "tile03/channel_monthly_extent.csv": "6375ef8fc62acf24cd7265d207e8a338a1b44b709037e653e5e9a0a73767d376",
+  "tile03/fitzroy-tile03_hydro_years.csv": "cd9d5552ac4455dba8e77bf9026dba9b1ced922e98d1da9dbb0013130ae24fdd",
+  "tile04/channel_monthly_extent.csv": "6c2d79c15cde77a4601b4134f8b2dd8bfd4a7cd2bbb010753a9433ec55851129",
+  "tile04/fitzroy-tile04_hydro_years.csv": "5c4afe971d397a69d6dface26726660fcaa513488b765c6c152bc4b601157b05",
+  "tile05/channel_monthly_extent.csv": "f7798e6b5131783befa40b9b9f3a91ab146da30f618954f3eeba7d0b1e67f7f7",
+  "tile05/fitzroy-tile05_hydro_years.csv": "499523af9902299b14847c2adbd040518d0ddf28cab2a8c5a8ac444597507595",
+  "tile07/channel_monthly_extent.csv": "a8a40a7080bf1bd1bf3c2d7d585c2aace98c5e3b6d8d8adfb18834e3fc7011eb",
+  "tile07/fitzroy-tile07_hydro_years.csv": "e0093e876cc33692641c0d9b188c9ccee59cb4074385c68e3d8804f49f1d7054",
+  "tile08/channel_monthly_extent.csv": "f29d12fde987d3194d2985291c25a1df323e50040f04c57defe92127f0081f85",
+  "tile08/fitzroy-tile08_hydro_years.csv": "ec48c37e2b4a89d1b1ee08f24aa32d0838dd95832c038c091442dc91e0de0e27",
+  "tile09/channel_monthly_extent.csv": "3cae419b8cfb8d3a235b031fe8edc9a695f0e72e035ab669d5e69e374d1840b7",
+  "tile09/fitzroy-tile09_hydro_years.csv": "99439e7b383ef30bf9fcb0c832776032965192c73218c658f3c8d6cd630decc2",
+  "tile11/channel_monthly_extent.csv": "480bac6acd53e5773dd0e7ad6549bd680cb9c42e5683139116e6b3957b608005",
+  "tile11/fitzroy-tile11_hydro_years.csv": "52a1294bdfee93130f1283fa6efc6ad4501944920d9c7d5267eba57d8ed5fbe9",
+  "tile13/channel_monthly_extent.csv": "735c8e6a0b6aca2af0eb6806aa43292c4f7438ec4cf96a8b83817ccb548f925d",
+  "tile13/fitzroy-tile13_hydro_years.csv": "5ebc02eea60bbf26b63cd2c7035bbcf4ba2c4fa0e118c24a4080bcff712cbd92",
+  "tile14/channel_monthly_extent.csv": "ca6fa56901749d7b078db114fcd7d333bdb495431be99c39d62fe73e47b7ab35",
+  "tile14/fitzroy-tile14_hydro_years.csv": "f9fd06ad2471a6e972ecb51d00d325a3bde4a51b12a43a2c732e35dfefec9bfa",
+  "tile15/channel_monthly_extent.csv": "5dad19057b49494cf5bec0c28bee78df846d142566f81d7fb651e383f14018a4",
+  "tile15/fitzroy-tile15_hydro_years.csv": "5e8148cd1a8016ac27c680eee0bbcb6de9475296dda09bb2fec56d0f21d3b669",
+  "tile16/channel_monthly_extent.csv": "d5a7d3b6e0c0b525a0a1ea9371a49a32ccb93bdf218fb1d92a06076135494bfa",
+  "tile16/fitzroy-tile16_hydro_years.csv": "f9509995ceac15083937ccb69b0bd95df24c0c1b4cbf1b7b3369eeae303b044a",
+  "tile17/channel_monthly_extent.csv": "b88781e0a33021955892c1e2ccad244847fc31d890b62978e26561ee06a6d11d",
+  "tile17/fitzroy-tile17_hydro_years.csv": "6684a5d4db81298152622a574ab07ece4d9333e02ac0b48c271bbf2114ba12d5",
+  "tile18/channel_monthly_extent.csv": "945414a3940a8fb6d243459b8d80cf6c51cc887264a5ab977ddca35fd87f1897",
+  "tile18/fitzroy-tile18_hydro_years.csv": "32b29ae5cdecebafb067fc741fb6e16f5512b03b62e93ab297b1e2343c1672ff",
+  "tile20/channel_monthly_extent.csv": "006377a2cfad841c95ed261493b93686d2779597066d69bb1a5f2fd9088d26cf",
+  "tile20/fitzroy-tile20_hydro_years.csv": "bb64ca59d7e1fbe530dc42786a1bb3ee1c12ddba5baa95cc7ad150aa47c46f3f",
+  "tile21/channel_monthly_extent.csv": "4768c14ea55ef8ae04d5453f915005ac2aaac1f485cc75a2e1bbd69d90c7ff16",
+  "tile21/fitzroy-tile21_hydro_years.csv": "e16503c2aa12eb1aeaee7fc65a26fe80309a379a4da2b26be8c7e6997a098e23",
+  "tile22/channel_monthly_extent.csv": "c4e9254b0c86786acaa34d45913fc00f47a1a913da9d1042c087bbdce2e1f245",
+  "tile22/fitzroy-tile22_hydro_years.csv": "2f7d1c2b8e438b8ce3bf5404c6d3015acbf68b07fec614db53a00c5a550c3f46",
+  "tile23/channel_monthly_extent.csv": "8eaff3a28d7c43a1cc848a235af10e375e4545187ce9322c8788ac4fb7c1e4df",
+  "tile23/fitzroy-tile23_hydro_years.csv": "99a28d426765d1162ec1cc7f392168376a67cb63c2cd15256c8a842a867d7c86",
+  "tile24/channel_monthly_extent.csv": "56c803ffc7107bc83c647556696915420614513e7147fcdb793d59013fbb4d59",
+  "tile24/fitzroy-tile24_hydro_years.csv": "dfd1aa33f42c971fe97f8c943f193833b82c1166eaa9c7b8b697286b65ec70d6",
+  "tile25/channel_monthly_extent.csv": "c2c4c70304f401c23162f963679544fe1a15f7b0714b8b22fe5ea264045ea5f9",
+  "tile25/fitzroy-tile25_hydro_years.csv": "ef2401441097551be31d1898fb54dacbc7103f9ecf495fa06088f58fbcc57292",
+  "tile26/channel_monthly_extent.csv": "d3b17028fb3f95b72c8caa41d8f6464e8d307d852502a33860aff777aff8d6f6",
+  "tile26/fitzroy-tile26_hydro_years.csv": "c886e308ea8c46221ba7632b44fe9dc40bb27d182ecdc1ed4b120e2c731f9698",
+  "tile27/channel_monthly_extent.csv": "d011f5ff840bbcd14b455eec6dec8a917b7246892e9af5256e39b6d68a02bbf5",
+  "tile27/fitzroy-tile27_hydro_years.csv": "a753ba11b87a8f14b63a412447c178a5b081827187e02a190c44ae6b0e5c9c08",
+  "tile28/channel_monthly_extent.csv": "686a00592188fa54fb63c0623fd18d92fce130050e4b33098d065616a67dfd04",
+  "tile28/fitzroy-tile28_hydro_years.csv": "5ffa4daa0613f4a65f44294481ed469cf1935ecbbc21bd1efa554b04872b8cb2",
+  "tile31/channel_monthly_extent.csv": "56da24e140c7e0f5195c92b760015b4adb08c3a835247b7bc3cf76631f8f9818",
+  "tile31/fitzroy-tile31_hydro_years.csv": "62812d05d4935e1717aad9fb1a95771a8b4beeae8741687c46c2f7d774977e79",
+  "tile32/channel_monthly_extent.csv": "a69d03cd2c06ec8b7857567374a4c087fe4643cffc6bd80995cc86d95876a8d5",
+  "tile32/fitzroy-tile32_hydro_years.csv": "a5d59dad09d0db2e3fcd28d26caf08c77de2fab7a1a47b0090076d813ce3eb6b",
+  "tile33/channel_monthly_extent.csv": "d7c593563545775d10e6e766b46068a888bf502e6ee22bbee425a50a612498c2",
+  "tile33/fitzroy-tile33_hydro_years.csv": "4659dbe823ffce0fce8cd05892887de65a033331216266ea8537f73db9d6e75c",
+  "tile34/channel_monthly_extent.csv": "a98000f6e3221428cc9bf1cefcb8825234cf1642c7cada6a639bdafa2819760a",
+  "tile34/fitzroy-tile34_hydro_years.csv": "84c884363b4912383e1687140442e1f122c57282c015d829e41399c0ec91e88c",
+  "tile35/channel_monthly_extent.csv": "1bbb29bfeaaa2cdacb201c56844f2b0df94a6dada24954ef6e1c5a63e09aacfd",
+  "tile35/fitzroy-tile35_hydro_years.csv": "6f875999a36422b090a99563fa26a6d8af2d831e3079c4e4b9191768c6bea67c",
+  "tile36/channel_monthly_extent.csv": "72fe0f0834ec82c395f60ea6f10129afcec7e5958c6ad5cb1f001c1529b0f29f",
+  "tile36/fitzroy-tile36_hydro_years.csv": "2693fcdd802d95c479defd787c6cb0b95c1b9e5a56822532e994a1744a1dd7e7",
+  "tile37/channel_monthly_extent.csv": "fabb107d2d45145f79d58b630224a2c9475c81f065d739a5b400df5173b18842",
+  "tile37/fitzroy-tile37_hydro_years.csv": "3b9bc675af00b79d73de40088822588500f7fb2fb34e46bb197a40924ff50d3f",
+  "tile38/channel_monthly_extent.csv": "8659832112b76991d3866885675114d2124234f83955a7f8fe9e308337ef4b21",
+  "tile38/fitzroy-tile38_hydro_years.csv": "77795bdb27d79b5f610f2eeebdb4a75f787573b36735acee7ab5ebbdbd8c6a96",
+  "tile39/channel_monthly_extent.csv": "99e6309057670b602fce38c6f665f17b48f751f276a679e4528c17c230926026",
+  "tile39/fitzroy-tile39_hydro_years.csv": "330c49b60eaf00853d49e1177b7b6dcd8680c49f7ce13420a38e714c8b228bbf",
+  "tile42/channel_monthly_extent.csv": "e3167400de3f659ffe57bdc1ab270d5c4069be87f711c182903a6f195248f310",
+  "tile42/fitzroy-tile42_hydro_years.csv": "830af3cbf289d4b56016d784da190e45869b1ce319584416c0a903053486721f",
+  "tile46/channel_monthly_extent.csv": "06a43e32a9e125289a7a973b044c38a7045329ff7cf05e8ac6a48820b568859b",
+  "tile46/fitzroy-tile46_hydro_years.csv": "818993b76627d28ac2b3cc083c1b15145b25e4a4b68ff5551279308242084dcd",
+  "tile47/channel_monthly_extent.csv": "f7ab33d86c54ab731c160908315b62676e2f476e12f99b466de4cffa74e1cfad",
+  "tile47/fitzroy-tile47_hydro_years.csv": "08d73d298b5b11e4ad598ef8bea54b23dbad3543491e8efddb4b0737bf478a12",
+  "tile48/channel_monthly_extent.csv": "2e7009fc0a5ba7ba8c9d7452bcdda8ddd5bae4d2b484cf9bde8d97b186028e9b",
+  "tile48/fitzroy-tile48_hydro_years.csv": "b766a839e55a5f2cdb8cadcc4e6d68d0c7e983e4e068ae3cad362aec9ed0ef29",
+  "tile49/channel_monthly_extent.csv": "149d2b63c5fa98b8a30dce332bdd15225b7f98674dd5d9fd6f68190b5fbf151d",
+  "tile49/fitzroy-tile49_hydro_years.csv": "30d183cf88dfb138d43a0eed5011632a12729ce3598c81a51f8f53eab92505da",
+  "tile50/channel_monthly_extent.csv": "51c0140ecf1c358d26d10504734e21a199938e304c6d6338e8d8b133f1bf326d",
+  "tile50/fitzroy-tile50_hydro_years.csv": "e3f3e025e38d7c22a9b5da90a56d12efda5cc737cb55480f2c0d7b168673fe7a",
+  "tile55/channel_monthly_extent.csv": "8cb950139a660ee9c42264a60d109642055dc5febb5b4e53bc4478c98394715f",
+  "tile55/fitzroy-tile55_hydro_years.csv": "ad6ca7e0792a5655285e48908e76a3c1aff6213a36ddd75cb66bfa26d3a934ce",
+  "tile56/channel_monthly_extent.csv": "57ccb13708d60ad9acb916e7c03dee4298445f87e149a8b4098fe0b10c0f75c2",
+  "tile56/fitzroy-tile56_hydro_years.csv": "d8a4cba95526e94d2cca12a2b0608f4c0a29ed73ef1c13501cd014dec8d983b9"
+ },
+ "numpy": "2.4.6",
+ "pandas": "3.0.3",
+ "decision": "FAIL",
+ "summary": {
+  "n_tiles": 41,
+  "n_big_tiles": 31,
+  "end_dry_as_run": {
+   "n_tile_years": 1147,
+   "n_years": 37,
+   "pooled_within_1": 0.8151700087183958,
+   "mean_within_1": 0.8151700087183957,
+   "share_ge3": 0.04795117698343505
+  },
+  "variants": {
+   "primary": {
+    "rise": {
+     "n_tile_years": 635,
+     "n_years": 37,
+     "pooled_within_1": 0.9007874015748032,
+     "mean_within_1": 0.8953795665711805,
+     "share_ge3": 0.048818897637795275
+    },
+    "coverage_big": 0.5390492359932089,
+    "coverage_all": 0.4576379974326059,
+    "status_counts": {
+     "point": 692,
+     "unconfirmed": 562,
+     "no_rise": 187,
+     "missing_first_post_band_month": 59,
+     "no_window": 37,
+     "interval": 21
+    },
+    "median_interval_width_months": 0.0,
+    "median_months_boundary_to_rise": 2.0
+   },
+   "floor_2pp": {
+    "rise": {
+     "n_tile_years": 508,
+     "n_years": 37,
+     "pooled_within_1": 0.889763779527559,
+     "mean_within_1": 0.8608552417375946,
+     "share_ge3": 0.051181102362204724
+    },
+    "coverage_big": 0.4312393887945671,
+    "coverage_all": 0.3600770218228498,
+    "status_counts": {
+     "unconfirmed": 595,
+     "point": 539,
+     "no_rise": 306,
+     "missing_first_post_band_month": 59,
+     "no_window": 37,
+     "interval": 22
+    },
+    "median_interval_width_months": 0.0,
+    "median_months_boundary_to_rise": 2.0
+   },
+   "floor_only": {
+    "rise": {
+     "n_tile_years": 822,
+     "n_years": 37,
+     "pooled_within_1": 0.8771289537712895,
+     "mean_within_1": 0.8690404192392672,
+     "share_ge3": 0.051094890510948905
+    },
+    "coverage_big": 0.6977928692699491,
+    "coverage_all": 0.6097560975609756,
+    "status_counts": {
+     "point": 923,
+     "unconfirmed": 425,
+     "no_rise": 87,
+     "missing_first_post_band_month": 59,
+     "no_window": 37,
+     "interval": 27
+    },
+    "median_interval_width_months": 0.0,
+    "median_months_boundary_to_rise": 2.0
+   },
+   "exported_extent": {
+    "rise": {
+     "n_tile_years": 592,
+     "n_years": 36,
+     "pooled_within_1": 0.8783783783783784,
+     "mean_within_1": 0.8439415630607523,
+     "share_ge3": 0.05574324324324324
+    },
+    "coverage_big": 0.5050933786078099,
+    "coverage_all": 0.4306803594351733,
+    "status_counts": {
+     "point": 650,
+     "unconfirmed": 588,
+     "no_rise": 203,
+     "missing_first_post_band_month": 59,
+     "no_window": 37,
+     "interval": 21
+    },
+    "median_interval_width_months": 0.0,
+    "median_months_boundary_to_rise": 2.0
+   },
+   "confirm_1": {
+    "rise": {
+     "n_tile_years": 613,
+     "n_years": 36,
+     "pooled_within_1": 0.8939641109298532,
+     "mean_within_1": 0.8833524196848388,
+     "share_ge3": 0.05057096247960848
+    },
+    "coverage_big": 0.5229202037351444,
+    "coverage_all": 0.4435173299101412,
+    "status_counts": {
+     "point": 671,
+     "unconfirmed": 584,
+     "no_rise": 187,
+     "missing_first_post_band_month": 59,
+     "no_window": 37,
+     "interval": 20
+    },
+    "median_interval_width_months": 0.0,
+    "median_months_boundary_to_rise": 2.0
+   }
+  },
+  "decision": "FAIL"
+ }
+}
