@@ -18,6 +18,7 @@ from scripts.clock_anchor_stage0 import (
     leave_one_out_deviations,
     month_from_index,
     month_index,
+    rise_month,
     valid_denominator_extent,
     weighted_median,
 )
@@ -110,3 +111,145 @@ def test_leave_one_out_deviations_exclude_the_target():
     devs = leave_one_out_deviations([5, 5, 5, 9], [1, 1, 1, 1], min_other=3)
     assert list(devs) == [0.0, 0.0, 0.0, 4.0]
     assert np.isnan(leave_one_out_deviations([5, 9], [1, 1], min_other=3)).all()
+
+
+def _series(overrides=None, missing=(), base=2.0, start="2000-01-01", months=48):
+    index = pd.date_range(start, periods=months, freq="MS")
+    values = pd.Series(base, index=index, dtype=float)
+    for stamp, value in (overrides or {}).items():
+        values.loc[pd.Timestamp(stamp)] = value
+    for stamp in missing:
+        values.loc[pd.Timestamp(stamp)] = np.nan
+    return values
+
+
+def _cycle(year, floor=0.5):
+    return dict(
+        hy_year=year,
+        trough_boundary_date=f"{year}-09-01",
+        trough_interval_start_date=f"{year}-08-01",
+        trough_interval_end_date=f"{year}-09-01",
+        trough_date=f"{year}-09-01",
+        trough_timing_status="point",
+        peak_date=f"{year}-02-01",
+        peak_interval_start_date=None,
+        mid_dry_date=f"{year}-06-01",
+        detectability_floor_pp=floor,
+    )
+
+
+def _rows(*years):
+    frame = pd.DataFrame([_cycle(year) for year in years])
+    for col in HY_DATE_COLUMNS:
+        frame[col] = pd.to_datetime(frame[col])
+    return frame
+
+
+def _rise(values, rows, **kwargs):
+    kwargs.setdefault("floor_pp_min", 1.0)
+    kwargs.setdefault("confirm_max_gap_months", 2)
+    return rise_month(values, rows.iloc[0], rows.iloc[1], **kwargs)
+
+
+def test_rise_month_point_when_the_departure_is_bracketed_and_confirmed():
+    values = _series({"2000-12-01": 6.0, "2001-01-01": 12.0, "2001-02-01": 20.0})
+    result = _rise(values, _rows(2000, 2001))
+    assert result["status"] == "point"
+    assert result["rise_month"] == pd.Timestamp("2000-12-01")
+    assert result["interval_start"] == pd.Timestamp("2000-12-01")
+    assert result["interval_end"] == pd.Timestamp("2000-12-01")
+    assert result["level_pp"] == pytest.approx(2.0)
+    assert result["threshold_pp"] == pytest.approx(3.0)  # band median 2.0 + max(0.5, 1.0)
+    assert result["window_end"] == pd.Timestamp("2001-02-01")
+    assert result["band_start"] == pd.Timestamp("2000-08-01")
+    assert result["n_pulses"] == 0
+
+
+def test_rise_month_skips_a_one_month_pulse():
+    values = _series({"2000-10-01": 5.0, "2001-01-01": 7.0, "2001-02-01": 12.0})
+    result = _rise(values, _rows(2000, 2001))
+    assert result["status"] == "point"
+    assert result["rise_month"] == pd.Timestamp("2001-01-01")
+    assert result["n_pulses"] == 1
+
+
+def test_rise_month_reports_an_interval_across_a_gap():
+    values = _series({"2000-12-01": 6.0, "2001-01-01": 12.0}, missing=["2000-11-01"])
+    result = _rise(values, _rows(2000, 2001))
+    assert result["status"] == "interval"
+    assert result["rise_month"] == pd.Timestamp("2000-12-01")
+    assert result["interval_start"] == pd.Timestamp("2000-11-01")
+    assert result["interval_end"] == pd.Timestamp("2000-12-01")
+
+
+def test_rise_month_is_unconfirmed_without_a_following_observation():
+    values = _series({"2001-02-01": 6.0})  # the exceedance is the window's last month
+    result = _rise(values, _rows(2000, 2001))
+    assert result["status"] == "unconfirmed"
+    assert result["rise_month"] == pd.Timestamp("2001-02-01")
+
+
+def test_rise_month_is_unconfirmed_when_the_next_observation_is_too_far():
+    values = _series(
+        {"2000-11-01": 6.0, "2001-02-01": 12.0}, missing=["2000-12-01", "2001-01-01"]
+    )
+    result = _rise(values, _rows(2000, 2001))
+    assert result["status"] == "unconfirmed"
+    assert result["rise_month"] == pd.Timestamp("2000-11-01")
+
+
+def test_rise_month_confirms_across_a_single_missing_month():
+    values = _series({"2000-11-01": 6.0, "2001-01-01": 12.0}, missing=["2000-12-01"])
+    result = _rise(values, _rows(2000, 2001))
+    assert result["status"] == "point"
+    assert result["rise_month"] == pd.Timestamp("2000-11-01")
+    assert _rise(values, _rows(2000, 2001), confirm_max_gap_months=1)["status"] == "unconfirmed"
+
+
+def test_rise_month_no_rise_when_nothing_leaves_the_band():
+    assert _rise(_series(), _rows(2000, 2001))["status"] == "no_rise"
+
+
+def test_rise_month_abstention_statuses():
+    rows = _rows(2000, 2001)
+    no_band = _series(missing=["2000-08-01", "2000-09-01"])
+    assert _rise(no_band, rows)["status"] == "no_band_level"
+    unobserved = _series(missing=[f"2000-{m:02d}-01" for m in (10, 11, 12)] + ["2001-01-01", "2001-02-01"])
+    assert _rise(unobserved, rows)["status"] == "no_observed_months"
+    assert rise_month(_series(), rows.iloc[0], None, floor_pp_min=1.0, confirm_max_gap_months=2)["status"] == "no_window"
+
+
+def test_rise_month_uses_the_detectability_floor_when_it_exceeds_the_minimum():
+    values = _series({"2000-12-01": 4.5, "2001-01-01": 4.6, "2001-02-01": 20.0})
+    rows = _rows(2000, 2001)
+    rows.loc[0, "detectability_floor_pp"] = 3.0  # threshold 2.0 + 3.0 = 5.0
+    result = _rise(values, rows)
+    assert result["threshold_pp"] == pytest.approx(5.0)
+    assert result["status"] == "unconfirmed"  # only February exceeds, and it is the last month
+
+
+def test_rise_month_falls_back_to_the_next_boundary_when_the_next_peak_is_missing():
+    rows = _rows(2000, 2001)
+    rows.loc[1, "peak_date"] = pd.NaT
+    values = _series({"2001-03-01": 6.0, "2001-04-01": 12.0})
+    result = _rise(values, rows)
+    assert result["window_end"] == pd.Timestamp("2001-09-01")
+    assert result["status"] == "point"
+    assert result["rise_month"] == pd.Timestamp("2001-03-01")
+
+
+def test_rise_month_abstains_if_first_post_band_month_is_missing():
+    values = _series({"2000-11-01": 6.0, "2000-12-01": 8.0}, missing=["2000-10-01"])
+    result = _rise(values, _rows(2000, 2001))
+    assert result["status"] == "missing_first_post_band_month"
+    assert pd.isna(result["rise_month"])
+
+
+def test_rise_month_search_begins_after_band_end_not_boundary():
+    rows = _rows(2000, 2001)
+    rows.loc[0, "trough_boundary_date"] = pd.Timestamp("2000-08-01")
+    values = _series({"2000-09-01": 6.0, "2000-10-01": 6.0, "2000-11-01": 8.0})
+    result = _rise(values, rows)
+    assert result["rise_month"] == pd.Timestamp("2000-10-01")
+    assert result["status"] == "interval"
+    assert result["interval_start"] == pd.Timestamp("2000-10-01")

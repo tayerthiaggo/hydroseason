@@ -32,7 +32,8 @@ RULE = {
     "(trough_interval_start_date..trough_interval_end_date, else the boundary month)",
     "floor_pp_min": 1.0,
     "threshold": "level + max(detectability_floor_pp, floor_pp_min)",
-    "search": "months after trough_boundary_date up to and including the window end",
+    "search": "months after the trough band end up to and including the window end; "
+    "abstain if the first post-band month is unobserved",
     "window_end": "next cycle's peak_date, else its peak_interval_start_date, "
     "else its trough_boundary_date",
     "confirm_max_gap_months": 2,
@@ -43,14 +44,15 @@ RULE = {
         "point": "confirmed, and the calendar month before the rise month was observed below "
         "the threshold",
         "interval": "confirmed, but the last observed low month is more than one month "
-        "earlier (or the boundary month itself was unobserved); interval = "
+        "earlier (or the band-end month was not an observed low); interval = "
         "[last low month + 1, rise month]",
         "unconfirmed": "an exceedance with no following observation inside the window within "
         "confirm_max_gap_months",
         "no_rise": "nothing exceeds the threshold before the window end",
-        "no_observed_months": "no observed month between the boundary and the window end",
+        "no_observed_months": "no observed month after the band end through the window end",
+        "missing_first_post_band_month": "the first month after the band end is unobserved",
         "no_band_level": "no observed month inside the trough band",
-        "no_window": "no boundary, no following cycle, or a window end at or before the boundary",
+        "no_window": "no boundary, no following cycle, or a window end at or before the boundary or band end",
     },
     "scored_month": "the rise month (first observed exceedance; the interval's end)",
     "scored_statuses": ["point", "interval"],
@@ -144,4 +146,119 @@ def leave_one_out_deviations(values, weights, *, min_other: int) -> np.ndarray:
         return out
     for i in range(len(values)):
         out[i] = abs(values[i] - weighted_median(np.delete(values, i), np.delete(weights, i)))
+    return out
+
+
+def _first_present(row: pd.Series, columns: tuple[str, ...]) -> pd.Timestamp | None:
+    for col in columns:
+        if pd.notna(row.get(col)):
+            return pd.Timestamp(row[col])
+    return None
+
+
+def rise_month(
+    values: pd.Series,
+    row: pd.Series,
+    next_row: pd.Series | None,
+    *,
+    floor_pp_min: float,
+    confirm_max_gap_months: int,
+) -> dict:
+    """Apply ``RULE`` to one cycle. ``values`` is a month-start-indexed extent series."""
+    out = dict(
+        status=None,
+        rise_month=pd.NaT,
+        interval_start=pd.NaT,
+        interval_end=pd.NaT,
+        level_pp=np.nan,
+        threshold_pp=np.nan,
+        window_end=pd.NaT,
+        band_start=pd.NaT,
+        band_end=pd.NaT,
+        n_pulses=0,
+    )
+    boundary = row.get("trough_boundary_date")
+    if pd.isna(boundary) or next_row is None:
+        out["status"] = "no_window"
+        return out
+    boundary = pd.Timestamp(boundary)
+    window_end = _first_present(
+        next_row, ("peak_date", "peak_interval_start_date", "trough_boundary_date")
+    )
+    if window_end is None or window_end <= boundary:
+        out["status"] = "no_window"
+        return out
+    out["window_end"] = window_end
+
+    band_start = row.get("trough_interval_start_date")
+    band_end = row.get("trough_interval_end_date")
+    if pd.isna(band_start) or pd.isna(band_end):
+        band_start = band_end = boundary
+    band_start, band_end = pd.Timestamp(band_start), pd.Timestamp(band_end)
+    out["band_start"], out["band_end"] = band_start, band_end
+    if window_end <= band_end:
+        out["status"] = "no_window"
+        return out
+    band = values.loc[band_start:band_end].dropna()
+    if band.empty:
+        out["status"] = "no_band_level"
+        return out
+    level = float(band.median())
+    floor = row.get("detectability_floor_pp")
+    floor = float(floor) if pd.notna(floor) else 0.0
+    threshold = level + max(floor, float(floor_pp_min))
+    out.update(level_pp=level, threshold_pp=threshold)
+
+    span = values.loc[band_end + pd.DateOffset(months=1) : window_end].dropna()
+    if span.empty:
+        out["status"] = "no_observed_months"
+        return out
+    first_post_band = band_end + pd.DateOffset(months=1)
+    if pd.isna(values.get(first_post_band, np.nan)):
+        out["status"] = "missing_first_post_band_month"
+        return out
+    k = np.array([month_index(stamp) for stamp in span.index])
+    exceed = span.to_numpy(dtype=float) > threshold
+    boundary_value = float(values.get(band_end, np.nan))
+    last_low_k = (
+        month_index(band_end)
+        if np.isfinite(boundary_value) and boundary_value <= threshold
+        else None
+    )
+
+    def _interval_start(rise_k: int) -> pd.Timestamp:
+        start_k = last_low_k + 1 if last_low_k is not None else month_index(band_end) + 1
+        return month_from_index(min(start_k, rise_k))
+
+    pulses = 0
+    i = 0
+    while i < len(k):
+        if not exceed[i]:
+            last_low_k = int(k[i])
+            i += 1
+            continue
+        j = i + 1
+        if j >= len(k) or k[j] - k[i] > confirm_max_gap_months:
+            out.update(
+                status="unconfirmed",
+                rise_month=span.index[i],
+                interval_start=_interval_start(int(k[i])),
+                interval_end=span.index[i],
+                n_pulses=pulses,
+            )
+            return out
+        if exceed[j]:
+            bracketed = last_low_k is not None and last_low_k + 1 == int(k[i])
+            out.update(
+                status="point" if bracketed else "interval",
+                rise_month=span.index[i],
+                interval_start=_interval_start(int(k[i])),
+                interval_end=span.index[i],
+                n_pulses=pulses,
+            )
+            return out
+        pulses += 1
+        last_low_k = int(k[j])
+        i = j + 1
+    out.update(status="no_rise", n_pulses=pulses)
     return out
