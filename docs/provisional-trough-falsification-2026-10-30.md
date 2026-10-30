@@ -138,6 +138,9 @@ Counts variant (stable, drift; 12 years):
 ## 3. Observations
 
 All counts below are out of 30 unless stated otherwise; comparisons use no pixel counts.
+The table?s ?harmonic wrong month? counts anchors outside the union of strict
+annual minimum months. On plateau records this can count a month inside the
+July?October near-minimum plateau as wrong; it is not a test of plateau membership.
 
 - With floods and no gaps, trough rejection on stable records was 28, 29 and 30 at 7, 12 and 30 years. On drift it was 2, 2 and 1, respectively.
 - With floods and no gaps, harmonic acceptance on stable records was 3, 12 and 27; wrong-month counts were 0, 5 and 3, respectively.
@@ -154,6 +157,7 @@ All counts below are out of 30 unless stated otherwise; comparisons use no pixel
 - Task 7: PowerShell's combined stdout/stderr redirection reported `NativeCommandError` for progress lines written to stderr and returned exit code 1. All three sweep commands wrote their complete CSV and summary files. The default output contains 90 cells, counts output 12, and null output one.
 - Task 7: the 30-year drift/0.0/wet20 peak count was 7/30, not the pilot reference 12/30. The counts variant changed classifications on six paired records, contrary to the plan's expectation of no effect.
 - MkDocs build emitted a Material for MkDocs advisory about MkDocs 2.0; build completed successfully.
+- Review added a warning to the frozen-window summary for missing rank comparisons, and clarified strict-minimum membership in the sweep documentation. The pre-registered decision rule and recorded counts remain unchanged.
 
 ## 5. What this does and does not establish
 
@@ -164,3 +168,6 @@ windows; that is step 2 of the verdict and waits on frozen fixtures
 hole mechanism (peak sets that are wide, plus a calendar month that can never
 hold a peak) is a hypothesis from one pilot; peak-set widths on real records
 are unknown, and the runner now reports them.
+The frozen runner?s pre-registered rule treats a missing external rank as
+agreement: outcome A without ranks does not establish agreement with an external
+rank. Supply ranks for every window to assess that part of the rule.

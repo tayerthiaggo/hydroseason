@@ -2,7 +2,9 @@
 
 Writes one CSV row per (construction, years, flood_rate, gap, counts, seed) and
 a markdown summary per cell. Records behaviour; asserts nothing. This is step 3
-of docs/provisional-trough-verdict-2026-10-30.md.
+of docs/provisional-trough-verdict-2026-10-30.md. "Wrong month" means outside
+the union of strict annual minima; on a near-flat plateau this can include
+months within the plateau that were never the strict minimum.
 
 Example (default grid of 90 cells, 30 seeds, 15 to 25 minutes single-threaded):
 

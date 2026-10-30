@@ -5,7 +5,9 @@ in ``--fixtures`` as one window. Required columns: ``date`` (any month stamp
 pandas can parse), ``extent_pct``, ``invalid_pct``. Optional: ``n_water``,
 ``n_valid``, ``n_invalid``, ``n_aoi``. An optional ``--rank-troughs`` CSV with
 columns ``window_id,rank_trough_month`` supplies the external rank trough for
-comparison; it is not treated as truth.
+comparison; it is not treated as truth. Under the frozen rule, a missing rank
+is treated as agreement, so outcome A without ranks does not establish rank
+agreement. Supply ranks for every window to assess that part of the rule.
 
 ``RULE`` is the illustrative decision rule from the verdict, written before any
 real window was read. It is not a method threshold. Do not change it after
@@ -161,6 +163,9 @@ def to_markdown(rows, decision):
         "| trough set width | peak set width | harmonic | rank | dist |",
         "| --- | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |",
     ]
+    missing = sum(row["circular_distance_to_rank"] is None for row in rows)
+    if missing:
+        lines.insert(1, f"Rank agreement was not assessed for {missing} of {len(rows)} windows.")
     for row in rows:
         harmonic = f"{row['harmonic_pattern']}/{row['harmonic_order']}/{row['harmonic_trough']}"
         lines.append(

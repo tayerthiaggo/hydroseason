@@ -73,3 +73,14 @@ def test_runner_reports_outcome_b_for_drifting_troughs(tmp_path):
 
     assert code == 0
     assert summary.read_text(encoding="utf-8").startswith("Outcome: **B**")
+
+
+def test_runner_warns_when_rank_comparisons_are_missing(tmp_path):
+    fixtures = tmp_path / "windows"
+    fixtures.mkdir()
+    _write_fixture(fixtures, "stable_0", "stable", 0)
+    summary = tmp_path / "summary.md"
+
+    main(["--fixtures", str(fixtures), "--out", str(tmp_path / "out.csv"), "--summary", str(summary)])
+
+    assert "Rank agreement was not assessed for 1 of 1 windows" in summary.read_text(encoding="utf-8")
