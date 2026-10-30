@@ -49,3 +49,13 @@ def test_timing_recurrence_never_emits_marginal_and_keeps_insufficiency():
     assert decision.timing_evidence == "insufficient"
     assert "trend_unavailable" in decision.reason
     assert decision.policy == "hydroseason_0_2_0"
+
+
+def test_one_sided_recurrence_reasons_route_to_events():
+    for reason in ("peak_uniformity_not_rejected", "trough_uniformity_not_rejected"):
+        decision = decide_regime(classification="aseasonal", status="ok", reason=reason)
+
+        assert decision.regime == "aseasonal"
+        assert decision.route == "event_characterisation"
+        assert decision.supports_per_year_boundaries is False
+        assert decision.timing_evidence == "unsupported"
