@@ -262,3 +262,48 @@ def rise_month(
         i = j + 1
     out.update(status="no_rise", n_pulses=pulses)
     return out
+
+
+def synchrony(
+    table: pd.DataFrame, month_col: str, *, big_tile_min_px: int, min_other_tiles: int
+) -> dict:
+    """Leave-target-out, channel-pixel-weighted agreement of big tiles on ``month_col`` per year."""
+    rows = table.dropna(subset=[month_col])
+    rows = rows[rows["px"] >= big_tile_min_px]
+    deviations, per_year = [], []
+    for _, group in rows.groupby("hy_year"):
+        k = np.array([month_index(stamp) for stamp in group[month_col]])
+        d = leave_one_out_deviations(k, group["px"].to_numpy(dtype=float), min_other=min_other_tiles)
+        d = d[np.isfinite(d)]
+        if d.size == 0:
+            continue
+        deviations.append(d)
+        per_year.append(float((d <= 1).mean()))
+    if not deviations:
+        return dict(n_tile_years=0, n_years=0, pooled_within_1=np.nan, mean_within_1=np.nan, share_ge3=np.nan)
+    d = np.concatenate(deviations)
+    return dict(
+        n_tile_years=int(d.size),
+        n_years=len(per_year),
+        pooled_within_1=float((d <= 1).mean()),
+        mean_within_1=float(np.mean(per_year)),
+        share_ge3=float((d >= 3).mean()),
+    )
+
+
+def decide(rise: dict, end_dry: dict, coverage: float) -> str:
+    """Apply ``MARGIN``, including its scored tile-year data-sufficiency condition."""
+    enough = (
+        rise["n_tile_years"] >= MARGIN["min_scored_tile_years"]
+        and end_dry["n_tile_years"] >= MARGIN["min_scored_tile_years"]
+        and np.isfinite(rise["pooled_within_1"])
+        and np.isfinite(end_dry["pooled_within_1"])
+    )
+    if not enough:
+        return "INCONCLUSIVE"
+    passed = (
+        rise["pooled_within_1"] >= MARGIN["min_within_1"]
+        and rise["pooled_within_1"] - end_dry["pooled_within_1"] >= MARGIN["min_gain_over_end_dry"]
+        and coverage >= MARGIN["min_coverage"]
+    )
+    return "PASS" if passed else "FAIL"

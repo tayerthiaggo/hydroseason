@@ -13,12 +13,14 @@ from scripts.clock_anchor_stage0 import (
     HY_DATE_COLUMNS,
     MARGIN,
     RULE,
+    decide,
     end_dry_as_run,
     exported_extent,
     leave_one_out_deviations,
     month_from_index,
     month_index,
     rise_month,
+    synchrony,
     valid_denominator_extent,
     weighted_median,
 )
@@ -253,3 +255,43 @@ def test_rise_month_search_begins_after_band_end_not_boundary():
     assert result["rise_month"] == pd.Timestamp("2000-10-01")
     assert result["status"] == "interval"
     assert result["interval_start"] == pd.Timestamp("2000-10-01")
+
+
+def test_synchrony_scores_leave_target_out_agreement_on_big_tiles():
+    table = pd.DataFrame(
+        {
+            "tile": ["a", "b", "c", "d", "small"] * 2,
+            "hy_year": [2000] * 5 + [2001] * 5,
+            "px": [5000, 5000, 5000, 5000, 100] * 2,
+            "month": pd.to_datetime(
+                [
+                    "2000-12-01", "2000-12-01", "2001-01-01", "2001-04-01", "2000-06-01",
+                    "2001-12-01", "2001-12-01", "2001-12-01", None, "2001-06-01",
+                ]
+            ),
+        }
+    )
+    result = synchrony(table, "month", big_tile_min_px=3000, min_other_tiles=3)
+    assert result["n_years"] == 1
+    assert result["n_tile_years"] == 4
+    assert result["pooled_within_1"] == pytest.approx(0.75)
+    assert result["mean_within_1"] == pytest.approx(0.75)
+    assert result["share_ge3"] == pytest.approx(0.25)
+
+
+def test_synchrony_is_empty_without_enough_tiles():
+    table = pd.DataFrame({"hy_year": [2000, 2000], "px": [5000, 5000], "month": pd.to_datetime(["2000-12-01", "2001-01-01"])})
+    result = synchrony(table, "month", big_tile_min_px=3000, min_other_tiles=3)
+    assert result["n_tile_years"] == 0
+    assert np.isnan(result["pooled_within_1"])
+
+
+def test_decide_applies_the_frozen_margin():
+    end_dry = {"n_tile_years": 1000, "pooled_within_1": 0.83}
+    assert decide({"n_tile_years": 1000, "pooled_within_1": 0.91}, end_dry, coverage=0.95) == "PASS"
+    assert decide({"n_tile_years": 1000, "pooled_within_1": 0.91}, end_dry, coverage=0.85) == "FAIL"
+    assert decide({"n_tile_years": 1000, "pooled_within_1": 0.87}, end_dry, coverage=0.95) == "FAIL"
+    strong_baseline = {"n_tile_years": 1000, "pooled_within_1": 0.92}
+    assert decide({"n_tile_years": 1000, "pooled_within_1": 0.95}, strong_baseline, coverage=0.95) == "FAIL"
+    assert decide({"n_tile_years": 100, "pooled_within_1": 0.95}, end_dry, coverage=0.95) == "INCONCLUSIVE"
+    assert decide({"n_tile_years": 1000, "pooled_within_1": np.nan}, end_dry, coverage=0.95) == "INCONCLUSIVE"
