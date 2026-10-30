@@ -521,6 +521,17 @@ def to_markdown(summary: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _json_safe(value):
+    """Replace non-finite numeric metrics with JSON null recursively."""
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (float, np.floating)) and not np.isfinite(value):
+        return None
+    return value
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -538,7 +549,7 @@ def main(argv=None) -> int:
     table.to_csv(args.out, index=False)
     args.summary.write_text(to_markdown(summary), encoding="utf-8")
     args.receipt.write_text(
-        json.dumps(receipt(args.hydroseason_dir, args.manifest, summary), indent=1, default=str),
+        json.dumps(_json_safe(receipt(args.hydroseason_dir, args.manifest, summary)), indent=1, default=str, allow_nan=False),
         encoding="utf-8",
     )
     print(f"decision={summary['decision']} rows={len(table)} -> {args.out}")

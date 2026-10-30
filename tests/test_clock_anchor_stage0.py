@@ -369,7 +369,12 @@ def test_main_writes_table_summary_and_receipt(tmp_path):
     assert (primary["status"] == "point").all()
     assert (pd.to_datetime(primary["rise_month"]).dt.month == 12).all()
     assert (pd.to_datetime(primary["end_dry_as_run"]).dt.month == 9).all()
-    report = json.loads(receipt.read_text())
+
+    def reject_nonfinite(value):
+        raise ValueError(f"non-standard JSON constant: {value}")
+
+    report = json.loads(receipt.read_text(), parse_constant=reject_nonfinite)
+    assert report["summary"]["variants"]["primary"]["rise"]["pooled_within_1"] is None
     assert report["decision"] == "INCONCLUSIVE"  # two tiles: fewer than three others per year
     assert report["rule"]["version"] == "stage0_rise_v1"
     assert set(report["inputs"]) == {
