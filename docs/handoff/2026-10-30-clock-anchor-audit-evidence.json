@@ -1,0 +1,118 @@
+{
+  "audit_date_local": "2026-10-30",
+  "timezone": "Australia/Perth",
+  "hydroseason_head_at_receipt": "6b3a58e74cb8742674bca40fd35282abb8cee1b4",
+  "hydropools_checkout_head": "ccc4ab070b1eb1e5dd2b97d16fc3ea17fe2c78ba",
+  "files": [
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydropools\\docs\\handoff\\2026-10-30-clock-anchor-analysis.md",
+      "sha256": "a57792864766669e87557c52849cd051b99538785a79bffaf6604962472b77c3",
+      "bytes": 17256
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydropools\\src\\hydropools\\seasons.py",
+      "sha256": "12cb01d39b2dabdf28234237fc37cfd5cb9641a3c69f2fc30305ee72e9bf01da",
+      "bytes": 4394
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydropools\\src\\hydropools\\pipeline.py",
+      "sha256": "848aa7e288351a943ca2792598dc009d02fe1178c84e10054e3b9f86e97b7e3f",
+      "bytes": 20961
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydropools\\outputs\\rerun\\fitzroy\\pool_months.csv",
+      "sha256": "440e1afc262bbd010b628afed647018f3adc32f4c43d54733b543b42499adb27",
+      "bytes": 8589427
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydropools\\outputs\\rerun\\fitzroy\\pool_years.csv",
+      "sha256": "83b2a728ba74284e1cb2f4d0da7a27cf1ea713415a122872c92ffd903d47e3cc",
+      "bytes": 3391296
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydroseason\\hydroseason\\_catchment.py",
+      "sha256": "bc39ee8ad0640142f0ad81faac376b620d49f565dec208c99fcaea08b508f98a",
+      "bytes": 16229
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydroseason\\hydroseason\\_state_input.py",
+      "sha256": "de53a3ea8d17fa20c71db919e762892b5af1426cb2bab346af44edc7b7657f1f",
+      "bytes": 5958
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydroseason\\hydroseason\\_timing_identifiability.py",
+      "sha256": "845aa4652b8c8cc6ba14ba5e30bd8f6c5233095ee9a849142ec57dfddee07b71",
+      "bytes": 19555
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydroseason\\hydroseason\\_dynamic_year.py",
+      "sha256": "1d43bba40eb4ff31531e402b9fa256a72b20a7b9ae69be4cccc524a5ab3028fd",
+      "bytes": 59851
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydroseason\\scripts\\trough_synthetic.py",
+      "sha256": "9ce0daadfd930b10d2d4b44d5c21ebc777e7a76e8ba9d3cf2d37431acb07f79b",
+      "bytes": 5031
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydroseason\\scripts\\trough_falsification_sweep.py",
+      "sha256": "f4e6836ee57ddf128ce50f6ad3b9267347ae33b0dc701ab2287dc55b9da279c5",
+      "bytes": 8081
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydroseason\\dev\\reports\\2026-10-30-peak-null-1000.csv",
+      "sha256": "bd57161ffcf226ae6f24b353e61fefacc9cc571a9bc8994b9ba0d91b0959f534",
+      "bytes": 157696
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydroseason\\dev\\reports\\2026-10-30-trough-falsification-matrix.csv",
+      "sha256": "80d018022ca0408ba8d048fe2ff913b99214f24700b94b4f43eaaf30a7926604",
+      "bytes": 381191
+    },
+    {
+      "path": "D:\\RLH\\5.6\\repos\\hydroseason\\dev\\reports\\2026-10-30-trough-falsification-matrix-counts.csv",
+      "sha256": "5a243bd0347feee822a1997198eb6eba6b3001672852e01910934907c5392a98",
+      "bytes": 50897
+    }
+  ],
+  "fresh_targeted_tests": {
+    "command": ".venv/Scripts/python.exe -m pytest tests/test_trough_recurrence_contract.py tests/test_catchment_analysis.py::test_catchment_threads_measurement_tolerance_to_the_dynamic_cycle_detector -q -p no:cacheprovider",
+    "result": "7 passed in 12.19s"
+  },
+  "clock_quality": {
+    "path": "C:\\Users\\00101125\\AppData\\Local\\Temp\\claude\\d--RLH-5-6-repos-hydropools\\4cd19c48-b06d-4fa8-9850-dca5f0a7ea55\\scratchpad\\b\\clock_quality.csv",
+    "sha256": "5c63fbd4a23315895651c236c29a170526b5f2e661d863535fb3cd7952bec900",
+    "n": 1545,
+    "ratio_nan": 0,
+    "ratio_zero": 80,
+    "reported_gt10": {
+      "n": 913,
+      "jan_aug": 59,
+      "off_ge3": 33
+    },
+    "excluded_gt1e9": {
+      "n": 92,
+      "jan_aug": 86,
+      "off_ge3": 80
+    },
+    "actual_gt10": {
+      "n": 1005,
+      "jan_aug": 145,
+      "off_ge3": 113
+    }
+  },
+  "pool_endpoint": {
+    "rows": 132815,
+    "groups": 26633,
+    "last_observed_not_endpoint": 523,
+    "true_observed_endpoint_n": 26110,
+    "wet_endpoint": 10914,
+    "no_observed_dry": 9876,
+    "wet_to_dry": 1038
+  },
+  "uniform_null": {
+    "n": 1000,
+    "peak_rejections": 62,
+    "trough_rejections": 51
+  }
+}
