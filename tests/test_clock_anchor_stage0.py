@@ -5,6 +5,9 @@ scripts/clock_anchor_stage0.py computes, so that the real-data run in the plan
 is a pre-specified test and not an exploration.
 """
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -13,10 +16,13 @@ from scripts.clock_anchor_stage0 import (
     HY_DATE_COLUMNS,
     MARGIN,
     RULE,
+    VARIANTS,
+    _variant_summary,
     decide,
     end_dry_as_run,
     exported_extent,
     leave_one_out_deviations,
+    main,
     month_from_index,
     month_index,
     rise_month,
@@ -301,3 +307,91 @@ def test_decide_accepts_exact_gain_boundary_but_not_below_it():
     end_dry = {"n_tile_years": 1000, "pooled_within_1": 0.90}
     assert decide({"n_tile_years": 1000, "pooled_within_1": 0.95}, end_dry, coverage=0.95) == "PASS"
     assert decide({"n_tile_years": 1000, "pooled_within_1": 0.9499999999}, end_dry, coverage=0.95) == "FAIL"
+
+
+def _write_tile(root: Path, tile: str, rise_month_of_year: int):
+    tile_dir = root / tile
+    tile_dir.mkdir(parents=True)
+    index = pd.date_range("1987-01-01", periods=12 * 40, freq="MS")
+    extent = pd.Series(2.0, index=index)
+    for year in range(1987, 2027):
+        for offset, value in ((0, 6.0), (1, 12.0), (2, 20.0)):
+            stamp = pd.Timestamp(year=year, month=rise_month_of_year, day=1) + pd.DateOffset(months=offset)
+            if stamp in extent.index:
+                extent.loc[stamp] = value
+    pd.DataFrame({"date": index.strftime("%Y-%m-%d"), "extent_pct": extent.to_numpy(), "invalid_pct": 0.0}).to_csv(
+        tile_dir / "channel_monthly_extent.csv", index=False
+    )
+    rows = []
+    for year in range(1988, 2027):
+        rows.append(
+            dict(
+                hy_year=year,
+                trough_boundary_date=f"{year}-09-01",
+                trough_interval_start_date=f"{year}-08-01",
+                trough_interval_end_date=f"{year}-09-01",
+                trough_date=f"{year}-09-01",
+                trough_timing_status="point",
+                peak_date=f"{year}-02-01",
+                peak_interval_start_date="",
+                mid_dry_date=f"{year}-06-01",
+                detectability_floor_pp=0.5,
+            )
+        )
+    pd.DataFrame(rows).to_csv(tile_dir / f"fitzroy-{tile}_hydro_years.csv", index=False)
+
+
+def test_main_writes_table_summary_and_receipt(tmp_path):
+    hydroseason_dir = tmp_path / "hydroseason"
+    _write_tile(hydroseason_dir, "tile01", rise_month_of_year=12)
+    _write_tile(hydroseason_dir, "tile02", rise_month_of_year=11)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps({"summary": {"regions": [{"name": "tile01", "channel_px": 5000}, {"name": "tile02", "channel_px": 4000}]}})
+    )
+    out = tmp_path / "stage0.csv"
+    summary = tmp_path / "stage0.md"
+    receipt = tmp_path / "stage0.json"
+    code = main(
+        [
+            "--hydroseason-dir", str(hydroseason_dir),
+            "--manifest", str(manifest),
+            "--out", str(out),
+            "--summary", str(summary),
+            "--receipt", str(receipt),
+        ]
+    )
+    assert code == 0
+    table = pd.read_csv(out)
+    assert set(table["variant"]) == {variant["name"] for variant in VARIANTS}
+    primary = table[(table["variant"] == "primary") & (table["tile"] == "tile01")]
+    assert len(primary) == 38  # hy 1988..2025
+    assert (primary["status"] == "point").all()
+    assert (pd.to_datetime(primary["rise_month"]).dt.month == 12).all()
+    assert (pd.to_datetime(primary["end_dry_as_run"]).dt.month == 9).all()
+    report = json.loads(receipt.read_text())
+    assert report["decision"] == "INCONCLUSIVE"  # two tiles: fewer than three others per year
+    assert report["rule"]["version"] == "stage0_rise_v1"
+    assert set(report["inputs"]) == {
+        "tile01/channel_monthly_extent.csv", "tile01/fitzroy-tile01_hydro_years.csv",
+        "tile02/channel_monthly_extent.csv", "tile02/fitzroy-tile02_hydro_years.csv",
+    }
+    assert "primary" in summary.read_text()
+
+
+def test_coverage_includes_no_window_and_missing_first_post_band_month():
+    sub = pd.DataFrame({
+        "status": ["point", "interval", "no_window", "missing_first_post_band_month", "point"],
+        "px": [5000, 5000, 5000, 5000, 100],
+        "hy_year": [2000] * 5,
+        "rise_month": pd.to_datetime(["2000-12-01", "2000-12-01", None, None, "2000-12-01"]),
+        "interval_start": pd.to_datetime(["2000-12-01", "2000-11-01", None, None, "2000-12-01"]),
+        "interval_end": pd.to_datetime(["2000-12-01", "2000-12-01", None, None, "2000-12-01"]),
+        "boundary": pd.to_datetime(["2000-09-01"] * 5),
+    })
+    summary = _variant_summary(sub)
+    assert summary["coverage_big"] == pytest.approx(0.5)
+    assert summary["coverage_all"] == pytest.approx(0.6)
+    assert summary["status_counts"]["missing_first_post_band_month"] == 1
+    assert decide({"n_tile_years": 500, "pooled_within_1": 0.95},
+                  {"n_tile_years": 500, "pooled_within_1": 0.85}, summary["coverage_big"]) == "FAIL"
