@@ -301,9 +301,13 @@ def decide(rise: dict, end_dry: dict, coverage: float) -> str:
     )
     if not enough:
         return "INCONCLUSIVE"
+    gain = rise["pooled_within_1"] - end_dry["pooled_within_1"]
+    min_gain = MARGIN["min_gain_over_end_dry"]
+    # Allow only a few machine epsilons for rounding in the subtraction.
+    gain_passes = gain >= min_gain or np.isclose(gain, min_gain, rtol=0, atol=4 * np.finfo(float).eps)
     passed = (
         rise["pooled_within_1"] >= MARGIN["min_within_1"]
-        and rise["pooled_within_1"] - end_dry["pooled_within_1"] >= MARGIN["min_gain_over_end_dry"]
+        and gain_passes
         and coverage >= MARGIN["min_coverage"]
     )
     return "PASS" if passed else "FAIL"

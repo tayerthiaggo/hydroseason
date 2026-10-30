@@ -295,3 +295,9 @@ def test_decide_applies_the_frozen_margin():
     assert decide({"n_tile_years": 1000, "pooled_within_1": 0.95}, strong_baseline, coverage=0.95) == "FAIL"
     assert decide({"n_tile_years": 100, "pooled_within_1": 0.95}, end_dry, coverage=0.95) == "INCONCLUSIVE"
     assert decide({"n_tile_years": 1000, "pooled_within_1": np.nan}, end_dry, coverage=0.95) == "INCONCLUSIVE"
+
+
+def test_decide_accepts_exact_gain_boundary_but_not_below_it():
+    end_dry = {"n_tile_years": 1000, "pooled_within_1": 0.90}
+    assert decide({"n_tile_years": 1000, "pooled_within_1": 0.95}, end_dry, coverage=0.95) == "PASS"
+    assert decide({"n_tile_years": 1000, "pooled_within_1": 0.9499999999}, end_dry, coverage=0.95) == "FAIL"
