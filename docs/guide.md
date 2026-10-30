@@ -212,6 +212,17 @@ route additionally requires that annual timing be *identifiable* and satisfy the
 - `per_year_detection` is used only for a seasonal record where at least 7 informative peak cycles and at least 7 informative trough cycles are resolved.
 - If fewer than 7 cycles are resolved, dynamic annual boundaries are withheld, and the catchment routes to `event_characterisation` instead — wet events and low-extent spells are reported, but no dynamic hydrological-year boundary is published.
 
+When only one extremum recurs, the conjunction decides against seasonality and
+the reason says which test failed. A record whose trough returns to the same
+month every year while flood peaks land anywhere is aseasonal with reason
+`peak_uniformity_not_rejected`; the mirror case gives
+`trough_uniformity_not_rejected`. The recurring extremum's test is still
+reported: `peak_timing_uniformity_p` and `trough_timing_uniformity_p` are public
+on `WaterRegimeAssessment`, and the full test, including each year's
+equivalent-month sets and the dominant month, is on
+`assessment.seasonality_test`. `mean_monthly_peak_month` and
+`mean_monthly_trough_month` are `None` unless the record is seasonal.
+
 Fewer than 30 usable annual timings (not 30 months) keeps the classification
 but warns that uncertainty intervals may be wide.
 

@@ -5,6 +5,13 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
+### Changed
+- Documented what the advisory pattern labels mean (`low_variability` is a
+  statement about the fitted curve against the 1.0 pp default tolerance, not
+  about observed variability), when `suggest_dynamic_hydro_year_config` raises,
+  which `SeasonalPatternResult` fields are sentinels, and how a record with a
+  recurrent trough but irregular peaks is reported by `assess_water_regime`.
+
 ### Fixed
 - The build requirement is now `setuptools>=77`. The PEP 639 `license`
   metadata used since 0.2.0 fails to build with older setuptools, which the

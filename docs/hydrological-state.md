@@ -17,6 +17,37 @@ result.monthly_phase    # labelled by default; pass phase_scheme="none" to disab
 
 Pass `DynamicHydroYearConfig(expected_trough_month=...)` when local knowledge should override the advisory phase. The configured month centres the annual search; it is not a fixed hydrological-year boundary.
 
+## Advisory pattern labels and the trough exception
+
+`result.pattern` comes from `classify_seasonal_pattern`: a quality-weighted
+harmonic fit (orders 0 to 3) with leave-one-year-out order selection and a
+one-standard-error preference for the simpler order. Its labels describe the
+selected fitted curve, not the observed record.
+
+- `low_variability`: the fitted curve's peak-to-trough range is at or below the
+  floor. The floor defaults to `measurement_tolerance_pct`, which is 1.0
+  percentage point. Order 0 is a constant with range 0, so any record whose
+  floods defeat every seasonal order in cross-validation is labelled
+  `low_variability` even when observed extent varies by tens of percentage
+  points. The label says nothing about how observable the record is.
+- `weak_or_irregular`: the fit cleared the floor but no peak mode was retained.
+- `insufficient_record`: too few evaluable years for cross-validation.
+
+For these three labels `suggest_dynamic_hydro_year_config`, and therefore
+`analyze_hydrological_state` without a `config`, raises
+`ValueError("No stable trough phase; supply expected_trough_month explicitly.")`.
+Supplying `expected_trough_month` bypasses the label and also disables the
+low-variability guard on annual condition labels. Treat a supplied month as a
+claim you are making, not one the data made.
+
+Fields in the `low_variability` result are sentinels, not computed tests:
+`periodicity_p` is 1.0 without a periodicity test having run, and
+`seasonal_amplitude_pp` is the fitted range (0.0 for order 0). In the default
+mode `bootstrap_support` is 1.0 whenever any peak mode exists and both phase
+IQR fields are `None`. None of these is a calibrated timing-confidence measure.
+For calendar timing recurrence use `assess_water_regime` (see the guide, "Which
+route did my catchment take?").
+
 ## Annual interpretation
 
 - `peak_extent_pct`: maximum observed extent in the dynamic trough-to-trough cycle. The observed maximum is retained for review even when its `invalid_pct` exceeds the configured quality threshold; inspect `peak_selection_status` and `peak_invalid_pct` before treating it as trusted evidence.
