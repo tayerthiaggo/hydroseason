@@ -67,3 +67,4 @@ markdown_extensions:
 exclude_docs: |
   plans/**
   superpowers/**
+  handoff/**

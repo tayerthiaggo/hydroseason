@@ -1,6 +1,6 @@
 # Clock anchor stage 0: frozen rise rule versus end-dry as run
 
-Date: 2026-10-30. Branch `clock-anchor-stage0`. Plan: [2026-10-30-clock-anchor-stage0.md](../superpowers/plans/2026-10-30-clock-anchor-stage0.md). Question: does a frozen rise rule agree across Fitzroy tiles better than the end-dry hydropools uses today?
+Date: 2026-10-30. Branch `clock-anchor-stage0`. Plan: `docs/superpowers/plans/2026-10-30-clock-anchor-stage0.md` (local working file, not tracked; the version used is in commit `4ab73da`). Question: does a frozen rise rule agree across Fitzroy tiles better than the end-dry hydropools uses today?
 
 ## Freeze
 
@@ -19,7 +19,7 @@ Date: 2026-10-30. Branch `clock-anchor-stage0`. Plan: [2026-10-30-clock-anchor-s
 
 ## Results
 
-Decision: **FAIL**. Receipt: `dev/reports/2026-10-30-clock-anchor-stage0.json` (run `git_head` `bf2ae59cc24ec2414b26cd3977d8ab1f18c3a845`, 82 input files hashed, manifest `1f1500ee7d7bb97d01cb690e3ec6f21067cfe4ca7c8213bf7ad7407ae9f7de00`). The frozen script commit is recorded above.
+Decision: **FAIL**. Receipt: [2026-10-30-clock-anchor-stage0-receipt.json](2026-10-30-clock-anchor-stage0-receipt.json), moved unchanged from `dev/reports/` on 2026-10-31 (run `git_head` `bf2ae59cc24ec2414b26cd3977d8ab1f18c3a845`, 82 input files hashed, manifest `1f1500ee7d7bb97d01cb690e3ec6f21067cfe4ca7c8213bf7ad7407ae9f7de00`). The frozen script commit is recorded above.
 
 | Method | within ±1 (pooled) | within ±1 (mean of years) | ≥ 3 off | scored tile-years | coverage, big tiles |
 | --- | ---: | ---: | ---: | ---: | ---: |
