@@ -444,6 +444,12 @@ def test_dual_composite_v1_secondary_composite_respects_historical_water_mask(mo
     primary = result.compute() if hasattr(result, "compute") else result
     primary_values = np.asarray(primary.isel(time=0).values)
     assert primary_values[0, 0] == -2
+    # Months with no scenes are inserted by complete_monthly_axis. The cell
+    # outside the historical mask must stay outside (-2) there too; only
+    # inside cells become unobserved (-1).
+    inserted_values = np.asarray(primary.isel(time=1).values)
+    assert inserted_values[0, 0] == -2
+    assert (inserted_values.reshape(-1)[1:] == -1).all()
 
     # Secondary composite dual counts: (0, 0) must NOT be counted as wet or
     # clear, even though the unmasked max_water vote there is wet (1).
@@ -643,6 +649,69 @@ def test_complete_monthly_axis_preserves_lazy_data_and_marks_missing_months():
     assert completed.chunks is not None
     assert completed.attrs["inserted_months"] == ["2020-02"]
     assert (completed.sel(time="2020-02-01").compute().values == -1).all()
+
+
+def test_complete_monthly_axis_keeps_outside_aoi_and_grid_on_inserted_months():
+    xr = pytest.importorskip("xarray")
+    rioxarray = pytest.importorskip("rioxarray")  # noqa: F841 - registers .rio
+    from hydroseason.hydro_year import monthly_water_extent
+    from hydroseason.io import complete_monthly_axis
+
+    observed = np.array(
+        [
+            [[-2, 1, 0], [-2, 0, -1]],
+            [[-2, 0, 0], [-2, 1, 1]],
+        ],
+        dtype=np.int8,
+    )
+    masks = xr.DataArray(
+        observed,
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.to_datetime(["2020-01-01", "2020-03-01"]),
+            "y": [45.0, 15.0],
+            "x": [15.0, 45.0, 75.0],
+        },
+    )
+    masks = masks.rio.write_crs("EPSG:3577")
+    masks = masks.rio.write_transform(masks.rio.transform(recalc=True))
+
+    completed = complete_monthly_axis(masks, "2020-01-01", "2020-03-01")
+
+    assert completed.sizes["time"] == 3
+    assert completed.attrs["inserted_months"] == ["2020-02"]
+    inserted = np.asarray(completed.sel(time="2020-02-01").values)
+    outside = observed[0] == -2
+    assert (inserted[outside] == -2).all()
+    assert (inserted[~outside] == -1).all()
+    np.testing.assert_array_equal(completed.isel(time=0).values, observed[0])
+    np.testing.assert_array_equal(completed.isel(time=2).values, observed[1])
+    assert completed.dtype == masks.dtype
+    assert completed.rio.crs == masks.rio.crs
+    assert completed.rio.transform() == masks.rio.transform()
+
+    extent = monthly_water_extent(completed)
+    assert extent["n_aoi"].nunique() == 1
+    february = extent.loc[pd.Timestamp("2020-02-01")]
+    assert february["n_valid"] == 0
+    assert february["n_invalid"] == february["n_aoi"]
+    assert february["invalid_pct"] == pytest.approx(100.0)
+    assert np.isnan(february["extent_pct"])
+
+
+def test_complete_monthly_axis_without_outside_cells_is_unchanged():
+    xr = pytest.importorskip("xarray")
+    from hydroseason.io import complete_monthly_axis
+
+    masks = xr.DataArray(
+        np.array([[[1, 0]], [[0, 1]]], dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-01", "2020-03-01"]), "y": [0], "x": [0, 1]},
+    )
+
+    completed = complete_monthly_axis(masks, "2020-01-01", "2020-03-01")
+
+    assert (completed.sel(time="2020-02-01").values == -1).all()
 
 
 def test_generic_raster_loader_requires_aoi(tmp_path):
