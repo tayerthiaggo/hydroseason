@@ -40,6 +40,12 @@ Supplying `expected_trough_month` bypasses the label and also disables the
 low-variability guard on annual condition labels. Treat a supplied month as a
 claim you are making, not one the data made.
 
+`analyze_catchment` and `run_hydroseason` do not raise on these records. They
+first route the record with `assess_water_regime` and, when it is seasonal,
+pass the regime's trough month to `analyze_hydrological_state` as an explicit
+config. The same record can therefore fail here and run there. For batch work,
+call `run_hydroseason` or `analyze_catchment`.
+
 Fields in the `low_variability` result are sentinels, not computed tests:
 `periodicity_p` is 1.0 without a periodicity test having run, and
 `seasonal_amplitude_pp` is the fitted range (0.0 for order 0). In the default
@@ -150,6 +156,9 @@ Each year's trough opportunity carries diagnostics that separate what was
   and ambiguity. It is a quality grade, not yet a calibrated probability.
 - `boundary_status`: `confirmed` when the window is full, the raw minimum was
   selected, and `selection_support` is at least 0.80; `provisional` otherwise.
+  Pass-2 trough refinement can still leave a boundary `provisional` after a
+  clean pass-1 selection; `status_reason` and `trough_refinement_reason` say
+  why (see [Why a cycle is provisional](report-columns.md#why-a-cycle-is-provisional)).
   Downstream condition-baseline logic (`hydroseason/_condition.py`) uses this
   gate to decide whether a cycle may anchor a historical baseline — only
   `confirmed` cycles are eligible.

@@ -1,8 +1,8 @@
 # Provisional trough analysis: falsification results
 
 Date: 2026-10-30. Repository baseline: `048a1b6`.
-Plan: [2026-10-30-trough-falsification-tests.md](superpowers/plans/2026-10-30-trough-falsification-tests.md).
-Verdict this answers: [provisional-trough-verdict-2026-10-30.md](provisional-trough-verdict-2026-10-30.md), steps 3 and 5.
+Plan: `docs/superpowers/plans/2026-10-30-trough-falsification-tests.md` (local working file, not tracked).
+Verdict this answers: `docs/provisional-trough-verdict-2026-10-30.md` (local working file, not tracked), steps 3 and 5.
 
 No library code was changed. Environment: Python 3.12.13, NumPy 2.4.6, pandas 3.0.3.
 

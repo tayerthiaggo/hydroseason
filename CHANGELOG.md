@@ -5,7 +5,27 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+- The hydro-years CSV now says why a cycle is partial or provisional and
+  whether it anchors the condition baseline: `status_reason`,
+  `trough_refinement_status`, `trough_refinement_reason`, `baseline_eligible`
+  and `baseline_n` are appended after the existing columns. Readers that
+  select columns by name are unaffected. `analysis.hydro_years` also carries
+  `baseline_eligible`.
+
 ### Changed
+- `baseline_n` on `analysis.hydro_years` is now the number of cycles each row
+  is ranked against for the full-record and fixed-period baselines. It was
+  always 0 there before; rolling baselines are unchanged. No condition label
+  changes.
+- Documented every `status_reason` value and the trough-refinement reason
+  codes that were missing from `docs/report-columns.md` (including the three
+  atomic-rollback codes, `essential_low_quality_recovery`, `unknown_quality`,
+  `post_gap_return_to_low_state`, `no_defensible_low_state`,
+  `no_converged_candidate` and `not_requested`), why a cleanly selected
+  boundary can stay provisional after pass-2 refinement, and why
+  `analyze_hydrological_state` can raise on a record that `analyze_catchment`
+  routes as seasonal.
 - Documented what the advisory pattern labels mean (`low_variability` is a
   statement about the fitted curve against the 1.0 pp default tolerance, not
   about observed variability), when `suggest_dynamic_hydro_year_config` raises,
@@ -13,6 +33,10 @@ All notable changes to HydroSeason are documented here. This project follows
   recurrent trough but irregular peaks is reported by `assess_water_regime`.
 
 ### Fixed
+- `complete_monthly_axis` no longer turns outside-AOI cells (`-2`) into
+  unobserved cells (`-1`) on months it inserts for missing scenes. The AOI
+  denominator is now the same in every month, so an inserted month no longer
+  fails the annual-group pixel-count check in the DEA loader.
 - The build requirement is now `setuptools>=77`. The PEP 639 `license`
   metadata used since 0.2.0 fails to build with older setuptools, which the
   previous `>=68` floor allowed.
