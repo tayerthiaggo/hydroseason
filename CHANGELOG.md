@@ -12,6 +12,9 @@ All notable changes to HydroSeason are documented here. This project follows
   and `baseline_n` are appended after the existing columns. Readers that
   select columns by name are unaffected. `analysis.hydro_years` also carries
   `baseline_eligible`.
+- Report: the timeline for aseasonal records now shades wet events and
+  low-water spells and marks event peaks. Each shading has a legend entry with
+  its count that hides and shows it. Seasonal timelines are unchanged.
 
 ### Changed
 - `baseline_n` on `analysis.hydro_years` is now the number of cycles each row

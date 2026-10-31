@@ -41,6 +41,18 @@ INTERVAL_SHADE_COLORS = {
     "peak": "rgba(37, 99, 235, 0.14)",
     "trough": "rgba(220, 38, 38, 0.14)",
 }
+# Wet events and low-water spells are shaded on the timeline only for a record
+# with no hydrological years (the event_characterisation route). A seasonal
+# timeline already shows each cycle as rising and receding phases.
+EVENT_SHADE_COLORS = {
+    "event": "rgba(37, 99, 235, 0.12)",
+    "low_spell": "rgba(217, 119, 6, 0.14)",
+}
+EVENT_SHADE_LABELS = {
+    "event": "Wet event",
+    "low_spell": "Low-water spell",
+}
+EVENT_PEAK_COLOR = "#1d4ed8"
 HOVER_TEMPLATE = (
     "HY %{customdata[0]}<br>Date: %{customdata[1]}<br>"
     "Extent: %{customdata[2]:.2f}%<br>Invalid: %{customdata[3]:.2f}%<br>"
@@ -604,6 +616,141 @@ def _timing_interval_legend_traces(analysis: CatchmentAnalysis) -> list[dict[str
     return traces
 
 
+def _timeline_event_frames(analysis: CatchmentAnalysis) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Wet events and low spells to draw on the timeline, or empty frames.
+
+    Only a record without hydrological years gets them. On a seasonal record
+    the rising and receding phases already carry the cycle, and its events and
+    spells stay in their own duration charts.
+    """
+    empty = pd.DataFrame()
+    hydro_years = getattr(analysis, "hydro_years", None)
+    if hydro_years is not None and not hydro_years.empty:
+        return empty, empty
+    result = getattr(analysis, "events", None)
+    events = getattr(result, "events", None)
+    low_spells = getattr(result, "low_spells", None)
+    return (
+        events if isinstance(events, pd.DataFrame) else empty,
+        low_spells if isinstance(low_spells, pd.DataFrame) else empty,
+    )
+
+
+def _month_end_iso(value: Any) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    return _iso_date(pd.Timestamp(value) + pd.offsets.MonthEnd(0))
+
+
+def _month_label(value: Any) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    return pd.Timestamp(value).strftime("%b %Y")
+
+
+def _event_shapes(analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
+    """Shade each wet event and low-water spell from its first month to the end of its last.
+
+    Running to the end of the last month keeps a one-month event visible:
+    its start and end fall on the same month-start date.
+    """
+    events, low_spells = _timeline_event_frames(analysis)
+    shapes: list[dict[str, Any]] = []
+    for kind, frame in (("event", events), ("low_spell", low_spells)):
+        if frame.empty or not {"start", "end"} <= set(frame.columns):
+            continue
+        for _, row in frame.iterrows():
+            start = _iso_date(row.get("start"))
+            end = _month_end_iso(row.get("end"))
+            if start is None or end is None:
+                continue
+            key = _clean_val(row.get("event_id")) if kind == "event" else start
+            shapes.append({
+                "name": f"{kind}:{key}",
+                "type": "rect",
+                "xref": "x",
+                "yref": "paper",
+                "x0": start,
+                "x1": end,
+                "y0": 0,
+                "y1": 1,
+                "fillcolor": EVENT_SHADE_COLORS[kind],
+                "opacity": 1.0,
+                "line": {"width": 0},
+                "layer": "below",
+            })
+    return shapes
+
+
+def _event_legend_traces(shapes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Name the event and low-spell shading in the legend, with counts, so it can be toggled."""
+    traces: list[dict[str, Any]] = []
+    for kind, label in EVENT_SHADE_LABELS.items():
+        count = sum(1 for shape in shapes if shape["name"].startswith(f"{kind}:"))
+        if count == 0:
+            continue
+        traces.append({
+            "type": "scatter",
+            "mode": "lines",
+            "name": f"{label} ({count})",
+            "legend": "legend3",
+            "x": [None],
+            "y": [None],
+            "line": {"color": EVENT_SHADE_COLORS[kind], "width": 10},
+            "showlegend": True,
+            "hoverinfo": "none",
+            "meta": {"event_shading": kind},
+        })
+    return traces
+
+
+def _event_peak_traces(analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
+    """Mark each wet event's peak month at its peak extent."""
+    events, _ = _timeline_event_frames(analysis)
+    if events.empty or "peak_month" not in events.columns:
+        return []
+    x: list[str] = []
+    y: list[Any] = []
+    customdata: list[list[Any]] = []
+    for _, row in events.iterrows():
+        peak = _iso_date(row.get("peak_month"))
+        if peak is None:
+            continue
+        extent = _clean_val(row.get("peak_extent_pct"))
+        x.append(peak)
+        y.append(extent)
+        customdata.append([
+            _clean_val(row.get("event_id")),
+            _month_label(row.get("start")),
+            _month_label(row.get("peak_month")),
+            _month_label(row.get("end")),
+            extent,
+        ])
+    if not x:
+        return []
+    return [{
+        "type": "scatter",
+        "mode": "markers",
+        "name": "Wet event peak",
+        "legend": "legend",
+        "x": x,
+        "y": y,
+        "customdata": customdata,
+        "hovertemplate": (
+            "Wet event %{customdata[0]}<br>Start: %{customdata[1]}<br>"
+            "Peak: %{customdata[2]}<br>End: %{customdata[3]}<br>"
+            "Peak extent: %{customdata[4]:.2f}%<extra></extra>"
+        ),
+        "marker": {
+            "size": 9,
+            "color": EVENT_PEAK_COLOR,
+            "symbol": "triangle-up",
+            "line": {"color": "#ffffff", "width": 1},
+        },
+        "meta": _scale_meta(y),
+    }]
+
+
 def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[str, Any]:
     """Generate the manager timeline as an offline JSON-safe Plotly dict."""
     raw_dates = _dates(monthly)
@@ -676,12 +823,15 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
                 "meta": _scale_meta([median_baseline, median_baseline]),
             })
     data.extend(_marker_traces(monthly, analysis))
+    data.extend(_event_peak_traces(analysis))
     has_rainfall = "rainfall_mm" in monthly.columns and monthly["rainfall_mm"].notna().any()
     if has_rainfall:
         data.append({"type": "bar", "name": "Rainfall", "legend": "legend2", "x": dates, "y": _clean_list(monthly["rainfall_mm"]),
                      "yaxis": "y2", "marker": {"color": "rgba(148, 163, 184, 0.4)"}})
     data.extend(_phase_legend_traces(_active_phases(monthly, analysis)))
     data.extend(_timing_interval_legend_traces(analysis))
+    event_shapes = _event_shapes(analysis)
+    data.extend(_event_legend_traces(event_shapes))
 
     layout = _base_layout(rangeslider=False)
     hydro_shapes, hydro_annotations = _hydro_year_context(analysis)
@@ -689,6 +839,7 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
         _phase_shapes(monthly, raw_dates, analysis)
         + hydro_shapes
         + _timing_interval_shapes(analysis)
+        + event_shapes
     )
     layout["annotations"] = hydro_annotations
     layout["margin"]["t"] = 52

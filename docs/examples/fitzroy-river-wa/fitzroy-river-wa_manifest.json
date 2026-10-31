@@ -30,7 +30,7 @@
       "3 of 21 usable years contain no wet event above 20% invalid ceiling"
     ]
   },
-  "created_at_utc": "2026-10-31T09:57:55.450862+00:00",
+  "created_at_utc": "2026-10-31T13:00:25.579541+00:00",
   "dependencies": {
     "affine": "2.4.0",
     "dask": "2026.3.0",
@@ -92,8 +92,8 @@
   "outputs": {
     "html": {
       "path": "fitzroy-river-wa.html",
-      "sha256": "c0ca9fe50566446c7fe2186314d04b92b104ee3ee0839926610c3f740228d46d",
-      "size_bytes": 1757906
+      "sha256": "e5fe24e2c6ad0d95b6378559cf28d0fb770567f13b4b712830f02a2ba3fef487",
+      "size_bytes": 1758091
     },
     "hydro_years_csv": {
       "path": "fitzroy-river-wa_hydro_years.csv",

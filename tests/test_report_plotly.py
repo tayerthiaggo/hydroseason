@@ -971,3 +971,125 @@ def test_timeline_3_row_legend_and_dashed_3month_line(seasonal_data):
     assert set(row3_traces) == {"Rising", "Receding"}
 
 
+
+
+def _with_events(analysis, events, low_spells):
+    from dataclasses import replace
+
+    return replace(analysis, events=replace(analysis.events, events=events, low_spells=low_spells))
+
+
+def _two_events_one_spell():
+    events = pd.DataFrame({
+        "event_id": [1, 2],
+        "start": pd.to_datetime(["2011-01-01", "2015-02-01"]),
+        "end": pd.to_datetime(["2011-03-01", "2015-02-01"]),
+        "duration_months": [3, 1],
+        "peak_month": pd.to_datetime(["2011-02-01", "2015-02-01"]),
+        "peak_extent_pct": [0.61, 0.48],
+        "mean_extent_pct": [0.5, 0.48],
+        "magnitude_pp_months": [0.9, 0.3],
+    })
+    low_spells = pd.DataFrame({
+        "spell_id": [1],
+        "start": pd.to_datetime(["2013-06-01"]),
+        "end": pd.to_datetime(["2013-09-01"]),
+        "duration_months": [4],
+        "min_extent_pct": [0.01],
+    })
+    return events, low_spells
+
+
+def _event_shading(figure):
+    shapes = [
+        shape for shape in figure["layout"]["shapes"]
+        if shape.get("name", "").startswith(("event:", "low_spell:"))
+    ]
+    legend = {
+        trace["name"]: trace["meta"]["event_shading"]
+        for trace in figure["data"]
+        if trace.get("meta", {}).get("event_shading")
+    }
+    peaks = [trace for trace in figure["data"] if trace.get("name") == "Wet event peak"]
+    return shapes, legend, peaks
+
+
+def test_aseasonal_timeline_shades_wet_events_and_low_spells(aseasonal_with_events_data):
+    """Without hydrological years, the timeline shows when events and dry spells happened."""
+    monthly, analysis = aseasonal_with_events_data
+    assert analysis.route == "event_characterisation"
+    assert analysis.hydro_years.empty
+    figure = timeline_figure(monthly, _with_events(analysis, *_two_events_one_spell()))
+    json.dumps(figure, allow_nan=False)
+    shapes, legend, peaks = _event_shading(figure)
+
+    # Each span runs to the end of its last month, so a one-month event is visible.
+    assert [(s["name"], s["x0"], s["x1"]) for s in shapes] == [
+        ("event:1", "2011-01-01", "2011-03-31"),
+        ("event:2", "2015-02-01", "2015-02-28"),
+        ("low_spell:2013-06-01", "2013-06-01", "2013-09-30"),
+    ]
+    assert len(figure["layout"]["shapes"]) == 3
+    for shape in shapes:
+        assert shape["type"] == "rect"
+        assert shape["layer"] == "below"
+        assert shape["yref"] == "paper"
+        assert (shape["y0"], shape["y1"]) == (0, 1)
+    assert shapes[0]["fillcolor"] == "rgba(37, 99, 235, 0.12)"
+    assert shapes[2]["fillcolor"] == "rgba(217, 119, 6, 0.14)"
+
+    assert legend == {"Wet event (2)": "event", "Low-water spell (1)": "low_spell"}
+    legend_traces = [t for t in figure["data"] if t.get("meta", {}).get("event_shading")]
+    assert all(t["legend"] == "legend3" and t["x"] == [None] for t in legend_traces)
+
+    assert len(peaks) == 1
+    peak = peaks[0]
+    assert peak["mode"] == "markers"
+    assert peak["x"] == ["2011-02-01", "2015-02-01"]
+    assert peak["y"] == [0.61, 0.48]
+    assert peak["meta"]["original_y"] == [0.61, 0.48]
+    assert peak["customdata"][0] == [1, "Jan 2011", "Feb 2011", "Mar 2011", 0.61]
+    assert peak["customdata"][1] == [2, "Feb 2015", "Feb 2015", "Feb 2015", 0.48]
+    for field in ("Wet event", "Start", "Peak", "End", "Peak extent"):
+        assert field in peak["hovertemplate"]
+
+
+def test_seasonal_timeline_has_no_event_or_low_spell_shading(seasonal_data, marginal_data):
+    """A seasonal timeline already shows its cycles; events stay in their own charts."""
+    for monthly, analysis in (seasonal_data, marginal_data):
+        assert not analysis.hydro_years.empty
+        with_events = _with_events(analysis, *_two_events_one_spell())
+        shapes, legend, peaks = _event_shading(timeline_figure(monthly, with_events))
+        assert (shapes, legend, peaks) == ([], {}, [])
+
+    _, marginal = marginal_data
+    assert not marginal.events.low_spells.empty
+    assert timeline_figure(*marginal_data) == timeline_figure(
+        marginal_data[0], _with_events(marginal, *_two_events_one_spell())
+    )
+
+
+def test_aseasonal_timeline_without_events_or_spells_adds_nothing(aseasonal_with_events_data):
+    """No events and no spells: no shapes and no empty legend entries."""
+    monthly, analysis = aseasonal_with_events_data
+    empty = _with_events(
+        analysis,
+        analysis.events.events.iloc[0:0],
+        analysis.events.low_spells.iloc[0:0],
+    )
+    figure = timeline_figure(monthly, empty)
+    assert figure["layout"]["shapes"] == []
+    assert _event_shading(figure) == ([], {}, [])
+
+
+def test_aseasonal_timeline_skips_spans_without_dates(aseasonal_with_events_data):
+    monthly, analysis = aseasonal_with_events_data
+    events, low_spells = _two_events_one_spell()
+    events.loc[1, "end"] = pd.NaT
+    events.loc[1, "peak_month"] = pd.NaT
+    shapes, legend, peaks = _event_shading(
+        timeline_figure(monthly, _with_events(analysis, events, low_spells))
+    )
+    assert [s["name"] for s in shapes] == ["event:1", "low_spell:2013-06-01"]
+    assert legend == {"Wet event (1)": "event", "Low-water spell (1)": "low_spell"}
+    assert peaks[0]["x"] == ["2011-02-01"]

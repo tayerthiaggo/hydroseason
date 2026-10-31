@@ -414,3 +414,30 @@ def test_year_cards_render_interval_months_in_key_events():
     assert '<span class="cell-marker marker-dry-interval">Dry Interval</span>' in html
 
 
+
+
+def test_report_legend_toggles_event_and_low_spell_shading():
+    """The timeline's wet-event and low-spell legend entries must hide their shading."""
+    from hydroseason._report_plotly import EVENT_SHADE_COLORS
+
+    html = render_report_html(
+        name="Test events",
+        title="Test events",
+        subtitle=None,
+        quality_note=None,
+        verdict="Aseasonal",
+        kpis=[{"value": "1", "label": "KPI", "detail": "detail"}],
+        monthly=pd.DataFrame(),
+        hydro_years=pd.DataFrame(),
+        events=pd.DataFrame(),
+        low_spells=pd.DataFrame(),
+        summary=pd.DataFrame(),
+        timeline_figure={"data": [], "layout": {}, "config": {}},
+        secondary_figure={"data": [], "layout": {}, "config": {}},
+    )
+
+    assert "const eventShading = trace.meta.event_shading;" in html
+    assert "if (timingInterval || eventShading) {" in html
+    # Shape names are "<kind>:<key>"; the handler matches that prefix.
+    assert ': eventShading + ":";' in html
+    assert set(EVENT_SHADE_COLORS) == {"event", "low_spell"}

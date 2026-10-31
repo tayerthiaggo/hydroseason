@@ -1074,6 +1074,7 @@ return Plotly;
     if (!trace || !trace.meta) return;
     const phase = trace.meta.phase_legend;
     const timingInterval = trace.meta.timing_interval;
+    const eventShading = trace.meta.event_shading;
     if (phase) {
       const hidden = trace.visible !== "legendonly";
       const nextVisible = hidden ? "legendonly" : true;
@@ -1085,10 +1086,11 @@ return Plotly;
       Plotly.relayout(timeline, {shapes});
       return false;
     }
-    if (timingInterval) {
+    if (timingInterval || eventShading) {
       const hidden = trace.visible !== "legendonly";
       const nextVisible = hidden ? "legendonly" : true;
-      const prefix = "timing_interval:" + timingInterval;
+      // Interval, wet-event and low-spell shapes are matched by name prefix.
+      const prefix = timingInterval ? "timing_interval:" + timingInterval : eventShading + ":";
       const shapes = (timeline.layout.shapes || []).map(shape =>
         shape.name && shape.name.startsWith(prefix) ? Object.assign({}, shape, {visible: !hidden}) : shape
       );
