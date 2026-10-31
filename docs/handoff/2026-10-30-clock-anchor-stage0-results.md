@@ -55,3 +55,32 @@ The largest abstention category is `unconfirmed` (562), followed by `no_rise` (1
 ## What this does not decide
 
 The target (T1/T2/T3), the censoring policy, the donor policy and whether hydropools honours HydroSeason's gates remain the lead's decisions in [2026-10-30-clock-anchor-target-decision.md](2026-10-30-clock-anchor-target-decision.md). Stage A (input repair attribution) is motivated independently of this result and is the next step whatever the decision here.
+
+
+## Post-hoc audit (2026-10-31)
+
+Written after the decision. Nothing here changes it: the decision stays **FAIL** on coverage. The numbers come from [2026-10-30-clock-anchor-stage0-diagnostics.json](2026-10-30-clock-anchor-stage0-diagnostics.json), written by `scripts/clock_anchor_stage0_diagnostics.py` from the run's own row table and receipt and from the 82 input files, whose hashes it re-checked against the receipt. Earlier figures quoted in conversation used looser definitions; where they differ, this section supersedes them.
+
+### Corrections to the interpretation
+
+1. **The `unconfirmed` abstentions come from the rule, not from cloud.** 555 of 562 have their first exceedance in the window's last month, which is the next cycle's peak month. Confirmation needs a later observation inside the window, so it cannot happen there. Only 0.151 of `unconfirmed` rows have any unobserved month between band end and peak. 357 are fully observed and stay below the threshold until the peak month, and 71 more have no month between band end and peak. On big tiles, the month before the exceedance sits a median 0.14 pp above the band level, and the exceedance month a median 5.36 pp above it; 0.535 of them jump by 5 pp or more. At monthly cadence the rise and the peak usually fall in the same month for these rows. They are 404 of 1,178 big tile-years.
+2. **Synchrony clears its margin by one tile-year.** 572 of 635 agree (0.901); one fewer gives 0.899. A year-block bootstrap (4,000 draws, seed 0) gives a 95% interval of 0.863–0.933, with 0.470 of draws below 0.90. The mean-of-years score, 0.895, is already below the margin. "Rise synchronous" in the interpretation overstates this: the data do not separate the rise rule from a 0.90 agreement rate.
+3. **The gain compared different rows.** End-dry was scored on 1,147 tile-years and rise on 635. On the same 635 rows end-dry scores 0.836, a gain of 0.065 (bootstrap 95% interval 0.011–0.120). It still clears 0.05.
+4. **End-dry coverage was not reported.** On big tiles it is 0.974, against 0.539 for the rise rule.
+5. **The four epsilon tiles do not touch the failing margin.** Their channel pixel counts are 73–2,764, all below the 3,000-pixel big-tile cut, so they enter neither coverage nor synchrony. Big-tile statuses are point 620, interval 15, unconfirmed 404, no_rise 76, missing_first_post_band_month 32 and no_window 31.
+
+### What a longer window would buy
+
+Extending the window past the peak by the confirmation gap, so the frozen rule can see the following month, would confirm 304 `unconfirmed` rows (252 on big tiles). Big-tile coverage would rise to 0.753, still below 0.90. This is post hoc and is not adopted.
+
+### Provenance
+
+- **Script hash.** The receipt's `script_sha256` (`e935821cab8632e0335c03e14907a00b9cc10d0e3ff9e0f5d6573346ea3df729`) hashes the Windows working-tree file, which has CRLF line endings under `core.autocrlf=true`. Git stores the script with LF line endings, SHA-256 `aebebc8a7e22a6246615f67d68926c5c94d4cd8bfbdb1aea98beeb0799e3b899`. Both identify the same committed script; a checkout on Linux or macOS reproduces the LF hash.
+- **Freeze timing.** The strict-JSON fix (`da81ded`, 20:08:58) was committed one minute before the freeze commit (`bf2ae59`, 20:09:58). The run was recorded at 20:10:25 with `git_head` `bf2ae59`. The fix shows the receipt writer had produced a non-finite value before the freeze; the data it ran on then was not recorded. The disclosure under "Freeze" covers only the exploratory proxies.
+- **Files.** The receipt and summary moved unchanged from `dev/reports/`, which the repository ignores, to this folder: [receipt](2026-10-30-clock-anchor-stage0-receipt.json) (SHA-256 of its LF-normalised bytes `5bbf372fff9b479fbd20dda84a12271d614f5975c344b61bde41a9a6078e78bc`) and [summary](2026-10-30-clock-anchor-stage0-summary.md). The 7,790-row table is `2026-10-30-clock-anchor-stage0-rows.csv.gz`; its uncompressed bytes are the run's CSV, SHA-256 `ef13e8114383167256e5c9257b221eb7e3f4023b1bf1827ecbc30c3eea10b143`. The frozen script's usage text still names the old `dev/reports/` paths and is left unchanged to keep its hash. The plan is a local working file under `docs/superpowers/`, which the release repository does not track; the version used is in commit `4ab73da`.
+- **Guards.** `tests/test_clock_anchor_stage0.py` checks the Results table against the receipt, the receipt against the row table, the diagnostics against the row table, the numbers in this section against the diagnostics, and the frozen script against both hashes.
+
+### What this changes downstream
+
+- At monthly cadence a rise rule mostly finds the peak. Locating a rise edge needs per-scene observations, or a confirmation window that extends past the peak. Either is a new pre-registered test, not a rerun of this one.
+- The hydropools monthly composite reads a pixel wet only when clear-wet scenes outnumber clear-dry ones, and ties read dry. That vote can push an onset into the following month. Rerunning the hydropools extents with ties read wet is the cheapest structural check before any per-scene work.

@@ -400,3 +400,149 @@ def test_coverage_includes_no_window_and_missing_first_post_band_month():
     assert summary["status_counts"]["missing_first_post_band_month"] == 1
     assert decide({"n_tile_years": 500, "pooled_within_1": 0.95},
                   {"n_tile_years": 500, "pooled_within_1": 0.85}, summary["coverage_big"]) == "FAIL"
+
+
+def test_rise_month_stays_unconfirmed_when_the_exceedance_is_the_next_peak_month():
+    """Pins the behaviour the post-hoc audit found on real data.
+
+    The window ends at the next cycle's peak month. A series that is flat
+    until that month and high afterwards is reported ``unconfirmed``, because
+    the confirming month lies outside the window. A later rule that confirms
+    such rows must change this test on purpose.
+    """
+    values = _series({"2001-02-01": 20.0, "2001-03-01": 22.0, "2001-04-01": 21.0})
+    result = _rise(values, _rows(2000, 2001))
+    assert result["window_end"] == pd.Timestamp("2001-02-01")
+    assert result["status"] == "unconfirmed"
+    assert result["rise_month"] == result["window_end"]
+
+
+# --- Guards on the recorded stage-0 run ------------------------------------
+# These read the committed records, not the hydropools inputs, so they run
+# anywhere. They fail if a record is regenerated or edited without the others.
+
+HANDOFF = Path("docs/handoff")
+RESULTS_DOC = HANDOFF / "2026-10-30-clock-anchor-stage0-results.md"
+RECEIPT = HANDOFF / "2026-10-30-clock-anchor-stage0-receipt.json"
+ROWS = HANDOFF / "2026-10-30-clock-anchor-stage0-rows.csv.gz"
+DIAGNOSTICS = HANDOFF / "2026-10-30-clock-anchor-stage0-diagnostics.json"
+
+
+def _json(path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _table_cells(doc: str, label: str) -> list[str]:
+    line = next(line for line in doc.splitlines() if line.startswith(f"| {label} |"))
+    return [cell.strip() for cell in line.strip().strip("|").split("|")][1:]
+
+
+def _number(cell: str) -> float:
+    return float(cell.replace(",", ""))
+
+
+def test_results_table_matches_the_receipt():
+    doc = RESULTS_DOC.read_text(encoding="utf-8")
+    summary = _json(RECEIPT)["summary"]
+    assert summary["decision"] == "FAIL"
+    assert "Decision: **FAIL**." in doc
+
+    end_dry = summary["end_dry_as_run"]
+    cells = _table_cells(doc, "End-dry as run (chain, no re-wet guard)")
+    assert [_number(c) for c in cells[:4]] == [
+        round(end_dry["pooled_within_1"], 3), round(end_dry["mean_within_1"], 3),
+        round(end_dry["share_ge3"], 3), end_dry["n_tile_years"],
+    ]
+    for variant in VARIANTS:
+        item = summary["variants"][variant["name"]]
+        rise = item["rise"]
+        cells = _table_cells(doc, f"Rise, {variant['name']}")
+        assert [_number(c) for c in cells] == [
+            round(rise["pooled_within_1"], 3), round(rise["mean_within_1"], 3),
+            round(rise["share_ge3"], 3), rise["n_tile_years"], round(item["coverage_big"], 3),
+        ], variant["name"]
+
+    counts = summary["variants"]["primary"]["status_counts"]
+    line = next(line for line in doc.splitlines() if line.startswith("Primary status counts"))
+    for status in RULE["status"]:
+        assert f"{status} {counts.get(status, 0)}" in line, status
+
+
+def test_receipt_summary_matches_the_recorded_row_table():
+    from scripts.clock_anchor_stage0_diagnostics import load_rows
+
+    rows = load_rows(ROWS)
+    summary = _json(RECEIPT)["summary"]
+    kw = dict(big_tile_min_px=MARGIN["big_tile_min_px"], min_other_tiles=MARGIN["min_other_tiles"])
+    primary = rows[rows["variant"] == "primary"]
+    end_dry = synchrony(primary[primary["status"].ne("no_window")], "end_dry_as_run", **kw)
+    assert end_dry == pytest.approx(summary["end_dry_as_run"], rel=0, abs=1e-12)
+    for variant in VARIANTS:
+        recomputed = _variant_summary(rows[rows["variant"] == variant["name"]])
+        recorded = summary["variants"][variant["name"]]
+        assert recomputed["rise"] == pytest.approx(recorded["rise"], rel=0, abs=1e-12)
+        assert recomputed["status_counts"] == recorded["status_counts"]
+        assert recomputed["coverage_big"] == pytest.approx(recorded["coverage_big"], rel=0, abs=1e-12)
+    assert decide(
+        summary["variants"]["primary"]["rise"], summary["end_dry_as_run"],
+        summary["variants"]["primary"]["coverage_big"],
+    ) == summary["decision"]
+
+
+def test_frozen_script_matches_both_recorded_hashes():
+    from scripts.clock_anchor_stage0_diagnostics import script_hashes
+
+    hashes = script_hashes()
+    assert hashes == _json(DIAGNOSTICS)["frozen_script_sha256"]
+    assert hashes["crlf"] == _json(RECEIPT)["script_sha256"]
+    assert hashes["lf"] in RESULTS_DOC.read_text(encoding="utf-8")
+
+
+def test_diagnostics_match_the_recorded_row_table():
+    import hashlib
+
+    from scripts.clock_anchor_stage0_diagnostics import (
+        load_rows,
+        read_rows_bytes,
+        row_diagnostics,
+    )
+
+    diagnostics = _json(DIAGNOSTICS)
+    assert diagnostics["rows_csv_sha256"] == hashlib.sha256(read_rows_bytes(ROWS)).hexdigest()
+    assert diagnostics["receipt_sha256_lf"] == hashlib.sha256(
+        RECEIPT.read_bytes().replace(b"\r\n", b"\n")
+    ).hexdigest()
+    recomputed = json.loads(json.dumps(row_diagnostics(load_rows(ROWS))))
+    assert recomputed == diagnostics["rows"]
+
+
+def test_post_hoc_audit_cites_the_diagnostics():
+    doc = RESULTS_DOC.read_text(encoding="utf-8")
+    audit = doc.split("## Post-hoc audit (2026-10-31)", 1)[1]
+    d = _json(DIAGNOSTICS)
+    rows, inputs, boot = d["rows"], d["inputs"], d["rows"]["bootstrap"]
+    f3 = "{:.3f}".format
+    cited = [
+        f"{rows['n_unconfirmed_at_window_end']} of {rows['n_unconfirmed']}",
+        f"{rows['rise_agree']} of {rows['rise_n']} agree ({f3(rows['rise_pooled_within_1'])})",
+        f"one fewer gives {f3(rows['rise_pooled_within_1_one_fewer'])}",
+        f"{f3(boot['within_1_ci95'][0])}–{f3(boot['within_1_ci95'][1])}",
+        f"{f3(boot['share_within_1_below_margin'])} of draws below 0.90",
+        f"end-dry scores {f3(rows['end_dry_matched_pooled_within_1'])}, a gain of {f3(rows['matched_gain'])}",
+        f"{f3(boot['matched_gain_ci95'][0])}–{f3(boot['matched_gain_ci95'][1])}",
+        f"On big tiles it is {f3(rows['end_dry_coverage_big'])}",
+        f"{rows['max_epsilon_tile_px']:,}, all below",
+        f"{inputs['n_unconfirmed_flat_until_peak']} are fully observed",
+        f"{inputs['n_unconfirmed_no_pre_peak_month']} more have no month",
+        f"Only {f3(inputs['unconfirmed_share_with_unobserved_pre_peak_month'])} of",
+        f"would confirm {inputs['n_unconfirmed_would_confirm_if_window_extended']} ",
+        f"({inputs['n_unconfirmed_big_would_confirm_if_window_extended']} on big tiles)",
+        f"rise to {f3(inputs['hypothetical_coverage_big_if_window_extended'])}",
+        d["frozen_script_sha256"]["lf"],
+        d["rows_csv_sha256"],
+        d["receipt_sha256_lf"],
+    ]
+    for status, count in rows["big_tile_status_counts"].items():
+        cited.append(f"{status} {count}")
+    missing = [text for text in cited if text not in audit]
+    assert missing == []

@@ -1,0 +1,72 @@
+{
+ "note": "Post-hoc diagnostics computed after the stage-0 decision; they do not change it.",
+ "receipt_sha256_lf": "5bbf372fff9b479fbd20dda84a12271d614f5975c344b61bde41a9a6078e78bc",
+ "rows_csv_sha256": "ef13e8114383167256e5c9257b221eb7e3f4023b1bf1827ecbc30c3eea10b143",
+ "frozen_script_sha256": {
+  "lf": "aebebc8a7e22a6246615f67d68926c5c94d4cd8bfbdb1aea98beeb0799e3b899",
+  "crlf": "e935821cab8632e0335c03e14907a00b9cc10d0e3ff9e0f5d6573346ea3df729"
+ },
+ "rows": {
+  "n_big_tile_years": 1178,
+  "n_scored_big_tile_years": 635,
+  "end_dry_coverage_big": 0.9736842105263158,
+  "rise_agree": 572,
+  "rise_n": 635,
+  "rise_pooled_within_1": 0.9007874015748032,
+  "rise_pooled_within_1_one_fewer": 0.8992125984251969,
+  "end_dry_matched_pooled_within_1": 0.8362204724409449,
+  "end_dry_matched_n": 635,
+  "matched_gain": 0.06456692913385831,
+  "bootstrap": {
+   "draws": 4000,
+   "seed": 0,
+   "unit": "hydrological year (block), big tiles, rows scored by both methods",
+   "within_1_ci95": [
+    0.8630351991892102,
+    0.933335798816568
+   ],
+   "share_within_1_below_margin": 0.4705,
+   "matched_gain_ci95": [
+    0.011232833957552977,
+    0.12012777314745558
+   ]
+  },
+  "n_unconfirmed": 562,
+  "n_unconfirmed_big": 404,
+  "n_unconfirmed_at_window_end": 555,
+  "big_tile_status_counts": {
+   "point": 620,
+   "unconfirmed": 404,
+   "no_rise": 76,
+   "missing_first_post_band_month": 32,
+   "no_window": 31,
+   "interval": 15
+  },
+  "epsilon_tile_px": {
+   "tile05": 971,
+   "tile13": 73,
+   "tile18": 912,
+   "tile46": 2764
+  },
+  "max_epsilon_tile_px": 2764
+ },
+ "inputs": {
+  "inputs_verified": 82,
+  "unconfirmed_share_with_unobserved_pre_peak_month": 0.1512455516014235,
+  "n_unconfirmed_no_pre_peak_month": 71,
+  "n_unconfirmed_flat_until_peak": 357,
+  "n_unconfirmed_would_confirm_if_window_extended": 304,
+  "n_unconfirmed_big_would_confirm_if_window_extended": 252,
+  "hypothetical_coverage_big_if_window_extended": 0.7529711375212224,
+  "big_unconfirmed_jump_pp_quantiles": {
+   "0.1": 1.5412583569923983,
+   "0.25": 2.6597434952099372,
+   "0.5": 5.361827612517043,
+   "0.75": 11.050330789981919,
+   "0.9": 23.251947158435758
+  },
+  "big_unconfirmed_prior_month_pp_median": 0.13882956001708663,
+  "big_unconfirmed_share_jump_ge_5pp": 0.5346534653465347,
+  "big_unconfirmed_share_jump_lt_2pp": 0.15346534653465346
+ }
+}
