@@ -227,6 +227,43 @@ def test_hydro_years_csv_carries_timing_identifiability_columns(seasonal_extent)
         assert column in user_hy.columns
 
 
+def test_hydro_years_csv_explains_provisional_boundaries_and_baseline(seasonal_extent):
+    from hydroseason._report_export import build_user_hydro_years_export
+
+    analysis = analyze_catchment(seasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
+    internal = analysis.hydro_years.reset_index(drop=True)
+    user_hy = build_user_hydro_years_export(analysis.hydro_years)
+
+    passthrough = [
+        "status_reason",
+        "trough_refinement_status",
+        "trough_refinement_reason",
+        "baseline_eligible",
+        "baseline_n",
+    ]
+    assert list(user_hy.columns[-len(passthrough):]) == passthrough
+    for column in passthrough:
+        pd.testing.assert_series_equal(
+            user_hy[column], internal[column], check_names=False, check_dtype=False,
+        )
+    eligible = user_hy["baseline_eligible"].astype(bool)
+    assert eligible.equals(
+        user_hy["status"].eq("complete")
+        & user_hy["boundary_status"].eq("confirmed")
+        & user_hy["timing_status"].eq("point")
+        & user_hy["peak_quality"].ne("anomalous")
+    )
+
+
+def test_hydro_years_csv_diagnostics_are_blank_for_frames_without_them():
+    from hydroseason._report_export import build_user_hydro_years_export
+
+    out = build_user_hydro_years_export(_hy_frame())
+
+    for column in ("status_reason", "trough_refinement_reason", "baseline_n"):
+        assert out[column].isna().all()
+
+
 def test_public_extremum_date_is_blank_unless_timing_status_is_point():
     from hydroseason._report_export import build_user_hydro_years_export
 

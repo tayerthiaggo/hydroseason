@@ -106,6 +106,14 @@ HY_CSV_COLUMNS = [
     "trough_interval_end_date",
     "detectability_floor_pp",
     "amplitude_to_floor_ratio",
+    # Why a cycle is partial/provisional, and whether it anchors the
+    # condition baseline. Categorical and count fields only; the numeric
+    # refinement fit diagnostics stay on ``analysis.hydro_years``.
+    "status_reason",
+    "trough_refinement_status",
+    "trough_refinement_reason",
+    "baseline_eligible",
+    "baseline_n",
 ]
 
 EVENT_CSV_COLUMNS = [
@@ -422,6 +430,11 @@ def build_user_hydro_years_export(hydro_years: pd.DataFrame) -> pd.DataFrame:
         "trough_interval_end_date": ("trough_interval_end",),
         "detectability_floor_pp": ("detectability_floor_pp",),
         "amplitude_to_floor_ratio": ("amplitude_to_floor_ratio",),
+        "status_reason": ("status_reason",),
+        "trough_refinement_status": ("trough_refinement_status",),
+        "trough_refinement_reason": ("trough_refinement_reason",),
+        "baseline_eligible": ("baseline_eligible",),
+        "baseline_n": ("baseline_n",),
     }
     for target, source_names in aliases.items():
         out[target] = _first_column(hydro_years, *source_names).to_numpy()
