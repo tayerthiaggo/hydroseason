@@ -261,3 +261,50 @@ def test_baseline_ignores_peak_quality_when_the_column_is_absent():
     assert "peak_quality" not in annual.columns
     result = classify_annual_surface_water_condition(annual)
     assert (result["annual_condition"] != "insufficient_baseline").any()
+
+
+def test_baseline_eligible_marks_exactly_the_rows_that_may_anchor_the_baseline():
+    annual = _annual().iloc[:8].copy()
+    annual["boundary_status"] = "confirmed"
+    annual["timing_status"] = "point"
+    annual["peak_quality"] = "normal"
+    annual.loc[annual["hy_year"] == 2001, "status"] = "partial"
+    annual.loc[annual["hy_year"] == 2002, "boundary_status"] = "provisional"
+    annual.loc[annual["hy_year"] == 2003, "timing_status"] = "interval"
+    annual.loc[annual["hy_year"] == 2004, "peak_quality"] = "anomalous"
+
+    result = classify_annual_surface_water_condition(annual).set_index("hy_year")
+
+    expected = {2000: True, 2001: False, 2002: False, 2003: False,
+                2004: False, 2005: True, 2006: True, 2007: True}
+    assert result["baseline_eligible"].to_dict() == expected
+
+
+def test_full_record_baseline_n_counts_the_cycles_each_row_is_ranked_against():
+    # Four eligible cycles: each eligible row is ranked against the other three,
+    # each ineligible row against all four. Four is below the default minimum of
+    # five, so every label stays insufficient_baseline while the count says why.
+    annual = _annual().iloc[:6].copy()
+    annual["boundary_status"] = "confirmed"
+    annual.loc[annual["hy_year"].isin([2001, 2004]), "boundary_status"] = "provisional"
+
+    result = classify_annual_surface_water_condition(annual).set_index("hy_year")
+
+    assert result["baseline_n"].to_dict() == {
+        2000: 3, 2001: 4, 2002: 3, 2003: 3, 2004: 4, 2005: 3,
+    }
+    assert set(result["annual_condition"]) == {"insufficient_baseline"}
+
+
+def test_fixed_reference_baseline_n_counts_only_the_reference_window():
+    annual = _annual().copy()
+    annual["boundary_status"] = "confirmed"
+
+    result = classify_annual_surface_water_condition(
+        annual, reference_start="2003-01-01", reference_end="2008-12-31",
+    ).set_index("hy_year")
+
+    in_window = result.index.isin(range(2003, 2009))
+    assert result["baseline_eligible"].to_numpy().tolist() == in_window.tolist()
+    assert (result.loc[in_window, "baseline_n"] == 5).all()
+    assert (result.loc[~in_window, "baseline_n"] == 6).all()

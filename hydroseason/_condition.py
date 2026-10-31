@@ -107,7 +107,10 @@ def classify_annual_surface_water_condition(
         reference_mask &= dates.between(pd.Timestamp(reference_start), pd.Timestamp(reference_end))
 
     out["baseline_mode"] = "full" if reference == "full_record" else ("fixed" if reference != "rolling" else "")
-    out["baseline_n"] = 0
+    out["baseline_eligible"] = reference_mask.to_numpy(dtype=bool)
+    # Number of cycles each row is ranked against. Rolling mode fills it per
+    # row below; the full and fixed baselines exclude the row itself.
+    out["baseline_n"] = int(reference_mask.sum()) - reference_mask.astype(int)
     out["baseline_uncertain"] = False
 
     if reference == "rolling":
