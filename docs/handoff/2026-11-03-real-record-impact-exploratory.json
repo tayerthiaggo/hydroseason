@@ -1,0 +1,219 @@
+{
+  "results_sha256_lf": "7c008521697f19fb6ae1afa923f3c094d6b5534677a2dd4406a6ddf0e3e93ea7",
+  "script_sha256_lf": "7bd6d49b94a1fa3e307f94b79666edfa80f01524ebc714b43ab85942846aafe8",
+  "kappa": {
+    "recharge": {
+      "E0": {
+        "pairs": 637,
+        "windows": 16,
+        "kappa": 0.5965548787639474,
+        "label_shares_half_a": {
+          "low": 0.45054945054945056,
+          "typical": 0.3532182103610675,
+          "high": 0.19623233908948196
+        }
+      },
+      "E1_added": {
+        "pairs": 11200,
+        "windows": 163,
+        "kappa": 0.564942975708504,
+        "label_shares_half_a": {
+          "low": 0.4236607142857143,
+          "typical": 0.3694642857142857,
+          "high": 0.206875
+        }
+      },
+      "E1_point_both": {
+        "pairs": 984,
+        "windows": 147,
+        "kappa": 0.5587793105267322,
+        "label_shares_half_a": {
+          "typical": 0.44308943089430897,
+          "high": 0.3902439024390244,
+          "low": 0.16666666666666666
+        }
+      },
+      "E1_not_point": {
+        "pairs": 10853,
+        "windows": 165,
+        "kappa": 0.561300437125255,
+        "label_shares_half_a": {
+          "low": 0.4457753616511564,
+          "typical": 0.36598175619644335,
+          "high": 0.18824288215240026
+        }
+      },
+      "E0_point_both": {
+        "pairs": 156,
+        "windows": 16,
+        "kappa": 0.5307043358838534,
+        "label_shares_half_a": {
+          "typical": 0.5064102564102564,
+          "high": 0.28205128205128205,
+          "low": 0.21153846153846154
+        }
+      },
+      "E0_not_point": {
+        "pairs": 481,
+        "windows": 16,
+        "kappa": 0.5924741078341148,
+        "label_shares_half_a": {
+          "low": 0.5280665280665281,
+          "typical": 0.30353430353430355,
+          "high": 0.1683991683991684
+        }
+      },
+      "kappa_added_minus_e0": {
+        "difference": -0.03161190305544337,
+        "ci95": [
+          -0.1516056976958534,
+          0.08064692760424641
+        ],
+        "valid_draws": 2000
+      },
+      "kappa_not_point_minus_point": {
+        "difference": 0.0025211265985227715,
+        "ci95": [
+          -0.04759871720023997,
+          0.048690713604995106
+        ],
+        "valid_draws": 2000
+      }
+    },
+    "refuge": {
+      "E0": {
+        "pairs": 637,
+        "windows": 16,
+        "kappa": 0.5146231594988906,
+        "label_shares_half_a": {
+          "typical": 0.3814756671899529,
+          "high": 0.33124018838304553,
+          "low": 0.28728414442700156
+        }
+      },
+      "E1_added": {
+        "pairs": 11200,
+        "windows": 163,
+        "kappa": 0.41391640603489466,
+        "label_shares_half_a": {
+          "typical": 0.5828571428571429,
+          "low": 0.22705357142857144,
+          "high": 0.1900892857142857
+        }
+      },
+      "E1_point_both": {
+        "pairs": 984,
+        "windows": 147,
+        "kappa": 0.5322239987367008,
+        "label_shares_half_a": {
+          "typical": 0.491869918699187,
+          "high": 0.2967479674796748,
+          "low": 0.21138211382113822
+        }
+      },
+      "E1_not_point": {
+        "pairs": 10853,
+        "windows": 165,
+        "kappa": 0.41253150717405007,
+        "label_shares_half_a": {
+          "typical": 0.5855523818299088,
+          "low": 0.22961393163180688,
+          "high": 0.18483368653828436
+        }
+      },
+      "E0_point_both": {
+        "pairs": 156,
+        "windows": 16,
+        "kappa": 0.49924471299093665,
+        "label_shares_half_a": {
+          "typical": 0.4230769230769231,
+          "low": 0.34615384615384615,
+          "high": 0.23076923076923078
+        }
+      },
+      "E0_not_point": {
+        "pairs": 481,
+        "windows": 16,
+        "kappa": 0.514762896930056,
+        "label_shares_half_a": {
+          "typical": 0.367983367983368,
+          "high": 0.36382536382536385,
+          "low": 0.2681912681912682
+        }
+      },
+      "kappa_added_minus_e0": {
+        "difference": -0.10070675346399593,
+        "ci95": [
+          -0.2240585003620506,
+          0.023957207677736018
+        ],
+        "valid_draws": 2000
+      },
+      "kappa_not_point_minus_point": {
+        "difference": -0.11969249156265072,
+        "ci95": [
+          -0.17662223273227762,
+          -0.05937443435806205
+        ],
+        "valid_draws": 2000
+      }
+    },
+    "e0_pairs_by_window": {
+      "windows": 16,
+      "pairs": 637,
+      "largest_two": 145
+    }
+  },
+  "mismatch_causes": {
+    "g1": {
+      "differs": 1480,
+      "causes": {
+        "lower_month_outside_search_window": 489,
+        "cloud_screened_raw_minimum": 701,
+        "other": 290
+      },
+      "gap_months": {
+        "1": 367,
+        "2": 260,
+        "3": 173,
+        "4": 131,
+        "5": 182,
+        "6": 127,
+        "7": 104,
+        "8": 63,
+        "9": 37,
+        "10": 18,
+        "11": 7,
+        "12": 4,
+        "13": 5,
+        "14": 2
+      },
+      "gap_one_month": 367,
+      "gap_median": 3.0,
+      "gap_max": 14
+    },
+    "su": {
+      "differs": 157,
+      "causes": {
+        "other": 43,
+        "lower_month_outside_search_window": 49,
+        "cloud_screened_raw_minimum": 65
+      },
+      "gap_months": {
+        "1": 44,
+        "2": 12,
+        "3": 16,
+        "4": 18,
+        "5": 14,
+        "6": 19,
+        "7": 13,
+        "8": 6,
+        "9": 14,
+        "10": 1
+      },
+      "gap_one_month": 44,
+      "gap_median": 4.0,
+      "gap_max": 10
+    }
+  }
+}
