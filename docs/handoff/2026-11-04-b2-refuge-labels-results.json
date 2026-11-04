@@ -1,0 +1,1951 @@
+{
+  "receipt_sha256_lf": "8b5f8793f6ca44c279bc72b317151826f2153a43524a4449c261185b1815cdc6",
+  "script_sha256_lf": "0a6decce6a5c028613605cad27f3d79c5a40862e9a89d152475d23f1b686bc6e",
+  "records": 3148,
+  "errors": 0,
+  "fingerprints": [
+    "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
+  ],
+  "routes": {
+    "S": {
+      "per_year_detection": 1254,
+      "event_characterisation": 746
+    },
+    "I": {
+      "event_characterisation": 579,
+      "per_year_detection": 569
+    }
+  },
+  "e0_reproduces_library_labels": true,
+  "e0_mismatched_cycles": 0,
+  "unscored_rows": {
+    "refuge": 141,
+    "recharge": 156
+  },
+  "labels": {
+    "refuge": {
+      "S": {
+        "records_per_year_detection": 1254,
+        "scored_cycles": 25015,
+        "rule_1": {
+          "cycles": 940,
+          "records": 47,
+          "difference": 0.02872340425531915,
+          "ci95": [
+            0.008333333333333333,
+            0.05
+          ],
+          "floor": -0.05,
+          "evaluable": true,
+          "outcome": "holds"
+        },
+        "rule_2": {
+          "cycles": 7895,
+          "records": 396,
+          "kappa": 0.3468347059649163,
+          "ci95": [
+            0.32554059737710983,
+            0.3677791905052974
+          ],
+          "floor": 0.0,
+          "evaluable": true,
+          "outcome": "holds"
+        },
+        "groups": {
+          "E0": {
+            "n": 940,
+            "agree": 649,
+            "share": 0.6904255319148936,
+            "chance": 0.3651063829787234,
+            "kappa": 0.5123994638069705,
+            "gross": 3,
+            "records": 47
+          },
+          "E1": {
+            "n": 8835,
+            "agree": 5358,
+            "share": 0.6064516129032258,
+            "chance": 0.3771690577009367,
+            "kappa": 0.36812967954985615,
+            "gross": 120,
+            "records": 443
+          },
+          "E2": {
+            "n": 8835,
+            "agree": 5358,
+            "share": 0.6064516129032258,
+            "chance": 0.3771690577009367,
+            "kappa": 0.36812967954985615,
+            "gross": 120,
+            "records": 443
+          },
+          "E0_on_cycles_both_label": {
+            "n": 940,
+            "agree": 649,
+            "share": 0.6904255319148936,
+            "chance": 0.3651063829787234,
+            "kappa": 0.5123994638069705,
+            "gross": 3,
+            "records": 47
+          },
+          "E1_on_cycles_both_label": {
+            "n": 940,
+            "agree": 676,
+            "share": 0.7191489361702128,
+            "chance": 0.3791489361702128,
+            "kappa": 0.5476353666895134,
+            "gross": 3,
+            "records": 47
+          },
+          "added": {
+            "n": 7895,
+            "agree": 4682,
+            "share": 0.5930335655478151,
+            "chance": 0.3769319371853744,
+            "kappa": 0.3468347059649163,
+            "gross": 117,
+            "records": 396
+          }
+        },
+        "added_minus_e0_reported": {
+          "difference": -0.09739196636707859,
+          "ci95": [
+            -0.14103668021982183,
+            -0.051373167681091875
+          ]
+        },
+        "coverage": {
+          "E0": {
+            "cycles_labelled": 940,
+            "records_with_labels": 47,
+            "median_eligible_cycles": 1.0
+          },
+          "E1": {
+            "cycles_labelled": 8835,
+            "records_with_labels": 443,
+            "median_eligible_cycles": 4.0
+          },
+          "E2": {
+            "cycles_labelled": 8835,
+            "records_with_labels": 443,
+            "median_eligible_cycles": 4.0
+          }
+        },
+        "label_changed_on_cycles_both_label": {
+          "n": 940,
+          "changed": 97
+        },
+        "qualified": {
+          "E0": {
+            "low_or_high": 552,
+            "replaced_by_typical_uncertain": 75,
+            "remaining_labelled": 865,
+            "remaining_agree": 624,
+            "remaining_share": 0.7213872832369942
+          },
+          "E1": {
+            "low_or_high": 4920,
+            "replaced_by_typical_uncertain": 2074,
+            "remaining_labelled": 6761,
+            "remaining_agree": 4616,
+            "remaining_share": 0.6827392397574323
+          },
+          "added": {
+            "low_or_high": 4401,
+            "replaced_by_typical_uncertain": 2012,
+            "remaining_labelled": 5883,
+            "remaining_agree": 3960,
+            "remaining_share": 0.6731259561448241
+          }
+        },
+        "by_shape": {
+          "sine": {
+            "E0": {
+              "n": 240,
+              "agree": 163,
+              "share": 0.6791666666666667,
+              "chance": 0.37,
+              "kappa": 0.4907407407407408,
+              "gross": 1,
+              "records": 12
+            },
+            "E1": {
+              "n": 4569,
+              "agree": 2717,
+              "share": 0.5946596629459401,
+              "chance": 0.3760444469545326,
+              "kappa": 0.3503698539493198,
+              "gross": 63,
+              "records": 229
+            },
+            "E2": {
+              "n": 4569,
+              "agree": 2717,
+              "share": 0.5946596629459401,
+              "chance": 0.3760444469545326,
+              "kappa": 0.3503698539493198,
+              "gross": 63,
+              "records": 229
+            },
+            "E0_on_cycles_both_label": {
+              "n": 240,
+              "agree": 163,
+              "share": 0.6791666666666667,
+              "chance": 0.37,
+              "kappa": 0.4907407407407408,
+              "gross": 1,
+              "records": 12
+            },
+            "E1_on_cycles_both_label": {
+              "n": 240,
+              "agree": 169,
+              "share": 0.7041666666666667,
+              "chance": 0.38,
+              "kappa": 0.5228494623655915,
+              "gross": 1,
+              "records": 12
+            },
+            "added": {
+              "n": 4329,
+              "agree": 2548,
+              "share": 0.5885885885885885,
+              "chance": 0.37582280825524067,
+              "kappa": 0.34087400684828734,
+              "gross": 62,
+              "records": 217
+            }
+          },
+          "pulse": {
+            "E0": {
+              "n": 700,
+              "agree": 486,
+              "share": 0.6942857142857143,
+              "chance": 0.36342857142857143,
+              "kappa": 0.5197486535008976,
+              "gross": 2,
+              "records": 35
+            },
+            "E1": {
+              "n": 4266,
+              "agree": 2641,
+              "share": 0.6190811064228786,
+              "chance": 0.37836454315888407,
+              "kappa": 0.3872310702597509,
+              "gross": 57,
+              "records": 214
+            },
+            "E2": {
+              "n": 4266,
+              "agree": 2641,
+              "share": 0.6190811064228786,
+              "chance": 0.37836454315888407,
+              "kappa": 0.3872310702597509,
+              "gross": 57,
+              "records": 214
+            },
+            "E0_on_cycles_both_label": {
+              "n": 700,
+              "agree": 486,
+              "share": 0.6942857142857143,
+              "chance": 0.36342857142857143,
+              "kappa": 0.5197486535008976,
+              "gross": 2,
+              "records": 35
+            },
+            "E1_on_cycles_both_label": {
+              "n": 700,
+              "agree": 507,
+              "share": 0.7242857142857143,
+              "chance": 0.37885714285714284,
+              "kappa": 0.5561177552897885,
+              "gross": 2,
+              "records": 35
+            },
+            "added": {
+              "n": 3566,
+              "agree": 2134,
+              "share": 0.5984296130117779,
+              "chance": 0.37826536155483537,
+              "kappa": 0.3541128929337599,
+              "gross": 55,
+              "records": 179
+            }
+          }
+        },
+        "by_ratio_band": {
+          "[3,4)": {
+            "E0": {
+              "n": 18,
+              "agree": 7,
+              "share": 0.3888888888888889,
+              "chance": 0.3055555555555556,
+              "kappa": 0.11999999999999998,
+              "gross": 0,
+              "records": 7
+            },
+            "E1": {
+              "n": 1422,
+              "agree": 730,
+              "share": 0.5133614627285513,
+              "chance": 0.3751199257795423,
+              "kappa": 0.22122890879736617,
+              "gross": 33,
+              "records": 314
+            },
+            "E2": {
+              "n": 1422,
+              "agree": 730,
+              "share": 0.5133614627285513,
+              "chance": 0.3751199257795423,
+              "kappa": 0.22122890879736617,
+              "gross": 33,
+              "records": 314
+            },
+            "E0_on_cycles_both_label": {
+              "n": 18,
+              "agree": 7,
+              "share": 0.3888888888888889,
+              "chance": 0.3055555555555556,
+              "kappa": 0.11999999999999998,
+              "gross": 0,
+              "records": 7
+            },
+            "E1_on_cycles_both_label": {
+              "n": 18,
+              "agree": 9,
+              "share": 0.5,
+              "chance": 0.3611111111111111,
+              "kappa": 0.2173913043478261,
+              "gross": 0,
+              "records": 7
+            },
+            "added": {
+              "n": 1404,
+              "agree": 721,
+              "share": 0.5135327635327636,
+              "chance": 0.375234373097621,
+              "kappa": 0.2213604341852693,
+              "gross": 33,
+              "records": 307
+            }
+          },
+          "[4,6)": {
+            "E0": {
+              "n": 96,
+              "agree": 56,
+              "share": 0.5833333333333334,
+              "chance": 0.3834635416666667,
+              "kappa": 0.32418162618796204,
+              "gross": 0,
+              "records": 18
+            },
+            "E1": {
+              "n": 3044,
+              "agree": 1771,
+              "share": 0.5818002628120894,
+              "chance": 0.38264898440913037,
+              "kappa": 0.32259002313675694,
+              "gross": 48,
+              "records": 377
+            },
+            "E2": {
+              "n": 3044,
+              "agree": 1771,
+              "share": 0.5818002628120894,
+              "chance": 0.38264898440913037,
+              "kappa": 0.32259002313675694,
+              "gross": 48,
+              "records": 377
+            },
+            "E0_on_cycles_both_label": {
+              "n": 96,
+              "agree": 56,
+              "share": 0.5833333333333334,
+              "chance": 0.3834635416666667,
+              "kappa": 0.32418162618796204,
+              "gross": 0,
+              "records": 18
+            },
+            "E1_on_cycles_both_label": {
+              "n": 96,
+              "agree": 62,
+              "share": 0.6458333333333334,
+              "chance": 0.4049479166666667,
+              "kappa": 0.4048140043763677,
+              "gross": 0,
+              "records": 18
+            },
+            "added": {
+              "n": 2948,
+              "agree": 1709,
+              "share": 0.5797150610583447,
+              "chance": 0.3819934495525334,
+              "kappa": 0.3199344915723811,
+              "gross": 48,
+              "records": 359
+            }
+          },
+          "[6,10)": {
+            "E0": {
+              "n": 252,
+              "agree": 178,
+              "share": 0.7063492063492064,
+              "chance": 0.36208742756361806,
+              "kappa": 0.5396692174771662,
+              "gross": 3,
+              "records": 37
+            },
+            "E1": {
+              "n": 2051,
+              "agree": 1319,
+              "share": 0.6431009263773769,
+              "chance": 0.3735058304792872,
+              "kappa": 0.43032339168349837,
+              "gross": 21,
+              "records": 372
+            },
+            "E2": {
+              "n": 2051,
+              "agree": 1319,
+              "share": 0.6431009263773769,
+              "chance": 0.3735058304792872,
+              "kappa": 0.43032339168349837,
+              "gross": 21,
+              "records": 372
+            },
+            "E0_on_cycles_both_label": {
+              "n": 252,
+              "agree": 178,
+              "share": 0.7063492063492064,
+              "chance": 0.36208742756361806,
+              "kappa": 0.5396692174771662,
+              "gross": 3,
+              "records": 37
+            },
+            "E1_on_cycles_both_label": {
+              "n": 252,
+              "agree": 178,
+              "share": 0.7063492063492064,
+              "chance": 0.36517384731670444,
+              "kappa": 0.537431165351987,
+              "gross": 3,
+              "records": 37
+            },
+            "added": {
+              "n": 1799,
+              "agree": 1141,
+              "share": 0.6342412451361867,
+              "chance": 0.3745540184915281,
+              "kappa": 0.4152032858510597,
+              "gross": 18,
+              "records": 335
+            }
+          },
+          "[10,inf)": {
+            "E0": {
+              "n": 526,
+              "agree": 374,
+              "share": 0.7110266159695817,
+              "chance": 0.3653696019893305,
+              "kappa": 0.5446587731437975,
+              "gross": 0,
+              "records": 41
+            },
+            "E1": {
+              "n": 1276,
+              "agree": 937,
+              "share": 0.7343260188087775,
+              "chance": 0.367887132595002,
+              "kappa": 0.5797048361285709,
+              "gross": 1,
+              "records": 143
+            },
+            "E2": {
+              "n": 1276,
+              "agree": 937,
+              "share": 0.7343260188087775,
+              "chance": 0.367887132595002,
+              "kappa": 0.5797048361285709,
+              "gross": 1,
+              "records": 143
+            },
+            "E0_on_cycles_both_label": {
+              "n": 526,
+              "agree": 374,
+              "share": 0.7110266159695817,
+              "chance": 0.3653696019893305,
+              "kappa": 0.5446587731437975,
+              "gross": 0,
+              "records": 41
+            },
+            "E1_on_cycles_both_label": {
+              "n": 526,
+              "agree": 391,
+              "share": 0.7433460076045627,
+              "chance": 0.38220517862048026,
+              "kappa": 0.5845643512803562,
+              "gross": 0,
+              "records": 41
+            },
+            "added": {
+              "n": 750,
+              "agree": 546,
+              "share": 0.728,
+              "chance": 0.3588693333333333,
+              "kappa": 0.5757495092004126,
+              "gross": 1,
+              "records": 102
+            }
+          }
+        }
+      },
+      "I": {
+        "records_per_year_detection": 569,
+        "scored_cycles": 21536,
+        "rule_1": {
+          "cycles": 4023,
+          "records": 106,
+          "difference": 0.06686552324136216,
+          "ci95": [
+            0.04642452711577634,
+            0.08825303359767799
+          ],
+          "floor": -0.05,
+          "evaluable": true,
+          "outcome": "holds"
+        },
+        "rule_2": {
+          "cycles": 10176,
+          "records": 269,
+          "kappa": 0.3815652665023628,
+          "ci95": [
+            0.35329628899666243,
+            0.4129304691487458
+          ],
+          "floor": 0.0,
+          "evaluable": true,
+          "outcome": "holds"
+        },
+        "groups": {
+          "E0": {
+            "n": 4023,
+            "agree": 2533,
+            "share": 0.6296296296296297,
+            "chance": 0.3778847688431341,
+            "kappa": 0.4046595360129003,
+            "gross": 86,
+            "records": 106
+          },
+          "E1": {
+            "n": 14199,
+            "agree": 9068,
+            "share": 0.638636523698852,
+            "chance": 0.3875476540657995,
+            "kappa": 0.4099729085861458,
+            "gross": 288,
+            "records": 375
+          },
+          "E2": {
+            "n": 14199,
+            "agree": 9080,
+            "share": 0.6394816536375801,
+            "chance": 0.38795965416692463,
+            "kappa": 0.41095656713332795,
+            "gross": 288,
+            "records": 375
+          },
+          "E0_on_cycles_both_label": {
+            "n": 4023,
+            "agree": 2533,
+            "share": 0.6296296296296297,
+            "chance": 0.3778847688431341,
+            "kappa": 0.4046595360129003,
+            "gross": 86,
+            "records": 106
+          },
+          "E1_on_cycles_both_label": {
+            "n": 4023,
+            "agree": 2802,
+            "share": 0.6964951528709918,
+            "chance": 0.4099906151115056,
+            "kappa": 0.4855931873246942,
+            "gross": 55,
+            "records": 106
+          },
+          "added": {
+            "n": 10176,
+            "agree": 6266,
+            "share": 0.6157625786163522,
+            "chance": 0.3786936590534888,
+            "kappa": 0.3815652665023628,
+            "gross": 233,
+            "records": 269
+          }
+        },
+        "added_minus_e0_reported": {
+          "difference": -0.013867051013277454,
+          "ci95": [
+            -0.05493916260007737,
+            0.026438181602941885
+          ]
+        },
+        "coverage": {
+          "E0": {
+            "cycles_labelled": 4023,
+            "records_with_labels": 106,
+            "median_eligible_cycles": 2.0
+          },
+          "E1": {
+            "cycles_labelled": 14199,
+            "records_with_labels": 375,
+            "median_eligible_cycles": 6.0
+          },
+          "E2": {
+            "cycles_labelled": 14199,
+            "records_with_labels": 375,
+            "median_eligible_cycles": 6.0
+          }
+        },
+        "label_changed_on_cycles_both_label": {
+          "n": 4023,
+          "changed": 604
+        },
+        "qualified": {
+          "E0": {
+            "low_or_high": 2193,
+            "replaced_by_typical_uncertain": 178,
+            "remaining_labelled": 3845,
+            "remaining_agree": 2480,
+            "remaining_share": 0.6449934980494149
+          },
+          "E1": {
+            "low_or_high": 7367,
+            "replaced_by_typical_uncertain": 973,
+            "remaining_labelled": 13226,
+            "remaining_agree": 8685,
+            "remaining_share": 0.6566611220323605
+          },
+          "added": {
+            "low_or_high": 5526,
+            "replaced_by_typical_uncertain": 864,
+            "remaining_labelled": 9312,
+            "remaining_agree": 5927,
+            "remaining_share": 0.6364905498281787
+          }
+        },
+        "by_shape": {
+          "sine": {
+            "E0": {
+              "n": 1292,
+              "agree": 720,
+              "share": 0.5572755417956656,
+              "chance": 0.3702134593449568,
+              "kappa": 0.29702457956015527,
+              "gross": 42,
+              "records": 34
+            },
+            "E1": {
+              "n": 6829,
+              "agree": 4161,
+              "share": 0.6093132230194758,
+              "chance": 0.3831225831984014,
+              "kappa": 0.36667032000268907,
+              "gross": 162,
+              "records": 180
+            },
+            "E2": {
+              "n": 6829,
+              "agree": 4168,
+              "share": 0.6103382632889149,
+              "chance": 0.38349918680596073,
+              "kappa": 0.36794611074025985,
+              "gross": 162,
+              "records": 180
+            },
+            "E0_on_cycles_both_label": {
+              "n": 1292,
+              "agree": 720,
+              "share": 0.5572755417956656,
+              "chance": 0.3702134593449568,
+              "kappa": 0.29702457956015527,
+              "gross": 42,
+              "records": 34
+            },
+            "E1_on_cycles_both_label": {
+              "n": 1292,
+              "agree": 838,
+              "share": 0.6486068111455109,
+              "chance": 0.4149828906631905,
+              "kappa": 0.39934544948123396,
+              "gross": 23,
+              "records": 34
+            },
+            "added": {
+              "n": 5537,
+              "agree": 3323,
+              "share": 0.6001444825717898,
+              "chance": 0.3756957521125798,
+              "kappa": 0.35951818559415677,
+              "gross": 139,
+              "records": 146
+            }
+          },
+          "pulse": {
+            "E0": {
+              "n": 2731,
+              "agree": 1813,
+              "share": 0.6638593921640424,
+              "chance": 0.3814933334548971,
+              "kappa": 0.4565287231039967,
+              "gross": 44,
+              "records": 72
+            },
+            "E1": {
+              "n": 7370,
+              "agree": 4907,
+              "share": 0.6658073270013568,
+              "chance": 0.39160714252838436,
+              "kappa": 0.4506959296210429,
+              "gross": 126,
+              "records": 195
+            },
+            "E2": {
+              "n": 7370,
+              "agree": 4912,
+              "share": 0.6664857530529172,
+              "chance": 0.3920515714262044,
+              "kappa": 0.45141029851909675,
+              "gross": 126,
+              "records": 195
+            },
+            "E0_on_cycles_both_label": {
+              "n": 2731,
+              "agree": 1813,
+              "share": 0.6638593921640424,
+              "chance": 0.3814933334548971,
+              "kappa": 0.4565287231039967,
+              "gross": 44,
+              "records": 72
+            },
+            "E1_on_cycles_both_label": {
+              "n": 2731,
+              "agree": 1964,
+              "share": 0.7191504943244232,
+              "chance": 0.4076891692424113,
+              "kappa": 0.5258410093289038,
+              "gross": 32,
+              "records": 72
+            },
+            "added": {
+              "n": 4639,
+              "agree": 2943,
+              "share": 0.634403966372063,
+              "chance": 0.38222705878783125,
+              "kappa": 0.4082032260743252,
+              "gross": 94,
+              "records": 123
+            }
+          }
+        },
+        "by_ratio_band": {
+          "[3,4)": {
+            "E0": {
+              "n": 60,
+              "agree": 29,
+              "share": 0.48333333333333334,
+              "chance": 0.3386111111111111,
+              "kappa": 0.21881562368752627,
+              "gross": 2,
+              "records": 31
+            },
+            "E1": {
+              "n": 539,
+              "agree": 287,
+              "share": 0.5324675324675324,
+              "chance": 0.3840996003731228,
+              "kappa": 0.24089598283146657,
+              "gross": 14,
+              "records": 184
+            },
+            "E2": {
+              "n": 539,
+              "agree": 288,
+              "share": 0.5343228200371057,
+              "chance": 0.38477769249038796,
+              "kappa": 0.24307494335188964,
+              "gross": 14,
+              "records": 184
+            },
+            "E0_on_cycles_both_label": {
+              "n": 60,
+              "agree": 29,
+              "share": 0.48333333333333334,
+              "chance": 0.3386111111111111,
+              "kappa": 0.21881562368752627,
+              "gross": 2,
+              "records": 31
+            },
+            "E1_on_cycles_both_label": {
+              "n": 60,
+              "agree": 32,
+              "share": 0.5333333333333333,
+              "chance": 0.37166666666666665,
+              "kappa": 0.2572944297082228,
+              "gross": 2,
+              "records": 31
+            },
+            "added": {
+              "n": 479,
+              "agree": 255,
+              "share": 0.5323590814196242,
+              "chance": 0.3851578401419101,
+              "kappa": 0.2394130573474161,
+              "gross": 12,
+              "records": 153
+            }
+          },
+          "[4,6)": {
+            "E0": {
+              "n": 209,
+              "agree": 116,
+              "share": 0.5550239234449761,
+              "chance": 0.3916119136466656,
+              "kappa": 0.2685983066792098,
+              "gross": 8,
+              "records": 60
+            },
+            "E1": {
+              "n": 1426,
+              "agree": 833,
+              "share": 0.5841514726507714,
+              "chance": 0.3919706945152045,
+              "kappa": 0.31607157155416515,
+              "gross": 38,
+              "records": 267
+            },
+            "E2": {
+              "n": 1426,
+              "agree": 835,
+              "share": 0.5855539971949509,
+              "chance": 0.39305061874347175,
+              "kappa": 0.3171654579381098,
+              "gross": 38,
+              "records": 267
+            },
+            "E0_on_cycles_both_label": {
+              "n": 209,
+              "agree": 116,
+              "share": 0.5550239234449761,
+              "chance": 0.3916119136466656,
+              "kappa": 0.2685983066792098,
+              "gross": 8,
+              "records": 60
+            },
+            "E1_on_cycles_both_label": {
+              "n": 209,
+              "agree": 131,
+              "share": 0.6267942583732058,
+              "chance": 0.4358187770426501,
+              "kappa": 0.3385002434669697,
+              "gross": 5,
+              "records": 60
+            },
+            "added": {
+              "n": 1217,
+              "agree": 702,
+              "share": 0.5768282662284305,
+              "chance": 0.38533808569235206,
+              "kappa": 0.31153740955590525,
+              "gross": 33,
+              "records": 207
+            }
+          },
+          "[6,10)": {
+            "E0": {
+              "n": 779,
+              "agree": 463,
+              "share": 0.5943517329910141,
+              "chance": 0.365118704899636,
+              "kappa": 0.36106439087190345,
+              "gross": 16,
+              "records": 96
+            },
+            "E1": {
+              "n": 3035,
+              "agree": 1864,
+              "share": 0.614168039538715,
+              "chance": 0.39581608309426813,
+              "kappa": 0.3613998160737459,
+              "gross": 69,
+              "records": 351
+            },
+            "E2": {
+              "n": 3035,
+              "agree": 1869,
+              "share": 0.6158154859967051,
+              "chance": 0.39646941639141375,
+              "kappa": 0.3634382010830226,
+              "gross": 69,
+              "records": 351
+            },
+            "E0_on_cycles_both_label": {
+              "n": 779,
+              "agree": 463,
+              "share": 0.5943517329910141,
+              "chance": 0.365118704899636,
+              "kappa": 0.36106439087190345,
+              "gross": 16,
+              "records": 96
+            },
+            "E1_on_cycles_both_label": {
+              "n": 779,
+              "agree": 518,
+              "share": 0.6649550706033376,
+              "chance": 0.4111785459453135,
+              "kappa": 0.4309906218778073,
+              "gross": 10,
+              "records": 96
+            },
+            "added": {
+              "n": 2256,
+              "agree": 1346,
+              "share": 0.5966312056737588,
+              "chance": 0.3903438348800362,
+              "kappa": 0.3383667427575851,
+              "gross": 59,
+              "records": 255
+            }
+          },
+          "[10,inf)": {
+            "E0": {
+              "n": 2642,
+              "agree": 1735,
+              "share": 0.6566994700984103,
+              "chance": 0.38243642986038723,
+              "kappa": 0.4441049529136254,
+              "gross": 51,
+              "records": 106
+            },
+            "E1": {
+              "n": 7707,
+              "agree": 5156,
+              "share": 0.6690022057869469,
+              "chance": 0.3840204886880668,
+              "kappa": 0.4626480456986577,
+              "gross": 127,
+              "records": 373
+            },
+            "E2": {
+              "n": 7707,
+              "agree": 5160,
+              "share": 0.6695212144803425,
+              "chance": 0.3842035929617586,
+              "kappa": 0.4633310916685253,
+              "gross": 127,
+              "records": 373
+            },
+            "E0_on_cycles_both_label": {
+              "n": 2642,
+              "agree": 1735,
+              "share": 0.6566994700984103,
+              "chance": 0.38243642986038723,
+              "kappa": 0.4441049529136254,
+              "gross": 51,
+              "records": 106
+            },
+            "E1_on_cycles_both_label": {
+              "n": 2642,
+              "agree": 1895,
+              "share": 0.7172596517789553,
+              "chance": 0.4077940002555814,
+              "kappa": 0.5225641949877773,
+              "gross": 31,
+              "records": 106
+            },
+            "added": {
+              "n": 5065,
+              "agree": 3261,
+              "share": 0.6438302073050346,
+              "chance": 0.3716621336251631,
+              "kappa": 0.43315561299867417,
+              "gross": 96,
+              "records": 267
+            }
+          }
+        }
+      },
+      "outcome": "pass"
+    },
+    "recharge": {
+      "S": {
+        "records_per_year_detection": 1254,
+        "scored_cycles": 23944,
+        "rule_1": {
+          "cycles": 898,
+          "records": 47,
+          "difference": 0.025612472160356347,
+          "ci95": [
+            -0.005195995135522349,
+            0.05840679982585718
+          ],
+          "floor": -0.05,
+          "evaluable": true,
+          "outcome": "holds"
+        },
+        "rule_2": {
+          "cycles": 7569,
+          "records": 396,
+          "kappa": 0.2750181565950803,
+          "ci95": [
+            0.2539430271207769,
+            0.2958761870586234
+          ],
+          "floor": 0.0,
+          "evaluable": true,
+          "outcome": "holds"
+        },
+        "groups": {
+          "E0": {
+            "n": 898,
+            "agree": 584,
+            "share": 0.6503340757238307,
+            "chance": 0.348100951880199,
+            "kappa": 0.46361952010104734,
+            "gross": 8,
+            "records": 47
+          },
+          "E1": {
+            "n": 8467,
+            "agree": 4577,
+            "share": 0.5405692689264202,
+            "chance": 0.3468297409980897,
+            "kappa": 0.2966141297130981,
+            "gross": 272,
+            "records": 443
+          },
+          "E2": {
+            "n": 8467,
+            "agree": 4577,
+            "share": 0.5405692689264202,
+            "chance": 0.3468297409980897,
+            "kappa": 0.2966141297130981,
+            "gross": 272,
+            "records": 443
+          },
+          "E0_on_cycles_both_label": {
+            "n": 898,
+            "agree": 584,
+            "share": 0.6503340757238307,
+            "chance": 0.348100951880199,
+            "kappa": 0.46361952010104734,
+            "gross": 8,
+            "records": 47
+          },
+          "E1_on_cycles_both_label": {
+            "n": 898,
+            "agree": 607,
+            "share": 0.6759465478841871,
+            "chance": 0.36875933155093477,
+            "kappa": 0.4866404078305028,
+            "gross": 6,
+            "records": 47
+          },
+          "added": {
+            "n": 7569,
+            "agree": 3970,
+            "share": 0.5245078610120227,
+            "chance": 0.3441323485360674,
+            "kappa": 0.2750181565950803,
+            "gross": 266,
+            "records": 396
+          }
+        },
+        "added_minus_e0_reported": {
+          "difference": -0.125826214711808,
+          "ci95": [
+            -0.1714724942601031,
+            -0.07563356738820455
+          ]
+        },
+        "coverage": {
+          "E0": {
+            "cycles_labelled": 898,
+            "records_with_labels": 47,
+            "median_eligible_cycles": 1.0
+          },
+          "E1": {
+            "cycles_labelled": 8467,
+            "records_with_labels": 443,
+            "median_eligible_cycles": 4.0
+          },
+          "E2": {
+            "cycles_labelled": 8467,
+            "records_with_labels": 443,
+            "median_eligible_cycles": 4.0
+          }
+        },
+        "label_changed_on_cycles_both_label": {
+          "n": 898,
+          "changed": 93
+        },
+        "qualified": {
+          "E0": {
+            "low_or_high": 566,
+            "replaced_by_typical_uncertain": 39,
+            "remaining_labelled": 859,
+            "remaining_agree": 577,
+            "remaining_share": 0.6717112922002328
+          },
+          "E1": {
+            "low_or_high": 5346,
+            "replaced_by_typical_uncertain": 1255,
+            "remaining_labelled": 7212,
+            "remaining_agree": 4249,
+            "remaining_share": 0.5891569606211869
+          },
+          "added": {
+            "low_or_high": 4827,
+            "replaced_by_typical_uncertain": 1218,
+            "remaining_labelled": 6351,
+            "remaining_agree": 3648,
+            "remaining_share": 0.5743977326405291
+          }
+        },
+        "by_shape": {
+          "sine": {
+            "E0": {
+              "n": 233,
+              "agree": 130,
+              "share": 0.5579399141630901,
+              "chance": 0.31774392602553003,
+              "kappa": 0.35206134074894024,
+              "gross": 4,
+              "records": 12
+            },
+            "E1": {
+              "n": 4416,
+              "agree": 2308,
+              "share": 0.5226449275362319,
+              "chance": 0.3412692112673283,
+              "kappa": 0.275341185460378,
+              "gross": 149,
+              "records": 229
+            },
+            "E2": {
+              "n": 4416,
+              "agree": 2308,
+              "share": 0.5226449275362319,
+              "chance": 0.3412692112673283,
+              "kappa": 0.275341185460378,
+              "gross": 149,
+              "records": 229
+            },
+            "E0_on_cycles_both_label": {
+              "n": 233,
+              "agree": 130,
+              "share": 0.5579399141630901,
+              "chance": 0.31774392602553003,
+              "kappa": 0.35206134074894024,
+              "gross": 4,
+              "records": 12
+            },
+            "E1_on_cycles_both_label": {
+              "n": 233,
+              "agree": 138,
+              "share": 0.592274678111588,
+              "chance": 0.34198456409217337,
+              "kappa": 0.3803711894297791,
+              "gross": 2,
+              "records": 12
+            },
+            "added": {
+              "n": 4183,
+              "agree": 2170,
+              "share": 0.5187664355725555,
+              "chance": 0.3412309046172282,
+              "kappa": 0.26949584034778057,
+              "gross": 147,
+              "records": 217
+            }
+          },
+          "pulse": {
+            "E0": {
+              "n": 665,
+              "agree": 454,
+              "share": 0.6827067669172933,
+              "chance": 0.3582497597376901,
+              "kappa": 0.505581434682415,
+              "gross": 4,
+              "records": 35
+            },
+            "E1": {
+              "n": 4051,
+              "agree": 2269,
+              "share": 0.5601086151567514,
+              "chance": 0.3529658054570945,
+              "kappa": 0.3201419823661592,
+              "gross": 123,
+              "records": 214
+            },
+            "E2": {
+              "n": 4051,
+              "agree": 2269,
+              "share": 0.5601086151567514,
+              "chance": 0.3529658054570945,
+              "kappa": 0.3201419823661592,
+              "gross": 123,
+              "records": 214
+            },
+            "E0_on_cycles_both_label": {
+              "n": 665,
+              "agree": 454,
+              "share": 0.6827067669172933,
+              "chance": 0.3582497597376901,
+              "kappa": 0.505581434682415,
+              "gross": 4,
+              "records": 35
+            },
+            "E1_on_cycles_both_label": {
+              "n": 665,
+              "agree": 469,
+              "share": 0.7052631578947368,
+              "chance": 0.37776923511786986,
+              "kappa": 0.5263222927251187,
+              "gross": 4,
+              "records": 35
+            },
+            "added": {
+              "n": 3386,
+              "agree": 1800,
+              "share": 0.5316007088009451,
+              "chance": 0.34783832458380276,
+              "kappa": 0.28177427644742953,
+              "gross": 119,
+              "records": 179
+            }
+          }
+        },
+        "by_ratio_band": {
+          "[3,4)": {
+            "E0": {
+              "n": 18,
+              "agree": 7,
+              "share": 0.3888888888888889,
+              "chance": 0.35185185185185186,
+              "kappa": 0.05714285714285714,
+              "gross": 0,
+              "records": 7
+            },
+            "E1": {
+              "n": 1422,
+              "agree": 579,
+              "share": 0.40717299578059074,
+              "chance": 0.3469475056426934,
+              "kappa": 0.09222151459228023,
+              "gross": 91,
+              "records": 314
+            },
+            "E2": {
+              "n": 1422,
+              "agree": 579,
+              "share": 0.40717299578059074,
+              "chance": 0.3469475056426934,
+              "kappa": 0.09222151459228023,
+              "gross": 91,
+              "records": 314
+            },
+            "E0_on_cycles_both_label": {
+              "n": 18,
+              "agree": 7,
+              "share": 0.3888888888888889,
+              "chance": 0.35185185185185186,
+              "kappa": 0.05714285714285714,
+              "gross": 0,
+              "records": 7
+            },
+            "E1_on_cycles_both_label": {
+              "n": 18,
+              "agree": 7,
+              "share": 0.3888888888888889,
+              "chance": 0.35185185185185186,
+              "kappa": 0.05714285714285714,
+              "gross": 0,
+              "records": 7
+            },
+            "added": {
+              "n": 1404,
+              "agree": 572,
+              "share": 0.4074074074074074,
+              "chance": 0.34689146191995196,
+              "kappa": 0.09265832853043839,
+              "gross": 91,
+              "records": 307
+            }
+          },
+          "[4,6)": {
+            "E0": {
+              "n": 94,
+              "agree": 46,
+              "share": 0.48936170212765956,
+              "chance": 0.3757356269805342,
+              "kappa": 0.1820159535895576,
+              "gross": 3,
+              "records": 17
+            },
+            "E1": {
+              "n": 3036,
+              "agree": 1567,
+              "share": 0.5161396574440053,
+              "chance": 0.3818115421268884,
+              "kappa": 0.217293146784518,
+              "gross": 95,
+              "records": 375
+            },
+            "E2": {
+              "n": 3036,
+              "agree": 1567,
+              "share": 0.5161396574440053,
+              "chance": 0.3818115421268884,
+              "kappa": 0.217293146784518,
+              "gross": 95,
+              "records": 375
+            },
+            "E0_on_cycles_both_label": {
+              "n": 94,
+              "agree": 46,
+              "share": 0.48936170212765956,
+              "chance": 0.3757356269805342,
+              "kappa": 0.1820159535895576,
+              "gross": 3,
+              "records": 17
+            },
+            "E1_on_cycles_both_label": {
+              "n": 94,
+              "agree": 49,
+              "share": 0.5212765957446809,
+              "chance": 0.39712539610683567,
+              "kappa": 0.20593204430260942,
+              "gross": 1,
+              "records": 17
+            },
+            "added": {
+              "n": 2942,
+              "agree": 1518,
+              "share": 0.5159755268524813,
+              "chance": 0.38221200171361946,
+              "kappa": 0.21652010966528143,
+              "gross": 94,
+              "records": 358
+            }
+          },
+          "[6,10)": {
+            "E0": {
+              "n": 250,
+              "agree": 154,
+              "share": 0.616,
+              "chance": 0.376896,
+              "kappa": 0.38373048479868527,
+              "gross": 2,
+              "records": 36
+            },
+            "E1": {
+              "n": 2047,
+              "agree": 1231,
+              "share": 0.6013678553981436,
+              "chance": 0.36710221375592483,
+              "kappa": 0.3701476711310141,
+              "gross": 26,
+              "records": 371
+            },
+            "E2": {
+              "n": 2047,
+              "agree": 1231,
+              "share": 0.6013678553981436,
+              "chance": 0.36710221375592483,
+              "kappa": 0.3701476711310141,
+              "gross": 26,
+              "records": 371
+            },
+            "E0_on_cycles_both_label": {
+              "n": 250,
+              "agree": 154,
+              "share": 0.616,
+              "chance": 0.376896,
+              "kappa": 0.38373048479868527,
+              "gross": 2,
+              "records": 36
+            },
+            "E1_on_cycles_both_label": {
+              "n": 250,
+              "agree": 159,
+              "share": 0.636,
+              "chance": 0.383216,
+              "kappa": 0.40984201924822955,
+              "gross": 2,
+              "records": 36
+            },
+            "added": {
+              "n": 1797,
+              "agree": 1072,
+              "share": 0.5965498052309405,
+              "chance": 0.3717253977676886,
+              "kappa": 0.357844176200076,
+              "gross": 24,
+              "records": 335
+            }
+          },
+          "[10,inf)": {
+            "E0": {
+              "n": 523,
+              "agree": 372,
+              "share": 0.7112810707456979,
+              "chance": 0.35697494598378965,
+              "kappa": 0.5509989424968446,
+              "gross": 0,
+              "records": 41
+            },
+            "E1": {
+              "n": 1270,
+              "agree": 923,
+              "share": 0.7267716535433071,
+              "chance": 0.37814495628991257,
+              "kappa": 0.5606237350322536,
+              "gross": 1,
+              "records": 143
+            },
+            "E2": {
+              "n": 1270,
+              "agree": 923,
+              "share": 0.7267716535433071,
+              "chance": 0.37814495628991257,
+              "kappa": 0.5606237350322536,
+              "gross": 1,
+              "records": 143
+            },
+            "E0_on_cycles_both_label": {
+              "n": 523,
+              "agree": 372,
+              "share": 0.7112810707456979,
+              "chance": 0.35697494598378965,
+              "kappa": 0.5509989424968446,
+              "gross": 0,
+              "records": 41
+            },
+            "E1_on_cycles_both_label": {
+              "n": 523,
+              "agree": 387,
+              "share": 0.739961759082218,
+              "chance": 0.38233971535010913,
+              "kappa": 0.5789947202689585,
+              "gross": 0,
+              "records": 41
+            },
+            "added": {
+              "n": 747,
+              "agree": 536,
+              "share": 0.7175368139223561,
+              "chance": 0.38011931707194685,
+              "kappa": 0.5443265230601997,
+              "gross": 1,
+              "records": 102
+            }
+          }
+        }
+      },
+      "I": {
+        "records_per_year_detection": 569,
+        "scored_cycles": 20708,
+        "rule_1": {
+          "cycles": 3890,
+          "records": 106,
+          "difference": 0.04010282776349614,
+          "ci95": [
+            0.024480904523303683,
+            0.05671983099816884
+          ],
+          "floor": -0.05,
+          "evaluable": true,
+          "outcome": "holds"
+        },
+        "rule_2": {
+          "cycles": 9816,
+          "records": 269,
+          "kappa": 0.15762954955064687,
+          "ci95": [
+            0.13437810377382983,
+            0.18248171661439766
+          ],
+          "floor": 0.0,
+          "evaluable": true,
+          "outcome": "holds"
+        },
+        "groups": {
+          "E0": {
+            "n": 3890,
+            "agree": 1869,
+            "share": 0.48046272493573267,
+            "chance": 0.3534289358383833,
+            "kappa": 0.1964730501233752,
+            "gross": 266,
+            "records": 106
+          },
+          "E1": {
+            "n": 13706,
+            "agree": 6599,
+            "share": 0.48146797023201515,
+            "chance": 0.3715409307662024,
+            "kappa": 0.17491519312440373,
+            "gross": 925,
+            "records": 375
+          },
+          "E2": {
+            "n": 13706,
+            "agree": 6603,
+            "share": 0.4817598132204874,
+            "chance": 0.37162181786327364,
+            "kappa": 0.1752734236932008,
+            "gross": 924,
+            "records": 375
+          },
+          "E0_on_cycles_both_label": {
+            "n": 3890,
+            "agree": 1869,
+            "share": 0.48046272493573267,
+            "chance": 0.3534289358383833,
+            "kappa": 0.1964730501233752,
+            "gross": 266,
+            "records": 106
+          },
+          "E1_on_cycles_both_label": {
+            "n": 3890,
+            "agree": 2025,
+            "share": 0.5205655526992288,
+            "chance": 0.3850940715432756,
+            "kappa": 0.22031253056212377,
+            "gross": 216,
+            "records": 106
+          },
+          "added": {
+            "n": 9816,
+            "agree": 4574,
+            "share": 0.46597392013039934,
+            "chance": 0.3660436692850154,
+            "kappa": 0.15762954955064687,
+            "gross": 709,
+            "records": 269
+          }
+        },
+        "added_minus_e0_reported": {
+          "difference": -0.014488804805333322,
+          "ci95": [
+            -0.05225245330046576,
+            0.022238409167427267
+          ]
+        },
+        "coverage": {
+          "E0": {
+            "cycles_labelled": 3890,
+            "records_with_labels": 106,
+            "median_eligible_cycles": 2.0
+          },
+          "E1": {
+            "cycles_labelled": 13706,
+            "records_with_labels": 375,
+            "median_eligible_cycles": 6.0
+          },
+          "E2": {
+            "cycles_labelled": 13706,
+            "records_with_labels": 375,
+            "median_eligible_cycles": 6.0
+          }
+        },
+        "label_changed_on_cycles_both_label": {
+          "n": 3890,
+          "changed": 562
+        },
+        "qualified": {
+          "E0": {
+            "low_or_high": 2377,
+            "replaced_by_typical_uncertain": 43,
+            "remaining_labelled": 3847,
+            "remaining_agree": 1858,
+            "remaining_share": 0.4829737457759293
+          },
+          "E1": {
+            "low_or_high": 7704,
+            "replaced_by_typical_uncertain": 279,
+            "remaining_labelled": 13427,
+            "remaining_agree": 6521,
+            "remaining_share": 0.48566321590824457
+          },
+          "added": {
+            "low_or_high": 5667,
+            "replaced_by_typical_uncertain": 255,
+            "remaining_labelled": 9561,
+            "remaining_agree": 4503,
+            "remaining_share": 0.4709758393473486
+          }
+        },
+        "by_shape": {
+          "sine": {
+            "E0": {
+              "n": 1254,
+              "agree": 520,
+              "share": 0.41467304625199364,
+              "chance": 0.3372550740342229,
+              "kappa": 0.11681413042122402,
+              "gross": 107,
+              "records": 34
+            },
+            "E1": {
+              "n": 6618,
+              "agree": 3017,
+              "share": 0.45587790873375644,
+              "chance": 0.3662298925401122,
+              "kappa": 0.14145194785684684,
+              "gross": 519,
+              "records": 180
+            },
+            "E2": {
+              "n": 6618,
+              "agree": 3019,
+              "share": 0.4561801148383197,
+              "chance": 0.36611927085859136,
+              "kappa": 0.14207853282070235,
+              "gross": 519,
+              "records": 180
+            },
+            "E0_on_cycles_both_label": {
+              "n": 1254,
+              "agree": 520,
+              "share": 0.41467304625199364,
+              "chance": 0.3372550740342229,
+              "kappa": 0.11681413042122402,
+              "gross": 107,
+              "records": 34
+            },
+            "E1_on_cycles_both_label": {
+              "n": 1254,
+              "agree": 566,
+              "share": 0.4513556618819777,
+              "chance": 0.375828926382943,
+              "kappa": 0.12100326127155969,
+              "gross": 91,
+              "records": 34
+            },
+            "added": {
+              "n": 5364,
+              "agree": 2451,
+              "share": 0.4569351230425056,
+              "chance": 0.3639456931369458,
+              "kappa": 0.14619731193107213,
+              "gross": 428,
+              "records": 146
+            }
+          },
+          "pulse": {
+            "E0": {
+              "n": 2636,
+              "agree": 1349,
+              "share": 0.5117602427921093,
+              "chance": 0.36130264736426415,
+              "kappa": 0.23556946777209312,
+              "gross": 159,
+              "records": 72
+            },
+            "E1": {
+              "n": 7088,
+              "agree": 3582,
+              "share": 0.5053611738148984,
+              "chance": 0.37659176766505814,
+              "kappa": 0.20655711533923993,
+              "gross": 406,
+              "records": 195
+            },
+            "E2": {
+              "n": 7088,
+              "agree": 3584,
+              "share": 0.5056433408577878,
+              "chance": 0.37685285577888294,
+              "kappa": 0.2066774858446675,
+              "gross": 405,
+              "records": 195
+            },
+            "E0_on_cycles_both_label": {
+              "n": 2636,
+              "agree": 1349,
+              "share": 0.5117602427921093,
+              "chance": 0.36130264736426415,
+              "kappa": 0.23556946777209312,
+              "gross": 159,
+              "records": 72
+            },
+            "E1_on_cycles_both_label": {
+              "n": 2636,
+              "agree": 1459,
+              "share": 0.5534901365705615,
+              "chance": 0.3896428809918002,
+              "kappa": 0.268444899676119,
+              "gross": 125,
+              "records": 72
+            },
+            "added": {
+              "n": 4452,
+              "agree": 2123,
+              "share": 0.47686433063791556,
+              "chance": 0.3686439420908983,
+              "kappa": 0.1714094403487898,
+              "gross": 281,
+              "records": 123
+            }
+          }
+        },
+        "by_ratio_band": {
+          "[3,4)": {
+            "E0": {
+              "n": 60,
+              "agree": 17,
+              "share": 0.2833333333333333,
+              "chance": 0.23194444444444445,
+              "kappa": 0.06690777576853525,
+              "gross": 3,
+              "records": 31
+            },
+            "E1": {
+              "n": 541,
+              "agree": 208,
+              "share": 0.3844731977818854,
+              "chance": 0.32524830788469355,
+              "kappa": 0.0877728660620699,
+              "gross": 41,
+              "records": 184
+            },
+            "E2": {
+              "n": 541,
+              "agree": 208,
+              "share": 0.3844731977818854,
+              "chance": 0.32524830788469355,
+              "kappa": 0.0877728660620699,
+              "gross": 41,
+              "records": 184
+            },
+            "E0_on_cycles_both_label": {
+              "n": 60,
+              "agree": 17,
+              "share": 0.2833333333333333,
+              "chance": 0.23194444444444445,
+              "kappa": 0.06690777576853525,
+              "gross": 3,
+              "records": 31
+            },
+            "E1_on_cycles_both_label": {
+              "n": 60,
+              "agree": 17,
+              "share": 0.2833333333333333,
+              "chance": 0.26694444444444443,
+              "kappa": 0.02235695339143616,
+              "gross": 3,
+              "records": 31
+            },
+            "added": {
+              "n": 481,
+              "agree": 191,
+              "share": 0.3970893970893971,
+              "chance": 0.3322815859198396,
+              "kappa": 0.09705859506486109,
+              "gross": 38,
+              "records": 153
+            }
+          },
+          "[4,6)": {
+            "E0": {
+              "n": 207,
+              "agree": 86,
+              "share": 0.41545893719806765,
+              "chance": 0.34957641951970875,
+              "kappa": 0.10129171151776105,
+              "gross": 22,
+              "records": 60
+            },
+            "E1": {
+              "n": 1424,
+              "agree": 636,
+              "share": 0.44662921348314605,
+              "chance": 0.35203099356141904,
+              "kappa": 0.145991890015952,
+              "gross": 108,
+              "records": 267
+            },
+            "E2": {
+              "n": 1424,
+              "agree": 639,
+              "share": 0.4487359550561798,
+              "chance": 0.35271302155662165,
+              "kappa": 0.14834677152084527,
+              "gross": 108,
+              "records": 267
+            },
+            "E0_on_cycles_both_label": {
+              "n": 207,
+              "agree": 86,
+              "share": 0.41545893719806765,
+              "chance": 0.34957641951970875,
+              "kappa": 0.10129171151776105,
+              "gross": 22,
+              "records": 60
+            },
+            "E1_on_cycles_both_label": {
+              "n": 207,
+              "agree": 98,
+              "share": 0.47342995169082125,
+              "chance": 0.37086046348806273,
+              "kappa": 0.16303138215001114,
+              "gross": 20,
+              "records": 60
+            },
+            "added": {
+              "n": 1217,
+              "agree": 538,
+              "share": 0.44207066557107644,
+              "chance": 0.35017071897772517,
+              "kappa": 0.14142167685761936,
+              "gross": 88,
+              "records": 207
+            }
+          },
+          "[6,10)": {
+            "E0": {
+              "n": 779,
+              "agree": 410,
+              "share": 0.5263157894736842,
+              "chance": 0.3855672243635483,
+              "kappa": 0.22907073107280684,
+              "gross": 30,
+              "records": 96
+            },
+            "E1": {
+              "n": 3032,
+              "agree": 1560,
+              "share": 0.5145118733509235,
+              "chance": 0.39817365863506937,
+              "kappa": 0.19330861200259414,
+              "gross": 142,
+              "records": 349
+            },
+            "E2": {
+              "n": 3032,
+              "agree": 1559,
+              "share": 0.5141820580474934,
+              "chance": 0.39829744815199003,
+              "kappa": 0.1925945129193599,
+              "gross": 142,
+              "records": 349
+            },
+            "E0_on_cycles_both_label": {
+              "n": 779,
+              "agree": 410,
+              "share": 0.5263157894736842,
+              "chance": 0.3855672243635483,
+              "kappa": 0.22907073107280684,
+              "gross": 30,
+              "records": 96
+            },
+            "E1_on_cycles_both_label": {
+              "n": 779,
+              "agree": 442,
+              "share": 0.5673940949935815,
+              "chance": 0.4177239177972484,
+              "kappa": 0.25704331977733064,
+              "gross": 22,
+              "records": 96
+            },
+            "added": {
+              "n": 2253,
+              "agree": 1118,
+              "share": 0.49622725255215266,
+              "chance": 0.39432790603799167,
+              "kappa": 0.1682417722890049,
+              "gross": 120,
+              "records": 253
+            }
+          },
+          "[10,inf)": {
+            "E0": {
+              "n": 2639,
+              "agree": 1269,
+              "share": 0.4808639636225843,
+              "chance": 0.3721211299708902,
+              "kappa": 0.17319078383168487,
+              "gross": 188,
+              "records": 106
+            },
+            "E1": {
+              "n": 7709,
+              "agree": 3778,
+              "share": 0.49007653392139056,
+              "chance": 0.3926045910391314,
+              "kappa": 0.16047527104133702,
+              "gross": 526,
+              "records": 373
+            },
+            "E2": {
+              "n": 7709,
+              "agree": 3780,
+              "share": 0.4903359709430536,
+              "chance": 0.39255414401675853,
+              "kappa": 0.16097208658707637,
+              "gross": 525,
+              "records": 373
+            },
+            "E0_on_cycles_both_label": {
+              "n": 2639,
+              "agree": 1269,
+              "share": 0.4808639636225843,
+              "chance": 0.3721211299708902,
+              "kappa": 0.17319078383168487,
+              "gross": 188,
+              "records": 106
+            },
+            "E1_on_cycles_both_label": {
+              "n": 2639,
+              "agree": 1376,
+              "share": 0.5214096248579008,
+              "chance": 0.4022795617835536,
+              "kappa": 0.1993073274017908,
+              "gross": 150,
+              "records": 106
+            },
+            "added": {
+              "n": 5070,
+              "agree": 2402,
+              "share": 0.473767258382643,
+              "chance": 0.3875444370528576,
+              "kappa": 0.1407821669785809,
+              "gross": 376,
+              "records": 267
+            }
+          }
+        }
+      },
+      "outcome": "pass"
+    }
+  },
+  "decision": {
+    "refuge": "pass",
+    "recharge_reported": "pass"
+  },
+  "trough_level_read_S": {
+    "correct": {
+      "n": 17445,
+      "median": -0.5564020140959249,
+      "median_abs": 0.6139271727468639,
+      "share_abs_over_1": 0.25594726282602465
+    },
+    "miss": {
+      "n": 6604,
+      "median": -0.6563386866944414,
+      "median_abs": 0.6919780921810634,
+      "share_abs_over_1": 0.29678982434887946
+    }
+  }
+}

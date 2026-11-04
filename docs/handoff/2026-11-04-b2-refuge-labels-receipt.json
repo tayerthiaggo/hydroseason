@@ -1,0 +1,181 @@
+{
+  "plan": "docs/handoff/2026-11-04-b2-refuge-labels-plan.md",
+  "plan_sha256_lf": "089192ed9801601a25eb0c5ef30bbff92a3e6de09f8408858e49885e79745507",
+  "script_sha256_lf": "0a6decce6a5c028613605cad27f3d79c5a40862e9a89d152475d23f1b686bc6e",
+  "b1_script_sha256_lf": "780f96407a5dbec71b456d44f849a8908e6ab702a96d8fdab8e04b4850a58bb6",
+  "g2_script_sha256_lf": "5bfa4fa7574366e39f2d2dfec7965c8455a27f8304480664541eb534a0a22067",
+  "g1_script_sha256_lf": "1b19e6055cf0caac99016fc20502bedf34e0c8cd2cc7a5d3ba9ba3fa0b95a4cb",
+  "git_head": "9ef39736b5c0de4bcced3e410a86677811df1fd7",
+  "git_branch": "spatial-unit-study",
+  "git_status_short": [
+    "M docs/handoff/2026-11-04-b2-refuge-labels-plan.md",
+    "?? RELEASE_PLAN_0.2.1.md",
+    "?? docs/provisional-trough-analysis-2026-10-30.md",
+    "?? docs/provisional-trough-judgement-2026-10-30.md",
+    "?? docs/provisional-trough-verdict-2026-10-30.md",
+    "?? scripts/known_truth_b2.py"
+  ],
+  "hydroseason_version": "0.2.0",
+  "method_policy_fingerprints_in_pilot": [
+    "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
+  ],
+  "library_gates": {
+    "ratio": 3.0,
+    "peak_pixels": 5
+  },
+  "corpus_records": 3148,
+  "corpus_sha256": "a4ea6a0bf791879dedb14a80734f6297646e8c3193d0998b692006d82ca90026",
+  "identity": {
+    "pairs": 64,
+    "identical": 64,
+    "failures": []
+  },
+  "check": {
+    "by_shape": {
+      "sine": {
+        "interior_cycles": 216,
+        "boundary_at_truth": 215,
+        "boundary_at_m": 113,
+        "trough_extent_at_noise_free_level_of_its_month": 216,
+        "trough_extent_at_built_dry_level_reported": 116,
+        "peak_extent_at_noise_free_maximum": 216,
+        "routes": [
+          "per_year_detection"
+        ]
+      },
+      "pulse": {
+        "interior_cycles": 216,
+        "boundary_at_truth": 212,
+        "boundary_at_m": 212,
+        "trough_extent_at_noise_free_level_of_its_month": 216,
+        "trough_extent_at_built_dry_level_reported": 212,
+        "peak_extent_at_noise_free_maximum": 212,
+        "routes": [
+          "per_year_detection"
+        ]
+      }
+    },
+    "passes": true,
+    "labels_recorded_not_required": {
+      "refuge": {
+        "E0": {
+          "n": 460,
+          "agree": 396,
+          "share": 0.8608695652173913,
+          "chance": 0.40869565217391307,
+          "kappa": 0.7647058823529412,
+          "gross": 0,
+          "records": 23
+        },
+        "E1": {
+          "n": 480,
+          "agree": 434,
+          "share": 0.9041666666666667,
+          "chance": 0.4166666666666667,
+          "kappa": 0.8357142857142859,
+          "gross": 0,
+          "records": 24
+        },
+        "E2": {
+          "n": 480,
+          "agree": 434,
+          "share": 0.9041666666666667,
+          "chance": 0.4166666666666667,
+          "kappa": 0.8357142857142859,
+          "gross": 0,
+          "records": 24
+        }
+      },
+      "recharge": {
+        "E0": {
+          "n": 443,
+          "agree": 394,
+          "share": 0.8893905191873589,
+          "chance": 0.42129131868187863,
+          "kappa": 0.808868461138847,
+          "gross": 0,
+          "records": 23
+        },
+        "E1": {
+          "n": 463,
+          "agree": 422,
+          "share": 0.9114470842332614,
+          "chance": 0.4169819330220321,
+          "kappa": 0.8481129131628008,
+          "gross": 0,
+          "records": 24
+        },
+        "E2": {
+          "n": 463,
+          "agree": 422,
+          "share": 0.9114470842332614,
+          "chance": 0.4169819330220321,
+          "kappa": 0.8481129131628008,
+          "gross": 0,
+          "records": 24
+        }
+      }
+    },
+    "unscored": {
+      "refuge": 0,
+      "recharge": 3
+    }
+  },
+  "pilot": {
+    "counts": {
+      "S": {
+        "records": 200,
+        "median_seconds": 10.61,
+        "per_year_detection": 115,
+        "errors": 0,
+        "refuge": {
+          "records_with_e0_labels": 4,
+          "cycles_labelled_under_both": 80,
+          "cycles_e1_adds": 740
+        },
+        "recharge": {
+          "records_with_e0_labels": 4,
+          "cycles_labelled_under_both": 77,
+          "cycles_e1_adds": 701
+        }
+      },
+      "I": {
+        "records": 80,
+        "median_seconds": 1.9649999999999999,
+        "per_year_detection": 39,
+        "errors": 0,
+        "refuge": {
+          "records_with_e0_labels": 7,
+          "cycles_labelled_under_both": 266,
+          "cycles_e1_adds": 836
+        },
+        "recharge": {
+          "records_with_e0_labels": 7,
+          "cycles_labelled_under_both": 265,
+          "cycles_e1_adds": 795
+        }
+      }
+    },
+    "scale": {
+      "S": 7.0,
+      "I": 14.35
+    },
+    "predicted_main": {
+      "S": {
+        "records_with_e0_refuge_labels": 28.0,
+        "refuge_cycles_labelled_under_both": 560.0,
+        "refuge_cycles_e1_adds": 5180.0,
+        "cpu_seconds": 14854.0,
+        "large_enough": false
+      },
+      "I": {
+        "records_with_e0_refuge_labels": 100.45,
+        "refuge_cycles_labelled_under_both": 3817.1,
+        "refuge_cycles_e1_adds": 11996.6,
+        "cpu_seconds": 2255.8199999999997,
+        "large_enough": true
+      }
+    }
+  },
+  "frozen_utc": "2026-11-04T04:24:03.586482+00:00"
+}
