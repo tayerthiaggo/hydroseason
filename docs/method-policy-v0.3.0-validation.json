@@ -57,7 +57,19 @@
     },
     "proposal": {
       "path": "docs/handoff/2026-11-04-v0.3.0-proposal.md",
-      "sha256_lf": "5e1cbe0f3c6f43df549f97f6fec7bf092445cccd9c979fde0f7fc36b53b6990a"
+      "sha256_lf": "a3c324297ab3cb06b76d307e88a474a58e00012f7e4767ae6449adf73ff7b6ad"
+    },
+    "case_study_comparison": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-case-study-comparison.json",
+      "sha256_lf": "c4c2064021c4a35eda3df60dff19cc0f4b6f45dcfd6655f19bf858197f2b6144"
+    },
+    "real_record_check": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-real-record-check.json",
+      "sha256_lf": "192696911d0de04d034f4d035d5f16d77ef55001da67229a5287d721afabc358"
+    },
+    "implementation_checks": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-implementation-checks.md",
+      "sha256_lf": "314259cbfa3999c744559123aed3dbecfaf95f359ee6e72bc40384eb99da995e"
     }
   },
   "validation_environment": {
