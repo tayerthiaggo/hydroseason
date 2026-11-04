@@ -39,7 +39,7 @@ months.
 | `n_zero_months` | Integer >=0 months | -- | Total usable months with exact-zero observed extent. Descriptive only; never a route or timing predicate. |
 | `zero_month_fraction` | Unitless, 0–1 | -- | Fraction of usable months that are exact zero. |
 | `n_whole_zero_years` | Integer >=0 years | -- | Count of years whose usable months are all exact zero. Contributes to dry-duration/event summaries but no timing observation. |
-| `pixel_support_status` | `"available"` \| `"unavailable"` | -- | Whether pixel counts (`n_water`/`n_valid`/`n_invalid`/`n_aoi`) are present. Percentage-only inputs report `"unavailable"`, and the calibrated `min_peak_water_pixels` threshold is not consulted for them. |
+| `pixel_support_status` | `"available"` \| `"unavailable"` | -- | Whether pixel counts (`n_water`/`n_valid`/`n_invalid`/`n_aoi`) are present. Percentage-only inputs report `"unavailable"`, and the `min_peak_water_pixels` threshold is not consulted for them. |
 | `timing_evidence` | `"supported"` \| `"insufficient"` \| `"unsupported"` | -- | `insufficient` when `min(n_peak_timing_years, n_trough_timing_years) < min_informative_years`; `unsupported` when established seasonality/uniformity evidence rejects an annual cycle; otherwise `supported`. |
 | `mean_monthly_peak_month`, `mean_monthly_trough_month` | Calendar month 1–12 | `None` for aseasonal/insufficient records | Extrema of mean monthly extent when the record supports reporting them. |
 

@@ -175,12 +175,19 @@ Each year's trough opportunity carries diagnostics that separate what was
   anomalous, and an absolute backstop above which everything is). Only
   `anomalous` forces `status="partial"` and `boundary_status="provisional"`
   via `status_reason="peak_quality_anomalous"`.
-- `peak_timing_status` / `trough_timing_status` / `timing_status`: whether
-  that cycle's peak/trough resolves to an exact month (`point`), a bounded
-  interval (`interval`), or cannot be resolved (`unresolved`), using the same
-  calibrated detectability floor and span thresholds as the record-level
-  regime assessment. `timing_status` is the weaker of the two
-  (`unresolved` < `interval` < `point`). This is a separate concept from
+- `peak_timing_status` / `trough_timing_status` / `timing_status`: how many
+  months are tied with that cycle's peak or trough, within its detectability
+  floor. For the trough, only the months from the cycle's peak to the trough
+  boundary are compared; months after the boundary are not. The statuses are: a single month (`point`); a span of up to 3
+  months (`interval`); for troughs, up to 6 months (`broad`); and no bounded
+  span (`unresolved`). They use the same detectability floor and span
+  thresholds as the record-level regime assessment. `timing_status` is the
+  weaker of the two (`unresolved` < `broad` < `interval` < `point`). A
+  `point` status says the extremum is distinct, not that its month is exact.
+  In known-truth tests (G2, L1 and L2, November 2026) on noisy, weak cycles, many
+  `point` troughs fell more than a month from the true month, and on long,
+  flat recessions the trough was dated early; see the
+  [usage guide](guide.md#dates-around-the-dry-season-low). This is a separate concept from
   `boundary_status`: a cycle can have high data/window quality
   (`selection_support >= 0.8`, `boundary_status` eligible) while its timing
   is still `unresolved` -- a flat or below-floor year contributes no peak or
@@ -197,7 +204,16 @@ Each year's trough opportunity carries diagnostics that separate what was
 - `detectability_floor_pp` / `amplitude_to_floor_ratio`: the cycle's
   detectability floor (percentage points) and its amplitude expressed as a
   multiple of that floor. `amplitude_to_floor_ratio` is `0.0` when the
-  amplitude is at or below the floor.
+  amplitude is at or below the floor. By default a cycle's timing counts
+  only when its amplitude is at least 3.0 times its floor and, with pixel
+  counts, its peak holds at least 5 water pixels. These defaults were first
+  checked on synthetic records and on gauged CAMELS-AUS catchments, most of
+  them upper catchments with little surface water. In November 2026 they were
+  tested on water-bearing windows across Australia. Looser gates (1.5 times
+  the floor, 2 pixels) reproduced as well under split-half reproducibility
+  (G1), but the dates they added were less accurate in a known-truth test
+  (G2), so the defaults stay. They are tested values, not values fitted to
+  lowland channels, floodplains or wetlands.
 - `detector` (a `DynamicHydroYearConfig` field, not an annual output column):
   `"robust_extrema"` is the only supported value, gated on real Fitzroy and
   Gilbert River evidence; any other value is rejected at construction.

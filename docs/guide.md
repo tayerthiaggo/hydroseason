@@ -51,6 +51,17 @@ result = run_hydroseason(
 Optional `invalid_pct` defaults to `0.0`, treating the CSV as an
 already-screened series.
 
+If you have pixel counts, include them as `n_water`, `n_valid`, `n_invalid`
+and `n_aoi` columns. HydroSeason then works out the percentages itself:
+`extent_pct = 100 * n_water / n_valid`, the wet share of the pixels observed
+that month, and `invalid_pct = 100 * n_invalid / n_aoi`. These replace any
+percentages in the file, and a warning reports the months where a supplied
+`extent_pct` disagrees, for example because it was a share of the whole AOI.
+Counts also tell HydroSeason how small a change it can detect. Without them,
+on a series that barely changes from month to month, that detectability floor
+can fall to effectively zero, so tiny fluctuations pass as a season;
+HydroSeason warns when this happens. Pass counts whenever you have them.
+
 ### 2. From rasters, NetCDF, or Zarr
 
 Requires `pip install "hydroseason[raster]"`.
@@ -292,6 +303,13 @@ typical 8–16 GB machine, so sequential execution may be necessary. The outer
 thread pool improves I/O overlap; it does not force Dask's internal pool and
 does not mean 2x computational throughput.
 
+If you run HydroSeason in your own process pool, for example with
+`concurrent.futures.ProcessPoolExecutor` over many CSVs, set
+`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1` and `MKL_NUM_THREADS=1` in the
+environment before the workers start. Otherwise each worker's numerical
+libraries can start one thread per CPU, and the pool oversubscribes the
+machine.
+
 ## AOI boundary maps
 
 When an AOI is available, HydroSeason carries compact boundary geometry into
@@ -307,6 +325,114 @@ cannot display); `show_map=False` suppresses previews. The display boundary
 may be topology-preservingly simplified and rounded for compact output. It is
 display-only: the analysed footprint remains the unsimplified acquisition
 geometry and fixed historical water mask.
+
+## Choosing the area to analyse
+
+HydroSeason reports on all the surface water inside the area you give it, so
+the area decides what the dates mean. Choose it for the question you are
+asking: a reach, a refuge, a planning zone, a subbasin or a whole catchment.
+
+A study on the five case-study catchments compared 1,278 areas built from the
+same 30 m pixels: whole catchments, HydroBASINS subbasins (Lehner and Grill
+2013, [10.1002/hyp.9740](https://doi.org/10.1002/hyp.9740)) of about 4,800,
+1,700 and 480 km², and square grid tiles of the same three sizes. Its
+decision rules were fixed before any result was read.
+
+**Grid tiles work as well as subbasins of the same size.** At matched size,
+tiles and subbasins routed to per-year detection at the same rate (difference
+−1.2 percentage points, 95% interval −5.1 to +2.5) and confirmed the same
+share of cycle boundaries (+0.9 points, −0.6 to +2.5). You do not need to
+redraw areas along drainage divides for the method to behave.
+
+**Small areas detect the season but date it less consistently.** In the three
+seasonal catchments, more than 92% of areas routed seasonal even when they
+held very little water. Areas with fewer than about 100 water pixels in a typical month (about
+0.09 km² of open water at 30 m) had a trough within one month of their
+catchment's in only 38–45% of cases, against 80% or more for larger areas, and
+fewer of their cycle boundaries were confirmed. This comparison was
+exploratory, and part of the difference may be real local timing. Treat dates
+from areas that small as indicative, and compare them with a larger area that
+contains them.
+
+**A whole catchment can hide seasonal parts.** The Lachlan routes aseasonal as
+a whole, yet 16 of its 36 level-7 subbasins (about 1,700 km² each) route
+seasonal, mostly in the upper catchment, with winter–spring peaks and summer
+troughs. The subbasins that stay aseasonal hold about four times as much
+water, so they dominate the catchment total. If a large catchment routes
+aseasonal, run its subbasins before concluding it has no season; a catchment
+that is aseasonal throughout (the Moonie: none of its 7 subbasins) stays
+aseasonal when split.
+
+**A catchment's dates describe most of its parts, not all.** In the seasonal
+catchments, a quarter of level-7 subbasins (24.7%) had a typical trough month
+more than one month from their catchment's. When the timing at a particular
+reach or refuge matters, analyse that area as well.
+
+**Borrow peaks more readily than troughs, and from the nearest larger area.**
+A second study compared the dates year by year: each subbasin against the
+subbasin one level up that contains it, and against its whole catchment.
+- **Agreement within one month.** A subbasin's peak agreed with the subbasin
+  containing it in 87% of cycles and with its catchment in 84%. Its trough
+  boundary agreed in 81% and 73%.
+- **Above about 100 water pixels a month.** The containing subbasin's peak
+  and trough dates both agreed in at least 89% of cycles.
+- **The whole catchment's trough boundary** fell below 80% agreement even for
+  the largest subbasins.
+
+If you need a place's dry-season boundary, run that place or the subbasin
+just above it rather than borrowing the catchment's.
+
+In practice:
+
+- Prefer areas with at least a few hundred water pixels in a typical month
+  when you need dates, not only a seasonal or aseasonal call.
+- For a large catchment, also run its subbasins and compare. HydroBASINS
+  level 7 is a convenient, citable set; `run_hydroseason_many` takes one row
+  per subbasin.
+- When you combine areas, sum their pixel counts rather than averaging
+  percentages (see [Dynamic Hydrological State](hydrological-state.md)).
+
+## Dates around the dry-season low
+
+The hydrological-years table gives two dates around the dry-season low, and
+both come from the same boundary.
+
+- `trough_boundary_date` is the cycle boundary that the trough method places
+  at the end of the dry-season low; [Dynamic Hydrological State](hydrological-state.md)
+  explains how it is found and refined. `trough_date` repeats it only when the
+  low resolves to a single month; the interval columns give its span
+  otherwise.
+- The **following year's `start_date`** is the month after that boundary. It
+  is always `trough_boundary_date` plus one month, except for the first year
+  of the record and a year that starts after a gap.
+
+Because both dates come from one boundary, they vary across a catchment in
+the same way. In the five case-study catchments a quarter of level-7
+subbasins had a typical trough more than a month from their catchment's, so
+read these dates for the area your question is about.
+
+**How far to trust a single trough month.** `trough_date` appears only when
+the trough status is `point`. That means one month stood out as the lowest
+since the cycle's peak by more than the cycle's detectability floor. The
+months after the trough are not compared. So the low is distinct, but the
+month is not necessarily exact. Three November 2026 known-truth tests (G2,
+L1 and L2, each on fresh records) used synthetic seasons and seasons
+injected into real records, with today's defaults:
+
+- On weak cycles (amplitude 3 to 6 times the floor), between 1 in 3 and
+  just over 4 in 10 `point` troughs were more than a month from the true
+  month.
+- On strong, smooth seasons (10 or more times the floor), fewer than 1 in 7
+  were.
+- Where water recedes slowly to its low, a trough that missed was early
+  eight to nine times in ten, by two to five months, whatever the
+  amplitude.
+- A `point` trough was not right more often than an `interval` one. On
+  smooth seasons it was right less often.
+
+On weak cycles, or where the recession is long and flat, read a single
+trough month as approximate. Check it against `amplitude_to_floor_ratio`
+and the interval columns.
 
 ## Data quality before you trust it
 

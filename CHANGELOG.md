@@ -27,6 +27,17 @@ All notable changes to HydroSeason are documented here. This project follows
   is ranked against for the full-record and fixed-period baselines. It was
   always 0 there before; rolling baselines are unchanged. No condition label
   changes.
+- The guide explains the two dates around the dry-season low
+  (`trough_boundary_date`, and the following year's `start_date` one month
+  later), recommends passing pixel counts, and says how to limit
+  numerical-library threads in your own process pools. The docs no longer
+  call the identifiability gates calibrated; they say what the gates were
+  checked on.
+- The guide has a new section, "Choosing the area to analyse": grid tiles
+  behave like subbasins of the same size, small areas date the season less
+  consistently, and an aseasonal catchment can contain seasonal subbasins.
+  It summarises a study of 1,278 areas over the five case-study catchments
+  (`docs/handoff/2026-11-02-spatial-unit-study-results.md`).
 - Documented every `status_reason` value and the trough-refinement reason
   codes that were missing from `docs/report-columns.md` (including the three
   atomic-rollback codes, `essential_low_quality_recovery`, `unknown_quality`,
@@ -40,6 +51,18 @@ All notable changes to HydroSeason are documented here. This project follows
   about observed variability), when `suggest_dynamic_hydro_year_config` raises,
   which `SeasonalPatternResult` fields are sentinels, and how a record with a
   recurrent trough but irregular peaks is reported by `assess_water_regime`.
+- The docs no longer say a `point` timing status "resolves to an exact
+  month". It means one month stood out by more than the detectability floor.
+  For the trough, only the months from the cycle's peak to the boundary are
+  compared, and the docs now say so. In three known-truth tests, many `point`
+  troughs on weak cycles were more than a month off, and troughs at the end of
+  long, flat recessions were dated early. The later tests, on fresh records,
+  found that neither widening the trough tolerance nor also comparing the
+  months after the trough fixes this, so the method is unchanged. The guide
+  says how far to trust a single trough month.
+  The docs now list
+  the `broad` trough status and say the identifiability gates held up in that
+  test. Outputs are unchanged.
 
 ### Fixed
 - `complete_monthly_axis` no longer turns outside-AOI cells (`-2`) into
