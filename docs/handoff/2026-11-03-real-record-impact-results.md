@@ -166,7 +166,10 @@ The label is judged on the usable months from the peak to the boundary, cloudy o
 ## What follows
 
 1. **Candidate 4, relaxing the baseline to any dated status.**
-   - **For recharge labels the evidence now points one way.** B1 found the relaxed rule at least as accurate on known truth. On real records it repeats as well between halves, and it labels about ten times as many units.
+   - **For recharge labels the evidence is mixed** (corrected 2026-11-04; this line first said it pointed one way).
+     - In B1, the relaxed rule was at least as accurate on the cycles both rules label: 0.723 against 0.682 (synthetic), 0.503 against 0.479 (injected).
+     - The labels it adds were weak: 0.520 against 0.440 by chance (synthetic), and 0.417 against 0.423 by chance (injected).
+     - On real records the added labels repeat between halves as well as today's, and relaxing labels about ten times as many units. Repeatability is not accuracy.
    - **Refuge labels are the gap.**
      - They have never been scored against a known truth.
      - On real records, the pre-registered comparison is inconclusive and an exploratory measure hints at a cost.
@@ -175,7 +178,7 @@ The label is judged on the usable months from the peak to the boundary, cloudy o
      1. Relax for both labels, and document that refuge labels in newly labelled units are less repeatable.
      2. First run a small pre-registered known-truth refuge test: inject seasons whose dry level varies between years into the flat real records, as in arm I, and score refuge labels under E0 and E1.
      3. Keep today's rule.
-   - **Recommendation: option 2.** It fills the one evidence gap without a new method.
+   - **Recommendation: option 2.** It fills the refuge gap without a new method, and scores recharge labels again on fresh records.
    - Whatever is chosen, E1 and E2 behave alike on real records. In practice, relaxing means dropping the timing requirement.
 2. **Candidate 5, making the label and `trough_date` refer to the same month.** It matters on small units: about 1 in 8 `point` troughs on 236 km² windows, usually several months apart. The decision record names two fixes.
    - Judging the label only on the cloud-screened months the boundary uses would cover the cloud cases. That is at least the 47% where the label's month is the screened raw minimum, and at most the 85–89% where it is cloudy. Cases outside the boundary's search window could remain.

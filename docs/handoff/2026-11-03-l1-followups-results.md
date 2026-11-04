@@ -5,7 +5,7 @@ Run 2026-11-03 on the L1 seasonal records (600 synthetic, 574 injected) with the
 ## Summary
 
 - **B1. A misdated trough boundary does not change the dry level the baseline reads.** Where the true dry level is known (arm S), misdated boundaries report it as closely as correctly dated ones. The median error is 0.48 floors against 0.52 floors, and 19.5% against 20.1% are more than one floor off. The boundary sits at the lowest observed month, so it reads the season's low wherever that falls.
-- **B1. The `point` requirement buys no accuracy in the condition labels, and it costs most of their coverage.** Under today's rule, only 4.9% (arm S) and 21.7% (arm I) of cycles get a peak (recharge) condition label. Most records have too few eligible cycles: 18 of 369 records in arm S have any label, and 65 of 300 in arm I. Counting any dated timing status instead labels 36.3% and 66.1% of cycles. On the cycles both rules label, the relaxed rule agrees with the known truth as often or slightly more often: 0.723 against 0.682 in arm S, and 0.503 against 0.479 in arm I.
+- **B1. The `point` requirement buys no accuracy in the condition labels, and it costs most of their coverage.** Under today's rule, only 4.9% (arm S) and 21.7% (arm I) of cycles get a peak (recharge) condition label. Most records have too few eligible cycles: 18 of 369 records in arm S have any label, and 65 of 300 in arm I. Counting any dated timing status instead labels 36.3% and 66.1% of cycles. On the cycles both rules label, the relaxed rule agrees with the known truth as often or slightly more often: 0.723 against 0.682 in arm S, and 0.503 against 0.479 in arm I. The labels E1 adds, in records E0 does not reach, are weak: they agree with the truth 0.520 of the time in arm S (0.440 expected by chance) and 0.417 in arm I (0.423 by chance). (Added 2026-11-04; the first version left this out.)
 - **D1. The boundary step skips a lower month for two designed reasons, and neither costs accuracy overall.**
   - Usually the lower month is cloudy (more than 20% invalid), and the trough selection screens cloudy months out (`selection_status="quality_adjusted"`).
   - Otherwise the lower month lies beyond the trough search window, which the library flags (`outside_window_lower`).
@@ -45,12 +45,13 @@ The truth is each season's known year factor, ranked across the record's seasons
 | Median eligible cycles per record | 1 | 4 | 2 | 6 |
 | Agreement with truth, cycles labelled under both | 0.682 | 0.723 | 0.479 | 0.503 |
 | Agreement if labels were independent of truth | | 0.440 | | 0.423 |
+| Agreement with truth, cycles only E1 labels (added 2026-11-04) | | 1,156 of 2,223 (0.520) | | 2,018 of 4,842 (0.417) |
 
 E2 gives the same labels as E1 on these records.
 
 The labels themselves are weak here, close to chance in arm I. Arm I's truth leaves out the real background's own wet and dry years, so it understates their accuracy there. The trough (refuge) labels have no truth in this corpus, because the dry level does not vary between seasons.
 
-**Reading.** Requiring `point` does not make the labels more accurate. It leaves most records with an `insufficient_baseline`. This matches the published Fitzroy example, where 1 cycle of 21 is eligible.
+**Reading.** Requiring `point` does not make the labels more accurate on the cycles both rules label. The labels E1 adds sit in records with weaker seasons, which E0 does not reach. They agree with the truth less often: a little better than chance in arm S, and no better than chance in arm I (row added 2026-11-04 from this file's JSON; the first version of this reading left it out). It leaves most records with an `insufficient_baseline`. This matches the published Fitzroy example, where 1 cycle of 21 is eligible.
 
 ## D1. Why the boundary step passed over a lower month
 
@@ -77,7 +78,7 @@ The cloud screen is neutral in arm S and helps in arm I. The sequence tie-break 
 ## What follows
 
 **Proposed for `hydroseason-v0.3.0`; each needs the project lead's decision.**
-1. **Relax the baseline's timing requirement from `point` to any dated status (E1).** On these records it labels about seven times as many cycles in arm S, and three times as many in arm I. On the cycles both rules label, it is at least as accurate. Before adoption:
+1. **Relax the baseline's timing requirement from `point` to any dated status (E1).** On these records it labels about seven times as many cycles in arm S, and three times as many in arm I. On the cycles both rules label, it is at least as accurate. The labels it adds are weak, at chance in arm I (added 2026-11-04). Before adoption:
    - measure its effect on real records (the G1 windows) and on the case-study tables;
    - and update the docs, which call `point` "a defensible exact date".
 2. **No change to the cloud screen or the sequence tie-break.**

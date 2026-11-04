@@ -1,0 +1,54 @@
+{
+  "results_sha256_lf": "7c008521697f19fb6ae1afa923f3c094d6b5534677a2dd4406a6ddf0e3e93ea7",
+  "script_sha256_lf": "a554e2dc9a58b41ebb336e590ba9e4839b3d64f6236b95117b584eae59a8bda3",
+  "gates": {
+    "max_point_span_months": 0,
+    "max_boundary_interval_months": 2,
+    "max_broad_interval_months": 5,
+    "min_informative_years": 7
+  },
+  "simulation": {
+    "g1": {
+      "records": 2001,
+      "point_troughs": 14761,
+      "changed_troughs": 1480,
+      "aggregate_changed": 1131,
+      "records_losing_an_informative_trough": 272,
+      "records_rerouted": 0,
+      "E0_eligible_cycles": 2549,
+      "E0_eligible_cycles_lost": 247,
+      "E0_units_with_baseline": 97,
+      "E0_units_losing_baseline": 25,
+      "E1_eligible_cycles": 9394,
+      "E1_eligible_cycles_lost": 92,
+      "E1_units_with_baseline": 984,
+      "E1_units_losing_baseline": 15,
+      "new_trough_status": {
+        "broad": 486,
+        "interval": 627,
+        "unresolved": 367
+      }
+    },
+    "su": {
+      "records": 1009,
+      "point_troughs": 4788,
+      "records_losing_an_informative_trough": 47,
+      "records_rerouted": 0,
+      "E0_eligible_cycles": 1087,
+      "E0_eligible_cycles_lost": 24,
+      "E0_units_with_baseline": 26,
+      "E0_units_losing_baseline": 3,
+      "E1_eligible_cycles": 3814,
+      "E1_eligible_cycles_lost": 14,
+      "E1_units_with_baseline": 356,
+      "E1_units_losing_baseline": 1,
+      "changed_troughs": 157,
+      "aggregate_changed": 138,
+      "new_trough_status": {
+        "broad": 48,
+        "unresolved": 53,
+        "interval": 56
+      }
+    }
+  }
+}
