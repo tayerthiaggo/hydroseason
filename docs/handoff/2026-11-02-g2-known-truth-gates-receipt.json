@@ -1,0 +1,290 @@
+{
+  "plan": "docs/handoff/2026-11-02-g2-known-truth-gates-plan.md",
+  "plan_sha256_lf": "2e2469428cd3e7935b8f95a5f76f4c43c1078b9df1e4ed5a35bab836e51b8136",
+  "script_sha256_lf": "5bfa4fa7574366e39f2d2dfec7965c8455a27f8304480664541eb534a0a22067",
+  "g1_script_sha256_lf": "1b19e6055cf0caac99016fc20502bedf34e0c8cd2cc7a5d3ba9ba3fa0b95a4cb",
+  "git_head": "d32dd47ff9a829a1927769474df9c8eb7d29c980",
+  "git_branch": "spatial-unit-study",
+  "git_status_short": [
+    "M CHANGELOG.md",
+    " M docs/api/analysis.md",
+    " M docs/guide.md",
+    " M docs/hydrological-state.md",
+    " M docs/report-columns.md",
+    " M hydroseason/_catchment.py",
+    " M hydroseason/_state_input.py",
+    " M mkdocs.yml",
+    " M tests/test_state_input.py",
+    " M tests/test_timing_identifiability.py",
+    "?? RELEASE_PLAN_0.2.1.md",
+    "?? docs/handoff/",
+    "?? docs/provisional-trough-analysis-2026-10-30.md",
+    "?? docs/provisional-trough-judgement-2026-10-30.md",
+    "?? docs/provisional-trough-verdict-2026-10-30.md",
+    "?? scripts/cross_scale_agreement.py",
+    "?? scripts/g1_synthetic_suite_rerun.py",
+    "?? scripts/gate_calibration.py",
+    "?? scripts/known_truth_gates.py",
+    "?? scripts/spatial_unit_study.py",
+    "?? scripts/spatial_unit_study_explore.py",
+    "?? tests/test_cross_scale_agreement.py",
+    "?? tests/test_gate_calibration.py",
+    "?? tests/test_guide_advice.py",
+    "?? tests/test_input_warnings.py",
+    "?? tests/test_spatial_unit_study.py"
+  ],
+  "hydroseason_version": "0.2.0",
+  "library_gates": {
+    "ratio": 3.0,
+    "peak_pixels": 5
+  },
+  "corpus_records": 2548,
+  "corpus_sha256": "9f0fbc97ff278082a7ef594994ddaa652f579ef20bd3974b6e90db4d4c2f8434",
+  "check": {
+    "S|seasonal|900000|noise_free": {
+      "shape": "sine",
+      "trough_month": 1,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900001|noise_free": {
+      "shape": "pulse",
+      "trough_month": 1,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900002|noise_free": {
+      "shape": "sine",
+      "trough_month": 2,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900003|noise_free": {
+      "shape": "pulse",
+      "trough_month": 2,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900004|noise_free": {
+      "shape": "sine",
+      "trough_month": 3,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 6,
+      "at_truth": 18
+    },
+    "S|seasonal|900005|noise_free": {
+      "shape": "pulse",
+      "trough_month": 3,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900006|noise_free": {
+      "shape": "sine",
+      "trough_month": 4,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900007|noise_free": {
+      "shape": "pulse",
+      "trough_month": 4,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900008|noise_free": {
+      "shape": "sine",
+      "trough_month": 5,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900009|noise_free": {
+      "shape": "pulse",
+      "trough_month": 5,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900010|noise_free": {
+      "shape": "sine",
+      "trough_month": 6,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900011|noise_free": {
+      "shape": "pulse",
+      "trough_month": 6,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900012|noise_free": {
+      "shape": "sine",
+      "trough_month": 7,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 0,
+      "at_truth": 18
+    },
+    "S|seasonal|900013|noise_free": {
+      "shape": "pulse",
+      "trough_month": 7,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900014|noise_free": {
+      "shape": "sine",
+      "trough_month": 8,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 16,
+      "at_truth": 18
+    },
+    "S|seasonal|900015|noise_free": {
+      "shape": "pulse",
+      "trough_month": 8,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900016|noise_free": {
+      "shape": "sine",
+      "trough_month": 9,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 12,
+      "at_truth": 18
+    },
+    "S|seasonal|900017|noise_free": {
+      "shape": "pulse",
+      "trough_month": 9,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900018|noise_free": {
+      "shape": "sine",
+      "trough_month": 10,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900019|noise_free": {
+      "shape": "pulse",
+      "trough_month": 10,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900020|noise_free": {
+      "shape": "sine",
+      "trough_month": 11,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 13,
+      "at_truth": 18
+    },
+    "S|seasonal|900021|noise_free": {
+      "shape": "pulse",
+      "trough_month": 11,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    },
+    "S|seasonal|900022|noise_free": {
+      "shape": "sine",
+      "trough_month": 12,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 3,
+      "at_truth": 18
+    },
+    "S|seasonal|900023|noise_free": {
+      "shape": "pulse",
+      "trough_month": 12,
+      "route": "per_year_detection",
+      "cycles": 18,
+      "at_m": 18,
+      "at_truth": 18
+    }
+  },
+  "pilot": {
+    "pilot_current.jsonl:S": {
+      "records": 60,
+      "median_seconds": 11.29,
+      "dated": 587,
+      "admitted_band": 0,
+      "admitted_band_point": 0,
+      "current_margin": 304
+    },
+    "pilot_current.jsonl:I": {
+      "records": 40,
+      "median_seconds": 11.86,
+      "dated": 682,
+      "admitted_band": 0,
+      "admitted_band_point": 0,
+      "current_margin": 94
+    },
+    "pilot_chosen.jsonl:S": {
+      "records": 60,
+      "median_seconds": 11.61,
+      "dated": 702,
+      "admitted_band": 78,
+      "admitted_band_point": 25,
+      "current_margin": 337
+    },
+    "pilot_chosen.jsonl:I": {
+      "records": 40,
+      "median_seconds": 11.01,
+      "dated": 709,
+      "admitted_band": 26,
+      "admitted_band_point": 4,
+      "current_margin": 95
+    }
+  },
+  "pilot_i": {
+    "pilot_i_current.jsonl:I": {
+      "records": 100,
+      "median_seconds": 15.46,
+      "dated": 1899,
+      "admitted_band": 0,
+      "admitted_band_point": 0,
+      "current_margin": 301
+    },
+    "pilot_i_chosen.jsonl:I": {
+      "records": 100,
+      "median_seconds": 18.955,
+      "dated": 2077,
+      "admitted_band": 165,
+      "admitted_band_point": 31,
+      "current_margin": 317
+    }
+  },
+  "frozen_utc": "2026-11-02T12:54:49.095914+00:00"
+}

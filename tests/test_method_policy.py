@@ -60,6 +60,21 @@ def test_v020_manifest_pins_every_scientific_constant():
     }
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Known gap, planned for the next method policy: the v0.2.0 manifest and "
+        "fingerprint do not cover the timing-identifiability gates, so outputs made "
+        "with different gates share a fingerprint (G2 audit, 2026-11-03). Fixing it "
+        "changes every fingerprint, so it ships with a new policy_id, not a patch."
+    ),
+)
+def test_manifest_covers_timing_identifiability_gates():
+    from hydroseason._scientific_defaults import TIMING_IDENTIFIABILITY_FINGERPRINT
+
+    assert TIMING_IDENTIFIABILITY_FINGERPRINT in canonical_method_policy_json()
+
+
 @pytest.mark.parametrize(
     "removed",
     [
