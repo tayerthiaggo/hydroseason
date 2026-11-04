@@ -1,17 +1,19 @@
 # Methods Reference
 
-This document provides the authoritative scientific and algorithmic reference for `hydroseason-v0.2.0`, the sole frozen runtime method shipped with HydroSeason.
+This document provides the authoritative scientific and algorithmic reference for `hydroseason-v0.3.0`, the sole frozen runtime method shipped with HydroSeason. It replaces `hydroseason-v0.2.0`; [Changes from hydroseason-v0.2.0](#changes-from-hydroseason-v020) lists what differs.
 
 ## Method Identity & Cryptographic Fingerprints
 
-HydroSeason v0.2.0 freezes a single authoritative method policy. There are no competing, alternate, or unversioned runtime method policies.
+HydroSeason freezes a single authoritative method policy. There are no competing, alternate, or unversioned runtime method policies.
 
-- **Method Identifier**: `hydroseason-v0.2.0`
-- **Method Payload SHA-256 Fingerprint**: `4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de`
-- **Method Manifest SHA-256 Digest**: `03fd7bd687bd9528bb8f4f1b094361c447bd47bd5da0b04584a804dab07e09c3`
+- **Method Identifier**: `hydroseason-v0.3.0`
+- **Method Payload SHA-256 Fingerprint**: `4d11d348a745e980d25b933c3f51fe90e7b5931e856223b597c9d5e3566db578`
+- **Method Manifest SHA-256 Digest**: `8a63d4a43fadb91d8559b8b1db96ccb424ab84797f3eff07a25f2cd802db8ca8`
 - **Run Manifest Schema**: `hydroseason-run-manifest-v1`
 
 Every execution writes a cryptographic run manifest (`<stem>_manifest.json`) capturing the exact method payload fingerprint, software versions, input data digests, configuration parameters, and output artifacts.
+
+The manifest (`docs/method-policy-v0.3.0.json`) pins the event thresholds, the seasonality test, the recurrence policy, trough refinement and, since `hydroseason-v0.3.0`, the timing-identifiability gates, the condition-baseline rule and the trough-label rule. A change to any of them changes the fingerprint.
 
 ---
 
@@ -61,7 +63,15 @@ Annual boundaries mark the final interior month of the supported low state befor
 - **Sensitivity Scenarios**: Perturbs uncertain observations across dry-bound, wet-bound, and joint missingness scenarios, as well as bracketed peak shifts. Overlapping scenarios within a contiguous 5-month window are required for point boundaries.
 - **Reason-Coded Abstention**: Where sensitivity scenarios disagree or evidence is insufficient, refinement abstains with typed reason codes (`BoundaryNotSupported`), preserving the robust Pass 1 boundary rather than guessing.
 
-### 5. Event & Low-Extent Spell Routing
+### 5. Timing Labels
+- Each cycle's peak and trough carry a timing label, judged against the cycle's detectability floor: `point` when one month stands out, `interval` for up to 3 months (at most 2 apart), `broad` (troughs) for up to 6 (at most 5 apart), and `unresolved` otherwise. The aggregate `timing_status` is the weaker of the two. A label says how distinct the extremum is, not how close its month is to the true one.
+- **The trough label covers the boundary** (rule `covers_trough_boundary`, version 1, new in `hydroseason-v0.3.0`). The boundary is the lowest clear month in its search window, while the label compares every usable month from the peak to the boundary, cloudy months included. When a dated label's interval misses the boundary month, it is widened to cover both and graded by its width. This runs after every boundary is final, so boundaries, dates, peaks and cycle status do not change.
+
+### 6. Annual Condition Baseline
+- A cycle anchors the annual condition baseline when it is `complete`, its boundary is `confirmed`, its peak is not `anomalous`, and its aggregate timing is dated: `point`, `interval` or `broad`. Under `hydroseason-v0.2.0` only `point` cycles could.
+- A record needs at least 5 anchoring cycles. Each cycle's peak extent (recharge) and trough extent (refuge) are ranked against them by empirical percentile: `low` at or below the 20th, `high` at or above the 80th.
+
+### 7. Event & Low-Extent Spell Routing
 Catchments routed away from per-year boundaries (aseasonal or insufficient cycles) undergo event characterisation:
 - **Wet Events**: Open when extent exceeds the record median plus 3 robust AR(1)-corrected noise scales, remaining open above median plus 1 scale.
 - **Low-Extent Spells**: Continuous runs of at least 2 months at or below the record median minus 1 scale.
@@ -70,7 +80,7 @@ Catchments routed away from per-year boundaries (aseasonal or insufficient cycle
 
 ## Validation Stages & Denominators
 
-HydroSeason v0.2.0 was verified across three formal validation stages whose exact denominators match the frozen evidence receipts (`docs/evidence-receipts.json`):
+`hydroseason-v0.2.0` was verified across three formal validation stages whose exact denominators match the frozen evidence receipts (`docs/evidence-receipts.json`). They cover every part of the method that `hydroseason-v0.3.0` keeps unchanged:
 
 | Validation Stage | Benchmark Denominator | Status | Verdict SHA-256 Digest |
 | :--- | :--- | :--- | :--- |
@@ -91,3 +101,15 @@ HydroSeason v0.2.0 was verified across three formal validation stages whose exac
    - 561 total Australian catchments spanning tropical, temperate, arid, and Mediterranean climates.
    - 370 open catchments used for empirical distribution baseline review.
    - 191 sealed holdout catchments evaluated under blinded pre-registration (digest: `0761d4ca9eab0265c53c947ed0b0563e98a10bf0ec3b13aa95049b5e3366d77d`).
+
+## Changes from hydroseason-v0.2.0
+
+`hydroseason-v0.3.0` makes three changes. Every boundary, date, peak, route and cycle status is computed as in `hydroseason-v0.2.0`; only the columns named below can differ.
+
+1. **The fingerprint covers every rule that shapes a published label.** The timing-identifiability gates, the condition-baseline rule and the trough-label rule are now in the manifest, so changing any of them changes the fingerprint. Under `hydroseason-v0.2.0` they were fixed in code but missing from the manifest. Nothing computed changes.
+2. **The trough timing label covers the trough boundary** (section 5). A trough label could single out a cloudy month before the boundary and read `point` for a month other than the reported `trough_date`. The label is now widened to cover the boundary and graded by its width. This changes `trough_timing_status`, `trough_interval_start`, `trough_interval_end` and `timing_status` on the cycles affected; a trough that loses `point` also loses its single-month `trough_date` in the report. Measured on real records under `hydroseason-v0.2.0`, about 10% of `point` troughs on small areas (about 59–236 km²) and about 3% on subbasins and tiles were affected, and none on whole catchments. This is a consistency fix, not an accuracy fix: on known truth, `point` troughs are more than a month from the true month about as often as before (23–30%).
+3. **Any dated cycle anchors the condition baseline** (section 6). Only `point` cycles could before, which left most areas without a baseline. This changes `baseline_eligible`, `baseline_n`, the peak and trough percentiles and the condition labels. On real records about ten times as many areas get a baseline. On known truth the larger baseline does not make labels worse on the cycles both rules label, and the labels it adds beat chance, though only fairly (kappa about 0.35 for refuge, 0.16 to 0.28 for recharge). On real records, refuge labels in the newly labelled areas repeat less well between pixel halves (kappa 0.41 against 0.51).
+
+**Comparing outputs across versions.** Compare `hydroseason-v0.2.0` and `hydroseason-v0.3.0` outputs only on the columns that did not change, and tell them apart by `method_policy_id` or the fingerprint.
+
+**Evidence** (in `docs/handoff/`, not part of the published docs): the proposal and decisions, `2026-11-04-v0.3.0-proposal.md`; the B2 known-truth test of condition labels, `2026-11-04-b2-refuge-labels-results.md`; the real-record measurement, `2026-11-03-real-record-impact-results.md`; the B1 baseline follow-up, `2026-11-03-l1-followups-results.md`; and the L2 test, whose exploratory findings found the label/date mismatch, `2026-11-03-l2-r1-results.md`.

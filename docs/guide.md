@@ -449,7 +449,9 @@ on raw/incomplete masks before running hydro-year detection. The robust
 detector still reports an observed extremum when its month exceeds
 `max_invalid_pct=20.0`% invalid coverage. For the TROUGH this still marks
 that extremum `low_quality` and the annual cycle `provisional`; low-quality
-trough cycles cannot anchor historical condition baselines. The PEAK is
+trough cycles cannot anchor historical condition baselines (only complete,
+confirmed cycles with dated timing can; see
+[Dynamic Hydrological State](hydrological-state.md#annual-interpretation)). The PEAK is
 judged differently: it is compared against its own calendar month's typical
 invalid coverage (see `peak_quality` below), so routine wet-season cloud over
 the peak no longer marks the cycle `provisional` on its own — only a peak

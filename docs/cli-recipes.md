@@ -197,7 +197,7 @@ hydroseason run --water-source monthly_extent.csv --output-dir out --json
 
 Every run writes `<stem>_manifest.json` (schema `hydroseason-run-manifest-v1`)
 next to the report. There is no method selector: every run uses the frozen
-`hydroseason-v0.2.0` method, and the manifest records its fingerprint with the
+`hydroseason-v0.3.0` method, and the manifest records its fingerprint with the
 input and output checksums. Abridged:
 
 ```json
@@ -206,8 +206,8 @@ input and output checksums. Abridged:
   "hydroseason_version": "0.2.0",
   "python": "3.12.13",
   "method": {
-    "policy_id": "hydroseason-v0.2.0",
-    "fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
+    "policy_id": "hydroseason-v0.3.0",
+    "fingerprint": "4d11d348a745e980d25b933c3f51fe90e7b5931e856223b597c9d5e3566db578"
   },
   "input": {
     "date_min": "2005-01-01",

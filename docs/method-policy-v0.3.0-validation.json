@@ -1,0 +1,67 @@
+{
+  "release_decision": "pass",
+  "method_policy_id": "hydroseason-v0.3.0",
+  "method_fingerprint": "4d11d348a745e980d25b933c3f51fe90e7b5931e856223b597c9d5e3566db578",
+  "method_manifest_sha256": "8a63d4a43fadb91d8559b8b1db96ccb424ab84797f3eff07a25f2cd802db8ca8",
+  "supersedes": {
+    "method_policy_id": "hydroseason-v0.2.0",
+    "method_fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
+  },
+  "approved": "2026-11-04, by the project lead, on the 0.3.0 proposal and the B2 result",
+  "changes": {
+    "A": "the manifest pins the timing-identifiability gates, the condition-baseline rule and the trough-label rule",
+    "B": "trough timing label widened to cover the trough boundary (covers_trough_boundary, version 1)",
+    "C": "point, interval and broad cycles may anchor the condition baseline"
+  },
+  "unchanged_validation": "docs/method-policy-v0.2.0-validation.json covers every part of the method that v0.3.0 keeps unchanged",
+  "evidence_sha256_lf": {
+    "g1_gate_calibration_results": {
+      "path": "docs/handoff/2026-11-02-g1-gate-calibration-results.json",
+      "sha256_lf": "bcfb628d6625a256cb0f5d8e642b80d204e476f344766e3624abdc6e47bb443a"
+    },
+    "g2_known_truth_gates_results": {
+      "path": "docs/handoff/2026-11-02-g2-known-truth-gates-results.json",
+      "sha256_lf": "9f51ddfd5e345e00a907f00523890dc4e27fe9579d4e1bd22357028cb7e6b7ac"
+    },
+    "l1_timing_labels_results": {
+      "path": "docs/handoff/2026-11-03-l1-timing-labels-results.json",
+      "sha256_lf": "677fe7f1b911f7d83ade0c046d0cfbbdea79508462ed7dd3a454ad0d50ddc416"
+    },
+    "b1_d1_followups_results": {
+      "path": "docs/handoff/2026-11-03-l1-followups-results.json",
+      "sha256_lf": "df1fc8da5bf8d3a94e8a40148a3c310983d07a152da287495362f709d815693e"
+    },
+    "l2_r1_results": {
+      "path": "docs/handoff/2026-11-03-l2-r1-results.json",
+      "sha256_lf": "7019496126d00278abaa09c9f6d0e34d9e7b269c3110407863957569e05dae53"
+    },
+    "real_record_impact_results": {
+      "path": "docs/handoff/2026-11-03-real-record-impact-results.json",
+      "sha256_lf": "7c008521697f19fb6ae1afa923f3c094d6b5534677a2dd4406a6ddf0e3e93ea7"
+    },
+    "label_fix_impact": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-label-fix-impact.json",
+      "sha256_lf": "f30ab491f394bc02f026860a8e55cdfa1028cc780c6793617ba8981b4ba54f74"
+    },
+    "b2_refuge_labels_receipt": {
+      "path": "docs/handoff/2026-11-04-b2-refuge-labels-receipt.json",
+      "sha256_lf": "8b5f8793f6ca44c279bc72b317151826f2153a43524a4449c261185b1815cdc6"
+    },
+    "b2_refuge_labels_results": {
+      "path": "docs/handoff/2026-11-04-b2-refuge-labels-results.json",
+      "sha256_lf": "e5742af5f8949effb6a52f31bf2b780f7c7188e6855c64e7128de699d134e0f3"
+    },
+    "known_truth_rescore": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-known-truth-rescore.json",
+      "sha256_lf": "2467cf9dac95597727acbd6bf73241c7338f1b3ce98f2a116dc32fdb99071da4"
+    },
+    "proposal": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-proposal.md",
+      "sha256_lf": "5e1cbe0f3c6f43df549f97f6fec7bf092445cccd9c979fde0f7fc36b53b6990a"
+    }
+  },
+  "validation_environment": {
+    "python_version": "3.12.13",
+    "os": "windows"
+  }
+}

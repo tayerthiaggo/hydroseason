@@ -61,6 +61,15 @@ route did my catchment take?").
 - `half_loss_extent_pct`: first observed post-peak extent at or below half the peak-to-trough loss.
 - `trough_extent_pct`: ending low-water extent selected from that year's search opportunity.
 - Recharge condition ranks annual peaks; refuge condition independently ranks annual troughs.
+- The ranks are against the record's own anchoring cycles: complete, with a confirmed boundary, a
+  peak that is not `anomalous` and dated timing (`point`, `interval` or `broad`). A record needs at
+  least five; with fewer, every cycle reads `insufficient_baseline`. The baseline ranks the extents
+  read at the peak and at the trough boundary, not their dates, so since `hydroseason-v0.3.0` a
+  bounded interval is enough. On real records this gives about ten times as many units a
+  baseline. On known truth (the B2 test,
+  `docs/handoff/2026-11-04-b2-refuge-labels-results.md`), the larger baseline does not make
+  labels worse on the cycles both rules label, and the labels it adds beat chance, though only
+  fairly (kappa about 0.35 for refuge, 0.16 to 0.28 for recharge).
 - Continuous percentiles are primary. Public labels are compact interpretation aids.
 
 ## Monthly phases
@@ -199,9 +208,11 @@ Each year's trough opportunity carries diagnostics that separate what was
   to cover both and graded by width (`interval` up to 2 months apart, `broad`
   up to 5, `unresolved` beyond). This runs after the boundaries are final and
   changes only the timing labels: a trough widened to `unresolved` keeps its
-  cycle's `boundary_status` and `status`, as a refined trough does. Only rows
-  with `boundary_status="confirmed"` and
-  `timing_status="point"` may anchor a historical condition baseline.
+  cycle's `boundary_status` and `status`, as a refined trough does. Only
+  complete rows with `boundary_status="confirmed"`, a peak that is not
+  `anomalous` and a dated `timing_status` (`point`, `interval` or `broad`) may
+  anchor a historical condition baseline. Before `hydroseason-v0.3.0` only
+  `point` rows could; see [Annual interpretation](#annual-interpretation).
 - `peak_interval_start`/`peak_interval_end` and
   `trough_interval_start`/`trough_interval_end`: the bounds of the defensible
   interval when the corresponding status is `interval` (or the single month

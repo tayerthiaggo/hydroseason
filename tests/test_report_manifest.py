@@ -43,7 +43,7 @@ def test_report_bundle_contains_complete_manifest(tmp_path, seasonal_extent):
     paths = generate_catchment_report(seasonal_extent, tmp_path, analysis=analysis)
     manifest = json.loads(paths.manifest_json.read_text(encoding="utf-8"))
     assert manifest["schema"] == "hydroseason-run-manifest-v1"
-    assert manifest["method"]["policy_id"] == "hydroseason-v0.2.0"
+    assert manifest["method"]["policy_id"] == "hydroseason-v0.3.0"
     assert manifest["method"]["fingerprint"] == method_policy_fingerprint()
     assert manifest["input"]["extent_sha256"] == analysis.input_fingerprint
     assert manifest["analysis"]["route"] == analysis.route

@@ -60,7 +60,7 @@ not define hydrological years. Date columns are month starts.
 | `peak_extent_pct` / `mid_dry_extent_pct` / `trough_extent_pct` | Extent observed at each marker. |
 | `peak_invalid_pct` / `mid_dry_invalid_pct` / `trough_invalid_pct` | Invalid-pixel percentage at each marker. High values make the marker provisional/low confidence. |
 | `drawdown_pct` | Peak-to-trough extent range when available. |
-| `annual_condition` | Combined recharge (peak) and refuge (trough) condition relative to the record's own confirmed cycles; `insufficient_baseline` when too few confirmed, point-timed cycles exist to form a baseline. |
+| `annual_condition` | Combined recharge (peak) and refuge (trough) condition relative to the record's own confirmed cycles; `insufficient_baseline` when fewer than five confirmed cycles with dated timing (`point`, `interval` or `broad`) exist to form a baseline. |
 | `confidence` | Deterministic quality grade (`high`, `medium`, `low`) assigned based on data completeness and observation flags. This is an empirical quality grade, not a probability. |
 | `status` / `boundary_status` | Result status and whether boundaries are exact, provisional, or otherwise constrained. |
 | `peak_quality` | The peak observation judged against its own month-of-year norm: `normal` or `anomalous`. Only `anomalous` downgrades the cycle. |
@@ -75,7 +75,7 @@ not define hydrological years. Date columns are month starts.
 | `amplitude_to_floor_ratio` | That cycle's amplitude divided by `detectability_floor_pp`; `0.0` when the amplitude is at or below the floor. |
 | `status_reason` | Why `status` and `boundary_status` have their values; see [Why a cycle is provisional](#why-a-cycle-is-provisional). `ok` for a complete, confirmed cycle. |
 | `trough_refinement_status` / `trough_refinement_reason` | The pass-2 refinement verdict for the trough that ends this cycle and the reason code behind it; see [Trough refinement diagnostics](#trough-refinement-diagnostics). Blank when pass 2 did not run (for example the fixed-window route). |
-| `baseline_eligible` | Whether this cycle anchors the annual condition baseline: `status` is `complete`, `boundary_status` is `confirmed`, `timing_status` is `point`, `peak_quality` is not `anomalous`, and, with a fixed reference period, the cycle ends inside it. |
+| `baseline_eligible` | Whether this cycle anchors the annual condition baseline: `status` is `complete`, `boundary_status` is `confirmed`, `timing_status` is `point`, `interval` or `broad` (only `point` before `hydroseason-v0.3.0`), `peak_quality` is not `anomalous`, and, with a fixed reference period, the cycle ends inside it. |
 | `baseline_n` | Number of cycles this row's `annual_condition` is ranked against. With the full-record or a fixed reference it is the eligible count, minus one when the row is itself eligible; with a rolling reference it is that row's window size. When the eligible count is below `min_baseline_cycles` (default 5), `annual_condition` is `insufficient_baseline`. |
 
 ### Trough search geometry diagnostics

@@ -51,7 +51,7 @@ These papers motivate transparent circular effect sizes and uncertainty
 reporting; they do **not** prescribe HydroSeason's package thresholds. The
 circular Kuiper recurrence conjunction, detectability floors, five-detectable-year
 guard, seven-cycle annualization guard, and direct-profile refinement thresholds are
-explicit software decisions frozen under `hydroseason-v0.2.0` and are documented in
+explicit software decisions frozen under `hydroseason-v0.3.0` and are documented in
 the [Methods Reference](methods.md).
 
 ### Interpretation limitations

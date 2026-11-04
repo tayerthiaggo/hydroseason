@@ -60,7 +60,7 @@ print(f"HTML: {result.artifacts.html}")
 | Page | Contents |
 |---|---|
 | [Usage Guide](guide.md) | The four ways to run `run_hydroseason`, batches, routing, data quality, DEA internals |
-| [Methods Reference](methods.md) | The frozen `hydroseason-v0.2.0` method and its validation |
+| [Methods Reference](methods.md) | The frozen `hydroseason-v0.3.0` method and its validation |
 | [CLI Recipes](cli-recipes.md) | The same workflow from the command line: progress, logs, resuming, exit codes |
 | [Preflight](preflight.md) | What an AOI's record can support, decided before acquisition |
 | [Dynamic Hydrological State](hydrological-state.md) | Per-year boundaries, trough diagnostics, and phases |

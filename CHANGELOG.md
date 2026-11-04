@@ -23,6 +23,26 @@ All notable changes to HydroSeason are documented here. This project follows
   its count that hides and shows it. Seasonal timelines are unchanged.
 
 ### Changed
+- **Method policy `hydroseason-v0.3.0`** replaces `hydroseason-v0.2.0`, so
+  every output carries a new policy id and fingerprint. Boundaries, dates,
+  peaks, routes and cycle status are unchanged. Three changes:
+  - The trough timing label now covers the trough boundary. A label that
+    singled out a different month (usually a cloudy month before the
+    boundary) is widened to cover both and graded by its width, so some
+    `point` troughs become `interval`, `broad` or `unresolved` and lose their
+    single-month `trough_date`. On real records this affected about 10% of
+    `point` troughs on small areas and about 3% on subbasins and tiles.
+  - Any dated cycle (`point`, `interval` or `broad`) can anchor the annual
+    condition baseline; only `point` cycles could before. About ten times as
+    many areas get recharge and refuge labels, and some existing labels and
+    percentiles shift.
+  - The method fingerprint now covers the timing-identifiability gates, the
+    condition-baseline rule and the trough-label rule.
+- **Migration:** trough timing labels, `baseline_eligible`, `baseline_n`, the
+  percentiles and the condition labels can differ from 0.2.x. Compare files
+  across versions only on unchanged columns, and use `method_policy_id` or the
+  fingerprint to tell them apart. See "Changes from hydroseason-v0.2.0" in the
+  Methods Reference.
 - `baseline_n` on `analysis.hydro_years` is now the number of cycles each row
   is ranked against for the full-record and fixed-period baselines. It was
   always 0 there before; rolling baselines are unchanged. No condition label

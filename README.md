@@ -95,7 +95,7 @@ through `run_hydroseason_many` — many AOIs at once. See the
 4. **Report** — rainfall, if added, annotates the report but never changes
    the answer, which is decided from water alone.
 
-Every run uses one frozen method, `hydroseason-v0.2.0`, recorded in the run
+Every run uses one frozen method, `hydroseason-v0.3.0`, recorded in the run
 manifest. Details: [Methods Reference](https://tayerthiaggo.github.io/hydroseason/methods/).
 
 ## Case studies
