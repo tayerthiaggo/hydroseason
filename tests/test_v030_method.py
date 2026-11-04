@@ -1,4 +1,4 @@
-"""hydroseason-v0.3.0 method rules: the trough timing label covers the trough boundary."""
+"""hydroseason-v0.3.0 method rules: trough label covers the boundary; any dated cycle anchors the baseline."""
 from __future__ import annotations
 
 import warnings
@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from hydroseason import analyze_catchment
+from hydroseason._condition import BASELINE_TIMING_STATUSES, classify_annual_surface_water_condition
 from hydroseason._dynamic_year import _reconcile_trough_labels
 from hydroseason._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
 
@@ -105,3 +106,26 @@ def test_every_dated_trough_label_covers_its_boundary():
     assert len(dated)
     assert (dated["trough_interval_start"] <= dated["trough_month"]).all()
     assert (dated["trough_month"] <= dated["trough_interval_end"]).all()
+
+
+def _annual(timing: list[str]) -> pd.DataFrame:
+    n = len(timing)
+    return pd.DataFrame({
+        "hy_year": range(2000, 2000 + n), "hy_end": pd.date_range("2000-09-01", periods=n, freq="12MS"),
+        "status": "complete", "boundary_status": "confirmed", "peak_quality": "normal", "timing_status": timing,
+        "peak_extent_pct": np.linspace(20, 40, n), "trough_extent_pct": np.linspace(1, 5, n),
+    })
+
+
+def test_any_dated_cycle_anchors_the_baseline_and_unresolved_does_not():
+    assert BASELINE_TIMING_STATUSES == DATED
+    annual = _annual(["point", "interval", "broad", "interval", "broad", "unresolved", "point"])
+    out = classify_annual_surface_water_condition(annual)
+    assert out["baseline_eligible"].tolist() == [True, True, True, True, True, False, True]
+    assert out["recharge_condition"].isin(["low", "typical", "high"]).all()
+
+
+def test_baseline_still_needs_five_dated_cycles():
+    out = classify_annual_surface_water_condition(_annual(["interval", "broad", "point", "point", "unresolved"]))
+    assert out["baseline_eligible"].sum() == 4
+    assert (out["recharge_condition"] == "insufficient_baseline").all()

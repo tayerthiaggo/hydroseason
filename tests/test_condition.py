@@ -194,16 +194,29 @@ def test_timing_confidence_from_amplitude_vs_noise():
     assert (unknown["timing_confidence"] == "unknown").all()
 
 
-def test_interval_timing_status_excluded_from_baseline_despite_confirmed_boundary():
-    # Five confirmed-boundary cycles, but one has only interval (not point)
-    # timing -- an internal operational date, not a defensible exact extremum.
-    # It must not anchor the baseline even though its boundary is confirmed.
+def test_unresolved_timing_status_excluded_from_baseline_despite_confirmed_boundary():
+    # Five confirmed-boundary cycles, but one has unresolved timing: no month
+    # or bounded interval stands out. It must not anchor the baseline even
+    # though its boundary is confirmed.
+    annual = _annual().iloc[:5].copy()
+    annual["boundary_status"] = "confirmed"
+    annual["timing_status"] = "point"
+    annual.loc[annual["hy_year"] == 2002, "timing_status"] = "unresolved"
+    result = classify_annual_surface_water_condition(annual, min_baseline_cycles=5)
+    assert set(result["annual_condition"]) == {"insufficient_baseline"}
+
+
+def test_interval_and_broad_timing_anchor_the_baseline_since_v030():
+    # hydroseason-v0.3.0: the baseline ranks the extents read at the peak and
+    # the trough boundary, not their dates, so a bounded interval is enough.
     annual = _annual().iloc[:5].copy()
     annual["boundary_status"] = "confirmed"
     annual["timing_status"] = "point"
     annual.loc[annual["hy_year"] == 2002, "timing_status"] = "interval"
+    annual.loc[annual["hy_year"] == 2003, "timing_status"] = "broad"
     result = classify_annual_surface_water_condition(annual, min_baseline_cycles=5)
-    assert set(result["annual_condition"]) == {"insufficient_baseline"}
+    assert result["baseline_eligible"].all()
+    assert (result["annual_condition"] != "insufficient_baseline").any()
 
 
 def test_point_timing_status_activates_baseline_when_boundary_confirmed():
@@ -270,8 +283,10 @@ def test_baseline_eligible_marks_exactly_the_rows_that_may_anchor_the_baseline()
     annual["peak_quality"] = "normal"
     annual.loc[annual["hy_year"] == 2001, "status"] = "partial"
     annual.loc[annual["hy_year"] == 2002, "boundary_status"] = "provisional"
-    annual.loc[annual["hy_year"] == 2003, "timing_status"] = "interval"
+    annual.loc[annual["hy_year"] == 2003, "timing_status"] = "unresolved"
     annual.loc[annual["hy_year"] == 2004, "peak_quality"] = "anomalous"
+    annual.loc[annual["hy_year"] == 2005, "timing_status"] = "interval"
+    annual.loc[annual["hy_year"] == 2006, "timing_status"] = "broad"
 
     result = classify_annual_surface_water_condition(annual).set_index("hy_year")
 

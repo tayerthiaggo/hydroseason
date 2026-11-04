@@ -5,9 +5,9 @@ import pandas as pd
 
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
-# Aggregate timing statuses that may anchor the annual condition baseline.
-# Recorded in the method policy manifest.
-BASELINE_TIMING_STATUSES: tuple[str, ...] = ("point",)
+# Aggregate timing statuses that may anchor the annual condition baseline
+# (hydroseason-v0.3.0). Recorded in the method policy manifest.
+BASELINE_TIMING_STATUSES: tuple[str, ...] = ("point", "interval", "broad")
 
 _JOINT_STATE_MAP: dict[tuple[str, str], str] = {
     ("high", "high"): "wet_persistent",
@@ -101,9 +101,12 @@ def classify_annual_surface_water_condition(
     # callers that never ran the robust detector carry no such column.
     if "peak_quality" in out.columns:
         reference_mask &= out["peak_quality"].ne("anomalous")
-    # A cycle may only anchor the baseline if its extremum timing is a
-    # defensible exact date, not merely a bounded interval: a broad plateau's
-    # internal operational date must never confirm a historical condition.
+    # A cycle may only anchor the baseline if its peak and trough timing are
+    # bounded: an exact month (``point``) or an interval (``interval``,
+    # ``broad``). The baseline ranks the extents read at the peak and at the
+    # trough boundary, not their dates, so a bounded interval is enough.
+    # ``unresolved`` cycles stay out. Until hydroseason-v0.3.0 only ``point``
+    # cycles were admitted, which left most units without a baseline.
     if "timing_status" in out.columns:
         reference_mask &= out["timing_status"].isin(BASELINE_TIMING_STATUSES)
     if reference_start is not None:

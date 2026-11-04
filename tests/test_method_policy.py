@@ -85,7 +85,7 @@ def test_manifest_covers_timing_identifiability_gates():
 def test_manifest_pins_the_condition_baseline_and_the_trough_label_rule():
     manifest = method_policy_manifest()
     assert manifest["condition_baseline"] == {
-        "eligible_timing_statuses": ["point"],
+        "eligible_timing_statuses": ["point", "interval", "broad"],
         "min_baseline_cycles": 5,
         "low_percentile": 20.0,
         "high_percentile": 80.0,
