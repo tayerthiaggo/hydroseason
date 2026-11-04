@@ -601,13 +601,14 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
     result = _initialise_trough_refinement_evidence(
         result, policy=TROUGH_REFINEMENT_POLICY
     )
-    return _apply_trough_refinement(
+    result = _apply_trough_refinement(
         frame,
         opportunities,
         result,
         config,
         pattern,
     )
+    return _reconcile_trough_labels(result, config.timing_identifiability_thresholds)
 
 
 def _adaptive_retry_years(result: pd.DataFrame) -> set[int]:
@@ -711,6 +712,56 @@ def _aggregate_timing_status(
     return min(
         (peak_status, trough_status), key=lambda status: _TIMING_STATUS_RANK[status]
     )
+
+
+# Trough-label rule of hydroseason-v0.3.0, recorded in the method policy manifest.
+TROUGH_LABEL_RULE = "covers_trough_boundary"
+TROUGH_LABEL_RULE_VERSION = 1
+
+
+def _reconcile_trough_labels(
+    rows: pd.DataFrame, thresholds: TimingIdentifiabilityThresholds
+) -> pd.DataFrame:
+    """Make every dated trough label cover the cycle's reported trough boundary.
+
+    The boundary and the label are decided separately. The boundary
+    (``trough_month``) is the lowest clear month in its search window. The
+    label compares every usable month from the cycle's peak to the boundary,
+    cloudy months included, so it can single out an earlier month the cloud
+    screen removed or one outside the search window. A ``point`` label would
+    then vouch for a month it did not single out.
+
+    When a dated label's interval misses the boundary month, the interval is
+    widened to cover both and graded with the usual width rule: ``point`` for
+    a single month, ``interval`` up to ``max_boundary_interval_months`` apart,
+    ``broad`` up to ``max_broad_interval_months``, and ``unresolved`` beyond.
+    The aggregate ``timing_status`` follows. This runs after every boundary is
+    final, so no boundary, date, peak or cycle status moves.
+    """
+    out = rows.copy()
+    for position in range(len(out)):
+        row = out.iloc[position]
+        status = row["trough_timing_status"]
+        if status not in _TIMING_STATUS_RANK or status == "unresolved":
+            continue
+        start, end = row["trough_interval_start"], row["trough_interval_end"]
+        if pd.isna(row["trough_month"]) or pd.isna(start) or pd.isna(end):
+            continue
+        boundary = pd.Timestamp(row["trough_month"])
+        start, end = pd.Timestamp(start), pd.Timestamp(end)
+        if start <= boundary <= end:
+            continue
+        start, end = min(start, boundary), max(end, boundary)
+        trough_status = _candidate_timing_status((start, end), thresholds)
+        peak_status = row["peak_timing_status"]
+        if peak_status not in _TIMING_STATUS_RANK:
+            peak_status = "unresolved"
+        label = out.index[position]
+        out.at[label, "trough_interval_start"] = start
+        out.at[label, "trough_interval_end"] = end
+        out.at[label, "trough_timing_status"] = trough_status
+        out.at[label, "timing_status"] = _aggregate_timing_status(peak_status, trough_status)
+    return out
 
 
 def _assemble_dynamic_cycle(

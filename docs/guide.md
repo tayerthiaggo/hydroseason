@@ -413,9 +413,16 @@ read these dates for the area your question is about.
 
 **How far to trust a single trough month.** `trough_date` appears only when
 the trough status is `point`. That means one month stood out as the lowest
-since the cycle's peak by more than the cycle's detectability floor. The
-months after the trough are not compared. So the low is distinct, but the
-month is not necessarily exact. Three November 2026 known-truth tests (G2,
+since the cycle's peak by more than the cycle's detectability floor, and
+that month is the boundary itself. The months after the trough are not
+compared. So the low is distinct, but the month is not necessarily exact.
+Since `hydroseason-v0.3.0`, when the lowest month is another one, for
+example a cloudy month the boundary search skips, the trough's interval is
+widened to cover both months and graded by its width (`interval` up to two
+months apart, `broad` up to five, `unresolved` beyond). The boundary does not
+move. In 0.2.x such a row read `point` for a month the label had not
+singled out: about 1 in 10 `point` troughs on 59-236 km² areas and 1 in 30
+on subbasins and tiles. Three November 2026 known-truth tests (G2,
 L1 and L2, each on fresh records) used synthetic seasons and seasons
 injected into real records, with today's defaults:
 

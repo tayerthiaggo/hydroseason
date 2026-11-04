@@ -192,8 +192,15 @@ Each year's trough opportunity carries diagnostics that separate what was
   (`selection_support >= 0.8`, `boundary_status` eligible) while its timing
   is still `unresolved` -- a flat or below-floor year contributes no peak or
   trough timing observation even when it is well observed. Unresolved timing
-  forces `boundary_status="provisional"`, `status="partial"`, and confidence
-  capped at `low`, and only rows with `boundary_status="confirmed"` and
+  found when the cycle is assembled forces `boundary_status="provisional"`,
+  `status="partial"`, and confidence capped at `low`. Since
+  `hydroseason-v0.3.0` a dated trough label always covers the trough boundary:
+  if the months it compares single out another month, its interval is widened
+  to cover both and graded by width (`interval` up to 2 months apart, `broad`
+  up to 5, `unresolved` beyond). This runs after the boundaries are final and
+  changes only the timing labels: a trough widened to `unresolved` keeps its
+  cycle's `boundary_status` and `status`, as a refined trough does. Only rows
+  with `boundary_status="confirmed"` and
   `timing_status="point"` may anchor a historical condition baseline.
 - `peak_interval_start`/`peak_interval_end` and
   `trough_interval_start`/`trough_interval_end`: the bounds of the defensible
