@@ -122,15 +122,17 @@ def test_missing_and_fully_invalid_months_are_not_usable_or_zeroes():
 
 
 def test_count_inputs_recompute_extent_and_use_variable_valid_pixel_resolution():
-    result = assess_timing_identifiability(
-        _counts(
-            [99.0, 99.0] + [0.0] * 10,
-            n_valid=[50, 100] + [100] * 10,
-            n_water=[2, 2] + [0] * 10,
-        ),
-        thresholds=TEST_THRESHOLDS,
-        measurement_tolerance_pct=0.0,
-    )
+    # The supplied 99% disagrees with the counts, so it is replaced, with a warning.
+    with pytest.warns(UserWarning, match="was recomputed as 100"):
+        result = assess_timing_identifiability(
+            _counts(
+                [99.0, 99.0] + [0.0] * 10,
+                n_valid=[50, 100] + [100] * 10,
+                n_water=[2, 2] + [0] * 10,
+            ),
+            thresholds=TEST_THRESHOLDS,
+            measurement_tolerance_pct=0.0,
+        )
 
     year = result.years[2001]
     assert year.amplitude_pp == pytest.approx(4.0)

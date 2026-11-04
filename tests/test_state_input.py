@@ -40,7 +40,9 @@ def test_counts_are_authoritative_and_gap_month_is_missing():
         },
         index=pd.to_datetime(["2020-01-01", "2020-03-01"]),
     )
-    result = prepare_monthly_extent(frame)
+    # The supplied 99% disagrees with the counts, so it is replaced, with a warning.
+    with pytest.warns(UserWarning, match="was recomputed as 100"):
+        result = prepare_monthly_extent(frame)
     assert result.loc["2020-01-01", "extent_pct"] == pytest.approx(25.0)
     assert result.loc["2020-03-01", "invalid_pct"] == pytest.approx(40.0)
     assert result.loc["2020-02-01", "quality_state"] == "missing"

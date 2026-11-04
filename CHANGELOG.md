@@ -6,6 +6,12 @@ All notable changes to HydroSeason are documented here. This project follows
 ## [Unreleased]
 
 ### Added
+- Two input warnings. When pixel counts are supplied with an `extent_pct` that
+  disagrees with `100 * n_water / n_valid` (for example a share of the whole
+  AOI), the percentage is still replaced by the count-based value, now with a
+  warning. When a record has no pixel counts and a cycle's detectability floor
+  falls to effectively zero, `analyze_catchment` warns that its
+  amplitude-to-floor ratios carry no information. Outputs are unchanged.
 - The hydro-years CSV now says why a cycle is partial or provisional and
   whether it anchors the condition baseline: `status_reason`,
   `trough_refinement_status`, `trough_refinement_reason`, `baseline_eligible`

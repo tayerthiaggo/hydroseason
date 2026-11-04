@@ -9,6 +9,8 @@ confidently-labelled boundaries fitted to noise.
 """
 from __future__ import annotations
 
+import functools
+import warnings
 from dataclasses import dataclass, field, replace
 
 import pandas as pd
@@ -33,6 +35,11 @@ from .hydrological_state import HydrologicalStateResult, analyze_hydrological_st
 __all__ = ["CatchmentAnalysis", "Route", "analyze_catchment"]
 
 _CYCLE_TIMING_INFORMATIVE_STATUSES: frozenset[str] = frozenset({"point", "interval", "broad"})
+
+# A floor below this is machine precision, not a measurement. Without pixel
+# counts and with a zero measurement tolerance, a series that barely changes
+# between months has nothing else to bound its floor from below.
+_NEGLIGIBLE_FLOOR_PP = 1e-9
 
 
 @dataclass(frozen=True)
@@ -135,6 +142,38 @@ def _policy_evidence(regime: WaterRegimeAssessment) -> str:
     return f"peak p={peak_p}, trough p={trough_p}"
 
 
+def _warn_if_floor_collapsed(extent, analysis: CatchmentAnalysis) -> None:
+    has_counts = isinstance(extent, pd.DataFrame) and "n_valid" in extent.columns
+    hydro_years = analysis.hydro_years
+    if has_counts or hydro_years is None or hydro_years.empty:
+        return
+    if "detectability_floor_pp" not in hydro_years.columns:
+        return
+    floors = pd.to_numeric(hydro_years["detectability_floor_pp"], errors="coerce")
+    collapsed = int((floors < _NEGLIGIBLE_FLOOR_PP).sum())
+    if collapsed:
+        warnings.warn(
+            f"{collapsed} of {len(hydro_years)} hydrological years have a detectability floor of "
+            f"effectively zero (below {_NEGLIGIBLE_FLOOR_PP:g} percentage points), because the record "
+            "has no pixel counts and barely changes between months. Their amplitude-to-floor "
+            "ratios carry no information, so very small changes can pass as a season. Pass "
+            "n_water, n_valid, n_invalid and n_aoi, or set measurement_tolerance_pct.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
+def _warns_on_collapsed_floor(func):
+    @functools.wraps(func)
+    def wrapper(extent, *args, **kwargs):
+        analysis = func(extent, *args, **kwargs)
+        _warn_if_floor_collapsed(extent, analysis)
+        return analysis
+
+    return wrapper
+
+
+@_warns_on_collapsed_floor
 def analyze_catchment(
     extent,
     *,
