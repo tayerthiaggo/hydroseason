@@ -26,19 +26,19 @@ def seasonal_extent():
     return pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
 
 
-def test_v020_has_one_non_selectable_method():
+def test_one_non_selectable_method():
     analyze_parameters = inspect.signature(analyze_catchment).parameters
     regime_parameters = inspect.signature(assess_water_regime).parameters
     assert "method_policy" not in analyze_parameters
     assert "seasonality_policy" not in analyze_parameters
     assert "trough_refinement_policy" not in analyze_parameters
     assert "seasonality_policy" not in regime_parameters
-    assert CURRENT_METHOD_POLICY.policy_id == "hydroseason-v0.2.0"
+    assert CURRENT_METHOD_POLICY.policy_id == "hydroseason-v0.3.0"
 
 
-def test_v020_manifest_pins_every_scientific_constant():
+def test_manifest_pins_every_scientific_constant():
     manifest = method_policy_manifest()
-    assert manifest["policy_id"] == "hydroseason-v0.2.0"
+    assert manifest["policy_id"] == "hydroseason-v0.3.0"
     assert manifest["seasonality"] == {
         "method": "timing_recurrence",
         "alpha": 0.05,
@@ -60,19 +60,48 @@ def test_v020_manifest_pins_every_scientific_constant():
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known gap, planned for the next method policy: the v0.2.0 manifest and "
-        "fingerprint do not cover the timing-identifiability gates, so outputs made "
-        "with different gates share a fingerprint (G2 audit, 2026-11-03). Fixing it "
-        "changes every fingerprint, so it ships with a new policy_id, not a patch."
-    ),
-)
 def test_manifest_covers_timing_identifiability_gates():
-    from hydroseason._scientific_defaults import TIMING_IDENTIFIABILITY_FINGERPRINT
+    """Since hydroseason-v0.3.0 the gates move the fingerprint (G2 audit, 2026-11-03)."""
+    from hydroseason._scientific_defaults import (
+        TIMING_IDENTIFIABILITY_DEFAULTS,
+        TIMING_IDENTIFIABILITY_FINGERPRINT,
+    )
 
     assert TIMING_IDENTIFIABILITY_FINGERPRINT in canonical_method_policy_json()
+    gates = method_policy_manifest()["timing_identifiability"]
+    assert gates == {
+        "authority_scope": "candidate_for_established_0_2_0",
+        "fingerprint": TIMING_IDENTIFIABILITY_FINGERPRINT,
+        "min_amplitude_to_floor_ratio": 3.0,
+        "min_peak_water_pixels": 5,
+        "max_point_span_months": 0,
+        "max_boundary_interval_months": 2,
+        "max_broad_interval_months": 5,
+        "min_informative_years": 7,
+    }
+    assert gates["max_broad_interval_months"] == TIMING_IDENTIFIABILITY_DEFAULTS.max_broad_interval_months
+
+
+def test_manifest_pins_the_condition_baseline_and_the_trough_label_rule():
+    manifest = method_policy_manifest()
+    assert manifest["condition_baseline"] == {
+        "eligible_timing_statuses": ["point"],
+        "min_baseline_cycles": 5,
+        "low_percentile": 20.0,
+        "high_percentile": 80.0,
+        "requires": ["boundary_status confirmed", "peak_quality not anomalous", "status complete"],
+    }
+    assert manifest["trough_label"] == {"rule": "covers_trough_boundary", "form": "widen", "version": 1}
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["_timing_identifiability.py", "_dynamic_year.py", "_boundary.py", "_condition.py"],
+)
+def test_manifest_generation_guards_the_modules_that_implement_the_policy(module):
+    from hydroseason._method_policy import SCIENTIFIC_SOURCE_FILES
+
+    assert f"hydroseason/{module}" in SCIENTIFIC_SOURCE_FILES
 
 
 @pytest.mark.parametrize(
@@ -92,7 +121,7 @@ def test_canonical_json_and_fingerprint():
     json_str = canonical_method_policy_json()
     assert isinstance(json_str, str)
     parsed = json.loads(json_str)
-    assert parsed["policy_id"] == "hydroseason-v0.2.0"
+    assert parsed["policy_id"] == "hydroseason-v0.3.0"
     fp = method_policy_fingerprint()
     assert isinstance(fp, str)
     assert len(fp) == 64
@@ -107,8 +136,8 @@ def test_catchment_analysis_records_provenance(seasonal_extent):
 
 def test_checked_in_method_policy_manifest_matches_runtime():
     repo_root = Path(__file__).resolve().parent.parent
-    manifest_path = repo_root / "docs" / "method-policy-v0.2.0.json"
-    sidecar_path = repo_root / "docs" / "method-policy-v0.2.0.sha256"
+    manifest_path = repo_root / "docs" / "method-policy-v0.3.0.json"
+    sidecar_path = repo_root / "docs" / "method-policy-v0.3.0.sha256"
 
     assert manifest_path.is_file(), f"Missing manifest: {manifest_path}"
     assert sidecar_path.is_file(), f"Missing sidecar: {sidecar_path}"
@@ -139,11 +168,11 @@ def test_method_policy_cli_generator(tmp_path):
 
 def test_validation_receipt_authorizes_the_frozen_method():
     receipt = json.loads(
-        Path("docs/method-policy-v0.2.0-validation.json").read_text(encoding="utf-8")
+        Path("docs/method-policy-v0.3.0-validation.json").read_text(encoding="utf-8")
     )
     assert receipt["release_decision"] == "pass"
-    assert receipt["method_policy_id"] == "hydroseason-v0.2.0"
+    assert receipt["method_policy_id"] == "hydroseason-v0.3.0"
     assert receipt["method_fingerprint"] == method_policy_fingerprint()
-    method_bytes = Path("docs/method-policy-v0.2.0.json").read_bytes()
+    method_bytes = Path("docs/method-policy-v0.3.0.json").read_bytes()
     assert hashlib.sha256(method_bytes).hexdigest() == receipt["method_manifest_sha256"]
 

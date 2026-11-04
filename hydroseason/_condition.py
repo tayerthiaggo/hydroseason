@@ -5,6 +5,10 @@ import pandas as pd
 
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
+# Aggregate timing statuses that may anchor the annual condition baseline.
+# Recorded in the method policy manifest.
+BASELINE_TIMING_STATUSES: tuple[str, ...] = ("point",)
+
 _JOINT_STATE_MAP: dict[tuple[str, str], str] = {
     ("high", "high"): "wet_persistent",
     ("high", "low"): "recharged_then_contracting",
@@ -101,7 +105,7 @@ def classify_annual_surface_water_condition(
     # defensible exact date, not merely a bounded interval: a broad plateau's
     # internal operational date must never confirm a historical condition.
     if "timing_status" in out.columns:
-        reference_mask &= out["timing_status"].eq("point")
+        reference_mask &= out["timing_status"].isin(BASELINE_TIMING_STATUSES)
     if reference_start is not None:
         dates = pd.to_datetime(out["hy_end"])
         reference_mask &= dates.between(pd.Timestamp(reference_start), pd.Timestamp(reference_end))

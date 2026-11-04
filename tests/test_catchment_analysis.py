@@ -480,7 +480,7 @@ def test_catchment_analysis_exposes_decision_policy():
     result = _calibrated(_seasonal(), n_bootstrap=40)
     assert result.decision_policy == "hydroseason_0_2_0"
     assert result.public_route == "per_year_detection"
-    assert result.method_policy_id == "hydroseason-v0.2.0"
+    assert result.method_policy_id == "hydroseason-v0.3.0"
     assert result.method_policy_fingerprint
 
 
@@ -563,7 +563,7 @@ def test_sole_policy_flows_through_to_route_and_reason():
     assert "peak p=" in analysis.route_reason
     assert "SNR" not in analysis.route_reason
     assert analysis.summary_row(name="synthetic")["decision_policy"] == "hydroseason_0_2_0"
-    assert analysis.method_policy_id == "hydroseason-v0.2.0"
+    assert analysis.method_policy_id == "hydroseason-v0.3.0"
     assert analysis.method_policy_fingerprint
 
 

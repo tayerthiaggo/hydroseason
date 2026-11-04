@@ -8,11 +8,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ._condition import BASELINE_TIMING_STATUSES
+from ._dynamic_year import TROUGH_LABEL_RULE, TROUGH_LABEL_RULE_VERSION, DynamicHydroYearConfig
 from ._events import _DEFAULT_ENTER_K, _DEFAULT_EXIT_K, _DEFAULT_LOW_K
 from ._scientific_defaults import (
     RECURRENCE_AUTHORITY_SCOPE,
     RECURRENCE_FINGERPRINT,
     RECURRENCE_POLICY,
+    TIMING_IDENTIFIABILITY_AUTHORITY_SCOPE,
+    TIMING_IDENTIFIABILITY_DEFAULTS,
+    TIMING_IDENTIFIABILITY_FINGERPRINT,
 )
 from ._seasonality_test import TIMING_RECURRENCE_ALPHA
 from ._trough_refinement import TroughRefinementPolicy
@@ -27,14 +32,26 @@ class HydroSeasonMethodPolicy:
 
 
 CURRENT_METHOD_POLICY = HydroSeasonMethodPolicy(
-    policy_id="hydroseason-v0.2.0",
+    policy_id="hydroseason-v0.3.0",
     min_detectable_years=5,
     trough_refinement=TROUGH_REFINEMENT_POLICY,
 )
 
 
+def _config_default(name: str) -> Any:
+    return DynamicHydroYearConfig.__dataclass_fields__[name].default
+
+
 def method_policy_manifest() -> dict[str, Any]:
+    gates = TIMING_IDENTIFIABILITY_DEFAULTS
     return {
+        "condition_baseline": {
+            "eligible_timing_statuses": list(BASELINE_TIMING_STATUSES),
+            "high_percentile": _config_default("high_percentile"),
+            "low_percentile": _config_default("low_percentile"),
+            "min_baseline_cycles": _config_default("min_baseline_cycles"),
+            "requires": ["boundary_status confirmed", "peak_quality not anomalous", "status complete"],
+        },
         "event_thresholds": {
             "enter_sigma": _DEFAULT_ENTER_K,
             "exit_sigma": _DEFAULT_EXIT_K,
@@ -61,6 +78,21 @@ def method_policy_manifest() -> dict[str, Any]:
             "scale_mode": CURRENT_METHOD_POLICY.trough_refinement.scale_mode,
             "version": CURRENT_METHOD_POLICY.trough_refinement.version,
         },
+        "timing_identifiability": {
+            "authority_scope": TIMING_IDENTIFIABILITY_AUTHORITY_SCOPE,
+            "fingerprint": TIMING_IDENTIFIABILITY_FINGERPRINT,
+            "max_boundary_interval_months": gates.max_boundary_interval_months,
+            "max_broad_interval_months": gates.max_broad_interval_months,
+            "max_point_span_months": gates.max_point_span_months,
+            "min_amplitude_to_floor_ratio": gates.min_amplitude_to_floor_ratio,
+            "min_informative_years": gates.min_informative_years,
+            "min_peak_water_pixels": gates.min_peak_water_pixels,
+        },
+        "trough_label": {
+            "form": "widen",
+            "rule": TROUGH_LABEL_RULE,
+            "version": TROUGH_LABEL_RULE_VERSION,
+        },
     }
 
 
@@ -85,6 +117,10 @@ SCIENTIFIC_SOURCE_FILES = (
     "hydroseason/_catchment.py",
     "hydroseason/_exceptions.py",
     "hydroseason/_fingerprint.py",
+    "hydroseason/_timing_identifiability.py",
+    "hydroseason/_dynamic_year.py",
+    "hydroseason/_boundary.py",
+    "hydroseason/_condition.py",
 )
 
 
