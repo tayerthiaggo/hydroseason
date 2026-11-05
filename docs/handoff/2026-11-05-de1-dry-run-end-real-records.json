@@ -1,0 +1,110 @@
+{
+  "script_sha256_lf": "8e591be9554aaca531289e746d70ec9e516c7a9f2773a07d3b08827a75447a2b",
+  "records": 3010,
+  "by_source": {
+    "g1|core": {
+      "cycles": 16939,
+      "moved": 0.5206328590825905,
+      "moved_3plus": 0.2545604817285554,
+      "moved_6plus": 0.1334199185312002,
+      "end_status": {
+        "interval": 4208,
+        "point": 11629,
+        "censored": 1102
+      }
+    },
+    "g1|quadrant": {
+      "cycles": 59053,
+      "moved": 0.5786666215094914,
+      "moved_3plus": 0.3481279528559091,
+      "moved_6plus": 0.1872724501718795,
+      "end_status": {
+        "point": 41292,
+        "interval": 14314,
+        "censored": 3447
+      }
+    },
+    "su|catchment": {
+      "cycles": 63,
+      "moved": 0.25396825396825395,
+      "moved_3plus": 0.0,
+      "moved_6plus": 0.0,
+      "end_status": {
+        "interval": 17,
+        "point": 45,
+        "censored": 1
+      }
+    },
+    "su|hb6": {
+      "cycles": 483,
+      "moved": 0.38509316770186336,
+      "moved_3plus": 0.039337474120082816,
+      "moved_6plus": 0.008281573498964804,
+      "end_status": {
+        "interval": 136,
+        "point": 338,
+        "censored": 9
+      }
+    },
+    "su|hb7": {
+      "cycles": 2121,
+      "moved": 0.4582743988684583,
+      "moved_3plus": 0.10278170674210278,
+      "moved_6plus": 0.033474776049033476,
+      "end_status": {
+        "point": 1559,
+        "interval": 501,
+        "censored": 61
+      }
+    },
+    "su|hb8": {
+      "cycles": 6132,
+      "moved": 0.4972276581865623,
+      "moved_3plus": 0.1816699282452707,
+      "moved_6plus": 0.06506849315068493,
+      "end_status": {
+        "interval": 1228,
+        "point": 4633,
+        "censored": 271
+      }
+    },
+    "su|tile6": {
+      "cycles": 924,
+      "moved": 0.4707792207792208,
+      "moved_3plus": 0.08116883116883117,
+      "moved_6plus": 0.027056277056277056,
+      "end_status": {
+        "interval": 215,
+        "point": 666,
+        "censored": 43
+      }
+    },
+    "su|tile7": {
+      "cycles": 2541,
+      "moved": 0.48760330578512395,
+      "moved_3plus": 0.1188508461235734,
+      "moved_6plus": 0.0444706808343172,
+      "end_status": {
+        "interval": 584,
+        "point": 1867,
+        "censored": 90
+      }
+    },
+    "su|tile8": {
+      "cycles": 8925,
+      "moved": 0.49703081232492996,
+      "moved_3plus": 0.17747899159663866,
+      "moved_6plus": 0.05927170868347339,
+      "end_status": {
+        "point": 6626,
+        "interval": 1895,
+        "censored": 404
+      }
+    }
+  },
+  "g1_half_agreement_within_1": {
+    "pairs": 33533,
+    "current": 0.7320848119762622,
+    "candidate": 0.7238541138579906
+  }
+}
