@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ._condition import BASELINE_TIMING_STATUSES
+from ._dry_run import DRY_RUN_RULE, DRY_RUN_RULE_VERSION
 from ._dynamic_year import TROUGH_LABEL_RULE, TROUGH_LABEL_RULE_VERSION, DynamicHydroYearConfig
 from ._events import _DEFAULT_ENTER_K, _DEFAULT_EXIT_K, _DEFAULT_LOW_K
 from ._scientific_defaults import (
@@ -93,6 +94,15 @@ def method_policy_manifest() -> dict[str, Any]:
             "rule": TROUGH_LABEL_RULE,
             "version": TROUGH_LABEL_RULE_VERSION,
         },
+        "dry_season_end": {
+            "end_statuses": ["censored", "interval"],
+            "moved_boundary_timing": "end_status",
+            "moves": "last_boundary_in_run",
+            "observed_month": "quality_state_usable",
+            "rule": DRY_RUN_RULE,
+            "tolerance": "boundary_epsilon_pp",
+            "version": DRY_RUN_RULE_VERSION,
+        },
     }
 
 
@@ -119,6 +129,7 @@ SCIENTIFIC_SOURCE_FILES = (
     "hydroseason/_fingerprint.py",
     "hydroseason/_timing_identifiability.py",
     "hydroseason/_dynamic_year.py",
+    "hydroseason/_dry_run.py",
     "hydroseason/_boundary.py",
     "hydroseason/_condition.py",
 )

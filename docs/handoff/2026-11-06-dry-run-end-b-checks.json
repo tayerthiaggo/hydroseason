@@ -1,0 +1,2809 @@
+{
+  "script_sha256_lf": "8cc29184ff0cc047c86fd7450ba060d80107afb7c1fbb7dd8046d3ad5903e09e",
+  "before_fingerprint": "4d11d348a745e980d25b933c3f51fe90e7b5931e856223b597c9d5e3566db578",
+  "after_policy": "hydroseason-v0.3.0",
+  "after_fingerprint": "1e7219cfe108b2eb597342878806926317b22215489e8e9f76704406e95470ae",
+  "case_studies": {
+    "series": {
+      "daly_river_nt_30m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 4,
+            "hy_end": 4,
+            "cycle_months": 8,
+            "temporal_mid_dry_month": 2,
+            "temporal_mid_dry_extent_pct": 2,
+            "temporal_mid_dry_invalid_pct": 2,
+            "mid_dry_invalid_pct": 2,
+            "half_loss_target_pct": 4,
+            "trough_month": 4,
+            "trough_extent_pct": 4,
+            "trough_invalid_pct": 4,
+            "drawdown_pct": 4,
+            "persistence_ratio": 4,
+            "recession_months": 4,
+            "n_usable_months": 8,
+            "phase_shift_months": 4,
+            "amplitude_to_floor_ratio": 1,
+            "trough_timing_status": 2,
+            "trough_interval_start": 3,
+            "trough_interval_end": 4,
+            "timing_status": 2,
+            "trough_percentile": 3,
+            "trough_change_from_previous_pct": 8
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 17,
+          "moved": 4
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 4
+        },
+        "timing_before": {
+          "point": 11,
+          "interval": 9,
+          "broad": 1
+        },
+        "eligible_before": 4,
+        "labelled_before": 0,
+        "timing_after": {
+          "interval": 11,
+          "point": 9,
+          "broad": 1
+        },
+        "eligible_after": 4,
+        "labelled_after": 0,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 4,
+            "phase": 4,
+            "phase_status": 22,
+            "phase_confidence": 2
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 25
+        }
+      },
+      "daly_river_nt_60m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 5,
+            "hy_end": 5,
+            "cycle_months": 8,
+            "temporal_mid_dry_month": 3,
+            "temporal_mid_dry_extent_pct": 3,
+            "temporal_mid_dry_invalid_pct": 3,
+            "mid_dry_invalid_pct": 3,
+            "half_loss_target_pct": 5,
+            "trough_month": 5,
+            "trough_extent_pct": 5,
+            "trough_invalid_pct": 5,
+            "drawdown_pct": 5,
+            "persistence_ratio": 5,
+            "recession_months": 5,
+            "n_usable_months": 8,
+            "phase_shift_months": 5,
+            "amplitude_to_floor_ratio": 2,
+            "trough_timing_status": 2,
+            "trough_interval_start": 2,
+            "trough_interval_end": 5,
+            "timing_status": 1,
+            "trough_percentile": 7,
+            "refuge_condition": 5,
+            "annual_condition": 3,
+            "trough_change_from_previous_pct": 9,
+            "refuge_condition_qualified": 5,
+            "annual_condition_qualified": 1
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 16,
+          "moved": 5
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 5
+        },
+        "timing_before": {
+          "point": 10,
+          "interval": 9,
+          "broad": 1,
+          "unresolved": 1
+        },
+        "eligible_before": 5,
+        "labelled_before": 21,
+        "timing_after": {
+          "interval": 10,
+          "point": 9,
+          "broad": 1,
+          "unresolved": 1
+        },
+        "eligible_after": 5,
+        "labelled_after": 21,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 5,
+            "phase": 5,
+            "phase_status": 13,
+            "phase_confidence": 4
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 16
+        }
+      },
+      "daly_river_nt_90m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 4,
+            "hy_end": 4,
+            "cycle_months": 8,
+            "temporal_mid_dry_month": 3,
+            "temporal_mid_dry_extent_pct": 3,
+            "temporal_mid_dry_invalid_pct": 3,
+            "mid_dry_invalid_pct": 3,
+            "half_loss_target_pct": 4,
+            "trough_month": 4,
+            "trough_extent_pct": 4,
+            "trough_invalid_pct": 4,
+            "drawdown_pct": 4,
+            "persistence_ratio": 4,
+            "recession_months": 4,
+            "n_usable_months": 8,
+            "phase_shift_months": 4,
+            "amplitude_to_floor_ratio": 1,
+            "trough_timing_status": 1,
+            "trough_interval_start": 2,
+            "trough_interval_end": 4,
+            "timing_status": 1,
+            "trough_percentile": 6,
+            "refuge_condition": 4,
+            "annual_condition": 1,
+            "trough_change_from_previous_pct": 8,
+            "consecutive_wet_cycles": 1,
+            "refuge_condition_qualified": 4,
+            "annual_condition_qualified": 1
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 17,
+          "moved": 4
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 4
+        },
+        "timing_before": {
+          "point": 10,
+          "interval": 9,
+          "broad": 1,
+          "unresolved": 1
+        },
+        "eligible_before": 6,
+        "labelled_before": 21,
+        "timing_after": {
+          "interval": 10,
+          "point": 9,
+          "broad": 1,
+          "unresolved": 1
+        },
+        "eligible_after": 6,
+        "labelled_after": 21,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 4,
+            "phase": 4,
+            "phase_status": 12,
+            "phase_confidence": 3
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 15
+        }
+      },
+      "daly_river_nt_300m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 7,
+            "hy_end": 7,
+            "cycle_months": 13,
+            "temporal_mid_dry_month": 1,
+            "temporal_mid_dry_extent_pct": 1,
+            "temporal_mid_dry_invalid_pct": 1,
+            "mid_dry_invalid_pct": 1,
+            "half_loss_month": 1,
+            "half_loss_extent_pct": 1,
+            "half_loss_target_pct": 7,
+            "trough_month": 7,
+            "trough_extent_pct": 7,
+            "trough_invalid_pct": 7,
+            "drawdown_pct": 7,
+            "persistence_ratio": 7,
+            "recession_months": 7,
+            "half_loss_months": 1,
+            "n_usable_months": 13,
+            "phase_shift_months": 7,
+            "amplitude_to_floor_ratio": 1,
+            "trough_timing_status": 5,
+            "trough_interval_start": 5,
+            "trough_interval_end": 7,
+            "timing_status": 5,
+            "trough_percentile": 5,
+            "trough_change_from_previous_pct": 13
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 14,
+          "moved": 7
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 6,
+          "3": 1
+        },
+        "timing_before": {
+          "point": 9,
+          "interval": 8,
+          "broad": 3,
+          "unresolved": 1
+        },
+        "eligible_before": 4,
+        "labelled_before": 0,
+        "timing_after": {
+          "interval": 13,
+          "point": 4,
+          "broad": 3,
+          "unresolved": 1
+        },
+        "eligible_after": 4,
+        "labelled_after": 0,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 9,
+            "phase": 9,
+            "phase_status": 59,
+            "phase_confidence": 4
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 63
+        }
+      },
+      "fitzroy_river_wa_30m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 7,
+            "hy_end": 7,
+            "cycle_months": 9,
+            "temporal_mid_dry_month": 6,
+            "temporal_mid_dry_extent_pct": 6,
+            "temporal_mid_dry_invalid_pct": 6,
+            "mid_dry_invalid_pct": 6,
+            "half_loss_target_pct": 7,
+            "trough_month": 7,
+            "trough_extent_pct": 7,
+            "trough_invalid_pct": 7,
+            "drawdown_pct": 7,
+            "persistence_ratio": 7,
+            "recession_months": 7,
+            "n_usable_months": 9,
+            "phase_shift_months": 7,
+            "trough_timing_status": 4,
+            "trough_interval_start": 4,
+            "trough_interval_end": 7,
+            "timing_status": 4,
+            "trough_percentile": 5,
+            "refuge_condition": 4,
+            "annual_condition": 4,
+            "trough_change_from_previous_pct": 9,
+            "consecutive_dry_cycles": 2,
+            "refuge_condition_qualified": 5
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 14,
+          "moved": 7
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 5,
+          "2": 2
+        },
+        "timing_before": {
+          "interval": 11,
+          "broad": 6,
+          "point": 4
+        },
+        "eligible_before": 7,
+        "labelled_before": 21,
+        "timing_after": {
+          "interval": 15,
+          "broad": 4,
+          "point": 2
+        },
+        "eligible_after": 7,
+        "labelled_after": 21,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 9,
+            "phase": 9,
+            "phase_status": 49,
+            "phase_confidence": 6
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 52
+        }
+      },
+      "fitzroy_river_wa_60m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 8,
+            "hy_end": 8,
+            "cycle_months": 12,
+            "temporal_mid_dry_month": 6,
+            "temporal_mid_dry_extent_pct": 6,
+            "temporal_mid_dry_invalid_pct": 6,
+            "mid_dry_invalid_pct": 6,
+            "half_loss_target_pct": 8,
+            "trough_month": 8,
+            "trough_extent_pct": 8,
+            "trough_invalid_pct": 8,
+            "drawdown_pct": 8,
+            "persistence_ratio": 8,
+            "recession_months": 8,
+            "n_usable_months": 12,
+            "phase_shift_months": 8,
+            "amplitude_to_floor_ratio": 1,
+            "trough_timing_status": 6,
+            "trough_interval_start": 5,
+            "trough_interval_end": 8,
+            "timing_status": 6,
+            "trough_percentile": 4,
+            "refuge_condition": 2,
+            "annual_condition": 2,
+            "trough_change_from_previous_pct": 12,
+            "consecutive_dry_cycles": 2,
+            "refuge_condition_qualified": 5,
+            "annual_condition_qualified": 2
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 13,
+          "moved": 8
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 5,
+          "2": 2,
+          "3": 1
+        },
+        "timing_before": {
+          "interval": 9,
+          "point": 7,
+          "broad": 5
+        },
+        "eligible_before": 5,
+        "labelled_before": 21,
+        "timing_after": {
+          "interval": 15,
+          "broad": 4,
+          "point": 2
+        },
+        "eligible_after": 5,
+        "labelled_after": 21,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 12,
+            "phase": 12,
+            "phase_status": 74,
+            "phase_confidence": 7
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 76
+        }
+      },
+      "fitzroy_river_wa_90m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 8,
+            "hy_end": 8,
+            "cycle_months": 12,
+            "temporal_mid_dry_month": 6,
+            "temporal_mid_dry_extent_pct": 6,
+            "temporal_mid_dry_invalid_pct": 6,
+            "mid_dry_invalid_pct": 6,
+            "half_loss_target_pct": 8,
+            "trough_month": 8,
+            "trough_extent_pct": 8,
+            "trough_invalid_pct": 8,
+            "drawdown_pct": 8,
+            "persistence_ratio": 8,
+            "recession_months": 8,
+            "n_usable_months": 12,
+            "phase_shift_months": 8,
+            "amplitude_to_floor_ratio": 1,
+            "trough_timing_status": 6,
+            "trough_interval_start": 2,
+            "trough_interval_end": 8,
+            "timing_status": 6,
+            "trough_percentile": 5,
+            "refuge_condition": 3,
+            "annual_condition": 3,
+            "trough_change_from_previous_pct": 12,
+            "consecutive_dry_cycles": 4,
+            "refuge_condition_qualified": 6,
+            "annual_condition_qualified": 2
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 13,
+          "moved": 8
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 4,
+          "2": 3,
+          "3": 1
+        },
+        "timing_before": {
+          "interval": 8,
+          "broad": 7,
+          "point": 6
+        },
+        "eligible_before": 5,
+        "labelled_before": 21,
+        "timing_after": {
+          "interval": 14,
+          "broad": 5,
+          "point": 2
+        },
+        "eligible_after": 5,
+        "labelled_after": 21,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 13,
+            "phase": 13,
+            "phase_status": 75,
+            "phase_confidence": 8
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 76
+        }
+      },
+      "fitzroy_river_wa_300m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 7,
+            "hy_end": 7,
+            "cycle_months": 11,
+            "temporal_mid_dry_month": 7,
+            "temporal_mid_dry_extent_pct": 7,
+            "temporal_mid_dry_invalid_pct": 7,
+            "mid_dry_invalid_pct": 7,
+            "half_loss_month": 1,
+            "half_loss_extent_pct": 1,
+            "half_loss_target_pct": 7,
+            "trough_month": 7,
+            "trough_extent_pct": 7,
+            "trough_invalid_pct": 7,
+            "drawdown_pct": 7,
+            "persistence_ratio": 7,
+            "recession_months": 7,
+            "half_loss_months": 1,
+            "n_usable_months": 11,
+            "phase_shift_months": 7,
+            "amplitude_to_floor_ratio": 2,
+            "trough_timing_status": 7,
+            "trough_interval_start": 4,
+            "trough_interval_end": 7,
+            "timing_status": 5,
+            "trough_percentile": 15,
+            "refuge_condition": 7,
+            "annual_condition": 4,
+            "trough_change_from_previous_pct": 11,
+            "consecutive_dry_cycles": 1,
+            "refuge_condition_qualified": 9,
+            "annual_condition_qualified": 1
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 13,
+          "moved": 7,
+          "kept_peak_changed": 1
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 2,
+          "2": 2,
+          "4": 2,
+          "5": 1
+        },
+        "timing_before": {
+          "broad": 9,
+          "interval": 5,
+          "point": 4,
+          "unresolved": 2
+        },
+        "eligible_before": 8,
+        "labelled_before": 20,
+        "timing_after": {
+          "interval": 10,
+          "broad": 6,
+          "point": 2,
+          "unresolved": 2
+        },
+        "eligible_after": 8,
+        "labelled_after": 20,
+        "peak_label_changes": 1,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 19,
+            "phase": 19,
+            "phase_status": 73,
+            "phase_confidence": 16
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 73
+        }
+      },
+      "gilbert_river_qld_30m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 4,
+            "hy_end": 4,
+            "cycle_months": 6,
+            "temporal_mid_dry_month": 2,
+            "temporal_mid_dry_extent_pct": 2,
+            "temporal_mid_dry_invalid_pct": 2,
+            "mid_dry_invalid_pct": 2,
+            "half_loss_target_pct": 4,
+            "trough_month": 4,
+            "trough_extent_pct": 4,
+            "trough_invalid_pct": 4,
+            "drawdown_pct": 4,
+            "persistence_ratio": 4,
+            "recession_months": 4,
+            "n_usable_months": 6,
+            "phase_shift_months": 4,
+            "amplitude_to_floor_ratio": 1,
+            "trough_timing_status": 3,
+            "trough_interval_start": 4,
+            "trough_interval_end": 4,
+            "timing_status": 3,
+            "trough_percentile": 13,
+            "refuge_condition": 4,
+            "annual_condition": 1,
+            "trough_change_from_previous_pct": 7,
+            "consecutive_wet_cycles": 3,
+            "refuge_condition_qualified": 7,
+            "annual_condition_qualified": 3
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 17,
+          "moved": 4
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 4
+        },
+        "timing_before": {
+          "interval": 10,
+          "point": 6,
+          "broad": 5
+        },
+        "eligible_before": 9,
+        "labelled_before": 21,
+        "timing_after": {
+          "interval": 13,
+          "broad": 4,
+          "point": 4
+        },
+        "eligible_after": 9,
+        "labelled_after": 21,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 4,
+            "phase": 4,
+            "phase_status": 37,
+            "phase_confidence": 1
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 38
+        }
+      },
+      "gilbert_river_qld_60m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 4,
+            "hy_end": 4,
+            "cycle_months": 6,
+            "temporal_mid_dry_month": 2,
+            "temporal_mid_dry_extent_pct": 2,
+            "temporal_mid_dry_invalid_pct": 2,
+            "mid_dry_invalid_pct": 2,
+            "half_loss_target_pct": 4,
+            "trough_month": 4,
+            "trough_extent_pct": 4,
+            "trough_invalid_pct": 4,
+            "drawdown_pct": 4,
+            "persistence_ratio": 4,
+            "recession_months": 4,
+            "n_usable_months": 6,
+            "phase_shift_months": 4,
+            "amplitude_to_floor_ratio": 2,
+            "trough_timing_status": 2,
+            "trough_interval_start": 2,
+            "trough_interval_end": 4,
+            "timing_status": 2,
+            "trough_percentile": 14,
+            "refuge_condition": 3,
+            "annual_condition": 2,
+            "trough_change_from_previous_pct": 7,
+            "consecutive_wet_cycles": 5,
+            "refuge_condition_qualified": 5,
+            "annual_condition_qualified": 2
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 17,
+          "moved": 4
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 4
+        },
+        "timing_before": {
+          "interval": 11,
+          "point": 6,
+          "broad": 4
+        },
+        "eligible_before": 9,
+        "labelled_before": 21,
+        "timing_after": {
+          "interval": 13,
+          "point": 5,
+          "broad": 3
+        },
+        "eligible_after": 9,
+        "labelled_after": 21,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 4,
+            "phase": 4,
+            "phase_status": 25,
+            "phase_confidence": 1
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 26
+        }
+      },
+      "gilbert_river_qld_90m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 5,
+            "hy_end": 5,
+            "cycle_months": 8,
+            "temporal_mid_dry_month": 2,
+            "temporal_mid_dry_extent_pct": 2,
+            "temporal_mid_dry_invalid_pct": 2,
+            "mid_dry_invalid_pct": 2,
+            "half_loss_target_pct": 5,
+            "trough_month": 5,
+            "trough_extent_pct": 5,
+            "trough_invalid_pct": 5,
+            "drawdown_pct": 5,
+            "persistence_ratio": 5,
+            "recession_months": 5,
+            "n_usable_months": 8,
+            "phase_shift_months": 5,
+            "amplitude_to_floor_ratio": 2,
+            "trough_timing_status": 3,
+            "trough_interval_start": 3,
+            "trough_interval_end": 5,
+            "timing_status": 3,
+            "trough_percentile": 16,
+            "refuge_condition": 4,
+            "annual_condition": 3,
+            "trough_change_from_previous_pct": 9,
+            "consecutive_wet_cycles": 4,
+            "refuge_condition_qualified": 7,
+            "annual_condition_qualified": 3
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 16,
+          "moved": 5
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 5
+        },
+        "timing_before": {
+          "interval": 12,
+          "point": 5,
+          "broad": 4
+        },
+        "eligible_before": 8,
+        "labelled_before": 21,
+        "timing_after": {
+          "interval": 15,
+          "point": 3,
+          "broad": 3
+        },
+        "eligible_after": 8,
+        "labelled_after": 21,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 5,
+            "phase": 5,
+            "phase_status": 37,
+            "phase_confidence": 1
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 39
+        }
+      },
+      "gilbert_river_qld_300m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            21,
+            21
+          ],
+          "changed": {
+            "hy_start": 7,
+            "hy_end": 7,
+            "cycle_months": 9,
+            "temporal_mid_dry_month": 4,
+            "temporal_mid_dry_extent_pct": 4,
+            "temporal_mid_dry_invalid_pct": 4,
+            "mid_dry_invalid_pct": 4,
+            "half_loss_target_pct": 7,
+            "trough_month": 7,
+            "trough_extent_pct": 7,
+            "trough_invalid_pct": 7,
+            "drawdown_pct": 7,
+            "persistence_ratio": 7,
+            "recession_months": 7,
+            "n_usable_months": 9,
+            "phase_shift_months": 7,
+            "amplitude_to_floor_ratio": 3,
+            "trough_timing_status": 3,
+            "trough_interval_start": 4,
+            "trough_interval_end": 7,
+            "timing_status": 3,
+            "trough_percentile": 13,
+            "refuge_condition": 8,
+            "annual_condition": 6,
+            "trough_change_from_previous_pct": 11,
+            "consecutive_dry_cycles": 1,
+            "consecutive_wet_cycles": 1,
+            "refuge_condition_qualified": 10,
+            "annual_condition_qualified": 2
+          },
+          "unexpected": {},
+          "columns_only_after": [
+            "boundary_shift_months",
+            "dry_end_status",
+            "dry_run_boundary_status",
+            "dry_run_end_month",
+            "dry_run_months",
+            "dry_run_start_month",
+            "rewetting_month"
+          ],
+          "columns_only_before": []
+        },
+        "outcomes": {
+          "at_run_end": 14,
+          "moved": 7
+        },
+        "labels_not_covering": 0,
+        "point_dry_ends": 0,
+        "moved_months": {
+          "1": 6,
+          "2": 1
+        },
+        "timing_before": {
+          "interval": 13,
+          "point": 7,
+          "broad": 1
+        },
+        "eligible_before": 6,
+        "labelled_before": 21,
+        "timing_after": {
+          "interval": 16,
+          "point": 4,
+          "broad": 1
+        },
+        "eligible_after": 6,
+        "labelled_after": 21,
+        "peak_label_changes": 0,
+        "monthly_phase": {
+          "rows": [
+            252,
+            252
+          ],
+          "changed": {
+            "hy_year": 8,
+            "phase": 8,
+            "phase_status": 37,
+            "phase_confidence": 3
+          },
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": [],
+          "months_changed": 41
+        }
+      },
+      "lachlan_river_nsw_30m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            0,
+            0
+          ],
+          "changed": {},
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": []
+        },
+        "outcomes": {},
+        "labels_not_covering": 0,
+        "point_dry_ends": 0
+      },
+      "lachlan_river_nsw_60m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            0,
+            0
+          ],
+          "changed": {},
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": []
+        },
+        "outcomes": {},
+        "labels_not_covering": 0,
+        "point_dry_ends": 0
+      },
+      "lachlan_river_nsw_90m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            0,
+            0
+          ],
+          "changed": {},
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": []
+        },
+        "outcomes": {},
+        "labels_not_covering": 0,
+        "point_dry_ends": 0
+      },
+      "lachlan_river_nsw_300m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            0,
+            0
+          ],
+          "changed": {},
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": []
+        },
+        "outcomes": {},
+        "labels_not_covering": 0,
+        "point_dry_ends": 0
+      },
+      "moonie_river_qld_nsw_30m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            0,
+            0
+          ],
+          "changed": {},
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": []
+        },
+        "outcomes": {},
+        "labels_not_covering": 0,
+        "point_dry_ends": 0
+      },
+      "moonie_river_qld_nsw_60m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            0,
+            0
+          ],
+          "changed": {},
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": []
+        },
+        "outcomes": {},
+        "labels_not_covering": 0,
+        "point_dry_ends": 0
+      },
+      "moonie_river_qld_nsw_90m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            0,
+            0
+          ],
+          "changed": {},
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": []
+        },
+        "outcomes": {},
+        "labels_not_covering": 0,
+        "point_dry_ends": 0
+      },
+      "moonie_river_qld_nsw_300m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "fingerprint": [
+          "4d11d348a745",
+          "1e7219cfe108"
+        ],
+        "hydro_years": {
+          "rows": [
+            0,
+            0
+          ],
+          "changed": {},
+          "unexpected": {},
+          "columns_only_after": [],
+          "columns_only_before": []
+        },
+        "outcomes": {},
+        "labels_not_covering": 0,
+        "point_dry_ends": 0
+      }
+    },
+    "report_tables": {
+      "daly_river_nt\\daly-river-nt_hydro_years.csv": {
+        "rows": [
+          21,
+          21
+        ],
+        "changed": {
+          "start_date": 4,
+          "end_date": 4,
+          "mid_dry_date": 2,
+          "trough_date": 2,
+          "trough_boundary_date": 4,
+          "mid_dry_extent_pct": 2,
+          "trough_extent_pct": 4,
+          "mid_dry_invalid_pct": 2,
+          "trough_invalid_pct": 4,
+          "drawdown_pct": 4,
+          "timing_status": 2,
+          "trough_timing_status": 2,
+          "trough_interval_start_date": 3,
+          "trough_interval_end_date": 4,
+          "amplitude_to_floor_ratio": 1
+        },
+        "unexpected": {},
+        "columns_only_after": [
+          "dry_end_status",
+          "dry_run_end_date",
+          "dry_run_months",
+          "dry_run_start_date",
+          "rewetting_date"
+        ],
+        "columns_only_before": []
+      },
+      "daly_river_nt\\daly-river-nt_low_spells.csv": {
+        "rows": [
+          18,
+          18
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "daly_river_nt\\daly-river-nt_monthly.csv": {
+        "rows": [
+          252,
+          252
+        ],
+        "changed": {
+          "hy_year": 4,
+          "confidence": 1,
+          "phase": 4,
+          "phase_status": 22,
+          "is_hy_mid_dry": 4,
+          "is_hy_trough": 8
+        },
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "daly_river_nt\\daly-river-nt_wet_event.csv": {
+        "rows": [
+          21,
+          21
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "fitzroy_river_wa\\fitzroy-river-wa_hydro_years.csv": {
+        "rows": [
+          21,
+          21
+        ],
+        "changed": {
+          "start_date": 7,
+          "end_date": 7,
+          "mid_dry_date": 6,
+          "trough_date": 2,
+          "trough_boundary_date": 7,
+          "mid_dry_extent_pct": 6,
+          "trough_extent_pct": 7,
+          "mid_dry_invalid_pct": 6,
+          "trough_invalid_pct": 7,
+          "drawdown_pct": 7,
+          "annual_condition": 4,
+          "timing_status": 4,
+          "trough_timing_status": 4,
+          "trough_interval_start_date": 4,
+          "trough_interval_end_date": 7
+        },
+        "unexpected": {},
+        "columns_only_after": [
+          "dry_end_status",
+          "dry_run_end_date",
+          "dry_run_months",
+          "dry_run_start_date",
+          "rewetting_date"
+        ],
+        "columns_only_before": []
+      },
+      "fitzroy_river_wa\\fitzroy-river-wa_low_spells.csv": {
+        "rows": [
+          17,
+          17
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "fitzroy_river_wa\\fitzroy-river-wa_monthly.csv": {
+        "rows": [
+          252,
+          252
+        ],
+        "changed": {
+          "hy_year": 9,
+          "confidence": 3,
+          "phase": 9,
+          "phase_status": 49,
+          "is_hy_mid_dry": 12,
+          "is_hy_trough": 14
+        },
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "fitzroy_river_wa\\fitzroy-river-wa_wet_event.csv": {
+        "rows": [
+          18,
+          18
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "gilbert_river_qld\\gilbert-river-qld_hydro_years.csv": {
+        "rows": [
+          21,
+          21
+        ],
+        "changed": {
+          "start_date": 4,
+          "end_date": 4,
+          "mid_dry_date": 2,
+          "trough_date": 2,
+          "trough_boundary_date": 4,
+          "mid_dry_extent_pct": 2,
+          "trough_extent_pct": 4,
+          "mid_dry_invalid_pct": 2,
+          "trough_invalid_pct": 4,
+          "drawdown_pct": 4,
+          "annual_condition": 1,
+          "timing_status": 3,
+          "trough_timing_status": 3,
+          "trough_interval_start_date": 4,
+          "trough_interval_end_date": 4,
+          "amplitude_to_floor_ratio": 1
+        },
+        "unexpected": {},
+        "columns_only_after": [
+          "dry_end_status",
+          "dry_run_end_date",
+          "dry_run_months",
+          "dry_run_start_date",
+          "rewetting_date"
+        ],
+        "columns_only_before": []
+      },
+      "gilbert_river_qld\\gilbert-river-qld_low_spells.csv": {
+        "rows": [
+          20,
+          20
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "gilbert_river_qld\\gilbert-river-qld_monthly.csv": {
+        "rows": [
+          252,
+          252
+        ],
+        "changed": {
+          "hy_year": 4,
+          "confidence": 1,
+          "phase": 4,
+          "phase_status": 37,
+          "is_hy_mid_dry": 4,
+          "is_hy_trough": 8
+        },
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "gilbert_river_qld\\gilbert-river-qld_wet_event.csv": {
+        "rows": [
+          24,
+          24
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "lachlan_river_nsw\\lachlan-river-nsw_hydro_years.csv": {
+        "rows": [
+          0,
+          0
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [
+          "dry_end_status",
+          "dry_run_end_date",
+          "dry_run_months",
+          "dry_run_start_date",
+          "rewetting_date"
+        ],
+        "columns_only_before": []
+      },
+      "lachlan_river_nsw\\lachlan-river-nsw_low_spells.csv": {
+        "rows": [
+          6,
+          6
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "lachlan_river_nsw\\lachlan-river-nsw_monthly.csv": {
+        "rows": [
+          252,
+          252
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "lachlan_river_nsw\\lachlan-river-nsw_wet_event.csv": {
+        "rows": [
+          5,
+          5
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "moonie_river_qld_nsw\\moonie-river-qld-nsw_hydro_years.csv": {
+        "rows": [
+          0,
+          0
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [
+          "dry_end_status",
+          "dry_run_end_date",
+          "dry_run_months",
+          "dry_run_start_date",
+          "rewetting_date"
+        ],
+        "columns_only_before": []
+      },
+      "moonie_river_qld_nsw\\moonie-river-qld-nsw_low_spells.csv": {
+        "rows": [
+          13,
+          13
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "moonie_river_qld_nsw\\moonie-river-qld-nsw_monthly.csv": {
+        "rows": [
+          252,
+          252
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      },
+      "moonie_river_qld_nsw\\moonie-river-qld-nsw_wet_event.csv": {
+        "rows": [
+          14,
+          14
+        ],
+        "changed": {},
+        "unexpected": {},
+        "columns_only_after": [],
+        "columns_only_before": []
+      }
+    },
+    "unexpected": []
+  },
+  "fitzroy_tiles": {
+    "summary": {
+      "counts": {
+        "tiles": 41,
+        "tile_years": 1640,
+        "boundaries_moved": 630,
+        "clock_changes": 630,
+        "clock_shift_months": {
+          "0": 972,
+          "1": 344,
+          "2": 171,
+          "3": 77,
+          "4": 23,
+          "5": 12,
+          "6": 2,
+          "8": 1
+        },
+        "fails_before": 400,
+        "fails_after": 329,
+        "timing_unresolved_before": 350,
+        "timing_unresolved_after": 313,
+        "eligible_before": 308,
+        "eligible_after": 308,
+        "labelled_years_before": 1240,
+        "labelled_years_after": 1240,
+        "dry_end_status": {
+          "interval": 1598,
+          "unavailable": 38,
+          "censored": 4
+        }
+      },
+      "production": {
+        "tiles": 40,
+        "tile_years": 1600,
+        "boundaries_moved": 586,
+        "clock_changes": 586,
+        "clock_shift_months": {
+          "0": 978,
+          "1": 325,
+          "2": 143,
+          "3": 76,
+          "4": 22,
+          "5": 12,
+          "6": 4,
+          "7": 2,
+          "8": 2
+        },
+        "fails_before": 338,
+        "fails_after": 271,
+        "timing_unresolved_before": 306,
+        "timing_unresolved_after": 262,
+        "eligible_before": 280,
+        "eligible_after": 280,
+        "labelled_years_before": 1200,
+        "labelled_years_after": 1200,
+        "dry_end_status": {
+          "interval": 1559,
+          "unavailable": 36,
+          "censored": 5
+        }
+      }
+    },
+    "tiles": {
+      "production|tile02": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile03": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile04": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile05": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile06": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile07": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile08": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile09": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile11": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile13": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile14": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile15": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile16": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile17": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile20": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile21": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile22": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile24": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile25": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile26": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile27": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile28": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile31": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile32": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile33": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile34": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile35": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile36": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile37": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile38": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile39": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile42": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile46": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile47": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile48": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile49": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile50": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile54": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile55": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "production|tile56": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile01": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile02": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile03": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile04": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile05": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile07": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile08": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile09": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile11": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile13": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile14": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile15": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile16": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile17": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile18": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile20": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile21": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile22": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile23": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile24": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile25": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile26": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile27": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile28": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile31": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile32": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile33": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile34": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile35": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile36": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile37": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile38": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile39": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile42": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile46": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile47": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile48": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile49": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile50": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile55": {
+        "years": 40,
+        "outcomes": {}
+      },
+      "counts|tile56": {
+        "years": 40,
+        "outcomes": {}
+      }
+    },
+    "focus": {
+      "tile05": [
+        {
+          "hy_year": "1987",
+          "clock_before": "1987-05-01",
+          "clock_after": "1987-05-01",
+          "rewetting": "1988-02-01",
+          "dry_end_status": "interval",
+          "timing_after": ""
+        },
+        {
+          "hy_year": "1988",
+          "clock_before": "1988-06-01",
+          "clock_after": "1988-06-01",
+          "rewetting": "1990-03-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "1989",
+          "clock_before": "1989-06-01",
+          "clock_after": "1989-06-01",
+          "rewetting": "1990-03-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1990",
+          "clock_before": "1990-06-01",
+          "clock_after": "1990-06-01",
+          "rewetting": "1995-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "1991",
+          "clock_before": "1991-06-01",
+          "clock_after": "1991-06-01",
+          "rewetting": "1995-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1992",
+          "clock_before": "1992-06-01",
+          "clock_after": "1992-06-01",
+          "rewetting": "1995-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1993",
+          "clock_before": "1993-06-01",
+          "clock_after": "1993-06-01",
+          "rewetting": "1995-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1994",
+          "clock_before": "1994-06-01",
+          "clock_after": "1994-06-01",
+          "rewetting": "1995-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1995",
+          "clock_before": "1995-03-01",
+          "clock_after": "1995-03-01",
+          "rewetting": "1995-04-01",
+          "dry_end_status": "interval",
+          "timing_after": "point"
+        },
+        {
+          "hy_year": "1996",
+          "clock_before": "1996-04-01",
+          "clock_after": "1996-04-01",
+          "rewetting": "1999-04-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1997",
+          "clock_before": "1997-04-01",
+          "clock_after": "1997-04-01",
+          "rewetting": "1999-04-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1998",
+          "clock_before": "1998-04-01",
+          "clock_after": "1998-04-01",
+          "rewetting": "1998-12-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1999",
+          "clock_before": "1999-03-01",
+          "clock_after": "1999-03-01",
+          "rewetting": "1999-04-01",
+          "dry_end_status": "interval",
+          "timing_after": "point"
+        },
+        {
+          "hy_year": "2000",
+          "clock_before": "2000-04-01",
+          "clock_after": "2000-04-01",
+          "rewetting": "2000-05-01",
+          "dry_end_status": "interval",
+          "timing_after": "point"
+        },
+        {
+          "hy_year": "2001",
+          "clock_before": "2001-05-01",
+          "clock_after": "2001-07-01",
+          "rewetting": "2001-08-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2002",
+          "clock_before": "2002-05-01",
+          "clock_after": "2002-05-01",
+          "rewetting": "2004-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2003",
+          "clock_before": "2003-05-01",
+          "clock_after": "2003-05-01",
+          "rewetting": "2004-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2004",
+          "clock_before": "2004-06-01",
+          "clock_after": "2004-06-01",
+          "rewetting": "2005-12-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2005",
+          "clock_before": "2005-06-01",
+          "clock_after": "2005-06-01",
+          "rewetting": "2005-12-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2006",
+          "clock_before": "2006-06-01",
+          "clock_after": "2006-06-01",
+          "rewetting": "2007-03-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2007",
+          "clock_before": "2007-06-01",
+          "clock_after": "2007-06-01",
+          "rewetting": "2008-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2008",
+          "clock_before": "2008-06-01",
+          "clock_after": "2008-06-01",
+          "rewetting": "2009-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2009",
+          "clock_before": "2009-06-01",
+          "clock_after": "2009-06-01",
+          "rewetting": "2010-03-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2010",
+          "clock_before": "2010-06-01",
+          "clock_after": "2010-06-01",
+          "rewetting": "2011-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2011",
+          "clock_before": "2011-06-01",
+          "clock_after": "2011-06-01",
+          "rewetting": "2012-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2012",
+          "clock_before": "2012-06-01",
+          "clock_after": "2012-06-01",
+          "rewetting": "2013-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2013",
+          "clock_before": "2013-06-01",
+          "clock_after": "2013-06-01",
+          "rewetting": "2014-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2014",
+          "clock_before": "2014-06-01",
+          "clock_after": "2014-06-01",
+          "rewetting": "2015-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2015",
+          "clock_before": "2015-06-01",
+          "clock_after": "2015-06-01",
+          "rewetting": "2016-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2016",
+          "clock_before": "2016-06-01",
+          "clock_after": "2016-06-01",
+          "rewetting": "2017-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2017",
+          "clock_before": "2017-06-01",
+          "clock_after": "2017-06-01",
+          "rewetting": "2018-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2018",
+          "clock_before": "2018-06-01",
+          "clock_after": "2018-06-01",
+          "rewetting": "2019-04-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2019",
+          "clock_before": "2019-03-01",
+          "clock_after": "2019-03-01",
+          "rewetting": "2019-04-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2020",
+          "clock_before": "2020-06-01",
+          "clock_after": "2020-06-01",
+          "rewetting": "2020-12-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2021",
+          "clock_before": "2021-06-01",
+          "clock_after": "2021-06-01",
+          "rewetting": "2022-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2022",
+          "clock_before": "2022-06-01",
+          "clock_after": "2022-06-01",
+          "rewetting": "2023-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2023",
+          "clock_before": "2023-06-01",
+          "clock_after": "2023-06-01",
+          "rewetting": "2023-07-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2024",
+          "clock_before": "2024-06-01",
+          "clock_after": "2024-06-01",
+          "rewetting": "2025-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2025",
+          "clock_before": "2025-06-01",
+          "clock_after": "2025-06-01",
+          "rewetting": "2026-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2026",
+          "clock_before": "2026-06-01",
+          "clock_after": "2026-06-01",
+          "rewetting": "",
+          "dry_end_status": "censored",
+          "timing_after": "point"
+        }
+      ],
+      "tile13": [
+        {
+          "hy_year": "1987",
+          "clock_before": "1987-05-01",
+          "clock_after": "1987-05-01",
+          "rewetting": "1990-03-01",
+          "dry_end_status": "interval",
+          "timing_after": ""
+        },
+        {
+          "hy_year": "1988",
+          "clock_before": "1988-08-01",
+          "clock_after": "1988-08-01",
+          "rewetting": "1990-03-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1989",
+          "clock_before": "1989-08-01",
+          "clock_after": "1989-08-01",
+          "rewetting": "1990-03-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1990",
+          "clock_before": "1990-08-01",
+          "clock_after": "1990-08-01",
+          "rewetting": "1995-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "1991",
+          "clock_before": "1991-08-01",
+          "clock_after": "1991-08-01",
+          "rewetting": "1995-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1992",
+          "clock_before": "1992-08-01",
+          "clock_after": "1992-08-01",
+          "rewetting": "1995-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1993",
+          "clock_before": "1993-08-01",
+          "clock_after": "1993-08-01",
+          "rewetting": "1995-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1994",
+          "clock_before": "1994-08-01",
+          "clock_after": "1994-12-01",
+          "rewetting": "1995-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1995",
+          "clock_before": "1995-08-01",
+          "clock_after": "1995-08-01",
+          "rewetting": "1999-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "1996",
+          "clock_before": "1996-08-01",
+          "clock_after": "1996-08-01",
+          "rewetting": "1999-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1997",
+          "clock_before": "1997-08-01",
+          "clock_after": "1997-08-01",
+          "rewetting": "1999-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1998",
+          "clock_before": "1998-08-01",
+          "clock_after": "1998-12-01",
+          "rewetting": "1999-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "1999",
+          "clock_before": "1999-08-01",
+          "clock_after": "1999-11-01",
+          "rewetting": "2000-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2000",
+          "clock_before": "2000-08-01",
+          "clock_after": "2000-08-01",
+          "rewetting": "2001-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2001",
+          "clock_before": "2001-08-01",
+          "clock_after": "2001-08-01",
+          "rewetting": "2002-06-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2002",
+          "clock_before": "2002-05-01",
+          "clock_after": "2002-05-01",
+          "rewetting": "2002-06-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2003",
+          "clock_before": "2003-05-01",
+          "clock_after": "2003-05-01",
+          "rewetting": "2004-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2004",
+          "clock_before": "2004-08-01",
+          "clock_after": "2004-08-01",
+          "rewetting": "2006-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2005",
+          "clock_before": "2005-08-01",
+          "clock_after": "2005-12-01",
+          "rewetting": "2006-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2006",
+          "clock_before": "2006-08-01",
+          "clock_after": "2006-08-01",
+          "rewetting": "2007-03-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2007",
+          "clock_before": "2007-08-01",
+          "clock_after": "2007-08-01",
+          "rewetting": "2009-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2008",
+          "clock_before": "2008-08-01",
+          "clock_after": "2008-12-01",
+          "rewetting": "2009-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2009",
+          "clock_before": "2009-08-01",
+          "clock_after": "2009-08-01",
+          "rewetting": "2011-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2010",
+          "clock_before": "2010-08-01",
+          "clock_after": "2010-08-01",
+          "rewetting": "2011-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2011",
+          "clock_before": "2011-08-01",
+          "clock_after": "2011-08-01",
+          "rewetting": "2012-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2012",
+          "clock_before": "2012-05-01",
+          "clock_after": "2012-05-01",
+          "rewetting": "2012-06-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2013",
+          "clock_before": "2013-08-01",
+          "clock_after": "2013-08-01",
+          "rewetting": "2016-03-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2014",
+          "clock_before": "2014-08-01",
+          "clock_after": "2014-08-01",
+          "rewetting": "2016-03-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2015",
+          "clock_before": "2015-08-01",
+          "clock_after": "2016-02-01",
+          "rewetting": "2016-03-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2016",
+          "clock_before": "2016-12-01",
+          "clock_after": "2016-12-01",
+          "rewetting": "2017-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "point"
+        },
+        {
+          "hy_year": "2017",
+          "clock_before": "2017-08-01",
+          "clock_after": "2017-12-01",
+          "rewetting": "2018-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2018",
+          "clock_before": "2018-08-01",
+          "clock_after": "2018-08-01",
+          "rewetting": "2020-12-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2019",
+          "clock_before": "2019-08-01",
+          "clock_after": "2019-08-01",
+          "rewetting": "2020-12-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2020",
+          "clock_before": "2020-08-01",
+          "clock_after": "2020-11-01",
+          "rewetting": "2020-12-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2021",
+          "clock_before": "2021-08-01",
+          "clock_after": "2021-08-01",
+          "rewetting": "2023-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "interval"
+        },
+        {
+          "hy_year": "2022",
+          "clock_before": "2022-08-01",
+          "clock_after": "2022-08-01",
+          "rewetting": "2023-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2023",
+          "clock_before": "2023-06-01",
+          "clock_after": "2023-06-01",
+          "rewetting": "2023-07-01",
+          "dry_end_status": "interval",
+          "timing_after": "point"
+        },
+        {
+          "hy_year": "2024",
+          "clock_before": "2024-06-01",
+          "clock_after": "2024-06-01",
+          "rewetting": "2025-01-01",
+          "dry_end_status": "interval",
+          "timing_after": "unresolved"
+        },
+        {
+          "hy_year": "2025",
+          "clock_before": "2025-06-01",
+          "clock_after": "2025-06-01",
+          "rewetting": "2026-02-01",
+          "dry_end_status": "interval",
+          "timing_after": "broad"
+        },
+        {
+          "hy_year": "2026",
+          "clock_before": "2026-06-01",
+          "clock_after": "2026-06-01",
+          "rewetting": "",
+          "dry_end_status": "censored",
+          "timing_after": "interval"
+        }
+      ]
+    },
+    "unexpected": {},
+    "moved_by_tile_production": {
+      "tile02": 25,
+      "tile03": 7,
+      "tile04": 12,
+      "tile05": 1,
+      "tile06": 20,
+      "tile07": 4,
+      "tile08": 15,
+      "tile09": 20,
+      "tile11": 11,
+      "tile13": 8,
+      "tile14": 11,
+      "tile15": 10,
+      "tile16": 13,
+      "tile17": 26,
+      "tile20": 15,
+      "tile21": 8,
+      "tile22": 9,
+      "tile24": 17,
+      "tile25": 14,
+      "tile26": 12,
+      "tile27": 12,
+      "tile28": 26,
+      "tile31": 23,
+      "tile32": 10,
+      "tile33": 9,
+      "tile34": 9,
+      "tile35": 7,
+      "tile36": 10,
+      "tile37": 19,
+      "tile38": 15,
+      "tile39": 17,
+      "tile42": 21,
+      "tile46": 22,
+      "tile47": 29,
+      "tile48": 22,
+      "tile49": 24,
+      "tile50": 17,
+      "tile54": 1,
+      "tile55": 14,
+      "tile56": 21
+    }
+  },
+  "reviewed_fixture_gates": {
+    "gilbert": {
+      "outcomes": {
+        "moved": 7,
+        "at_run_end": 4
+      },
+      "moved_months": {
+        "1": 3,
+        "2": 4
+      },
+      "gate_metrics": {
+        "n_eligible": 11,
+        "n_resolved": 7,
+        "coverage": 0.6364,
+        "within_1_month": 0.3636,
+        "signed_bias_months": -4.1429,
+        "resolved_mae_months": 4.4286,
+        "total_mae_months": 7.1818,
+        "median_abs_error_months": 9.0,
+        "p90_abs_error_months": 12.0,
+        "max_abs_error_months": 12.0
+      },
+      "gate": {
+        "coverage": ">= 0.80",
+        "within_1_month": ">= 0.80",
+        "p90_abs_error_months": "<= 2",
+        "max_abs_error_months": "< 11"
+      }
+    },
+    "fitzroy": {
+      "outcomes": {
+        "at_run_end": 9,
+        "moved": 2
+      },
+      "moved_months": {
+        "1": 2
+      },
+      "gate_metrics": {
+        "n_eligible": 11,
+        "n_resolved": 9,
+        "coverage": 0.8182,
+        "within_1_month": 0.8182,
+        "signed_bias_months": 0.0,
+        "resolved_mae_months": 0.0,
+        "total_mae_months": 2.1818,
+        "median_abs_error_months": 0.0,
+        "p90_abs_error_months": 12.0,
+        "max_abs_error_months": 12.0
+      },
+      "gate": {
+        "coverage": ">= 0.80",
+        "within_1_month": ">= 0.80",
+        "p90_abs_error_months": "<= 2",
+        "max_abs_error_months": "< 11"
+      }
+    }
+  }
+}

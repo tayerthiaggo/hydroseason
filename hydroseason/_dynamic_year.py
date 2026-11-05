@@ -16,6 +16,7 @@ from ._boundary import (
     select_cycle_peak,
     select_window_minimum,
 )
+from ._dry_run import DryRun, find_dry_run
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
     LegacyPhaseModel,
@@ -443,6 +444,8 @@ ANNUAL_COLUMNS = [
     "trough_local_scale_pp", "trough_profile_best_loss",
     "trough_profile_cutoff", "trough_effective_support",
     "trough_pulse_months", "trough_refinement_policy_version", "trough_loss_basis",
+    "dry_run_start_month", "dry_run_end_month", "rewetting_month", "dry_run_months",
+    "dry_end_status", "dry_run_boundary_status", "boundary_shift_months",
 ]
 
 
@@ -601,13 +604,14 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
     result = _initialise_trough_refinement_evidence(
         result, policy=TROUGH_REFINEMENT_POLICY
     )
-    result = _apply_trough_refinement(
+    result, final_opportunities = _apply_trough_refinement(
         frame,
         opportunities,
         result,
         config,
         pattern,
     )
+    result = _apply_dry_run_end(frame, result, final_opportunities, config, pattern)
     return _reconcile_trough_labels(result, config.timing_identifiability_thresholds)
 
 
@@ -736,7 +740,9 @@ def _reconcile_trough_labels(
     a single month, ``interval`` up to ``max_boundary_interval_months`` apart,
     ``broad`` up to ``max_broad_interval_months``, and ``unresolved`` beyond.
     The aggregate ``timing_status`` follows. This runs after every boundary is
-    final, so no boundary, date, peak or cycle status moves.
+    final, so no boundary, date, peak or cycle status moves. A boundary moved
+    to the end of its dry run already carries the run as its interval and is
+    graded by its end status, so it is always covered here.
     """
     out = rows.copy()
     for position in range(len(out)):
@@ -1236,8 +1242,11 @@ def _apply_trough_refinement(
     pass1_rows: pd.DataFrame,
     config: DynamicHydroYearConfig,
     pattern: SeasonalPatternResult | None,
-) -> pd.DataFrame:
-    """Apply each shared boundary only after atomic two-cycle recomputation."""
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Apply each shared boundary only after atomic two-cycle recomputation.
+
+    Returns the cycles and the boundaries (opportunities) they were built on.
+    """
     policy = TROUGH_REFINEMENT_POLICY
 
     frozen_rows = pass1_rows.copy(deep=True).reset_index(drop=True)
@@ -1420,4 +1429,333 @@ def _apply_trough_refinement(
                 rows.at[position_, column] = value
         working_opportunities.iloc[position] = changed_opportunity
 
+    return rows.loc[:, ANNUAL_COLUMNS], working_opportunities
+
+
+DRY_RUN_BOUNDARY_OUTCOMES = {
+    "moved": "the boundary moved to the end of its dry run",
+    "at_run_end": "the boundary already is the last month of its dry run",
+    "kept_run_spans_next_boundary": (
+        "the run reaches the next boundary (a year with no wet season); "
+        "only the last boundary in a run moves"
+    ),
+    "kept_peak_changed": "moving would change the month of a neighbouring cycle's peak",
+    "kept_coverage_lost": "moving would leave a neighbouring cycle short of usable months",
+    "kept_out_of_order": "moving would put the boundaries out of order",
+    "kept_no_previous_boundary": "the cycle has no previous boundary to rebuild it from",
+    "unavailable": "no boundary, or no extent at the boundary month",
+}
+
+_DRY_RUN_COLUMNS = (
+    "dry_run_start_month",
+    "dry_run_end_month",
+    "rewetting_month",
+    "dry_run_months",
+    "dry_end_status",
+    "dry_run_boundary_status",
+    "boundary_shift_months",
+)
+
+
+def _neighbour_peaks_and_boundary(
+    rows: pd.DataFrame, position: int
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None, pd.Timestamp | None]:
+    """The cycle's own peak, and the next reported peak and boundary after it."""
+    own = rows.at[position, "peak_month"]
+    previous_peak = pd.Timestamp(own) if pd.notna(own) else None
+    next_peak = next_boundary = None
+    for later in range(position + 1, len(rows)):
+        if next_peak is None and pd.notna(rows.at[later, "peak_month"]):
+            next_peak = pd.Timestamp(rows.at[later, "peak_month"])
+        if pd.notna(rows.at[later, "trough_month"]):
+            next_boundary = pd.Timestamp(rows.at[later, "trough_month"])
+            break
+    return previous_peak, next_peak, next_boundary
+
+
+def _timing_from_dry_end(candidate: dict, run: DryRun) -> None:
+    """Grade a moved boundary by its end status, never ``point`` (DE1 rule 3)."""
+    trough_status: TimingStatus = "interval" if run.end_status == "interval" else "unresolved"
+    peak_status = candidate["peak_timing_status"]
+    if peak_status not in _TIMING_STATUS_RANK:
+        peak_status = "unresolved"
+    candidate["trough_timing_status"] = trough_status
+    candidate["trough_interval_start"] = run.start
+    candidate["trough_interval_end"] = run.end
+    candidate["timing_status"] = _aggregate_timing_status(peak_status, trough_status)
+
+
+def _restatus_cycle(
+    candidate: dict,
+    frame: pd.DataFrame,
+    *,
+    boundary_confirmed: bool,
+    used_record_start: bool,
+) -> None:
+    """Re-derive a cycle's status from its timing, as assembly does."""
+    peak_anomalous = candidate["peak_quality"] == "anomalous"
+    unresolved = candidate["timing_status"] == "unresolved"
+    confirmed = not (peak_anomalous or used_record_start or not boundary_confirmed or unresolved)
+    candidate["boundary_status"] = "confirmed" if confirmed else "provisional"
+    candidate["status"] = "complete" if confirmed else "partial"
+    candidate["status_reason"] = (
+        "record_start_boundary" if used_record_start
+        else "peak_quality_anomalous" if peak_anomalous
+        else "unresolved_timing" if unresolved
+        else "ok" if confirmed
+        else "boundary_provisional"
+    )
+    cycle = frame.loc[pd.Timestamp(candidate["hy_start"]):pd.Timestamp(candidate["hy_end"])]
+    candidate["confidence"] = "low" if unresolved else _confidence(cycle, candidate["boundary_status"])
+
+
+_STATUS_COLUMNS = ("boundary_status", "status", "status_reason", "confidence")
+
+
+def _never_upgrade(candidate: dict, before: pd.Series) -> None:
+    """A move may weaken a cycle's status but never strengthen it.
+
+    A cycle that was provisional keeps its earlier status and reason (for
+    example a trough-refinement fallback) unless its timing has newly become
+    unresolved, which is the weaker state.
+    """
+    if before["boundary_status"] == "confirmed":
+        return
+    if candidate["timing_status"] == "unresolved" and before["timing_status"] != "unresolved":
+        return
+    for column in _STATUS_COLUMNS:
+        candidate[column] = before[column]
+
+
+def _set_cell(rows: pd.DataFrame, position: int, column: str, value: object) -> None:
+    # Widen a float column to object before it receives its first Timestamp
+    # (pandas refuses to upcast silently); datetime and object columns hold
+    # Timestamps already and are left alone.
+    if isinstance(value, pd.Timestamp) and not (
+        pd.api.types.is_datetime64_any_dtype(rows[column]) or rows[column].dtype == object
+    ):
+        rows[column] = rows[column].astype(object)
+    rows.at[position, column] = value
+
+
+def _apply_dry_run_end(
+    frame: pd.DataFrame,
+    rows: pd.DataFrame,
+    opportunities: pd.DataFrame,
+    config: DynamicHydroYearConfig,
+    pattern: SeasonalPatternResult | None,
+) -> pd.DataFrame:
+    """Report each boundary's dry run and move a tied boundary to its end.
+
+    Every run is measured on the final boundaries before any move. A boundary
+    moves to its run end when the run ends later and before the next reported
+    boundary, so in a run spanning a year with no wet season only the last
+    boundary moves. The two cycles that share the boundary are reassembled
+    together; the move is kept only if neither cycle's peak month changes,
+    neither loses its cycle coverage and the boundaries stay in order.
+    Otherwise the boundary stays and its run is still reported. The outcome
+    for each boundary is one of ``DRY_RUN_BOUNDARY_OUTCOMES``.
+    """
+    rows = rows.copy(deep=True).reset_index(drop=True)
+    original = rows.copy(deep=True)
+    for column in _DRY_RUN_COLUMNS:
+        rows[column] = pd.Series([None] * len(rows), index=rows.index, dtype=object)
+    working = opportunities.copy(deep=True).reset_index(drop=True)
+    amplitude_pp, noise_pp = robust_scale(frame)
+    peak_invalid_climatology = month_of_year_invalid_climatology(
+        frame, fallback_pct=config.max_invalid_pct
+    )
+    pixel_support_status = _pixel_support_status(frame)
+
+    runs: list[DryRun] = []
+    next_boundaries: list[pd.Timestamp | None] = []
+    for position in range(len(rows)):
+        previous_peak, next_peak, next_boundary = _neighbour_peaks_and_boundary(rows, position)
+        trough = rows.at[position, "trough_month"]
+        runs.append(
+            find_dry_run(
+                frame,
+                None if pd.isna(trough) else pd.Timestamp(trough),
+                noise_pp=noise_pp,
+                amplitude_pp=amplitude_pp,
+                previous_peak=previous_peak,
+                next_peak=next_peak,
+            )
+        )
+        next_boundaries.append(next_boundary)
+
+    # Boundaries only move later, and a move shortens the following cycle from
+    # its start. Moving the last boundary first means each following cycle
+    # already ends where it finally will, so a move is never refused for
+    # coverage that a later move would have restored.
+    outcomes: list[str] = [""] * len(runs)
+    shifts: list[int | None] = [None] * len(runs)
+    for position in reversed(range(len(runs))):
+        run = runs[position]
+        if run.end_status == "unavailable":
+            outcomes[position] = "unavailable"
+            continue
+        boundary = pd.Timestamp(rows.at[position, "trough_month"])
+        shifts[position] = 0
+        if run.end <= boundary:
+            outcomes[position] = "at_run_end"
+            continue
+        next_boundary = next_boundaries[position]
+        if next_boundary is not None and run.end >= next_boundary:
+            outcomes[position] = "kept_run_spans_next_boundary"
+            continue
+        outcomes[position] = _move_boundary_to_run_end(
+            frame, rows, working, position, run, config, pattern,
+            amplitude_pp=amplitude_pp,
+            noise_pp=noise_pp,
+            peak_invalid_climatology=peak_invalid_climatology,
+            pixel_support_status=pixel_support_status,
+        )
+        if outcomes[position] == "moved":
+            shifts[position] = _month_delta(run.end, boundary)
+
+    # Grade each moved boundary last: a later move rebuilds the cycle that ends
+    # at the previous boundary, which would otherwise reset its trough label.
+    for position, outcome in enumerate(outcomes):
+        if outcome != "moved":
+            continue
+        cycle = rows.iloc[position].to_dict()
+        _timing_from_dry_end(cycle, runs[position])
+        _restatus_cycle(
+            cycle,
+            frame,
+            boundary_confirmed=working.at[position, "boundary_status"] == "confirmed",
+            used_record_start=position == 0,
+        )
+        _never_upgrade(cycle, original.iloc[position])
+        for column in ("trough_timing_status", "trough_interval_start", "trough_interval_end",
+                       "timing_status", "boundary_status", "status", "status_reason", "confidence"):
+            _set_cell(rows, position, column, cycle[column])
+
+    for position, (run, outcome, shift) in enumerate(zip(runs, outcomes, shifts, strict=True)):
+        values = {
+            "dry_run_start_month": run.start if run.start is not None else pd.NaT,
+            "dry_run_end_month": run.end if run.end is not None else pd.NaT,
+            "rewetting_month": run.rewetting if run.rewetting is not None else pd.NaT,
+            "dry_run_months": run.months if run.months is not None else np.nan,
+            "dry_end_status": run.end_status,
+            "dry_run_boundary_status": outcome,
+            "boundary_shift_months": shift if shift is not None else np.nan,
+        }
+        for column, value in values.items():
+            _set_cell(rows, position, column, value)
+    for column in ("dry_run_start_month", "dry_run_end_month", "rewetting_month"):
+        rows[column] = pd.to_datetime(rows[column])
+    for column in ("dry_run_months", "boundary_shift_months"):
+        rows[column] = pd.to_numeric(rows[column])
     return rows.loc[:, ANNUAL_COLUMNS]
+
+
+def _move_boundary_to_run_end(
+    frame: pd.DataFrame,
+    rows: pd.DataFrame,
+    working: pd.DataFrame,
+    position: int,
+    run: DryRun,
+    config: DynamicHydroYearConfig,
+    pattern: SeasonalPatternResult | None,
+    *,
+    amplitude_pp: float,
+    noise_pp: float,
+    peak_invalid_climatology: pd.Series,
+    pixel_support_status: PixelSupportStatus,
+) -> str:
+    """Move one boundary atomically with its two cycles, or leave it."""
+    end = pd.Timestamp(run.end)
+    if not _strictly_ordered_boundaries(working, position=position, boundary=end):
+        return "kept_out_of_order"
+    if position == 0:
+        previous = working.iloc[position].copy()
+        previous["trough_month"] = frame.index.min() - pd.DateOffset(months=1)
+        used_record_start = True
+    else:
+        previous = working.iloc[position - 1]
+        used_record_start = False
+    if pd.isna(previous["trough_month"]):
+        return "kept_no_previous_boundary"
+
+    changed = working.iloc[position].copy()
+    observed = frame.loc[end]
+    changed["trough_month"] = end
+    changed["trough_extent_pct"] = float(observed["extent_pct"])
+    changed["trough_invalid_pct"] = (
+        float(observed["invalid_pct"]) if pd.notna(observed["invalid_pct"]) else np.nan
+    )
+    expected = pd.Timestamp(int(changed["hy_year"]), config.expected_trough_month, 1)
+    changed["phase_shift_months"] = _month_delta(end, expected)
+
+    shared = dict(
+        config=config,
+        pattern=pattern,
+        amplitude_pp=amplitude_pp,
+        noise_pp=noise_pp,
+        peak_invalid_climatology=peak_invalid_climatology,
+        pixel_support_status=pixel_support_status,
+    )
+    before_current = rows.iloc[position]
+    current = _assemble_dynamic_cycle(
+        frame, previous, changed,
+        min_usable_months=_minimum_usable_for_row(before_current, config),
+        used_record_start=used_record_start,
+        **shared,
+    )
+    cycles = [(position, current, before_current)]
+    if position + 1 < len(rows) and pd.notna(working.iloc[position + 1]["trough_month"]):
+        before_following = rows.iloc[position + 1]
+        following = _assemble_dynamic_cycle(
+            frame, changed, working.iloc[position + 1],
+            min_usable_months=_minimum_usable_for_row(before_following, config),
+            used_record_start=False,
+            **shared,
+        )
+        cycles.append((position + 1, following, before_following))
+
+    # Only the peak month is held fixed. The peak's selection support and
+    # timing evidence are measured over the cycle window, so they can shift
+    # when the window gains or loses dry months; those shifts are reported,
+    # not grounds to keep the boundary.
+    for _, candidate, before in cycles:
+        if (
+            candidate["status_reason"] == "insufficient_cycle_coverage"
+            and before["status_reason"] != "insufficient_cycle_coverage"
+        ):
+            return "kept_coverage_lost"
+        if not _scalar_equal(candidate["peak_month"], before["peak_month"]):
+            return "kept_peak_changed"
+
+    for target, candidate, before in cycles:
+        _preserve_refinement_columns(candidate, before)
+        applied = before["trough_refinement_applied"]
+        if pd.notna(applied) and bool(applied):
+            # The refinement counted the pulses between the two peaks around
+            # this cycle's trough; the peaks have not moved, so neither have they.
+            for column in ("n_rewetting_pulses", "secondary_peak_month", "secondary_peak_extent_pct"):
+                candidate[column] = before[column]
+        if target != position:
+            # The following cycle's own boundary has not moved: it keeps its
+            # trough label, and its status follows its (possibly new) peak label.
+            for column in ("trough_timing_status", "trough_interval_start", "trough_interval_end"):
+                candidate[column] = before[column]
+            peak_status = candidate["peak_timing_status"]
+            trough_status = candidate["trough_timing_status"]
+            candidate["timing_status"] = _aggregate_timing_status(
+                peak_status if peak_status in _TIMING_STATUS_RANK else "unresolved",
+                trough_status if trough_status in _TIMING_STATUS_RANK else "unresolved",
+            )
+            _restatus_cycle(
+                candidate,
+                frame,
+                boundary_confirmed=working.at[target, "boundary_status"] == "confirmed",
+                used_record_start=False,
+            )
+        _never_upgrade(candidate, before)
+        for column, value in candidate.items():
+            if column in rows.columns and column not in _DRY_RUN_COLUMNS:
+                _set_cell(rows, target, column, value)
+    working.iloc[position] = changed
+    return "moved"
