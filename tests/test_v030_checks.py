@@ -116,3 +116,27 @@ def test_validation_receipt_evidence_is_current():
         assert name in evidence, name
     for name, entry in evidence.items():
         assert entry["sha256_lf"] == _lf_sha256(Path(entry["path"])), name
+
+
+def test_fitzroy_tile_results_match_the_note():
+    result = _load(HANDOFF / "2026-11-05-v0.3.0-fitzroy-tiles.json")
+    identity = _load(HANDOFF / "2026-11-05-v0.3.0-fitzroy-tiles-identity.json")
+    assert result["unexpected"] == {}
+    assert all(v == {} for k, v in identity.items() if not k.startswith("_"))
+    assert sum(1 for k in identity if not k.startswith("_")) == 40
+    production, counts = result["summary"]["production"], result["summary"]["counts"]
+    assert (production["tiles"], production["tile_years"], counts["tiles"], counts["tile_years"]) == (40, 1600, 41, 1640)
+    doc = " ".join((HANDOFF / "2026-11-05-v0.3.0-fitzroy-tiles.md").read_text(encoding="utf-8").split())
+    rows = {
+        "Failing tile-years": ("fails_before", "fails_after"),
+        "Cycles anchoring the condition baseline": ("baseline_eligible_before", "baseline_eligible_after"),
+        "Tiles with condition labels": ("tiles_with_labels_before", "tiles_with_labels_after"),
+        "Labelled tile-years": ("labelled_years_before", "labelled_years_after"),
+    }
+    for label, (before, after) in rows.items():
+        text = (f"| {label} | {production[before]:,} → {production[after]:,} | "
+                f"{counts[before]:,} → {counts[after]:,} |")
+        assert text in doc, text
+    assert (f"| Earlier labels that change | {production['label_changed_where_both']} of "
+            f"{production['labelled_both']} | {counts['label_changed_where_both']} of {counts['labelled_both']} |") in doc
+    assert (f"| hydropools end-dry clock moves | {production['clock_changes']} | {counts['clock_changes']} |") in doc

@@ -39,7 +39,8 @@ All notable changes to HydroSeason are documented here. This project follows
   - The method fingerprint now covers the timing-identifiability gates, the
     condition-baseline rule and the trough-label rule.
 - **Migration:** trough timing labels, `baseline_eligible`, `baseline_n`, the
-  percentiles and the condition labels can differ from 0.2.x. Compare files
+  percentiles and the condition labels can differ from 0.2.x, and so can the
+  monthly `phase` and `phase_status` in years whose timing label changes. Compare files
   across versions only on unchanged columns, and use `method_policy_id` or the
   fingerprint to tell them apart. See "Changes from hydroseason-v0.2.0" in the
   Methods Reference.

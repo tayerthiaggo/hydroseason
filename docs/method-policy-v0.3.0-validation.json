@@ -70,6 +70,18 @@
     "implementation_checks": {
       "path": "docs/handoff/2026-11-04-v0.3.0-implementation-checks.md",
       "sha256_lf": "314259cbfa3999c744559123aed3dbecfaf95f359ee6e72bc40384eb99da995e"
+    },
+    "fitzroy_tiles_results": {
+      "path": "docs/handoff/2026-11-05-v0.3.0-fitzroy-tiles.json",
+      "sha256_lf": "c99433ef800f5b9c0cc5b990cb4028a5b0e1da703d497c37c62e2a36153477c6"
+    },
+    "fitzroy_tiles_identity": {
+      "path": "docs/handoff/2026-11-05-v0.3.0-fitzroy-tiles-identity.json",
+      "sha256_lf": "386c0335d8c838372c48694b3b6091631b3ac4c7e9c2e3a3d0e4bd95905f2b64"
+    },
+    "fitzroy_tiles_note": {
+      "path": "docs/handoff/2026-11-05-v0.3.0-fitzroy-tiles.md",
+      "sha256_lf": "6e16ba452e4f27062f8fc3c36c3620755615a3d7c50708e83f97f095ddd8acd9"
     }
   },
   "validation_environment": {
