@@ -21,7 +21,7 @@ DE1 asks one question: **is the end of the low run a more accurate end of the dr
 
 All quantities come from the library's own monthly frame (`prepare_monthly_extent`) and tolerance (`_epsilon_pp` at the boundary month), as in `scripts/dry_run_end_exploratory.py`.
 
-- **Observed month:** extent present and `invalid_pct` at most `max_invalid_pct` (20), the library's usable rule. Other months are unobserved: they neither extend nor end a run.
+- **Observed month:** extent present and `invalid_pct` at most `max_invalid_pct` (20): the library's `quality_state == "usable"`. (Under the `flag` policy the library's own trough search also admits cloudier months; choice 1 below keeps them out of the run.) Other months are unobserved: they neither extend nor end a run.
 - **Low run of a boundary t:** starting at t, with level L = extent at t and tolerance ε, the observed months on either side whose extent is at most L + ε, continuing over unobserved months, until the first observed month above L + ε on each side.
 - **Run end e** (end of the dry season): the last observed month of the run after t. **Re-wetting month w:** the first observed month above L + ε after e.
 - **Run start s:** the first observed month of the run before t.
@@ -35,7 +35,7 @@ Mid-dry rain pulses end the run: a zero-flow period ends when flow resumes (Snel
 - **Known answer.** Every season's onset is set before any method sees the record.
 - **Not referenced to gauges.** The truth is the generator's water extent, not flow.
 - **Fresh records.** No seed overlaps G2, L1, L2/R1 or B2.
-- **Library untouched.** One run of the current library (`hydroseason-v0.3.0`) per record. The current end of dry is its boundary; the candidate's is computed from the same run. The scorer reproduces the library's within-window `low_run_start_month`/`low_run_end_month` on every cycle before extending them.
+- **Library untouched.** One run of the current library (`hydroseason-v0.3.0`) per record. The current end of dry is its boundary; the candidate's is computed from the same run, with the library's frame and tolerance.
 - **Default is no change.**
 
 ## Records
@@ -85,6 +85,7 @@ The same seasons injected into G2's 287 real flat half-series. As in G2, the pea
   - `sine`: G2's boundary truth, month m or m + 1.
 - **Pairs.** A reported boundary t is scored when it is the last reported boundary before a reported peak p.
   - Its truth is the latest true end of the dry season before p.
+  - For `ephemeral`, a pair is scored only when p falls inside a true wet season (its onset to its tail, at most four months). A mid-dry pulse or noise read as a year's peak, which happens in years with no wet season, is reported, not scored: its nearest truth belongs to another season, so both dates are wrong by construction.
   - The current date is t; the candidate date is e.
   - Both are scored against the same truth, and p is the same for both, because the candidate moves no peak.
 - **Correct:** within one month of the truth.
@@ -123,9 +124,9 @@ Differences are candidate minus current, with 95% bootstrap intervals over recor
 2. **Construction.** Noise-free, cloud-free `ephemeral` records:
    - the candidate's end equals the truth in every wet year without a mid-dry pulse;
    - the current boundary's months are recorded, to show the tie-break in the generator.
-3. **Scorer identity.** On the pilot, the scorer's within-window runs equal the library's `low_run_start_month`/`low_run_end_month` on every cycle.
+3. **Run-end code.** Hand-built series give the expected run end, re-wetting month and status for a flat run, a cloud-hidden month, a mid-dry pulse and a record that ends dry. On the pilot, the candidate's run end is reported against the library's within-window run end; they differ by design where a cloudy month or the window edge cuts the library's run.
 4. **Pilot.** 280 records, once. Only run times, pair counts and the share of cycles whose boundary lies before its run end are looked at; the last confirms the generator reproduces the behaviour seen on the Fitzroy tiles.
-5. **Freeze.** A receipt records the SHA-256 of this plan, the DE1 script and the G2, L1 and L2/R1 scripts it imports, the seed ranges and the library fingerprint.
+5. **Freeze.** A receipt records the SHA-256 of this plan, the DE1 script and the G2 and G1 scripts it imports, the seed ranges and the library fingerprint.
 
 The run is about 3,150 records, one library run each, comparable to B2 (3 h on a shared machine).
 
@@ -163,4 +164,9 @@ The lead confirmed every recommended option.
 4. **Margins:** rule 2 at −0.05 (as B2) and rule 3 at 0.05 (the 0.2.0 safety rule).
 5. **The `ephemeral` generator and the set sizes** as above.
 
-Added after confirmation, before the freeze: the section on the interaction with `hydroseason-v0.3.0` and the matching reported measure. Neither changes a decision rule.
+Added after confirmation, before the freeze, none of which changes a decision rule:
+- the section on the interaction with `hydroseason-v0.3.0` and the matching reported measure;
+- the observed-month wording, stating that choice 1 is stricter than the library's own `flag` search;
+- pairs whose reported peak lies outside every true wet season are reported, not scored (found by the construction check: in a noise-free year with no wet season the library read a mid-dry pulse as the peak);
+- check 3 rewritten: the scorer's run is the candidate's own definition, so it is checked on hand-built series rather than against the library's window-cut run;
+- the receipt names the scripts DE1 actually imports (G2 and G1).
