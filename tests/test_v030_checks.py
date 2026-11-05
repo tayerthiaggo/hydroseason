@@ -5,7 +5,6 @@ import hashlib
 import json
 from pathlib import Path
 
-from hydroseason._method_policy import method_policy_fingerprint
 
 HANDOFF = Path("docs/handoff")
 DOC = HANDOFF / "2026-11-04-v0.3.0-implementation-checks.md"
@@ -14,6 +13,7 @@ REAL = HANDOFF / "2026-11-04-v0.3.0-real-record-check.json"
 OLD_REAL = HANDOFF / "2026-11-03-real-record-impact-results.json"
 SIMULATION = HANDOFF / "2026-11-04-v0.3.0-label-fix-impact.json"
 RESCORE = HANDOFF / "2026-11-04-v0.3.0-known-truth-rescore.json"
+FINGERPRINT_BEFORE_DRY_RUN = "4d11d348a745e980d25b933c3f51fe90e7b5931e856223b597c9d5e3566db578"
 
 
 def _lf_sha256(path: Path) -> str:
@@ -51,7 +51,8 @@ def test_case_studies_change_only_the_baseline():
 def test_real_record_rerun_meets_the_proposal_criteria():
     result = _load(REAL)
     assert result["script_sha256_lf"] == _lf_sha256(Path("scripts/v030_real_record_check.py"))
-    assert result["policies"] == [["hydroseason-v0.3.0", method_policy_fingerprint(), 4468]]
+    # The rerun predates the reported dry run (DE1 change A), which later joined the manifest.
+    assert result["policies"] == [["hydroseason-v0.3.0", FINGERPRINT_BEFORE_DRY_RUN, 4468]]
     assert result["records"] == 4468 and result["errors"] == []
     assert result["route_changes"] == [] and result["cycle_count_changes"] == []
     assert result["unexpected_changed_fields"] == {}

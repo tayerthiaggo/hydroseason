@@ -207,7 +207,7 @@ input and output checksums. Abridged:
   "python": "3.12.13",
   "method": {
     "policy_id": "hydroseason-v0.3.0",
-    "fingerprint": "4d11d348a745e980d25b933c3f51fe90e7b5931e856223b597c9d5e3566db578"
+    "fingerprint": "aba922a9eac29cea8498a30794110c80de340b0f6a2fb76d64f60f93855aeb66"
   },
   "input": {
     "date_min": "2005-01-01",

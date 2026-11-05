@@ -1,17 +1,18 @@
 {
   "release_decision": "pass",
   "method_policy_id": "hydroseason-v0.3.0",
-  "method_fingerprint": "4d11d348a745e980d25b933c3f51fe90e7b5931e856223b597c9d5e3566db578",
-  "method_manifest_sha256": "8a63d4a43fadb91d8559b8b1db96ccb424ab84797f3eff07a25f2cd802db8ca8",
+  "method_fingerprint": "aba922a9eac29cea8498a30794110c80de340b0f6a2fb76d64f60f93855aeb66",
+  "method_manifest_sha256": "c1af54955272652b127f3b856dc57406f1bfca7df598b1e863acd6ee24a4bc43",
   "supersedes": {
     "method_policy_id": "hydroseason-v0.2.0",
     "method_fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
   },
-  "approved": "2026-11-04, by the project lead, on the 0.3.0 proposal and the B2 result",
+  "approved": "2026-11-04, by the project lead, on the 0.3.0 proposal and the B2 result; change D added 2026-11-05 on the lead's approval of DE1 route A + B (B withdrawn after its implementation checks, 2026-11-06, pending the lead's review)",
   "changes": {
     "A": "the manifest pins the timing-identifiability gates, the condition-baseline rule and the trough-label rule",
     "B": "trough timing label widened to cover the trough boundary (covers_trough_boundary, version 1)",
-    "C": "point, interval and broad cycles may anchor the condition baseline"
+    "C": "point, interval and broad cycles may anchor the condition baseline",
+    "D": "each cycle reports the dry run of its trough boundary (report_dry_run, version 1); boundaries unchanged"
   },
   "unchanged_validation": "docs/method-policy-v0.2.0-validation.json covers every part of the method that v0.3.0 keeps unchanged",
   "evidence_sha256_lf": {
@@ -82,10 +83,53 @@
     "fitzroy_tiles_note": {
       "path": "docs/handoff/2026-11-05-v0.3.0-fitzroy-tiles.md",
       "sha256_lf": "6e16ba452e4f27062f8fc3c36c3620755615a3d7c50708e83f97f095ddd8acd9"
+    },
+    "de1_plan": {
+      "path": "docs/handoff/2026-11-05-de1-dry-run-end-plan.md",
+      "sha256_lf": "95d560999d9bf48fdebe8e28add76f26fff56406353356d204d75b4c41520a74"
+    },
+    "de1_receipt": {
+      "path": "docs/handoff/2026-11-05-de1-dry-run-end-receipt.json",
+      "sha256_lf": "94f290058e28b2a26f01ac7cb4fbc42ebf0f22a37d23c0f2c26039de7c2bd1fa"
+    },
+    "de1_results": {
+      "path": "docs/handoff/2026-11-05-de1-dry-run-end-results.json",
+      "sha256_lf": "98e581f25f6d3f1921a925e466242d0e563c4a91feb2038b8b888727a50e3cb1"
+    },
+    "de1_extras": {
+      "path": "docs/handoff/2026-11-05-de1-dry-run-end-extras.json",
+      "sha256_lf": "9277bb6ec8f152455b8d73db6ff21e51fb48d7c0f204c42f5699fe549a9abbf0"
+    },
+    "de1_real_records": {
+      "path": "docs/handoff/2026-11-05-de1-dry-run-end-real-records.json",
+      "sha256_lf": "337caf13b3a8bcca529543adb86174c6f05079f6107592a259d0af56af992384"
+    },
+    "dry_run_implementation_checks": {
+      "path": "docs/handoff/2026-11-06-dry-run-end-implementation-checks.json",
+      "sha256_lf": "c9901c35216ce5dc13ddc146b998ab64ad7362c2f87ee6a4fc80b72b929111ae"
+    },
+    "dry_run_b_checks": {
+      "path": "docs/handoff/2026-11-06-dry-run-end-b-checks.json",
+      "sha256_lf": "4ade15796150703a92c371138524dc1dce29dae5997d19dc185101014b667f28"
+    },
+    "dry_run_implementation": {
+      "path": "docs/handoff/2026-11-06-dry-run-end-implementation.md",
+      "sha256_lf": "3953122e9942df13e1ac296362208908bc165f07c09efaf173a6327c67adbb9e"
     }
   },
   "validation_environment": {
     "python_version": "3.12.13",
     "os": "windows"
-  }
+  },
+  "fingerprint_history": [
+    {
+      "method_fingerprint": "4d11d348a745e980d25b933c3f51fe90e7b5931e856223b597c9d5e3566db578",
+      "changes": [
+        "A",
+        "B",
+        "C"
+      ],
+      "note": "the 0.3.0 implementation checks and the Fitzroy tile run used this fingerprint"
+    }
+  ]
 }

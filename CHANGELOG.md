@@ -25,7 +25,7 @@ All notable changes to HydroSeason are documented here. This project follows
 ### Changed
 - **Method policy `hydroseason-v0.3.0`** replaces `hydroseason-v0.2.0`, so
   every output carries a new policy id and fingerprint. Boundaries, dates,
-  peaks, routes and cycle status are unchanged. Three changes:
+  peaks, routes and cycle status are unchanged. Four changes:
   - The trough timing label now covers the trough boundary. A label that
     singled out a different month (usually a cloudy month before the
     boundary) is widened to cover both and graded by its width, so some
@@ -37,7 +37,15 @@ All notable changes to HydroSeason are documented here. This project follows
     many areas get recharge and refuge labels, and some existing labels and
     percentiles shift.
   - The method fingerprint now covers the timing-identifiability gates, the
-    condition-baseline rule and the trough-label rule.
+    condition-baseline rule, the trough-label rule and the dry-run rule.
+  - Each cycle reports where its dry season ends: `dry_run_start_month`,
+    `dry_run_end_month`, `rewetting_month`, `dry_run_months` and
+    `dry_end_status` on `analysis.hydro_years` (`dry_run_start_date`,
+    `dry_run_end_date`, `rewetting_date`, `dry_run_months` and
+    `dry_end_status` in the hydro-years CSV). On a flat-bottomed trough the
+    boundary can sit months before the dry season ends; the run end is the
+    better date for it. The boundary does not move, and no existing column
+    changes. `dry_end_status` is `interval` or `censored`, never `point`.
 - **Migration:** trough timing labels, `baseline_eligible`, `baseline_n`, the
   percentiles and the condition labels can differ from 0.2.x, and so can the
   monthly `phase` and `phase_status` in years whose timing label changes. Compare files

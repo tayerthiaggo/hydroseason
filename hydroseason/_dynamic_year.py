@@ -16,6 +16,7 @@ from ._boundary import (
     select_cycle_peak,
     select_window_minimum,
 )
+from ._dry_run import DryRun, find_dry_run
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
     LegacyPhaseModel,
@@ -443,6 +444,8 @@ ANNUAL_COLUMNS = [
     "trough_local_scale_pp", "trough_profile_best_loss",
     "trough_profile_cutoff", "trough_effective_support",
     "trough_pulse_months", "trough_refinement_policy_version", "trough_loss_basis",
+    "dry_run_start_month", "dry_run_end_month", "rewetting_month", "dry_run_months",
+    "dry_end_status",
 ]
 
 
@@ -608,7 +611,8 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         config,
         pattern,
     )
-    return _reconcile_trough_labels(result, config.timing_identifiability_thresholds)
+    result = _reconcile_trough_labels(result, config.timing_identifiability_thresholds)
+    return _report_dry_runs(frame, result)
 
 
 def _adaptive_retry_years(result: pd.DataFrame) -> set[int]:
@@ -1420,4 +1424,49 @@ def _apply_trough_refinement(
                 rows.at[position_, column] = value
         working_opportunities.iloc[position] = changed_opportunity
 
+    return rows.loc[:, ANNUAL_COLUMNS]
+
+
+_DRY_RUN_COLUMNS = (
+    "dry_run_start_month",
+    "dry_run_end_month",
+    "rewetting_month",
+    "dry_run_months",
+    "dry_end_status",
+)
+
+
+def _report_dry_runs(frame: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
+    """Report the dry run of each cycle's trough boundary (DE1 change A).
+
+    Reported only: no boundary, date, peak, label or status changes. The run
+    may continue past the next boundary when a year has no wet season, and it
+    stops at a cloudy reported peak of the next cycle (see ``find_dry_run``).
+    """
+    rows = rows.copy(deep=True).reset_index(drop=True)
+    amplitude_pp, noise_pp = robust_scale(frame)
+    runs: list[DryRun] = []
+    for position in range(len(rows)):
+        own = rows.at[position, "peak_month"]
+        next_peak = None
+        for later in range(position + 1, len(rows)):
+            if pd.notna(rows.at[later, "peak_month"]):
+                next_peak = pd.Timestamp(rows.at[later, "peak_month"])
+                break
+        trough = rows.at[position, "trough_month"]
+        runs.append(
+            find_dry_run(
+                frame,
+                None if pd.isna(trough) else pd.Timestamp(trough),
+                noise_pp=noise_pp,
+                amplitude_pp=amplitude_pp,
+                previous_peak=pd.Timestamp(own) if pd.notna(own) else None,
+                next_peak=next_peak,
+            )
+        )
+    rows["dry_run_start_month"] = pd.to_datetime([r.start for r in runs])
+    rows["dry_run_end_month"] = pd.to_datetime([r.end for r in runs])
+    rows["rewetting_month"] = pd.to_datetime([r.rewetting for r in runs])
+    rows["dry_run_months"] = pd.array([r.months for r in runs], dtype="Int64")
+    rows["dry_end_status"] = [r.end_status for r in runs]
     return rows.loc[:, ANNUAL_COLUMNS]

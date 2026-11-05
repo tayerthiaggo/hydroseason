@@ -394,8 +394,8 @@ In practice:
 
 ## Dates around the dry-season low
 
-The hydrological-years table gives two dates around the dry-season low, and
-both come from the same boundary.
+The hydrological-years table gives three dates around the dry-season low.
+The first two come from the same boundary.
 
 - `trough_boundary_date` is the cycle boundary that the trough method places
   at the end of the dry-season low; [Dynamic Hydrological State](hydrological-state.md)
@@ -405,6 +405,14 @@ both come from the same boundary.
 - The **following year's `start_date`** is the month after that boundary. It
   is always `trough_boundary_date` plus one month, except for the first year
   of the record and a year that starts after a gap.
+- `dry_run_end_date` is where the dry season ends: the last month of the
+  boundary's low run, before water returns in `rewetting_date`. On a
+  flat-bottomed trough, such as an ephemeral channel that stays dry for most
+  of the year, the boundary search picks a month near the typical trough
+  month, often months before the run ends; the run end is the better date
+  for the end of the dry season. The boundary itself, and so the
+  hydrological year, does not move. `dry_end_status` is `interval` or
+  `censored`, never `point`.
 
 Because both dates come from one boundary, they vary across a catchment in
 the same way. In the five case-study catchments a quarter of level-7
