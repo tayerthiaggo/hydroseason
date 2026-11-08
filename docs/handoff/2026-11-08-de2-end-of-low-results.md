@@ -86,3 +86,19 @@ The rules pass, so R1 and R2 go forward by the reading. R1 is what improves the 
 - The `ephemeral` generator was designed after seeing Fitzroy tiles 05 and 13.
 - R1's tenth of the range and R2's conditions were chosen while exploring the tiles.
 - Not accuracy for real places, and not referenced to gauges.
+
+## Follow-up: revised R2 (post hoc, 2026-11-08)
+
+After reading these results the lead chose to revise R2 before the implementation checks. The revised label runs from the run end to the month before the next peak and is graded by width (`interval` up to two months apart, `broad` up to five, never `point`); a span wider than that leaves the label as it was. R1 is unchanged (commit `128c771`, fingerprint `59756dfe895f…`).
+
+[`scripts/de2_r2_revised_check.py`](../../scripts/de2_r2_revised_check.py) reran the frozen corpus under the revised candidate and scored it with DE2's frozen functions against the same current-library runs ([2026-11-08-de2-r2-revised-check.json](2026-11-08-de2-r2-revised-check.json)). **This is a post-hoc check, not a pre-registered test.**
+
+| | Arm S | Arm I |
+| --- | --- | --- |
+| Rule 1, `ephemeral` | +0.038 [+0.033, +0.044] | +0.019 [+0.013, +0.025] |
+| Rule 2, `sine` | +0.002 [−0.006, +0.010] | +0.003 [−0.007, +0.015] |
+| Rule 3, `pulse` | +0.018 [+0.011, +0.026] | +0.014 [+0.004, +0.027] |
+| R2 labels with the true end within a month | 1,371 of 1,747 (0.785) | 328 of 430 (0.763) |
+| R2 labels `interval` / `broad` | 1,009 / 738 | 344 / 86 |
+
+The rules give the same results as before (R2 changes labels, not boundaries; one ephemeral record in arm S changes route). The reviewed gates pass. The revised labels hold the true end within a month about three times in four in both arms, against 0.284 and 0.606 for DE2's R2. The revised candidate goes to the implementation checks.
