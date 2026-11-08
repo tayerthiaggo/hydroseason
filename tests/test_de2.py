@@ -51,3 +51,43 @@ def test_receipt_froze_the_plan_the_script_and_the_candidate():
         assert receipt["checks"][name]["identity_failures"] == []
         assert receipt["checks"][name]["construction_true_ends"] == 206
     assert (receipt["checks"]["candidate"]["construction_within_1"], receipt["checks"]["current"]["construction_within_1"]) == (177, 79)
+
+
+RESULTS = HANDOFF / "2026-11-08-de2-end-of-low-results.json"
+RESULTS_DOC = HANDOFF / "2026-11-08-de2-end-of-low-results.md"
+EXTRAS = HANDOFF / "2026-11-08-de2-end-of-low-extras.json"
+
+
+@pytest.mark.skipif(not RESULTS.exists(), reason="DE2 not scored yet")
+def test_results_cite_the_receipt_and_record_the_reading():
+    results = json.loads(RESULTS.read_text(encoding="utf-8"))
+    receipt = json.loads(RECEIPT.read_text(encoding="utf-8"))
+    assert results["receipt_sha256_lf"] == _lf_sha256(RECEIPT)
+    assert results["script_sha256_lf"] == _lf_sha256(SCRIPT)
+    assert results["records"] == 3148
+    assert results["errors"] == {"current": [], "candidate": []}
+    assert results["fingerprints"] == {"current": [receipt["current_fingerprint"]],
+                                       "candidate": [receipt["candidate_fingerprint"]]}
+    assert results["decision"] == "R1 and R2 go to the implementation checks"
+    assert results["rule_4_reviewed_gates"]["passed"] is True
+    for arm in ("S", "I"):
+        assert all(results["rules"][arm][r]["outcome"] == "holds" for r in ("rule_1", "rule_2", "rule_3"))
+
+
+@pytest.mark.skipif(not RESULTS.exists(), reason="DE2 not scored yet")
+def test_results_doc_matches_the_scorer():
+    results = json.loads(RESULTS.read_text(encoding="utf-8"))
+    extras = json.loads(EXTRAS.read_text(encoding="utf-8"))
+    assert extras["results_sha256_lf"] == _lf_sha256(RESULTS)
+    doc = " ".join(RESULTS_DOC.read_text(encoding="utf-8").split())
+    assert results["receipt_sha256_lf"] in doc
+    for arm in ("S", "I"):
+        for name in ("rule_1", "rule_2", "rule_3"):
+            rule = results["rules"][arm][name]
+            text = (f"{rule['difference']:+.3f} [{rule['ci95'][0]:+.3f}, {rule['ci95'][1]:+.3f}]").replace("-", "−")
+            assert text in doc, (arm, name, text)
+        r2 = extras["r2_ephemeral_labels"][arm]
+        assert f"{r2['covered']:,} of {r2['labels']:,}" in doc
+    tiles = extras["fitzroy_tiles"]
+    assert (tiles["late3_before"], tiles["late3_after"]) == (251, 104)
+    assert tiles["tiles_routed_to_events"] == []
