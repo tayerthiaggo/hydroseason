@@ -1234,6 +1234,76 @@ def _preserve_refinement_columns(candidate: dict, previous: pd.Series) -> None:
     candidate["retry_outcome"] = previous["retry_outcome"]
 
 
+def _adopt_refinement(
+    candidate: dict,
+    refinement: TroughRefinementResult,
+    frame: pd.DataFrame,
+    config: DynamicHydroYearConfig,
+) -> None:
+    """Write an accepted refinement's trough label, status and pulses onto its cycle."""
+    # The adopted interval must never claim a month past the adopted
+    # boundary: a later month in `boundary_candidates` can be a
+    # genuinely plausible (but not the near-exact-tied) endpoint --
+    # that is what makes it a candidate at all -- but once that month
+    # belongs to the *next* cycle everywhere else in the report (peaks,
+    # phase, wet-season classification), reporting it as still part of
+    # this cycle's uncertainty interval contradicts the rest of the
+    # export for the same calendar month. Clip to the adopted boundary;
+    # the full, unclipped cluster remains available via
+    # `trough_challenger_interval_end` for audit.
+    adopted_candidates = tuple(
+        date for date in refinement.boundary_candidates if date <= refinement.boundary
+    )
+    candidate["trough_interval_start"] = adopted_candidates[0]
+    candidate["trough_interval_end"] = adopted_candidates[-1]
+    candidate["trough_timing_status"] = _candidate_timing_status(
+        adopted_candidates, config.timing_identifiability_thresholds
+    )
+    peak_status = candidate["peak_timing_status"]
+    candidate["timing_status"] = _aggregate_timing_status(
+        peak_status if peak_status in _TIMING_STATUS_RANK else "unresolved",
+        candidate["trough_timing_status"],
+    )
+    if (
+        candidate.get("boundary_status") == "confirmed"
+        and refinement.status != "confirmed"
+    ):
+        candidate["boundary_status"] = "provisional"
+        candidate["status"] = "partial"
+        if candidate.get("status_reason") == "ok":
+            candidate["status_reason"] = "boundary_provisional"
+    candidate["n_rewetting_pulses"] = len(refinement.pulse_months)
+    if refinement.pulse_months:
+        strongest = max(
+            refinement.pulse_months,
+            key=lambda month: float(frame.loc[month, "extent_pct"]),
+        )
+        candidate["secondary_peak_month"] = strongest
+        candidate["secondary_peak_extent_pct"] = float(
+            frame.loc[strongest, "extent_pct"]
+        )
+    candidate["trough_refinement_applied"] = True
+
+
+def _write_cycle(rows: pd.DataFrame, position: int, candidate: dict) -> None:
+    # Per-cell assignment, widening a column to object first only if it
+    # cannot already hold a Timestamp: a column that was all-`np.nan` in
+    # `rows` up to this point (e.g. every cycle so far had no secondary
+    # peak) is float64-typed, and pandas' strict dtype checking refuses
+    # to write a real Timestamp into a float64 cell/column rather than
+    # silently upcasting it. A `datetime64` column already holds
+    # Timestamps natively and must NOT be widened -- doing so turns
+    # every date in that column into an object-dtype value that renders
+    # as a full ISO timestamp instead of a plain date downstream.
+    for column, value in candidate.items():
+        if isinstance(value, pd.Timestamp) and not (
+            pd.api.types.is_datetime64_any_dtype(rows[column])
+            or rows[column].dtype == object
+        ):
+            rows[column] = rows[column].astype(object)
+        rows.at[position, column] = value
+
+
 def _apply_trough_refinement(
     frame: pd.DataFrame,
     opportunities: pd.DataFrame,
@@ -1241,7 +1311,17 @@ def _apply_trough_refinement(
     config: DynamicHydroYearConfig,
     pattern: SeasonalPatternResult | None,
 ) -> pd.DataFrame:
-    """Apply each shared boundary only after atomic two-cycle recomputation."""
+    """Apply each shared boundary only after atomic two-cycle recomputation.
+
+    Boundaries are visited from the last to the first. A refined boundary
+    only ever replaces its pass-1 boundary within the span between two
+    peaks, and the check that admits it rebuilds the cycle before and the
+    cycle after. Visiting the last boundary first means the cycle after is
+    already in its final form, so a move is not refused because a later
+    boundary had not yet moved (on records whose every boundary sits months
+    before the end of the low state, one-at-a-time forward moves refused
+    each other all along the record).
+    """
     policy = TROUGH_REFINEMENT_POLICY
 
     frozen_rows = pass1_rows.copy(deep=True).reset_index(drop=True)
@@ -1252,8 +1332,16 @@ def _apply_trough_refinement(
         frame, fallback_pct=config.max_invalid_pct
     )
     pixel_support_status = _pixel_support_status(frame)
+    # What each visited boundary ended as, so that rebuilding its cycle as
+    # the "cycle after" of an earlier boundary can restore it.
+    outcomes: dict[int, TroughRefinementResult | None] = {}
+    marked: set[int] = set()
 
-    for position in range(len(rows)):
+    def fall_back(position: int) -> None:
+        _mark_pass1_fallback(rows, position)
+        marked.add(position)
+
+    for position in reversed(range(len(rows))):
         left_peak = _row_peak_boundary(frozen_rows.iloc[position])
         right_peak = (
             _row_peak_boundary(frozen_rows.iloc[position + 1])
@@ -1278,7 +1366,7 @@ def _apply_trough_refinement(
                     following, _minimum_usable_for_row(following, config)
                 )
             if adjacent_ok:
-                _mark_pass1_fallback(rows, position)
+                fall_back(position)
             continue
 
         boundary = pd.Timestamp(refinement.boundary)
@@ -1292,7 +1380,7 @@ def _apply_trough_refinement(
             )
         ):
             rows.at[position, "trough_refinement_reason"] = "atomic_rollback_ordering"
-            _mark_pass1_fallback(rows, position)
+            fall_back(position)
             continue
 
         changed_opportunity = _candidate_opportunity(
@@ -1309,7 +1397,7 @@ def _apply_trough_refinement(
             used_record_start = False
         if pd.isna(previous_opportunity["trough_month"]):
             rows.at[position, "trough_refinement_reason"] = "atomic_rollback_barrier"
-            _mark_pass1_fallback(rows, position)
+            fall_back(position)
             continue
 
         current_minimum = _minimum_usable_for_row(rows.iloc[position], config)
@@ -1343,9 +1431,10 @@ def _apply_trough_refinement(
         candidates = (current_candidate, following_candidate)
         frozen = (frozen_rows.iloc[position], frozen_rows.iloc[position + 1])
         minimums = (current_minimum, following_minimum)
+        # A peak whose timing was already unresolved stays unresolved; the
+        # unchanged-evidence test below is what guards the peaks.
         acceptable = all(
             pd.notna(candidate["peak_month"])
-            and candidate["peak_timing_status"] != "unresolved"
             and int(candidate["n_usable_months"]) >= minimum
             and candidate["status_reason"]
             not in {"insufficient_cycle_coverage", "no_previous_boundary"}
@@ -1356,73 +1445,21 @@ def _apply_trough_refinement(
         )
         if not acceptable:
             rows.at[position, "trough_refinement_reason"] = "atomic_rollback_cycle"
-            _mark_pass1_fallback(rows, position)
+            fall_back(position)
             continue
 
         _preserve_refinement_columns(current_candidate, rows.iloc[position])
         _preserve_refinement_columns(following_candidate, rows.iloc[position + 1])
-        # The adopted interval must never claim a month past the adopted
-        # boundary: a later month in `boundary_candidates` can be a
-        # genuinely plausible (but not the near-exact-tied) endpoint --
-        # that is what makes it a candidate at all -- but once that month
-        # belongs to the *next* cycle everywhere else in the report (peaks,
-        # phase, wet-season classification), reporting it as still part of
-        # this cycle's uncertainty interval contradicts the rest of the
-        # export for the same calendar month. Clip to the adopted boundary;
-        # the full, unclipped cluster remains available via
-        # `trough_challenger_interval_end` for audit.
-        adopted_candidates = tuple(
-            date for date in refinement.boundary_candidates if date <= refinement.boundary
-        )
-        current_candidate["trough_interval_start"] = adopted_candidates[0]
-        current_candidate["trough_interval_end"] = adopted_candidates[-1]
-        current_candidate["trough_timing_status"] = _candidate_timing_status(
-            adopted_candidates, config.timing_identifiability_thresholds
-        )
-        current_candidate["timing_status"] = _aggregate_timing_status(
-            current_candidate["peak_timing_status"],
-            current_candidate["trough_timing_status"],
-        )
-        if (
-            current_candidate.get("boundary_status") == "confirmed"
-            and refinement.status != "confirmed"
-        ):
-            current_candidate["boundary_status"] = "provisional"
-            current_candidate["status"] = "partial"
-            if current_candidate.get("status_reason") == "ok":
-                current_candidate["status_reason"] = "boundary_provisional"
-        current_candidate["n_rewetting_pulses"] = len(refinement.pulse_months)
-        if refinement.pulse_months:
-            strongest = max(
-                refinement.pulse_months,
-                key=lambda month: float(frame.loc[month, "extent_pct"]),
-            )
-            current_candidate["secondary_peak_month"] = strongest
-            current_candidate["secondary_peak_extent_pct"] = float(
-                frame.loc[strongest, "extent_pct"]
-            )
-        current_candidate["trough_refinement_applied"] = True
-
-        # Per-cell assignment, widening a column to object first only if it
-        # cannot already hold a Timestamp: a column that was all-`np.nan` in
-        # `rows` up to this point (e.g. every cycle so far had no secondary
-        # peak) is float64-typed, and pandas' strict dtype checking refuses
-        # to write a real Timestamp into a float64 cell/column rather than
-        # silently upcasting it. A `datetime64` column already holds
-        # Timestamps natively and must NOT be widened -- doing so turns
-        # every date in that column into an object-dtype value that renders
-        # as a full ISO timestamp instead of a plain date downstream.
-        for position_, candidate in (
-            (position, current_candidate), (position + 1, following_candidate)
-        ):
-            for column, value in candidate.items():
-                if isinstance(value, pd.Timestamp) and not (
-                    pd.api.types.is_datetime64_any_dtype(rows[column])
-                    or rows[column].dtype == object
-                ):
-                    rows[column] = rows[column].astype(object)
-                rows.at[position_, column] = value
+        _adopt_refinement(current_candidate, refinement, frame, config)
+        following_outcome = outcomes.get(position + 1)
+        if following_outcome is not None:
+            _adopt_refinement(following_candidate, following_outcome, frame, config)
+        _write_cycle(rows, position, current_candidate)
+        _write_cycle(rows, position + 1, following_candidate)
+        if following_outcome is None and position + 1 in marked:
+            _mark_pass1_fallback(rows, position + 1)
         working_opportunities.iloc[position] = changed_opportunity
+        outcomes[position] = refinement
 
     return rows.loc[:, ANNUAL_COLUMNS]
 
