@@ -24,8 +24,9 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ### Changed
 - **Method policy `hydroseason-v0.3.0`** replaces `hydroseason-v0.2.0`, so
-  every output carries a new policy id and fingerprint. Boundaries, dates,
-  peaks, routes and cycle status are unchanged. Four changes:
+  every output carries a new policy id and fingerprint. Five changes; the
+  first four leave boundaries, dates, peaks, routes and cycle status as they
+  were:
   - The trough timing label now covers the trough boundary. A label that
     singled out a different month (usually a cloudy month before the
     boundary) is widened to cover both and graded by its width, so some
@@ -44,12 +45,22 @@ All notable changes to HydroSeason are documented here. This project follows
     `dry_run_end_date`, `rewetting_date`, `dry_run_months` and
     `dry_end_status` in the hydro-years CSV). On a flat-bottomed trough the
     boundary can sit months before the dry season ends; the run end is the
-    better date for it. The boundary does not move, and no existing column
-    changes. `dry_end_status` is `interval` or `censored`, never `point`.
-    The report timeline marks it as "Dry Season Ends".
+    better date for it. `dry_end_status` is `interval` or `censored`, never
+    `point`. The report timeline marks it as "Dry Season Ends".
+  - The year boundary reaches the end of the dry season on records with a
+    flat low (the method's definition): the trough search is centred on the
+    end of the typical low instead of its first month, and a boundary at the
+    end of a dry, zero-extent low is dated from the run end to the month
+    before the next peak (`trough_label_basis` = `end_of_dry_run`; never
+    `point`). On ephemeral channels boundaries move months later, and with
+    them the years, phases and baselines; on the Fitzroy tiles years ending
+    three or more months before the dry season fall from 251 to 104. Whole
+    catchments and most subbasins are unchanged.
 - **Migration:** trough timing labels, `baseline_eligible`, `baseline_n`, the
   percentiles and the condition labels can differ from 0.2.x, and so can the
-  monthly `phase` and `phase_status` in years whose timing label changes. Compare files
+  monthly `phase` and `phase_status` in years whose timing label changes. On
+  records with a flat low the boundaries, year starts and ends, and some peaks
+  also move. Compare files
   across versions only on unchanged columns, and use `method_policy_id` or the
   fingerprint to tell them apart. See "Changes from hydroseason-v0.2.0" in the
   Methods Reference.

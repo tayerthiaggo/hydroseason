@@ -1,18 +1,19 @@
 {
   "release_decision": "pass",
   "method_policy_id": "hydroseason-v0.3.0",
-  "method_fingerprint": "aba922a9eac29cea8498a30794110c80de340b0f6a2fb76d64f60f93855aeb66",
-  "method_manifest_sha256": "c1af54955272652b127f3b856dc57406f1bfca7df598b1e863acd6ee24a4bc43",
+  "method_fingerprint": "59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65",
+  "method_manifest_sha256": "6e17c132d00bc0f4664043380ea8be3cf10ef7cf7fc1e1ed5dd62f6f254297e0",
   "supersedes": {
     "method_policy_id": "hydroseason-v0.2.0",
     "method_fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
   },
-  "approved": "2026-11-04, by the project lead, on the 0.3.0 proposal and the B2 result; change D added 2026-11-05 on the lead's approval of DE1 route A + B; B withdrawn after its implementation checks (2026-11-06) and A only confirmed by the lead on 2026-11-08",
+  "approved": "2026-11-04, by the project lead, on the 0.3.0 proposal and the B2 result; change D added 2026-11-05 on the lead's approval of DE1 route A + B; B withdrawn after its implementation checks (2026-11-06) and A only confirmed by the lead on 2026-11-08; change E pending the lead's approval of the DE2 implementation checks (2026-11-08)",
   "changes": {
     "A": "the manifest pins the timing-identifiability gates, the condition-baseline rule and the trough-label rule",
     "B": "trough timing label widened to cover the trough boundary (covers_trough_boundary, version 1)",
     "C": "point, interval and broad cycles may anchor the condition baseline",
-    "D": "each cycle reports the dry run of its trough boundary (report_dry_run, version 1); boundaries unchanged"
+    "D": "each cycle reports the dry run of its trough boundary (report_dry_run, version 1); boundaries unchanged",
+    "E": "the year boundary reaches the end of the dry season on flat lows: search anchor at the end of the typical low (end_of_climatological_low v1) and dry, zero-extent lows dated from the run end to the month before the next peak (zero_low_end_status v2)"
   },
   "unchanged_validation": "docs/method-policy-v0.2.0-validation.json covers every part of the method that v0.3.0 keeps unchanged",
   "evidence_sha256_lf": {
@@ -115,6 +116,34 @@
     "dry_run_implementation": {
       "path": "docs/handoff/2026-11-06-dry-run-end-implementation.md",
       "sha256_lf": "8c7f3b8973a2a9ff48d4f62d88cca064cd5276fce1966ac5b6376a2b9d31107d"
+    },
+    "de2_plan": {
+      "path": "docs/handoff/2026-11-08-de2-end-of-low-plan.md",
+      "sha256_lf": "9791950bb244fad0a489328ce886fe2e61c4490d6b3da401e8c99ee3de9682b2"
+    },
+    "de2_receipt": {
+      "path": "docs/handoff/2026-11-08-de2-end-of-low-receipt.json",
+      "sha256_lf": "d46836e0f20638c530feab2149e0a07b165ab562be7ffcb756e93fc486da1689"
+    },
+    "de2_results": {
+      "path": "docs/handoff/2026-11-08-de2-end-of-low-results.json",
+      "sha256_lf": "7487887257d14025e3b5cbf2bfb2e2576d0972576d745bef958e0dedab7301fa"
+    },
+    "de2_extras": {
+      "path": "docs/handoff/2026-11-08-de2-end-of-low-extras.json",
+      "sha256_lf": "7e7a374b5963d615344a2907fd1396c271a1c3d6afe9bf59fbf080e53562b45b"
+    },
+    "de2_r2_revised_check": {
+      "path": "docs/handoff/2026-11-08-de2-r2-revised-check.json",
+      "sha256_lf": "6afec817b5965a3189062d899ca63f61519e92a7640cf6cb321ca6060ddb767b"
+    },
+    "de2_implementation_checks": {
+      "path": "docs/handoff/2026-11-08-de2-implementation-checks.json",
+      "sha256_lf": "440124ad7ee1439fd2938cc30119d0d933d2d5a9df7e0796a9308d5c0c78e00b"
+    },
+    "de2_implementation_note": {
+      "path": "docs/handoff/2026-11-08-de2-implementation-checks.md",
+      "sha256_lf": "47571c1bbfafd5957df47074824f8e5e495f670449d010acac85147b1cd59322"
     }
   },
   "validation_environment": {
@@ -130,6 +159,16 @@
         "C"
       ],
       "note": "the 0.3.0 implementation checks and the Fitzroy tile run used this fingerprint"
+    },
+    {
+      "method_fingerprint": "aba922a9eac29cea8498a30794110c80de340b0f6a2fb76d64f60f93855aeb66",
+      "changes": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "note": "the dry-run implementation checks (2026-11-06) and DE2's current library used this fingerprint"
     }
   ]
 }

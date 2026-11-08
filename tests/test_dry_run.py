@@ -134,8 +134,19 @@ def test_ephemeral_dry_season_ends_the_month_before_the_onset():
         assert row["dry_run_start_month"] <= row["trough_month"] <= row["dry_run_end_month"]
         checked += 1
     assert checked >= 10
-    # The boundary itself stays where the trough search put it, often months earlier.
-    assert (years["dry_run_end_month"] > years["trough_month"]).sum() >= 3
+
+
+def test_year_boundary_is_the_end_of_the_dry_season():
+    """R1 (DE2): the search is anchored at the end of the typical low, so the boundary,
+    and so the hydrological year, ends where the dry season ends in most years."""
+    years = _analyse(_ephemeral_record()).hydro_years
+    dated = years.dropna(subset=["trough_month", "dry_run_end_month"])
+    at_end = (dated["trough_month"] == dated["dry_run_end_month"]).mean()
+    assert at_end >= 0.8, at_end
+    r2 = dated[dated["trough_label_basis"] == "end_of_dry_run"]
+    assert len(r2)
+    assert set(r2["trough_timing_status"]) <= {"interval", "broad"}
+    assert (r2["trough_interval_start"] == r2["trough_month"]).all()
 
 
 def test_dry_end_status_is_never_point():
@@ -144,14 +155,23 @@ def test_dry_end_status_is_never_point():
     assert (years["dry_end_status"] == "interval").any()
 
 
-def test_reporting_the_dry_run_changes_nothing_else(monkeypatch):
+def test_dry_run_pass_changes_only_its_columns_and_dry_low_labels(monkeypatch):
+    """The dry-run pass adds its columns and relabels troughs at the end of a dry low (R2); nothing else."""
     record = _ephemeral_record(seed=5)
     after = _analyse(record).hydro_years
-    monkeypatch.setattr(dynamic_year, "_report_dry_runs", lambda frame, rows: rows)
+    monkeypatch.setattr(dynamic_year, "_report_dry_runs", lambda frame, rows, config: rows)
     before = _analyse(record).hydro_years
-    dry = ["dry_run_start_month", "dry_run_end_month", "rewetting_month", "dry_run_months", "dry_end_status"]
-    assert before[dry].isna().all().all()
-    pd.testing.assert_frame_equal(after.drop(columns=dry), before.drop(columns=dry))
+    added = ["dry_run_start_month", "dry_run_end_month", "rewetting_month", "dry_run_months", "dry_end_status",
+             "trough_label_basis"]
+    assert before[added].isna().all().all()
+    relabel = ["trough_timing_status", "trough_interval_start", "trough_interval_end", "timing_status"]
+    kept = after["trough_label_basis"] != "end_of_dry_run"
+    pd.testing.assert_frame_equal(
+        after.loc[kept].drop(columns=added), before.loc[kept].drop(columns=added), check_dtype=False
+    )
+    pd.testing.assert_frame_equal(
+        after.drop(columns=added + relabel), before.drop(columns=added + relabel), check_dtype=False
+    )
 
 
 CHECKS = Path("docs/handoff/2026-11-06-dry-run-end-implementation-checks.json")
@@ -166,7 +186,9 @@ def test_implementation_checks_found_only_the_new_columns():
     from hydroseason._method_policy import method_policy_fingerprint
 
     result = json.loads(CHECKS.read_text(encoding="utf-8"))
-    assert result["after_fingerprint"] == method_policy_fingerprint()
+    # These checks ran on change A alone; R1 and R2 (DE2) later joined the manifest.
+    assert result["after_fingerprint"] == "aba922a9eac29cea8498a30794110c80de340b0f6a2fb76d64f60f93855aeb66"
+    assert method_policy_fingerprint() != result["after_fingerprint"]
     assert result["script_sha256_lf"] == _lf_sha256(Path("scripts/dry_run_end_checks.py"))
     assert result["case_studies"]["unexpected"] == []
     assert result["fitzroy_tiles"]["unexpected"] == {}
@@ -196,5 +218,3 @@ def test_timeline_marks_where_each_dry_season_ends():
     expected = years.loc[years["dry_end_status"].isin(["interval", "censored"]), "dry_run_end_month"]
     assert trace["x"] == [d.strftime("%Y-%m-%d") for d in expected]
     assert trace["marker"]["symbol"].endswith("-open")
-    end_dry = next(t for t in figure["data"] if t.get("name") == "HY End Dry")
-    assert set(trace["x"]) - set(end_dry["x"])  # on this record most dry seasons end after the boundary

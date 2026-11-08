@@ -23,7 +23,13 @@
     "observed_month": "quality_state_usable",
     "rule": "report_dry_run",
     "tolerance": "boundary_epsilon_pp",
-    "version": 1
+    "version": 1,
+    "zero_low_label": {
+      "floor": "max(measurement_tolerance_pct, one pixel)",
+      "label": "run end to the month before the next peak, graded by width, never point",
+      "rule": "zero_low_end_status",
+      "version": 2
+    }
   },
   "event_thresholds": {
     "enter_sigma": 3.0,
@@ -65,5 +71,10 @@
     "pulse_z": 1.5,
     "scale_mode": "combined",
     "version": "direct_profile_combined_v1"
+  },
+  "trough_search_anchor": {
+    "range_fraction": 0.1,
+    "rule": "end_of_climatological_low",
+    "version": 1
   }
 }

@@ -406,14 +406,15 @@ The first two come from the same boundary.
   is always `trough_boundary_date` plus one month, except for the first year
   of the record and a year that starts after a gap.
 - `dry_run_end_date` is where the dry season ends: the last month of the
-  boundary's low run, before water returns in `rewetting_date`. On a
-  flat-bottomed trough, such as an ephemeral channel that stays dry for most
-  of the year, the boundary search picks a month near the typical trough
-  month, often months before the run ends; the run end is the better date
-  for the end of the dry season. The boundary itself, and so the
-  hydrological year, does not move. `dry_end_status` is `interval` or
-  `censored`, never `point`. The report's timeline marks it as
-  "Dry Season Ends" (an open triangle) next to the End Dry boundary marker.
+  boundary's low run, before water returns in `rewetting_date`. By the
+  method's definition the year boundary is the end of the dry season, and
+  in most years the two dates are the same month. On an ephemeral channel
+  that stays dry most of the year, the search starts from the end of the
+  typical low so the boundary reaches it; where the two still differ (a
+  cloudy or noisy year), `dry_run_end_date` is the better date for the end
+  of the dry season. `dry_end_status` is `interval` or `censored`, never
+  `point`. The report's timeline marks it as "Dry Season Ends" (an open
+  triangle) next to the End Dry boundary marker.
 
 Because both dates come from one boundary, they vary across a catchment in
 the same way. In the five case-study catchments a quarter of level-7

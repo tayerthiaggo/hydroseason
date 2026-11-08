@@ -91,3 +91,25 @@ def test_results_doc_matches_the_scorer():
     tiles = extras["fitzroy_tiles"]
     assert (tiles["late3_before"], tiles["late3_after"]) == (251, 104)
     assert tiles["tiles_routed_to_events"] == []
+
+
+IMPLEMENTATION = HANDOFF / "2026-11-08-de2-implementation-checks.json"
+IMPLEMENTATION_DOC = HANDOFF / "2026-11-08-de2-implementation-checks.md"
+
+
+@pytest.mark.skipif(not IMPLEMENTATION.exists(), reason="DE2 implementation checks not run yet")
+def test_implementation_checks_match_the_note_and_the_library():
+    from hydroseason._method_policy import method_policy_fingerprint
+
+    result = json.loads(IMPLEMENTATION.read_text(encoding="utf-8"))
+    assert result["fingerprint"] == method_policy_fingerprint()
+    assert result["script_sha256_lf"] == _lf_sha256(Path("scripts/de2_implementation_checks.py"))
+    real = result["real_records"]
+    assert real["records"] == 4468 and real["errors"] == []
+    assert list(real["fingerprints"]) == [method_policy_fingerprint()]
+    assert set(result["case_studies"]["event_and_spell_tables"].values()) == {"identical"}
+    assert result["fitzroy_tiles"]["late3"] == [251, 104]
+    doc = " ".join(IMPLEMENTATION_DOC.read_text(encoding="utf-8").split())
+    halves = real["g1_half_agreement_within_1"]
+    assert f"{halves['before']['share']:.3f} → {halves['after']['share']:.3f}" in doc
+    assert f"| G1 quadrants | {real['cycles']['g1|quadrant']:,} |" in doc
