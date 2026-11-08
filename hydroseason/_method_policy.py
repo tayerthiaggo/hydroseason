@@ -111,7 +111,7 @@ def method_policy_manifest() -> dict[str, Any]:
             "version": DRY_RUN_RULE_VERSION,
             "zero_low_label": {
                 "floor": "max(measurement_tolerance_pct, one pixel)",
-                "label": "interval",
+                "label": "run end to the month before the next peak, graded by width, never point",
                 "rule": ZERO_LOW_LABEL_RULE,
                 "version": ZERO_LOW_LABEL_RULE_VERSION,
             },

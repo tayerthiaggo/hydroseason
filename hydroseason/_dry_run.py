@@ -39,7 +39,7 @@ ANCHOR_RULE = "end_of_climatological_low"
 ANCHOR_RULE_VERSION = 1
 ANCHOR_RANGE_FRACTION = 0.1
 ZERO_LOW_LABEL_RULE = "zero_low_end_status"
-ZERO_LOW_LABEL_RULE_VERSION = 1
+ZERO_LOW_LABEL_RULE_VERSION = 2
 
 DryEndStatus = Literal["interval", "censored", "unavailable"]
 

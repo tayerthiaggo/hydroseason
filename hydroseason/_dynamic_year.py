@@ -1496,16 +1496,31 @@ def _report_dry_runs(frame: pd.DataFrame, rows: pd.DataFrame, config: DynamicHyd
             or not _is_zero_extent(frame, pd.Timestamp(trough), run, config)
         ):
             continue
+        # The dry season ends somewhere from the last dry month of the run to
+        # the month before the next peak: a noisy dry month can end the run
+        # early, so the re-wetting month alone is not a safe upper bound. The
+        # label is graded by that span and is never `point` (DE1 rule 3).
+        following_peak = (
+            rows.at[position + 1, "peak_month"] if position + 1 < len(rows) else pd.NaT
+        )
+        last = (
+            pd.Timestamp(following_peak) - pd.DateOffset(months=1)
+            if pd.notna(following_peak) and pd.Timestamp(following_peak) > run.end
+            else run.rewetting - pd.DateOffset(months=1)
+        )
+        status = _candidate_timing_status((run.end, last), config.timing_identifiability_thresholds)
+        if status == "unresolved":
+            continue
+        status = "interval" if status == "point" else status
         rows.at[position, "trough_label_basis"] = "end_of_dry_run"
-        last = run.rewetting - pd.DateOffset(months=1)
         for column, value in (("trough_interval_start", run.end), ("trough_interval_end", last)):
             if not (pd.api.types.is_datetime64_any_dtype(rows[column]) or rows[column].dtype == object):
                 rows[column] = rows[column].astype(object)
             rows.at[position, column] = value
-        rows.at[position, "trough_timing_status"] = "interval"
+        rows.at[position, "trough_timing_status"] = status
         peak = rows.at[position, "peak_timing_status"]
         rows.at[position, "timing_status"] = _aggregate_timing_status(
-            peak if peak in _TIMING_STATUS_RANK else "unresolved", "interval"
+            peak if peak in _TIMING_STATUS_RANK else "unresolved", status
         )
     rows["dry_run_start_month"] = pd.to_datetime([r.start for r in runs])
     rows["dry_run_end_month"] = pd.to_datetime([r.end for r in runs])
