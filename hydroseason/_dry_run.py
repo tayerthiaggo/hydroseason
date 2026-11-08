@@ -34,6 +34,12 @@ from ._boundary import _epsilon_pp
 
 DRY_RUN_RULE = "report_dry_run"
 DRY_RUN_RULE_VERSION = 1
+# DE2 candidate rules (not adopted unless DE2 passes).
+ANCHOR_RULE = "end_of_climatological_low"
+ANCHOR_RULE_VERSION = 1
+ANCHOR_RANGE_FRACTION = 0.1
+ZERO_LOW_LABEL_RULE = "zero_low_end_status"
+ZERO_LOW_LABEL_RULE_VERSION = 1
 
 DryEndStatus = Literal["interval", "censored", "unavailable"]
 

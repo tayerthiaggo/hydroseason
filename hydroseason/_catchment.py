@@ -31,6 +31,7 @@ from ._phase_scheme import (
 from ._regime import WaterRegimeAssessment, assess_water_regime
 from ._state_input import QualityPolicy, prepare_monthly_extent
 from .hydrological_state import HydrologicalStateResult, analyze_hydrological_state
+from ._dry_run import ANCHOR_RANGE_FRACTION
 
 __all__ = ["CatchmentAnalysis", "Route", "analyze_catchment"]
 
@@ -174,7 +175,7 @@ def _warns_on_collapsed_floor(func):
 
 
 def _end_of_climatological_low(climatology: pd.Series, lowest_month: int) -> int:
-    """The last month of the typical low before water returns (exploratory candidate).
+    """The last month of the typical low before water returns (DE2 candidate R1).
 
     The trough search is centred on one month for the whole record. On a
     flat-bottomed record every dry month ties near zero and the lowest mean
@@ -187,7 +188,7 @@ def _end_of_climatological_low(climatology: pd.Series, lowest_month: int) -> int
     if clim.isna().any():
         return lowest_month
     floor = float(clim.min())
-    ceiling = floor + 0.1 * (float(clim.max()) - floor)
+    ceiling = floor + ANCHOR_RANGE_FRACTION * (float(clim.max()) - floor)
     month = lowest_month
     for step in range(1, 12):
         candidate = (lowest_month - 1 + step) % 12 + 1

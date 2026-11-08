@@ -445,7 +445,7 @@ ANNUAL_COLUMNS = [
     "trough_profile_cutoff", "trough_effective_support",
     "trough_pulse_months", "trough_refinement_policy_version", "trough_loss_basis",
     "dry_run_start_month", "dry_run_end_month", "rewetting_month", "dry_run_months",
-    "dry_end_status",
+    "dry_end_status", "trough_label_basis",
 ]
 
 
@@ -612,7 +612,7 @@ def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig,
         pattern,
     )
     result = _reconcile_trough_labels(result, config.timing_identifiability_thresholds)
-    return _report_dry_runs(frame, result)
+    return _report_dry_runs(frame, result, config)
 
 
 def _adaptive_retry_years(result: pd.DataFrame) -> set[int]:
@@ -1436,7 +1436,19 @@ _DRY_RUN_COLUMNS = (
 )
 
 
-def _report_dry_runs(frame: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
+def _is_zero_extent(frame: pd.DataFrame, month: pd.Timestamp, run: DryRun, config: DynamicHydroYearConfig) -> bool:
+    """Whether a dry run sits at zero extent: at or below the measurement floor.
+
+    The floor is the caller's measurement tolerance or one pixel of the
+    valid area, whichever is larger, as the trough refinement uses.
+    """
+    floor = float(config.measurement_tolerance_pct)
+    if "n_valid" in frame.columns and pd.notna(frame.at[month, "n_valid"]) and frame.at[month, "n_valid"] > 0:
+        floor = max(floor, 100.0 / float(frame.at[month, "n_valid"]))
+    return run.level_pct is not None and run.level_pct <= floor
+
+
+def _report_dry_runs(frame: pd.DataFrame, rows: pd.DataFrame, config: DynamicHydroYearConfig) -> pd.DataFrame:
     """Report the dry run of each cycle's trough boundary (DE1 change A).
 
     Reported only: no boundary, date, peak, label or status changes. The run
@@ -1464,8 +1476,14 @@ def _report_dry_runs(frame: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
                 next_peak=next_peak,
             )
         )
-    # Exploratory candidate: a boundary at the end of a flat low is dated by
-    # where the low ends, not by how distinct its lowest month is.
+    # DE2 candidate R2: a boundary at the end of a dry (zero-extent) low is
+    # dated by where the low ends, not by how distinct its lowest month is:
+    # every month of a dry run ties as the minimum, but the month before
+    # water returns is identifiable.
+    rows["trough_label_basis"] = pd.Series(
+        ["lowest_month" if pd.notna(t) else None for t in rows["trough_month"]],
+        index=rows.index, dtype=object,
+    )
     for position, run in enumerate(runs):
         trough = rows.at[position, "trough_month"]
         if (
@@ -1475,8 +1493,10 @@ def _report_dry_runs(frame: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
             or run.start is None
             or run.start >= run.end
             or rows.at[position, "trough_timing_status"] not in ("broad", "unresolved")
+            or not _is_zero_extent(frame, pd.Timestamp(trough), run, config)
         ):
             continue
+        rows.at[position, "trough_label_basis"] = "end_of_dry_run"
         last = run.rewetting - pd.DateOffset(months=1)
         for column, value in (("trough_interval_start", run.end), ("trough_interval_end", last)):
             if not (pd.api.types.is_datetime64_any_dtype(rows[column]) or rows[column].dtype == object):

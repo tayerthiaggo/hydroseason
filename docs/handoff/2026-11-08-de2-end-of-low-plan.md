@@ -1,6 +1,6 @@
-# DE2: the year boundary at the end of the low, against known truth (pre-registration draft)
+# DE2: the year boundary at the end of the low, against known truth (pre-registration)
 
-Status: draft for the project lead's approval (2026-11-08). Nothing is frozen and no known-truth record has been run. Exploration code: `scripts/refinement_eol_explore.py`, `scripts/refinement_eol_anchor_probe.py`, branch `research/refinement-end-of-low`.
+Status: approved by the project lead on 2026-11-08 with the recommended choices (see the end); frozen by [the receipt](2026-11-08-de2-end-of-low-receipt.json). Script: `scripts/known_truth_de2.py`. Exploration code: `scripts/refinement_eol_explore.py`, `scripts/refinement_eol_anchor_probe.py`, branch `research/refinement-end-of-low`.
 
 ## Why
 
@@ -41,7 +41,7 @@ Without the label rule (R2 below), tile 13 drops to event characterisation: a fl
 Two rules, both in the method manifest under a new rule id; everything else is v0.3.0.
 
 - **R1. Anchor at the end of the typical low.** The trough search is centred on the last month of the climatological low: starting from today's anchor (the month of lowest mean monthly extent), follow the following months while their mean extent stays within a tenth of the climatological range of the minimum, and take the last. When the next month already rises above that, the anchor is unchanged. On a V-shaped season it is the lowest month or the one after.
-- **R2. A boundary at the end of a flat low is dated by where the low ends.** When a boundary is the last month of its dry run (DE1's run, as reported in `dry_run_end_month`), the run is longer than one month, the re-wetting month was observed (`dry_end_status` `interval`) and the trough label is `broad` or `unresolved`, the label becomes `interval` from the run end to the month before re-wetting. It is never `point` (DE1 rule 3). This is the grading by end status the lead chose for DE1's change B.
+- **R2. A boundary at the end of a dry low is dated by where the low ends.** When a boundary is the last month of its dry run (DE1's run, as reported in `dry_run_end_month`), the run is longer than one month, the run's level is at zero extent (at or below the larger of the measurement tolerance and one pixel), the re-wetting month was observed (`dry_end_status` `interval`) and the trough label is `broad` or `unresolved`, the label becomes `interval` from the run end to the month before re-wetting, and `trough_label_basis` reads `end_of_dry_run`. It is never `point` (DE1 rule 3). This is the grading by end status the lead chose for DE1's change B.
 
 ## Records
 
@@ -58,7 +58,7 @@ Each record is analysed twice: by the current library (`method-v0.3.0`, fingerpr
 One score per true dry-season end, so a library cannot gain by reporting fewer boundaries.
 
 - **True ends.** `ephemeral`: the month before each true wet-season onset inside the record. `sine` and `pulse`: G2's boundary truth for each year.
-- **Hit.** A reported boundary (`trough_month`) within one month of the true end (G2's `truth_error` for `sine` and `pulse`). A record routed to event characterisation has no boundaries; its true ends are misses.
+- **Hit.** `ephemeral`: a reported boundary (`trough_month`) within one month of the true end. `sine` and `pulse`: a reported boundary within six months of the year's true end (so it belongs to that year) whose G2 `truth_error` is at most one month. A record routed to event characterisation has no boundaries; its true ends are misses. True ends in the first and last month of a record are left out.
 - **Share.** Hits over true ends, per library; differences candidate minus current with 95% bootstrap intervals over records (2,000 draws).
 
 ## Decision rules
@@ -86,7 +86,7 @@ One score per true dry-season end, so a library cannot gain by reporting fewer b
 ## Checks before the freeze
 
 1. Generator identity: `pulse` and `sine` equal G2's output for 20 seeds; `ephemeral` equals DE1's for 20 seeds.
-2. Construction: on noise-free, cloud-free `ephemeral` records the candidate's boundary equals the true end of the dry season in every wet year.
+2. Construction (reported): noise-free, cloud-free `ephemeral` records, one per mean onset month, under both libraries.
 3. Pilot, once: run times, record counts and routes only; no accuracy.
 4. Freeze receipt: SHA-256 of this plan and the scripts, both library fingerprints, seed ranges and the corpus digest.
 
@@ -98,7 +98,9 @@ Two library runs per record: about twice DE1's 2.5 hours.
 - R1's tenth of the range and R2's conditions were chosen while exploring the tiles; the test is on fresh records.
 - Not accuracy for real places, and not referenced to gauges.
 
-## Choices for the lead
+## Choices confirmed by the project lead (2026-11-08)
+
+The lead confirmed every recommended option, including choice 6 (R2 only on zero-extent lows).
 
 1. **The candidate is R1 + R2** (recommended). C1 and C2 are dropped: they moved 19 boundaries. A third option, breaking pass-1 ties toward the last month of a run of zero-extent months, was not explored.
 2. **Score per true dry-season end, with unrouted records as misses** (recommended), rather than DE1's per-pair share, because R1 can change routes and peaks.
@@ -106,3 +108,12 @@ Two library runs per record: about twice DE1's 2.5 hours.
 4. **`pulse` decides** (rule 3), unlike DE1 where it was reported, because R1 moves the anchor on every record.
 5. **Sizes and generators as DE1**, fresh seeds.
 6. **Where R2 applies.** As drafted it applies to any flat low within the boundary's tolerance, so it also relabels ordinary rivers (39 trough labels on the case studies, mostly `broad` to `interval`). The alternative restricts it to lows at zero extent (at or below the measurement floor), which touches only channels that actually dry out. Recommended: restrict it to zero-extent lows, the case that motivated it.
+
+## Added after approval, before the freeze
+
+None of these changes a decision rule.
+- R2 restricted to zero-extent lows (choice 6), as the lead chose.
+- The construction check is reported, not required to be exact. As first drafted it said the candidate's boundary would equal the true end in every wet year; R1 does not do that. On the 12 noise-free records (206 true ends) the candidate dates 167 exactly and 177 within one month, against 78 and 79 for the current library. The misses are years whose onset falls later than the anchor (R1 follows the mean climatology, whose low ends when the earliest wet seasons begin, so late-onset years start their search early) and years where the refinement does not run. A median climatology was tried on the same records and did worse (166 within one month); R1 stays as approved.
+- Scoring of `sine` and `pulse` binds a boundary to the year whose true end it is within six months of; true ends in the first and last month of a record are left out.
+- Real records are reported in the results from the Fitzroy tiles and the case studies; agreement between G1 pixel halves moves to the implementation checks.
+- The pilot (280 records per library, run times and routes only): no errors, median 0.5 s a record; 112 and 111 records routed to per-year detection under the current library and the candidate.

@@ -9,7 +9,15 @@ from pathlib import Path
 from typing import Any
 
 from ._condition import BASELINE_TIMING_STATUSES
-from ._dry_run import DRY_RUN_RULE, DRY_RUN_RULE_VERSION
+from ._dry_run import (
+    ANCHOR_RANGE_FRACTION,
+    ANCHOR_RULE,
+    ANCHOR_RULE_VERSION,
+    DRY_RUN_RULE,
+    DRY_RUN_RULE_VERSION,
+    ZERO_LOW_LABEL_RULE,
+    ZERO_LOW_LABEL_RULE_VERSION,
+)
 from ._dynamic_year import TROUGH_LABEL_RULE, TROUGH_LABEL_RULE_VERSION, DynamicHydroYearConfig
 from ._events import _DEFAULT_ENTER_K, _DEFAULT_EXIT_K, _DEFAULT_LOW_K
 from ._scientific_defaults import (
@@ -101,6 +109,17 @@ def method_policy_manifest() -> dict[str, Any]:
             "rule": DRY_RUN_RULE,
             "tolerance": "boundary_epsilon_pp",
             "version": DRY_RUN_RULE_VERSION,
+            "zero_low_label": {
+                "floor": "max(measurement_tolerance_pct, one pixel)",
+                "label": "interval",
+                "rule": ZERO_LOW_LABEL_RULE,
+                "version": ZERO_LOW_LABEL_RULE_VERSION,
+            },
+        },
+        "trough_search_anchor": {
+            "range_fraction": ANCHOR_RANGE_FRACTION,
+            "rule": ANCHOR_RULE,
+            "version": ANCHOR_RULE_VERSION,
         },
     }
 
