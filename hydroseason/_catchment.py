@@ -173,6 +173,31 @@ def _warns_on_collapsed_floor(func):
     return wrapper
 
 
+def _end_of_climatological_low(climatology: pd.Series, lowest_month: int) -> int:
+    """The last month of the typical low before water returns (exploratory candidate).
+
+    The trough search is centred on one month for the whole record. On a
+    flat-bottomed record every dry month ties near zero and the lowest mean
+    month is the first of them, months before the dry season ends. Follow
+    the months whose mean extent stays within a tenth of the climatological
+    range of the minimum, from the lowest month forward, and return the last.
+    On a V-shaped season that is the lowest month or the one after.
+    """
+    clim = climatology.reindex(range(1, 13))
+    if clim.isna().any():
+        return lowest_month
+    floor = float(clim.min())
+    ceiling = floor + 0.1 * (float(clim.max()) - floor)
+    month = lowest_month
+    for step in range(1, 12):
+        candidate = (lowest_month - 1 + step) % 12 + 1
+        if float(clim[candidate]) > ceiling:
+            break
+        month = candidate
+    return month
+
+
+
 @_warns_on_collapsed_floor
 def analyze_catchment(
     extent,
@@ -266,10 +291,11 @@ def analyze_catchment(
                 if regime.mean_monthly_peak_month is not None
                 else int(operational_climatology.idxmax())
             )
-            operational_trough_month = (
+            operational_trough_month = _end_of_climatological_low(
+                operational_climatology,
                 regime.mean_monthly_trough_month
                 if regime.mean_monthly_trough_month is not None
-                else int(operational_climatology.idxmin())
+                else int(operational_climatology.idxmin()),
             )
             if (
                 regime.mean_monthly_peak_month is None

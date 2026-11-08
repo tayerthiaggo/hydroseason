@@ -138,12 +138,18 @@ def stage_compare() -> dict:
     """The candidate library against v0.3.0 on the same tile-years."""
     a = pd.read_csv(OUT / "cycles_v030.csv", dtype=str, keep_default_na=False)
     b = pd.read_csv(OUT / "cycles_candidate.csv", dtype=str, keep_default_na=False)
-    if list(zip(a.tile, a.hy_year)) != list(zip(b.tile, b.hy_year)):
-        raise SystemExit("tile-years differ between the runs")
+    lost = sorted(set(a.tile) - set(b.tile))
+    a = a[a.tile.isin(set(b.tile))].reset_index(drop=True)
+    keys = list(zip(a.tile, a.hy_year))
+    b = b.set_index(["tile", "hy_year"]).reindex(keys).reset_index()
+    b = b.fillna("")
     gap_a = pd.Series([_months(x, y) if x and y else None for x, y in zip(a.boundary, a.dry_run_end)], dtype=float)
     gap_b = pd.Series([_months(x, y) if x and y else None for x, y in zip(b.boundary, b.dry_run_end)], dtype=float)
     moved = a.boundary != b.boundary
     out = {
+        "tiles_routed_to_events": lost,
+        "unresolved_timing_before_after": [int((a.status_reason == "unresolved_timing").sum()),
+                                           int((b.status_reason == "unresolved_timing").sum())],
         "cycles": len(a),
         "peaks_changed": int((a.left_peak != b.left_peak).sum()),
         "boundaries_moved": int(moved.sum()),
@@ -158,6 +164,9 @@ def stage_compare() -> dict:
     }
     for tile in ("tile05", "tile13", "tile54", "tile46"):
         sel = (a.tile == tile).to_numpy()
+        if not sel.any():
+            out[f"{tile}_late3"] = "routed to events"
+            continue
         out[f"{tile}_late3"] = [int((gap_a[sel] >= 3).sum()), int((gap_b[sel] >= 3).sum())]
     print(json.dumps(out, indent=1))
     return out

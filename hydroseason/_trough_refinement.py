@@ -665,44 +665,7 @@ def _quality_sensitivity(
     return combined
 
 
-def _dated_for_span(peak: PeakBoundary | None) -> tuple[PeakBoundary | None, bool]:
-    """Let a peak with a selected month bound the span even if its label is unresolved.
-
-    The span only needs an edge inside each wet season: the trough is found
-    in the dry valley between the two peaks. A short flood on an ephemeral
-    channel often has an unresolved timing label (months tie within the
-    detectability floor) although its month is known. Its selected month
-    then bounds the span as a point, and the result is downgraded below.
-    """
-    if peak is not None and peak.selected is not None and peak.timing_status == "unresolved":
-        return replace(peak, candidates=(pd.Timestamp(peak.selected),), timing_status="point"), True
-    return peak, False
-
-
 def refine_trough_span(
-    frame: pd.DataFrame,
-    *,
-    left_peak: PeakBoundary,
-    right_peak: PeakBoundary | None,
-    policy: TroughRefinementPolicy,
-    measurement_tolerance_pp: float = 0.0,
-) -> TroughRefinementResult:
-    """Challenge a trough; a span bounded by an unresolved peak is at best provisional."""
-    left_peak, left_undated = _dated_for_span(left_peak)
-    right_peak, right_undated = _dated_for_span(right_peak)
-    result = _refine_dated_span(
-        frame,
-        left_peak=left_peak,
-        right_peak=right_peak,
-        policy=policy,
-        measurement_tolerance_pp=measurement_tolerance_pp,
-    )
-    if (left_undated or right_undated) and result.status in {"confirmed", "provisional"}:
-        return replace(result, status="provisional", reason="unresolved_peak")
-    return result
-
-
-def _refine_dated_span(
     frame: pd.DataFrame,
     *,
     left_peak: PeakBoundary,
