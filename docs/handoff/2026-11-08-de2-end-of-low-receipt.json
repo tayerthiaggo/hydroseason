@@ -1,0 +1,97 @@
+{
+  "plan_sha256_lf": "9791950bb244fad0a489328ce886fe2e61c4490d6b3da401e8c99ee3de9682b2",
+  "script_sha256_lf": "f2bf39eeb1b15e9c4b57dec1c31e9fbc940461d141cd2e0ae7101b042e271e3d",
+  "de1_script_sha256_lf": "8e591be9554aaca531289e746d70ec9e516c7a9f2773a07d3b08827a75447a2b",
+  "g2_script_sha256_lf": "5bfa4fa7574366e39f2d2dfec7965c8455a27f8304480664541eb534a0a22067",
+  "current_fingerprint": "aba922a9eac29cea8498a30794110c80de340b0f6a2fb76d64f60f93855aeb66",
+  "current_commit": "c85d913",
+  "candidate_fingerprint": "915addae5fa114a07c868d4187252e1f2f43357fea3519c6923d79392ec6d22d",
+  "candidate_commit": "7f489d5e4c6b5ff83208ef047863ba0426e3fdbf",
+  "candidate_sources_sha256_lf": {
+    "hydroseason/_catchment.py": "b3aa753934251915dd37f062ce95703f3754bbfcb66e00ff60d0599f3576d41e",
+    "hydroseason/_dynamic_year.py": "f3608220b948ba85110e6d6c6352463d63b3d0967315bb346387a8df97c47663",
+    "hydroseason/_dry_run.py": "00dd28ad68db9d040fa35fa7d38488292f6379175e3b324633c6eed28b7295e1",
+    "hydroseason/_trough_refinement.py": "e037164c1b9e59f3ab877f0c4bec1aaf69d051dafecd399f40a282065330f46d",
+    "hydroseason/_method_policy.py": "29cb46f0f6283cb482f81206d7373a7825b5c8d36565841e0549b2c7772d8a48"
+  },
+  "seeds": {
+    "S_ephemeral": [
+      310000,
+      311200
+    ],
+    "S_pulse": [
+      311200,
+      311600
+    ],
+    "S_sine": [
+      311600,
+      312000
+    ],
+    "I": [
+      315000,
+      316148
+    ]
+  },
+  "corpus_records": 3148,
+  "corpus_digest": "057dba2e01a702692a0f72fe0ca7ad9fd6031e18b5fe8711a6b4127feef54567",
+  "checks": {
+    "current": {
+      "library": "current",
+      "fingerprint": "aba922a9eac29cea8498a30794110c80de340b0f6a2fb76d64f60f93855aeb66",
+      "construction_true_ends": 206,
+      "construction_exact": 78,
+      "construction_within_1": 79,
+      "routes": {
+        "per_year_detection": 12
+      },
+      "identity_failures": [],
+      "arm_i_shapes": {
+        "ephemeral": 574,
+        "sine": 287,
+        "pulse": 287
+      }
+    },
+    "candidate": {
+      "library": "candidate",
+      "fingerprint": "915addae5fa114a07c868d4187252e1f2f43357fea3519c6923d79392ec6d22d",
+      "construction_true_ends": 206,
+      "construction_exact": 167,
+      "construction_within_1": 177,
+      "routes": {
+        "per_year_detection": 12
+      },
+      "identity_failures": [],
+      "arm_i_shapes": {
+        "ephemeral": 574,
+        "sine": 287,
+        "pulse": 287
+      }
+    }
+  },
+  "pilot": {
+    "current": {
+      "library": "current",
+      "records": 280,
+      "routes": {
+        "event_characterisation": 168,
+        "per_year_detection": 112
+      },
+      "errors": 0,
+      "seconds_median": 0.55,
+      "seconds_total": 2264.79,
+      "cycles": 2780
+    },
+    "candidate": {
+      "library": "candidate",
+      "records": 280,
+      "routes": {
+        "event_characterisation": 169,
+        "per_year_detection": 111
+      },
+      "errors": 0,
+      "seconds_median": 0.53,
+      "seconds_total": 2260.73,
+      "cycles": 2760
+    }
+  }
+}
