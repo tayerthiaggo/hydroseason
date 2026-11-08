@@ -37,6 +37,14 @@ _MARKER_STATUS_COLUMN = {
 # an outlined ("-open") symbol whenever status isn't "point", so it never
 # reads as more resolved than the shading beside it claims.
 _ALWAYS_MARK = {"HY End Dry"}
+# Where each year's dry season ends: the end of its trough boundary's dry run
+# (hydroseason-v0.3.0). Its end status is never "point", so the symbol is open.
+DRY_SEASON_END = ("Dry Season Ends", "#7f1d1d", "triangle-down-open")
+DRY_SEASON_END_HOVER = (
+    "HY %{customdata[0]}<br>Dry season ends: %{customdata[1]}<br>"
+    "Water returns: %{customdata[2]}<br>Extent: %{customdata[3]:.2f}%<br>"
+    "End status: %{customdata[4]}<extra></extra>"
+)
 INTERVAL_SHADE_COLORS = {
     "peak": "rgba(37, 99, 235, 0.14)",
     "trough": "rgba(220, 38, 38, 0.14)",
@@ -359,7 +367,55 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
                 },
                 "meta": _scale_meta(interval_y),
             })
+    traces.extend(_dry_season_end_traces(rows, monthly_points, imposed))
     return traces
+
+
+def _dry_season_end_traces(
+    rows: pd.DataFrame, monthly_points: dict[str, list[Any]], imposed: bool
+) -> list[dict[str, Any]]:
+    """Mark the end of each year's dry run, where the dry season ends.
+
+    On a flat-bottomed trough the End Dry marker shows the cycle boundary,
+    which the trough search places near the typical trough month; the dry
+    season can go on for months after it. This marker shows the last month
+    before water returns. Imposed fixed windows have no dry run.
+    """
+    if imposed or rows is None or "dry_run_end_month" not in rows.columns:
+        return []
+    name, color, symbol = DRY_SEASON_END
+    x: list[str] = []
+    y: list[Any] = []
+    customdata: list[list[Any]] = []
+    for _, row in rows.iterrows():
+        date = _iso_date(row.get("dry_run_end_month"))
+        if date is None or row.get("dry_end_status") not in ("interval", "censored"):
+            continue
+        point = monthly_points.get(date)
+        extent = point[2] if point is not None else None
+        x.append(date)
+        y.append(extent)
+        customdata.append([
+            _clean_val(row.get("hy_year")),
+            date,
+            _iso_date(row.get("rewetting_month")) or "not observed",
+            extent,
+            row.get("dry_end_status"),
+        ])
+    if not x:
+        return []
+    return [{
+        "type": "scatter",
+        "mode": "markers",
+        "name": name,
+        "legend": "legend",
+        "x": x,
+        "y": y,
+        "customdata": customdata,
+        "hovertemplate": DRY_SEASON_END_HOVER,
+        "marker": {"size": 9, "color": color, "symbol": symbol, "line": {"color": color, "width": 2}},
+        "meta": _scale_meta(y),
+    }]
 
 
 PHASE_LABELS = {

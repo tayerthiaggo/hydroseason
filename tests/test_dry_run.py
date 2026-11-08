@@ -182,3 +182,19 @@ def test_implementation_checks_found_only_the_new_columns():
     after = sum(s["run_end_vs_boundary"]["run_end_after_boundary"] for s in series)
     cycles = sum(s["run_end_vs_boundary"]["cycles"] for s in series)
     assert f"| {cycles} | {after} ({100 * after / cycles:.0f}%) |" in doc
+
+
+def test_timeline_marks_where_each_dry_season_ends():
+    from hydroseason._report_export import build_monthly_export
+    from hydroseason._report_plotly import DRY_SEASON_END, timeline_figure
+
+    record = _ephemeral_record()
+    analysis = _analyse(record)
+    figure = timeline_figure(build_monthly_export(record, analysis=analysis), analysis)
+    trace = next(t for t in figure["data"] if t.get("name") == DRY_SEASON_END[0])
+    years = analysis.hydro_years
+    expected = years.loc[years["dry_end_status"].isin(["interval", "censored"]), "dry_run_end_month"]
+    assert trace["x"] == [d.strftime("%Y-%m-%d") for d in expected]
+    assert trace["marker"]["symbol"].endswith("-open")
+    end_dry = next(t for t in figure["data"] if t.get("name") == "HY End Dry")
+    assert set(trace["x"]) - set(end_dry["x"])  # on this record most dry seasons end after the boundary

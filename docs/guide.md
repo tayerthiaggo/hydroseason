@@ -412,7 +412,8 @@ The first two come from the same boundary.
   month, often months before the run ends; the run end is the better date
   for the end of the dry season. The boundary itself, and so the
   hydrological year, does not move. `dry_end_status` is `interval` or
-  `censored`, never `point`.
+  `censored`, never `point`. The report's timeline marks it as
+  "Dry Season Ends" (an open triangle) next to the End Dry boundary marker.
 
 Because both dates come from one boundary, they vary across a catchment in
 the same way. In the five case-study catchments a quarter of level-7

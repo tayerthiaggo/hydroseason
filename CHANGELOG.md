@@ -46,6 +46,7 @@ All notable changes to HydroSeason are documented here. This project follows
     boundary can sit months before the dry season ends; the run end is the
     better date for it. The boundary does not move, and no existing column
     changes. `dry_end_status` is `interval` or `censored`, never `point`.
+    The report timeline marks it as "Dry Season Ends".
 - **Migration:** trough timing labels, `baseline_eligible`, `baseline_n`, the
   percentiles and the condition labels can differ from 0.2.x, and so can the
   monthly `phase` and `phase_status` in years whose timing label changes. Compare files

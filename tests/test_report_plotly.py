@@ -131,7 +131,7 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
     marker_names = {
         trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
-    assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
+    assert marker_names - {"Dry Season Ends"} == {"HY Peak", "HY Mid Dry", "HY End Dry"}
     assert {"phase:rising", "phase:receding"} <= {
         shape["name"] for shape in phase_shapes
     }
@@ -198,7 +198,7 @@ def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(season
     marker_names = {
         trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
-    assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
+    assert marker_names - {"Dry Season Ends"} == {"HY Peak", "HY Mid Dry", "HY End Dry"}
     assert any(annotation.get("text", "").startswith("HY ") for annotation in figure["layout"]["annotations"])
     assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is False
 
@@ -960,7 +960,7 @@ def test_timeline_3_row_legend_and_dashed_3month_line(seasonal_data):
 
     # Row 1: Points (HY Peak, HY Mid Dry, HY End Dry)
     row1_traces = [t["name"] for t in fig["data"] if t.get("legend") in (None, "legend") and t.get("mode") == "markers"]
-    assert set(row1_traces) == {"HY Peak", "HY Mid Dry", "HY End Dry"}
+    assert set(row1_traces) - {"Dry Season Ends"} == {"HY Peak", "HY Mid Dry", "HY End Dry"}
 
     # Row 2: Lines (Water Extent, 3-month, Reference Median, Median Baseline)
     row2_traces = [t["name"] for t in fig["data"] if t.get("legend") == "legend2"]
