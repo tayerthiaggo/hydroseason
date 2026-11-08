@@ -4,7 +4,7 @@ Date: 2026-11-06. Branch `method-v0.3.0`. Follows [DE1](2026-11-05-de1-dry-run-e
 
 ## Outcome
 
-**A ships; B was implemented, failed its checks and is withdrawn.** Every cycle now reports where its dry season ends. The boundary, and so the hydrological year, does not move.
+**A ships; B was implemented, failed its checks and is withdrawn. The lead confirmed A only on 2026-11-08.** Every cycle now reports where its dry season ends. The boundary, and so the hydrological year, does not move.
 
 | Change | Result |
 | --- | --- |
@@ -49,7 +49,7 @@ The plan's checks exist to catch this. DE1's rule 2 tested smooth synthetic seas
 
 ## Deviations
 
-- From the DE1 plan: B is not adopted although DE1's rules held, because it failed the plan's own implementation checks; A ships as the plan allowed for a reported column. The lead approved A + B on 2026-11-05 and has not yet reviewed this withdrawal.
+- From the DE1 plan: B is not adopted although DE1's rules held, because it failed the plan's own implementation checks; A ships as the plan allowed for a reported column. The lead approved A + B on 2026-11-05 and confirmed A only on 2026-11-08, after these checks.
 - From DE1's candidate: the run stops at an unobserved reported peak of the next cycle (found by DE1's extras; at most 0.8% of DE1's pairs).
 - No real-record rerun: A changes no existing column, which the case studies, the tiles and the full suite show. DE1's real-record stage already reports the run ends on the G1 windows and spatial-unit units.
 
@@ -57,4 +57,4 @@ The plan's checks exist to catch this. DE1's rule 2 tested smooth synthetic seas
 
 - Noise ending runs early (DE1's main remaining error).
 - Ephemeral records routed to event characterisation (58–68% in DE1).
-- A redesigned B, if the hydrological year itself should start at re-wetting.
+- A redesigned B is not planned: the lead chose A only. The design notes above stand if the hydrological year itself should ever start at re-wetting.
