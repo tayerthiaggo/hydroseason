@@ -217,7 +217,7 @@ test complements `R` by testing the discrete 12-month uniform null.
 | Aseasonal | Recurrence not established (peak or trough Kuiper p >= 0.05, or < 5 detectable years) | Timing recurrence is not established; do not force a hydrological year. Report discrete wet events and low-extent spells. |
 | Insufficient record | < 5 qualifying calendar years (>= 9 candidate-usable months each) | Do not infer lack of seasonality from inadequate data. |
 
-The regime label and the route are related but separate. In v0.2.0, the
+The regime label and the route are related but separate. In v0.3.0, the
 route additionally requires that annual timing be *identifiable* and satisfy the
 **seven-cycle annualization guard**:
 - `per_year_detection` is used only for a seasonal record where at least 7 informative peak cycles and at least 7 informative trough cycles are resolved.
@@ -567,7 +567,7 @@ results** and the files use the `hydroseason-results` stem.
 
 `generate_catchment_report` also writes the run manifest
 (`<stem>_manifest.json`, schema `hydroseason-run-manifest-v1`) recording the
-method policy (`hydroseason-v0.2.0`) and its fingerprint, package and
+method policy (`hydroseason-v0.3.0`) and its fingerprint, package and
 dependency versions, and output checksums; `paths.manifest_json` points to it.
 
 ---

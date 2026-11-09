@@ -203,7 +203,7 @@ input and output checksums. Abridged:
 ```json
 {
   "schema": "hydroseason-run-manifest-v1",
-  "hydroseason_version": "0.2.0",
+  "hydroseason_version": "0.3.0",
   "python": "3.12.13",
   "method": {
     "policy_id": "hydroseason-v0.3.0",

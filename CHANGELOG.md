@@ -5,6 +5,8 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-09
+
 ### Added
 - Two input warnings. When pixel counts are supplied with an `extent_pct` that
   disagrees with `100 * n_water / n_valid` (for example a share of the whole

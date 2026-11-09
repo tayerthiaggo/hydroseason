@@ -12,7 +12,7 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
    low spell differs by up to 3 months against a ceiling of 2. **90 m** fails
    the same criterion by more (4 months). **300 m** also fails on correlation
    (0.9907 < 0.995) and event count (up to 3 events different), and places
-   only 95.2% of peaks and troughs within a month. No coarsened resolution
+   only 95.2% of troughs within a month. No coarsened resolution
    clears every gate, so 30 m remains the release standard.
 2. **Bounded historical-mask comparison:** The opt-in acquisition benchmark is
    restricted to the 2015 Fitzroy and Gilbert AOIs at 30 m in EPSG:3577. It
@@ -30,7 +30,7 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 |---|---|---|---|---|---|---|---|---|
 | 60 m | 5/5 | 0.9997 | 0.0030 | 100.0% | 100.0% | 1 | 3 | False |
 | 90 m | 5/5 | 0.9991 | 0.0058 | 100.0% | 100.0% | 1 | 4 | False |
-| 300 m | 5/5 | 0.9907 | 0.0198 | 95.2% | 95.2% | 3 | 6 | False |
+| 300 m | 5/5 | 0.9907 | 0.0198 | 100.0% | 95.2% | 3 | 6 | False |
 <!-- END GENERATED RESOLUTION RESULTS -->
 
 !!! note "Decision rationale"

@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: "If you use HydroSeason in your research, please cite this software release."
 title: "HydroSeason: Remote-sensing-first hydrological year and season detection"
 type: software
-version: "0.2.0"
-date-released: "2026-09-24"
+version: "0.3.0"
+date-released: "2026-11-09"
 doi: "10.5281/zenodo.22956109"
 authors:
   - family-names: "Tayer"

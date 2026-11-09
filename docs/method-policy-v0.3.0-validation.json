@@ -7,7 +7,7 @@
     "method_policy_id": "hydroseason-v0.2.0",
     "method_fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
   },
-  "approved": "2026-11-04, by the project lead, on the 0.3.0 proposal and the B2 result; change D added 2026-11-05 on the lead's approval of DE1 route A + B; B withdrawn after its implementation checks (2026-11-06) and A only confirmed by the lead on 2026-11-08; change E pending the lead's approval of the DE2 implementation checks (2026-11-08)",
+  "approved": "2026-11-04, by the project lead, on the 0.3.0 proposal and the B2 result; change D added 2026-11-05 on the lead's approval of DE1 route A + B; B withdrawn after its implementation checks (2026-11-06) and A only confirmed by the lead on 2026-11-08; change E approved by the lead on 2026-11-09",
   "changes": {
     "A": "the manifest pins the timing-identifiability gates, the condition-baseline rule and the trough-label rule",
     "B": "trough timing label widened to cover the trough boundary (covers_trough_boundary, version 1)",

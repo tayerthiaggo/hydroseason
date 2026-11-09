@@ -4,13 +4,13 @@ If you use HydroSeason in research, cite the **software release**.
 
 ## Software
 
-Cite the version you used. For HydroSeason 0.2.0:
+Cite the version you used. For HydroSeason 0.3.0:
 
 ```bibtex
 @software{tayer_hydroseason,
   author  = {Tayer, Thiaggo C.},
   title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
-  version = {0.2.0},
+  version = {0.3.0},
   year    = {2026},
   url     = {https://github.com/tayerthiaggo/hydroseason},
   doi     = {10.5281/zenodo.22956109}

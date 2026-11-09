@@ -138,10 +138,10 @@ def test_docs_describe_seasonal_cv_skill_as_post_selection():
     assert "post-selection" in text
 
 
-def test_release_metadata_reports_020():
+def test_release_metadata_reports_030():
     import hydroseason
 
-    assert hydroseason.__version__.startswith("0.2.0")
+    assert hydroseason.__version__.startswith("0.3.0")
 
 
 @pytest.mark.slow

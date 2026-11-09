@@ -58,7 +58,7 @@ from .preflight import PreflightProfileUnavailable, preflight
 from .report import CatchmentReportPaths, generate_catchment_report, generate_html_report
 from .workflow import HydroSeasonPreflightError, HydroSeasonRunResult, run_hydroseason
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "__version__",
