@@ -60,8 +60,9 @@ def complete_monthly_axis(
         import warnings
 
         warnings.warn(f"Duplicate month timestamps: {duplicates}; keeping first.", UserWarning, stacklevel=2)
-        masks = masks.isel(time=np.flatnonzero(~source.duplicated()))
-        source = pd.DatetimeIndex(np.asarray(masks.time.values))
+        keep = ~source.duplicated()
+        masks = masks.isel(time=np.flatnonzero(keep))
+        source = source[keep]
     start = pd.Timestamp(start_date).to_period("M").to_timestamp()
     end = pd.Timestamp(end_date).to_period("M").to_timestamp()
     axis = pd.date_range(start, end, freq="MS")

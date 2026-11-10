@@ -25,7 +25,7 @@ one-standard-error preference for the simpler order. Its labels describe the
 selected fitted curve, not the observed record.
 
 - `low_variability`: the fitted curve's peak-to-trough range is at or below the
-  floor. The floor defaults to `measurement_tolerance_pct`, which is 1.0
+  floor. The floor defaults to `measurement_tolerance_pct`, which is 0.0
   percentage point. Order 0 is a constant with range 0, so any record whose
   floods defeat every seasonal order in cross-validation is labelled
   `low_variability` even when observed extent varies by tens of percentage

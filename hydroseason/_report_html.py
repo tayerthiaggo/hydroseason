@@ -436,7 +436,6 @@ def render_report_html(
     hydro_years: pd.DataFrame,
     events: pd.DataFrame,
     low_spells: pd.DataFrame,
-    summary: pd.DataFrame,
     timeline_figure: dict[str, Any],
     secondary_figure: dict[str, Any],
     event_figure: dict[str, Any] | None = None,

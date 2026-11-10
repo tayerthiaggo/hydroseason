@@ -124,7 +124,7 @@ def classify_seasonal_pattern(
     n_bootstrap: int = 200,
     n_null: int = _DEFAULT_N_NULL,
     random_state: int = 0,
-    measurement_tolerance_pct: float = 1.0,
+    measurement_tolerance_pct: float = 0.0,
     quality_policy: Literal["exclude", "flag"] = "flag",
 ) -> SeasonalPatternResult:
     """Classify annual-cycle shape from weighted, partial-year-tolerant evidence.

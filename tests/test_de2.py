@@ -97,16 +97,29 @@ IMPLEMENTATION = HANDOFF / "2026-11-08-de2-implementation-checks.json"
 IMPLEMENTATION_DOC = HANDOFF / "2026-11-08-de2-implementation-checks.md"
 
 
+def _fingerprint_before_change_f() -> str:
+    """Today's policy without the settings release change F pinned (values unchanged).
+
+    Hashing to the fingerprint the DE2 checks recorded shows change F only added pins.
+    """
+    from hydroseason._method_policy import method_policy_manifest
+
+    manifest = method_policy_manifest()
+    for key in ("trough_search", "boundary_selection", "peak_quality"):
+        manifest.pop(key)
+    manifest["trough_refinement"].pop("l_grid_steps_per_scale")
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 @pytest.mark.skipif(not IMPLEMENTATION.exists(), reason="DE2 implementation checks not run yet")
 def test_implementation_checks_match_the_note_and_the_library():
-    from hydroseason._method_policy import method_policy_fingerprint
-
     result = json.loads(IMPLEMENTATION.read_text(encoding="utf-8"))
-    assert result["fingerprint"] == method_policy_fingerprint()
+    assert result["fingerprint"] == _fingerprint_before_change_f()
     assert result["script_sha256_lf"] == _lf_sha256(Path("scripts/de2_implementation_checks.py"))
     real = result["real_records"]
     assert real["records"] == 4468 and real["errors"] == []
-    assert list(real["fingerprints"]) == [method_policy_fingerprint()]
+    assert list(real["fingerprints"]) == [_fingerprint_before_change_f()]
     assert set(result["case_studies"]["event_and_spell_tables"].values()) == {"identical"}
     assert result["fitzroy_tiles"]["late3"] == [251, 104]
     doc = " ".join(IMPLEMENTATION_DOC.read_text(encoding="utf-8").split())

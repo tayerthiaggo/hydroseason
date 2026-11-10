@@ -8,10 +8,14 @@
     "source_kind": "extent_csv"
   },
   "analysis": {
+    "measurement_tolerance_pct": 0.0,
+    "min_months_per_year": 9,
+    "n_bootstrap": 200,
     "n_events": 18,
     "n_hydro_years": 21,
     "pass2_abstained_count": 0,
     "pass2_applied_count": 20,
+    "quality_policy": "flag",
     "reason": "seasonal record (peak p=0.001, trough p=0.001): per-year dynamic boundaries are reproducible",
     "reason_codes": {
       "accepted": 7,
@@ -30,7 +34,8 @@
       "3 of 21 usable years contain no wet event above 20% invalid ceiling"
     ]
   },
-  "created_at_utc": "2026-11-10T04:08:19.599750+00:00",
+  "catchment": "Fitzroy River (WA)",
+  "created_at_utc": "2026-11-10T09:02:03.943456+00:00",
   "dependencies": {
     "affine": "2.4.0",
     "dask": "2026.3.0",
@@ -61,6 +66,12 @@
     "n_rows": 252
   },
   "method": {
+    "boundary_selection": {
+      "anomaly_noise_scales": 3.0,
+      "min_window_coverage": 0.7,
+      "signal_floor_fraction": 0.1,
+      "support_threshold": 0.8
+    },
     "condition_baseline": {
       "eligible_timing_statuses": [
         "point",
@@ -98,7 +109,12 @@
       "exit_sigma": 1.0,
       "low_sigma": 1.0
     },
-    "fingerprint": "59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65",
+    "fingerprint": "07f1eaa173372e2544c46f794426917539a774756a64ccdac400ea0a747171cb",
+    "peak_quality": {
+      "absolute_backstop_pct": 80.0,
+      "min_years": 5,
+      "percentile": 90.0
+    },
     "policy_id": "hydroseason-v0.3.0",
     "recurrence_identifiability": {
       "authority_scope": "candidate_for_established_0_2_0",
@@ -128,12 +144,21 @@
     "trough_refinement": {
       "delta_rel": 0.05,
       "huber_k": 1.345,
+      "l_grid_steps_per_scale": 4,
       "l_uncertainty_k": 2.0,
       "method": "direct_profile_combined",
       "profile_loss_cutoff": 0.05,
       "pulse_z": 1.5,
       "scale_mode": "combined",
       "version": "direct_profile_combined_v1"
+    },
+    "trough_search": {
+      "adaptive_min_usable_months_per_cycle": 6,
+      "adaptive_radius_months": 5,
+      "min_usable_months_per_cycle": 8,
+      "min_usable_trough_candidates": 2,
+      "radius_months": 3,
+      "raw_minimum_rel_tolerance": 0.0
     },
     "trough_search_anchor": {
       "range_fraction": 0.1,

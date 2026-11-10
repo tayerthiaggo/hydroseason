@@ -227,6 +227,16 @@ def test_dataarray_dataset_netcdf_and_zarr_match(tmp_path):
         pd.testing.assert_frame_equal(item.extent, resolved[0].extent)
 
 
+@pytest.mark.filterwarnings("ignore:numpy.ndarray size changed.*:RuntimeWarning")
+def test_netcdf_fill_value_does_not_turn_outside_code_into_nan(tmp_path):
+    mask = _mask_array()
+    path = tmp_path / "filled.nc"
+    mask.to_dataset(name="water_mask").to_netcdf(
+        path, engine=_netcdf_writer_engine(), encoding={"water_mask": {"_FillValue": -2}}
+    )
+    pd.testing.assert_frame_equal(resolve_water_input(path).extent, resolve_water_input(mask).extent)
+
+
 def test_dataset_variable_selection_is_explicit_when_ambiguous():
     xr = pytest.importorskip("xarray")
     mask = _mask_array()

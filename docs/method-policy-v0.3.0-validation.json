@@ -1,19 +1,24 @@
 {
   "release_decision": "pass",
   "method_policy_id": "hydroseason-v0.3.0",
-  "method_fingerprint": "59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65",
-  "method_manifest_sha256": "6e17c132d00bc0f4664043380ea8be3cf10ef7cf7fc1e1ed5dd62f6f254297e0",
+  "method_fingerprint": "07f1eaa173372e2544c46f794426917539a774756a64ccdac400ea0a747171cb",
+  "method_manifest_sha256": "93a60215a83a2f5ba88a54316157346e4da7c7ccdcd980d14ce4be34bd60f7af",
+  "validated_fingerprint": {
+    "method_fingerprint": "59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65",
+    "note": "the evidence below ran under this fingerprint; change F only adds pins with unchanged values, so removing them from today's manifest gives it back (tests/test_de2.py checks this)"
+  },
   "supersedes": {
     "method_policy_id": "hydroseason-v0.2.0",
     "method_fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
   },
-  "approved": "2026-11-04, by the project lead, on the 0.3.0 proposal and the B2 result; change D added 2026-11-05 on the lead's approval of DE1 route A + B; B withdrawn after its implementation checks (2026-11-06) and A only confirmed by the lead on 2026-11-08; change E approved by the lead on 2026-11-09",
+  "approved": "2026-11-04, by the project lead, on the 0.3.0 proposal and the B2 result; change D added 2026-11-05 on the lead's approval of DE1 route A + B; B withdrawn after its implementation checks (2026-11-06) and A only confirmed by the lead on 2026-11-08; change E approved by the lead on 2026-11-09; change F approved by the lead on 2026-11-10 with the audit fixes",
   "changes": {
     "A": "the manifest pins the timing-identifiability gates, the condition-baseline rule and the trough-label rule",
     "B": "trough timing label widened to cover the trough boundary (covers_trough_boundary, version 1)",
     "C": "point, interval and broad cycles may anchor the condition baseline",
     "D": "each cycle reports the dry run of its trough boundary (report_dry_run, version 1); boundaries unchanged",
-    "E": "the year boundary reaches the end of the dry season on flat lows: search anchor at the end of the typical low (end_of_climatological_low v1) and dry, zero-extent lows dated from the run end to the month before the next peak (zero_low_end_status v2)"
+    "E": "the year boundary reaches the end of the dry season on flat lows: search anchor at the end of the typical low (end_of_climatological_low v1) and dry, zero-extent lows dated from the run end to the month before the next peak (zero_low_end_status v2)",
+    "F": "the manifest also pins the trough search, boundary selection, peak-quality rule and trough-refinement level grid; values unchanged, nothing computed changes"
   },
   "unchanged_validation": "docs/method-policy-v0.2.0-validation.json covers every part of the method that v0.3.0 keeps unchanged",
   "evidence_sha256_lf": {

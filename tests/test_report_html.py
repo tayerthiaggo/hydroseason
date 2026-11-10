@@ -28,7 +28,6 @@ def test_report_places_optional_aoi_map_after_the_summary_region():
         hydro_years=pd.DataFrame(),
         events=pd.DataFrame(),
         low_spells=pd.DataFrame(),
-        summary=pd.DataFrame(),
         timeline_figure={"data": [], "layout": {}, "config": {}},
         secondary_figure={"data": [], "layout": {}, "config": {}},
         aoi_map_html='<div id="aoi-map-report">AOI map</div>',
@@ -53,7 +52,6 @@ def test_report_omits_aoi_context_section_without_a_map():
         hydro_years=pd.DataFrame(),
         events=pd.DataFrame(),
         low_spells=pd.DataFrame(),
-        summary=pd.DataFrame(),
         timeline_figure={"data": [], "layout": {}, "config": {}},
         secondary_figure={"data": [], "layout": {}, "config": {}},
     )
@@ -431,7 +429,6 @@ def test_report_legend_toggles_event_and_low_spell_shading():
         hydro_years=pd.DataFrame(),
         events=pd.DataFrame(),
         low_spells=pd.DataFrame(),
-        summary=pd.DataFrame(),
         timeline_figure={"data": [], "layout": {}, "config": {}},
         secondary_figure={"data": [], "layout": {}, "config": {}},
     )

@@ -380,7 +380,7 @@ def assess_timing_identifiability(
     date_col: str | None = None,
     max_invalid_pct: float = 20.0,
     quality_policy: QualityPolicy = "flag",
-    measurement_tolerance_pct: float = 1.0,
+    measurement_tolerance_pct: float = 0.0,
 ) -> RecordTimingEvidence:
     """Assess annual extrema without making a regime or route decision.
 

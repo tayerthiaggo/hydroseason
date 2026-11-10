@@ -43,11 +43,12 @@ the codebase already uses for gappy monthly cubes (missing months become
 from __future__ import annotations
 
 import dataclasses
+import errno
 import hashlib
-import json
 import math
 import os
 import shutil
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -64,6 +65,7 @@ from hydroseason._fsutil import (
     _rename_dir,
     _sha256_digest,
     _write_json_atomic,
+    _year_settled,
     _zarr_store,
 )
 
@@ -110,6 +112,10 @@ MASK_CHUNKS = (1, 512, 512)
 _INDEX_DIRNAME = "index"
 _LOCKS_DIRNAME = ".locks"
 _MANIFEST_FILENAME = "manifest.json"
+# Every manifest read-modify-write in this process holds it: year_workers
+# threads read the manifest while the main thread rewrites it, and Windows
+# refuses os.replace over a file another handle has open.
+_MANIFEST_LOCK = threading.Lock()
 
 # Spatial chunk edge (pixels) for the annual Zarr storage grid; matches
 # MASK_CHUNKS' y/x extent. Also used to derive the wet_count/clear_count
@@ -344,53 +350,47 @@ def _store_dir(cache_root: Path, identity_digest: str) -> Path:
     return Path(cache_root) / f"{identity_digest}.zarr"
 
 
-def _is_pid_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if os.name == "nt":
-        import ctypes
-
-        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
-        if handle == 0:
-            return False
-        ctypes.windll.kernel32.CloseHandle(handle)
-        return True
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
+# Errors the OS lock calls give when another process holds the lock
+# (msvcrt.locking: EDEADLOCK/EACCES; flock: EWOULDBLOCK/EAGAIN).
+_LOCK_HELD_ERRNOS = frozenset({errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK, errno.EDEADLK})
 
 
 @contextmanager
 def cache_writer_lock(cache_root: Path, request_digest: str) -> Iterator[None]:
-    """Exclusive on-disk lock guarding writes to one request's cache store."""
+    """Exclusive on-disk lock guarding writes to one request's cache store.
+
+    An OS lock on the open lock file, so the OS frees it if the holder dies.
+    The file is never deleted: unlinking it would let a later writer lock a
+    fresh file while an earlier opener still locks the orphaned one.
+    """
     lock_path = _lock_path(Path(cache_root), request_digest)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR)
     try:
-        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as exc:
-        data = _read_json(lock_path)
-        if data and "pid" in data and not _is_pid_alive(data["pid"]):
-            lock_path.unlink(missing_ok=True)
-            try:
-                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            except FileExistsError:
-                raise RuntimeError(
-                    f"cache request {request_digest} is already being written "
-                    f"(lock file present at {lock_path})"
-                ) from exc
-        else:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            # Only "someone holds it" means busy; e.g. ENOLCK on a network drive is a real error.
+            if exc.errno not in _LOCK_HELD_ERRNOS:
+                raise
             raise RuntimeError(
                 f"cache request {request_digest} is already being written "
-                f"(lock file present at {lock_path})"
+                f"(lock held on {lock_path})"
             ) from exc
-    try:
-        with os.fdopen(descriptor, "w") as handle:
-            handle.write(json.dumps({"pid": os.getpid(), "created": time.time()}))
-        yield
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
     finally:
-        lock_path.unlink(missing_ok=True)
+        os.close(descriptor)
 
 
 def _manifest_identity(identity: Any) -> dict:
@@ -511,19 +511,13 @@ def _validate_hit(cache_root: Path, index_entry: dict, request: WOfSCacheRequest
     )
 
 
-def resolve_cached_request(
-    cache_root: Path, request: WOfSCacheRequest, *, offline: bool
-) -> WOfSCacheHandle | None:
+def resolve_cached_request(cache_root: Path, request: WOfSCacheRequest) -> WOfSCacheHandle | None:
     """Look up a completed cache for ``request`` using only the local index.
 
     Reads ``cache_root / "index" / f"{request_digest}.json"`` and, if
     present, validates it against the store's own manifest (see
     :func:`_validate_hit`) before returning a handle. Never touches the
-    network regardless of ``offline`` -- the flag is accepted (and required
-    ``True`` by every current caller in this module) so that call sites
-    stay self-documenting about which lookups are network-free; a future
-    ``offline=False`` mode that also checks a remote catalog is not
-    implemented.
+    network.
 
     Returns ``None`` on any miss: no index entry, an entry that fails
     validation, or a store manifest that cannot be read.
@@ -544,7 +538,7 @@ def require_cached_request(
     offline run that hits a missing/incomplete cache fails with an
     actionable message instead of a bare ``None`` a caller might not check.
     """
-    handle = resolve_cached_request(cache_root, request, offline=offline)
+    handle = resolve_cached_request(cache_root, request)
     if handle is None:
         raise FileNotFoundError(
             "no cached WOfS store found for request "
@@ -669,12 +663,16 @@ def _handle_request_dict(handle: "WOfSCacheHandle") -> dict:
     Used to look up ``historical_mask_pixel_count`` (and, in principle, any
     other request field) without requiring callers to thread the original
     :class:`WOfSCacheRequest` through every writer call -- the manifest
-    written by :func:`create_cache_handle` already carries it. Returns an
-    empty dict if the manifest or its ``identity``/``request`` block is
-    missing/malformed, matching :func:`_store_year_time_axis`'s existing
-    tolerant read of the same manifest path.
+    written by :func:`create_cache_handle` already carries it. Raises if the
+    manifest is missing or unreadable (an empty request would skip the
+    ``historical_mask_pixel_count`` guard); returns an empty dict if its
+    ``identity``/``request`` block is missing/malformed.
     """
-    manifest = _read_json(Path(handle.path) / _MANIFEST_FILENAME) or {}
+    manifest_path = Path(handle.path) / _MANIFEST_FILENAME
+    with _MANIFEST_LOCK:
+        manifest = _read_json(manifest_path)
+    if manifest is None:
+        raise FileNotFoundError(f"store manifest missing or unreadable: {manifest_path}")
     identity = manifest.get("identity") or {}
     request = identity.get("request") or {}
     return request if isinstance(request, dict) else {}
@@ -1115,8 +1113,6 @@ def write_annual_group(
         _shutil.rmtree(_long_path(temp_path), ignore_errors=True)
         raise
 
-    _record_completed_year(store_path, year)
-
     return AnnualWriteStats(
         year=int(year),
         task_count=task_count,
@@ -1385,8 +1381,6 @@ def write_empty_annual_group(
         _shutil.rmtree(_long_path(temp_path), ignore_errors=True)
         raise
 
-    _record_completed_year(store_path, year)
-
     return AnnualWriteStats(
         year=int(year),
         task_count=0,
@@ -1400,19 +1394,22 @@ def write_empty_annual_group(
     )
 
 
-def _record_completed_year(store_path: Path, year: int) -> None:
-    """Add ``year`` to the store's root manifest, preserving every other key.
+@contextmanager
+def _updated_manifest(store_path: Path) -> Iterator[dict]:
+    """Read-modify-write the store's root manifest, preserving every other key.
 
-    Read-modify-write via :func:`_write_json_atomic`: the manifest written
-    by :func:`create_cache_handle` already exists (identity/request_digest),
-    so this only appends to (or creates) its ``completed_years`` list --
-    never touches the fields :func:`_validate_hit` depends on.
+    Holds :data:`_MANIFEST_LOCK` throughout, and raises rather than
+    rewriting a missing/unreadable manifest as ``{}``, which would drop the
+    ``identity``/``footprints`` that :func:`_validate_hit` and the
+    ``historical_mask_pixel_count`` guard depend on.
     """
-    manifest_path = store_path / _MANIFEST_FILENAME
-    manifest = _read_json(manifest_path) or {}
-    completed = sorted(set(manifest.get("completed_years", [])) | {int(year)})
-    manifest["completed_years"] = completed
-    _write_json_atomic(manifest_path, manifest)
+    manifest_path = Path(store_path) / _MANIFEST_FILENAME
+    with _MANIFEST_LOCK:
+        manifest = _read_json(manifest_path)
+        if manifest is None:
+            raise FileNotFoundError(f"store manifest missing or unreadable: {manifest_path}")
+        yield manifest
+        _write_json_atomic(manifest_path, manifest)
 
 
 _FOOTPRINTS_KEY = "footprints"
@@ -1580,10 +1577,8 @@ def record_cache_footprints(
     either alone.
 
     Written into the store's root ``manifest.json`` under a ``footprints``
-    key via read-modify-write + :func:`_write_json_atomic`, mirroring
-    :func:`_record_completed_year`'s pattern exactly: every other manifest
-    key (``identity``/``request_digest``/``completed_years``/...) is
-    preserved untouched.
+    key via :func:`_updated_manifest`: every other manifest key
+    (``identity``/``request_digest``/...) is preserved untouched.
 
     Because ``full_aoi_gdf`` is the SAME requested catchment for a pruned
     and an unpruned acquisition of that catchment, ``aoi_pixel_count`` is
@@ -1613,10 +1608,8 @@ def record_cache_footprints(
         analysis_digest=_geometry_digest(crs_text, analysis_wkb_hex),
     )
 
-    manifest_path = Path(handle.path) / _MANIFEST_FILENAME
-    manifest = _read_json(manifest_path) or {}
-    manifest[_FOOTPRINTS_KEY] = footprints.to_dict()
-    _write_json_atomic(manifest_path, manifest)
+    with _updated_manifest(handle.path) as manifest:
+        manifest[_FOOTPRINTS_KEY] = footprints.to_dict()
 
     return footprints
 
@@ -2402,6 +2395,19 @@ def completed_years(handle: WOfSCacheHandle) -> set[int]:
     return result
 
 
+def _year_group_settled(handle: WOfSCacheHandle, year: int) -> bool:
+    """True when ``year``'s completed group was published after the year settled.
+
+    The publish time is ``complete.json``'s mtime (the final rename keeps
+    it); see :func:`hydroseason._fsutil._year_settled`.
+    """
+    try:
+        written_at = os.stat(_long_path(_year_dir(handle.path, year) / _COMPLETE_FILENAME)).st_mtime
+    except OSError:
+        return False
+    return _year_settled(year, written_at)
+
+
 def open_completed_mask_cache(
     handle: WOfSCacheHandle,
     start_date: str,
@@ -2525,7 +2531,7 @@ def open_completed_extent_counts(
     *,
     read_workers: int | None = None,
 ) -> pd.DataFrame | None:
-    start = pd.Timestamp(start_date)
+    start = pd.Timestamp(start_date).to_period("M").to_timestamp()
     end = pd.Timestamp(end_date)
     requested_years = list(range(start.year, end.year + 1))
     done = completed_years(handle)
@@ -2674,7 +2680,7 @@ def open_completed_dual_extent_counts(
     per-year ``content_digest`` does not match, or the resulting range has
     no rows.
     """
-    start = pd.Timestamp(start_date)
+    start = pd.Timestamp(start_date).to_period("M").to_timestamp()
     end = pd.Timestamp(end_date)
     requested_years = list(range(start.year, end.year + 1))
     done = completed_years(handle)

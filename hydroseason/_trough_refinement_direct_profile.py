@@ -24,16 +24,20 @@ from ._trough_refinement import (
     PeakBoundary,
     TroughRefinementPolicy,
     TroughRefinementResult,
+    _convex_loss,
     _empty_result,
     _fit_valley_huber,
     _fit_valley_l1,
+    _isotonic_branches,
     _local_scale,
     _measurement_floor,
     _median_absolute_deviation,
     _pulse_dates,
-    _robust_isotonic,
     _support_weights,
 )
+
+# Grid points per noise scale when profiling the low-state reference level.
+L_GRID_STEPS_PER_SCALE = 4
 
 
 def l_grid(
@@ -41,7 +45,7 @@ def l_grid(
     scale: float,
     *,
     l_uncertainty_k: float,
-    n_steps_per_scale: int = 4,
+    n_steps_per_scale: int = L_GRID_STEPS_PER_SCALE,
 ) -> np.ndarray:
     """Symmetric grid of admissible ``L`` values around ``block_level``.
 
@@ -66,21 +70,10 @@ class _DirectProfileFit:
     loss: float
 
 
-def _huber_loss(residual: np.ndarray, weights: np.ndarray, *, scale: float, huber_k: float) -> float:
-    if scale == 0.0:
-        return float(np.sum(weights * np.abs(residual)))
-    magnitude = np.abs(residual / scale)
-    losses = np.where(
-        magnitude <= huber_k,
-        0.5 * np.square(magnitude),
-        huber_k * magnitude - 0.5 * huber_k**2,
-    )
-    return float(np.sum(weights * losses))
-
-
 def fit_with_reference_level(
     values: np.ndarray,
     weights: np.ndarray,
+    branch: np.ndarray,
     start: int,
     end: int,
     *,
@@ -88,18 +81,9 @@ def fit_with_reference_level(
     scale: float,
     huber_k: float,
 ) -> _DirectProfileFit:
-    """Clamp the low-state block to ``level`` exactly; branches stay isotonic."""
-    branch = np.full(values.size, np.nan, dtype=float)
-    if start:
-        branch[:start] = _robust_isotonic(
-            values[:start][::-1], weights[:start][::-1], scale=scale, huber_k=huber_k,
-        )[::-1]
-    if end + 1 < values.size:
-        branch[end + 1:] = _robust_isotonic(
-            values[end + 1:], weights[end + 1:], scale=scale, huber_k=huber_k,
-        )
+    """Clamp the low-state block to ``level`` exactly; ``branch`` holds the isotonic branches."""
     fitted = np.where(np.isfinite(branch), np.maximum(branch, level), level)
-    loss = _huber_loss(values - fitted, weights, scale=scale, huber_k=huber_k)
+    loss = _convex_loss(values, fitted, weights, scale=scale, huber_k=huber_k)
     return _DirectProfileFit(
         start_position=start, end_position=end, reference_level=level, fitted=fitted, loss=loss,
     )
@@ -230,8 +214,6 @@ def _natural_reference_level(
             if anchored is not None and not bool(np.any(anchored[start:end + 1])):
                 continue
             fit = _fit_valley_huber(values, weights, start, end, scale=scale, huber_k=huber_k)
-            if not fit.converged:
-                continue
             if best is None or fit.loss < best.loss:
                 best = fit
     if best is None:
@@ -306,11 +288,21 @@ def solve_direct_profile(
     best_by_departure: dict[int, _DirectProfileFit] = {}
     overall_best_loss = np.inf
 
+    # The left branch depends only on `start` and the right only on `end`: build each once.
+    left = {
+        start: _isotonic_branches(values, weights, start, n - 1, scale=scale, huber_k=huber_k)[:start]
+        for start in range(1, n - 1)
+    }
+    right = {
+        end: _isotonic_branches(values, weights, 0, end, scale=scale, huber_k=huber_k)[end + 1:]
+        for end in range(1, n - 1)
+    }
     for start in range(1, n - 1):
         for end in range(start, n - 1):
+            branch = np.concatenate((left[start], np.full(end - start + 1, np.nan), right[end]))
             for level in grid:
                 fit = fit_with_reference_level(
-                    values, weights, start, end, level=level, scale=scale, huber_k=huber_k,
+                    values, weights, branch, start, end, level=level, scale=scale, huber_k=huber_k,
                 )
                 if fit.loss < overall_best_loss:
                     overall_best_loss = fit.loss
@@ -448,9 +440,6 @@ def _refine_gap_direct_profile(
         _fit_valley_l1(before_values, before_weights, start, last)
         for start in range(1, last + 1)
     ]
-    preliminary = [candidate for candidate in preliminary if candidate.converged]
-    if not preliminary:
-        return _empty_result("unresolved", "no_converged_candidate", policy)
     preliminary_best = min(
         preliminary, key=lambda candidate: (candidate.loss, candidate.start_position),
     )
@@ -461,9 +450,6 @@ def _refine_gap_direct_profile(
         _fit_valley_huber(before_values, before_weights, start, last, scale=scale, huber_k=policy.huber_k)
         for start in range(1, last + 1)
     ]
-    candidates = [candidate for candidate in candidates if candidate.converged]
-    if not candidates:
-        return _empty_result("unresolved", "no_converged_candidate", policy)
     best_loss = min(candidate.loss for candidate in candidates)
     loss_tolerance = max(np.finfo(float).eps, _RELATIVE_CONVERGENCE * max(1.0, abs(best_loss)))
     best = min(
@@ -626,9 +612,6 @@ def refine_selected_span_direct_profile(
         for start in range(1, len(span) - 1)
         for end in range(start, len(span) - 1)
     ]
-    preliminary = [candidate for candidate in preliminary if candidate.converged]
-    if not preliminary:
-        return _empty_result("unresolved", "no_converged_candidate", policy)
     preliminary_best = min(
         preliminary, key=lambda candidate: (candidate.loss, candidate.end_position, candidate.start_position),
     )

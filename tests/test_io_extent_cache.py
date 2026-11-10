@@ -831,6 +831,31 @@ def test_offline_without_mask_cache_dir_is_explicit():
         )
 
 
+def test_csv_part_written_before_its_year_settled_is_refetched(monkeypatch, tmp_path):
+    """DEA keeps ingesting a year's scenes for weeks after it closes, so a
+    part written before then is refetched; a settled part is reused."""
+    import os
+
+    import hydroseason.io as hio
+
+    load = Mock(side_effect=lambda _url, _coll, _aoi, start, end, **_kw: _fake_monthly_cube(start, end))
+    monkeypatch.setattr(hio, "load_wofs_from_stac", load)
+    kwargs = dict(
+        stac_url="https://example.invalid/stac", collection="wofs", aoi=_aoi(),
+        start_date="2015-01-01", end_date="2016-12-31", resolution=30,
+        cache_dir=tmp_path, use_historical_water_mask=False,
+    )
+    hio.load_wofs_monthly_extent(**kwargs)
+    # The 2015 part was written mid-December 2015, before late scenes arrived.
+    written = pd.Timestamp("2015-12-15", tz="UTC").timestamp()
+    os.utime(next(tmp_path.glob("extent_20150101_*.csv")), (written, written))
+    load.reset_mock()
+
+    hio.load_wofs_monthly_extent(**kwargs)
+
+    assert [call.args[3] for call in load.call_args_list] == ["2015-01-01"]
+
+
 def test_offline_without_mask_cache_dir_still_uses_complete_csv_cache(monkeypatch, tmp_path):
     pytest.importorskip("dask")
     import hydroseason.io as hio

@@ -32,6 +32,7 @@ from ._timing_identifiability import (
     TimingIdentifiabilityThresholds,
     TimingStatus,
     WindowTimingEvidence,
+    _window_status,
     assess_window_timing,
 )
 from ._trough_refinement import (
@@ -54,6 +55,9 @@ _TIMING_STATUS_RANK: dict[TimingStatus, int] = {
 # first dynamic-year implementation and have not been selected against truth.
 _ADAPTIVE_TROUGH_SEARCH_RADIUS_MONTHS = 5
 _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE = 6
+
+# Fidelity band of the boundary sequence: 0.0 keeps only candidates equal to their year's minimum value.
+RAW_MINIMUM_REL_TOLERANCE = 0.0
 
 
 class _UnsetAdaptiveMinUsableMonths:
@@ -105,7 +109,7 @@ class DynamicHydroYearConfig:
     min_baseline_cycles: int = 5
     low_percentile: float = 20.0
     high_percentile: float = 80.0
-    measurement_tolerance_pct: float = 1.0
+    measurement_tolerance_pct: float = 0.0
     timing_identifiability_thresholds: TimingIdentifiabilityThresholds = (
         TIMING_IDENTIFIABILITY_DEFAULTS
     )
@@ -228,7 +232,7 @@ def _search_edge_diagnostics(
     if values.empty:
         return diagnostics
     diagnostics["outside_window_observed"] = True
-    comparable = values.loc[frame.loc[values.index, "invalid_pct"].lt(100.0)]
+    comparable = values.loc[~frame.loc[values.index, "invalid_pct"].ge(100.0)]
     if comparable.empty:
         return diagnostics
     diagnostics["outside_window_lower"] = bool(
@@ -287,14 +291,7 @@ def _find_robust_trough_opportunities(
         if selection.run_start is not None and selection.run_end is not None:
             run = frame.loc[selection.run_start:selection.run_end]
             if selection.selection_status == "quality_adjusted":
-                if "quality_state" in run.columns:
-                    run = run.loc[run["quality_state"].isin(["usable", "unknown"]) & run["extent_pct"].notna()]
-                elif "candidate_usable" in run.columns:
-                    run = run.loc[run["candidate_usable"] & run["extent_pct"].notna()]
-                elif "invalid_pct" in run.columns:
-                    run = run.loc[run["invalid_pct"].le(20.0) & run["extent_pct"].notna()]
-                else:
-                    run = run.loc[run["extent_pct"].notna()]
+                run = run.loc[run["quality_state"].isin(["usable", "unknown"]) & run["extent_pct"].notna()]
                 if run.empty and selection.selected_month is not None:
                     candidates = [(pd.Timestamp(selection.selected_month), float(selection.selected_extent_pct))]
                 else:
@@ -324,7 +321,7 @@ def _find_robust_trough_opportunities(
         sequence_input.append({"year": year, "expected": expected, "candidates": candidates})
 
     selected_dates = select_boundary_sequence(
-        sequence_input, raw_minimum_rel_tolerance=0.0
+        sequence_input, raw_minimum_rel_tolerance=RAW_MINIMUM_REL_TOLERANCE
     )
 
     rows = []
@@ -686,7 +683,7 @@ def _adaptive_edge_retry_years(
             freq="MS",
         )
         extra = frame.reindex(extra_index)
-        observed = extra["extent_pct"].notna() & extra["invalid_pct"].lt(100.0)
+        observed = extra["extent_pct"].notna() & ~extra["invalid_pct"].ge(100.0)
         if not observed.all():
             continue
         selected_value = frame.loc[base_start, "extent_pct"]
@@ -770,7 +767,7 @@ def _reconcile_trough_labels(
         if start <= boundary <= end:
             continue
         start, end = min(start, boundary), max(end, boundary)
-        trough_status = _candidate_timing_status((start, end), thresholds)
+        trough_status = _window_status((start, end), thresholds, allow_broad=True)
         peak_status = row["peak_timing_status"]
         if peak_status not in _TIMING_STATUS_RANK:
             peak_status = "unresolved"
@@ -1100,22 +1097,6 @@ def _row_peak_boundary(row: pd.Series) -> PeakBoundary:
     )
 
 
-def _candidate_timing_status(
-    candidates: tuple[pd.Timestamp, ...],
-    thresholds: TimingIdentifiabilityThresholds,
-) -> TimingStatus:
-    if not candidates:
-        return "unresolved"
-    span = _month_delta(candidates[-1], candidates[0])
-    if span <= thresholds.max_point_span_months:
-        return "point"
-    if span <= thresholds.max_boundary_interval_months:
-        return "interval"
-    if span <= thresholds.max_broad_interval_months:
-        return "broad"
-    return "unresolved"
-
-
 def _record_trough_challenger(
     rows: pd.DataFrame,
     position: int,
@@ -1123,8 +1104,8 @@ def _record_trough_challenger(
     config: DynamicHydroYearConfig,
 ) -> None:
     candidates = refinement.boundary_candidates
-    timing_status = _candidate_timing_status(
-        candidates, config.timing_identifiability_thresholds
+    timing_status = _window_status(
+        candidates, config.timing_identifiability_thresholds, allow_broad=True
     )
     values: dict[str, object] = {
         "trough_challenger_month": refinement.boundary or pd.NaT,
@@ -1390,8 +1371,8 @@ def _apply_trough_refinement(
         )
         current_candidate["trough_interval_start"] = adopted_candidates[0]
         current_candidate["trough_interval_end"] = adopted_candidates[-1]
-        current_candidate["trough_timing_status"] = _candidate_timing_status(
-            adopted_candidates, config.timing_identifiability_thresholds
+        current_candidate["trough_timing_status"] = _window_status(
+            adopted_candidates, config.timing_identifiability_thresholds, allow_broad=True
         )
         current_candidate["timing_status"] = _aggregate_timing_status(
             current_candidate["peak_timing_status"],
@@ -1515,7 +1496,7 @@ def _report_dry_runs(frame: pd.DataFrame, rows: pd.DataFrame, config: DynamicHyd
             if pd.notna(following_peak) and pd.Timestamp(following_peak) > run.end
             else run.rewetting - pd.DateOffset(months=1)
         )
-        status = _candidate_timing_status((run.end, last), config.timing_identifiability_thresholds)
+        status = _window_status((run.end, last), config.timing_identifiability_thresholds, allow_broad=True)
         if status == "unresolved":
             continue
         status = "interval" if status == "point" else status

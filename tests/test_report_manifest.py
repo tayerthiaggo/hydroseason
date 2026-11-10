@@ -182,3 +182,28 @@ def test_manifest_pass2_refinement_counts_and_reason_codes(tmp_path, long_season
     assert isinstance(analysis_sec["pass2_applied_count"], int)
     assert isinstance(analysis_sec["pass2_abstained_count"], int)
     assert isinstance(analysis_sec["reason_codes"], dict)
+
+
+def test_manifest_records_the_settings_the_run_used(tmp_path, seasonal_extent):
+    from hydroseason import run_hydroseason
+
+    options = {
+        "measurement_tolerance_pct": 0.5,
+        "min_months_per_year": 10,
+        "n_bootstrap": 40,
+        "quality_policy": "exclude",
+    }
+    result = run_hydroseason(seasonal_extent, output_dir=tmp_path, analysis_options=options, show_map=False)
+    analysis_sec = json.loads(result.artifacts.manifest_json.read_text(encoding="utf-8"))["analysis"]
+    assert {key: analysis_sec[key] for key in options} == options
+
+
+def test_manifest_counts_unresolved_refinements_as_abstained(long_seasonal_extent):
+    from dataclasses import replace
+
+    analysis = analyze_catchment(long_seasonal_extent)
+    years = analysis.hydro_years.assign(trough_refinement_status="unresolved")
+    manifest = build_run_manifest(
+        extent=long_seasonal_extent, analysis=replace(analysis, hydro_years=years), artifacts={}
+    )
+    assert manifest["analysis"]["pass2_abstained_count"] == len(years) > 0

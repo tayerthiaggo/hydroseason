@@ -201,6 +201,23 @@ def test_seasonal_routes_to_per_year_detection():
     assert "reproducible" in result.route_reason.lower()
 
 
+def test_record_without_invalid_pct_still_detects_hydrological_years():
+    result = _calibrated(_seasonal()[["extent_pct"]], n_bootstrap=40)
+    assert result.route == "per_year_detection"
+    assert not result.hydro_years.empty
+
+
+def test_custom_value_col_gives_the_same_years_as_extent_pct():
+    plain = _calibrated(_seasonal(years=12), n_bootstrap=40)
+    renamed = _calibrated(
+        _seasonal(years=12).rename(columns={"extent_pct": "water_pct"}),
+        value_col="water_pct",
+        n_bootstrap=40,
+    )
+    assert renamed.route == plain.route == "per_year_detection"
+    pd.testing.assert_frame_equal(renamed.hydro_years, plain.hydro_years)
+
+
 def test_seasonal_record_with_unstable_trough_routes_to_per_year_detection():
     """Under canonical 0.2.0 direct-profile trough refinement, alternating
     troughs are resolved across cycles and the seasonal record routes to per-year detection."""
@@ -283,6 +300,26 @@ def test_catchment_threads_measurement_tolerance_to_regime_assessment():
     assert routed.regime.n_timing_years == direct.n_timing_years
     assert routed.regime.timing_evidence == direct.timing_evidence
     assert routed.route == direct.public_route == "event_characterisation"
+
+
+def test_every_entry_point_defaults_to_the_same_measurement_tolerance():
+    import inspect
+
+    from hydroseason._dynamic_year import DynamicHydroYearConfig
+    from hydroseason._seasonality import classify_seasonal_pattern
+    from hydroseason._seasonality_test import assess_timing_recurrence
+    from hydroseason._timing_identifiability import assess_timing_identifiability
+
+    entry_points = (
+        analyze_catchment, assess_water_regime, assess_timing_recurrence,
+        assess_timing_identifiability, classify_seasonal_pattern,
+    )
+    defaults = {
+        inspect.signature(function).parameters["measurement_tolerance_pct"].default
+        for function in entry_points
+    }
+    defaults.add(DynamicHydroYearConfig(expected_trough_month=1).measurement_tolerance_pct)
+    assert defaults == {0.0}
 
 
 def test_catchment_threads_measurement_tolerance_to_the_dynamic_cycle_detector():

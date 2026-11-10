@@ -7,13 +7,13 @@ This document provides the authoritative scientific and algorithmic reference fo
 HydroSeason freezes a single authoritative method policy. There are no competing, alternate, or unversioned runtime method policies.
 
 - **Method Identifier**: `hydroseason-v0.3.0`
-- **Method Payload SHA-256 Fingerprint**: `59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65`
-- **Method Manifest SHA-256 Digest**: `6e17c132d00bc0f4664043380ea8be3cf10ef7cf7fc1e1ed5dd62f6f254297e0`
+- **Method Payload SHA-256 Fingerprint**: `07f1eaa173372e2544c46f794426917539a774756a64ccdac400ea0a747171cb`
+- **Method Manifest SHA-256 Digest**: `93a60215a83a2f5ba88a54316157346e4da7c7ccdcd980d14ce4be34bd60f7af`
 - **Run Manifest Schema**: `hydroseason-run-manifest-v1`
 
 Every execution writes a cryptographic run manifest (`<stem>_manifest.json`) capturing the exact method payload fingerprint, software versions, input data digests, configuration parameters, and output artifacts.
 
-The manifest (`docs/method-policy-v0.3.0.json`) pins the event thresholds, the seasonality test, the recurrence policy, trough refinement and, since `hydroseason-v0.3.0`, the timing-identifiability gates, the condition-baseline rule, the trough-label rule, the dry-run rule, the trough-search anchor and the end-of-dry label rule. A change to any of them changes the fingerprint.
+The manifest (`docs/method-policy-v0.3.0.json`) pins the event thresholds, the seasonality test, the recurrence policy, trough refinement and, since `hydroseason-v0.3.0`, the timing-identifiability gates, the condition-baseline rule, the trough-label rule, the dry-run rule, the trough-search anchor and the end-of-dry label rule, and the trough-search, boundary-selection and peak-quality settings. A change to any of them changes the fingerprint.
 
 ---
 
@@ -122,6 +122,7 @@ Catchments routed away from per-year boundaries (aseasonal or insufficient cycle
 
 4. **Each cycle reports where its dry season ends** (section 5a). Five columns are added: `dry_run_start_month`, `dry_run_end_month`, `rewetting_month`, `dry_run_months` and `dry_end_status` (in the hydro-years CSV, `dry_run_start_date`, `dry_run_end_date`, `rewetting_date`, `dry_run_months` and `dry_end_status`). No existing column changes.
 5. **The year boundary reaches the end of the dry season on flat lows** (section 5a): the search anchor is the end of the typical low, and a boundary at the end of a dry low is dated by where the low ends (`analysis.hydro_years` gains `trough_label_basis`). Boundaries move later where the typical low is flat, and with them year start and end, peaks where a cycle's window changes, trough labels, monthly phases and baselines. On real records 69% (quarters, about 59 km² each, of the national DEA WOfS test windows) to 100% (whole catchments) of boundaries are unchanged; the share of boundaries on which two halves of a test window's pixels agree within a month rises from 0.734 to 0.767, and 38 of 4,468 areas change route. On the five case studies only Fitzroy at 300 m changes (4 of 21 boundaries).
+6. **The fingerprint also covers the trough search, boundary selection, peak quality and the trough-refinement grid.** The search radii, minimum usable months and candidates, the boundary-selection thresholds, the peak-quality rule and the refinement level grid are now in the manifest. Their values are unchanged, so nothing computed changes; the fingerprint moved from `59756dfe…` to `07f1eaa1…`, and the evidence below ran under `59756dfe…`.
 
 **Comparing outputs across versions.** Compare `hydroseason-v0.2.0` and `hydroseason-v0.3.0` outputs only on the columns that did not change, and tell them apart by `method_policy_id` or the fingerprint.
 

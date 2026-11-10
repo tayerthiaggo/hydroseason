@@ -1,4 +1,10 @@
 {
+  "boundary_selection": {
+    "anomaly_noise_scales": 3.0,
+    "min_window_coverage": 0.7,
+    "signal_floor_fraction": 0.1,
+    "support_threshold": 0.8
+  },
   "condition_baseline": {
     "eligible_timing_statuses": [
       "point",
@@ -36,6 +42,11 @@
     "exit_sigma": 1.0,
     "low_sigma": 1.0
   },
+  "peak_quality": {
+    "absolute_backstop_pct": 80.0,
+    "min_years": 5,
+    "percentile": 90.0
+  },
   "policy_id": "hydroseason-v0.3.0",
   "recurrence_identifiability": {
     "authority_scope": "candidate_for_established_0_2_0",
@@ -65,12 +76,21 @@
   "trough_refinement": {
     "delta_rel": 0.05,
     "huber_k": 1.345,
+    "l_grid_steps_per_scale": 4,
     "l_uncertainty_k": 2.0,
     "method": "direct_profile_combined",
     "profile_loss_cutoff": 0.05,
     "pulse_z": 1.5,
     "scale_mode": "combined",
     "version": "direct_profile_combined_v1"
+  },
+  "trough_search": {
+    "adaptive_min_usable_months_per_cycle": 6,
+    "adaptive_radius_months": 5,
+    "min_usable_months_per_cycle": 8,
+    "min_usable_trough_candidates": 2,
+    "radius_months": 3,
+    "raw_minimum_rel_tolerance": 0.0
   },
   "trough_search_anchor": {
     "range_fraction": 0.1,

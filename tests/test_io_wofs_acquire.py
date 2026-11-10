@@ -213,6 +213,9 @@ def test_acquisition_reports_query_and_graph_counts_to_diagnostics_callback(monk
 
 def test_completed_year_is_not_rebuilt(monkeypatch, tmp_path):
     handle = SimpleNamespace(path=tmp_path / "store.zarr", identity="id", request_digest="request")
+    # Written today, long after 2015 settled.
+    (handle.path / "years" / "2015").mkdir(parents=True)
+    (handle.path / "years" / "2015" / "complete.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr("hydroseason._io_wofs_acquire.resolve_cached_request", Mock(return_value=handle))
     monkeypatch.setattr("hydroseason._io_wofs_acquire.completed_years", Mock(return_value={2015}))
     graph = Mock()
@@ -227,6 +230,7 @@ def test_completed_year_is_not_rebuilt(monkeypatch, tmp_path):
 def test_acquisition_year_workers_parameter(monkeypatch, tmp_path):
     handle = SimpleNamespace(path=tmp_path / "store.zarr", identity="id", request_digest="request")
     handle.path.mkdir(parents=True, exist_ok=True)
+    (handle.path / "manifest.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr("hydroseason._io_wofs_acquire.resolve_cached_request", Mock(return_value=handle))
     monkeypatch.setattr("hydroseason._io_wofs_acquire.create_cache_handle", Mock(return_value=handle))
     monkeypatch.setattr("hydroseason._io_wofs_acquire.completed_years", Mock(return_value=set()))
@@ -245,9 +249,78 @@ def test_acquisition_year_workers_parameter(monkeypatch, tmp_path):
     assert res == handle
 
 
+def _graph_on_geobox(items, target, start, end, *, geobox, **kwargs):
+    """An all-water monthly cube on the acquisition's own grid, for the real writer."""
+    months = pd.date_range(
+        pd.Timestamp(start).to_period("M").to_timestamp(),
+        pd.Timestamp(end).to_period("M").to_timestamp(),
+        freq="MS",
+    )
+    y, x = geobox.coordinates.values()
+    cube = xr.DataArray(
+        np.ones((len(months), *geobox.shape), dtype=np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": months, "y": y.values, "x": x.values},
+    )
+    return cube.rio.write_crs(geobox.crs).rio.write_transform(geobox.affine).chunk({"time": 1})
+
+
+def test_year_workers_share_the_store_manifest_safely(monkeypatch, tmp_path):
+    """Worker threads read manifest.json while the main thread rewrites it;
+    Windows refuses a rewrite over an open handle, and a lost read must never
+    drop identity/footprints from the rewritten manifest."""
+    import json
+
+    from hydroseason._io_wofs_zarr import completed_years, read_cache_footprints
+
+    years = range(2000, 2016)
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=([_item(f"{y}-03-05T00:00:00Z", f"s{y}") for y in years], _aoi())),
+    )
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", _graph_on_geobox)
+
+    handle = acquire_wofs_cache(
+        "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+        "2000-01-01", "2015-12-31", cache_root=tmp_path, resolution=30, year_workers=4,
+    )
+
+    assert completed_years(handle) == set(years)
+    read_cache_footprints(handle)
+    manifest = json.loads((Path(handle.path) / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["identity"]["digest"] == handle.identity
+    assert len(manifest["acquisition"]["year_diagnostics"]) == len(years)
+
+
+def test_year_written_before_it_settled_is_rebuilt(monkeypatch, tmp_path):
+    """DEA keeps ingesting a year's scenes for weeks after it closes, so a
+    group published before then is rebuilt on the next run; a settled one is
+    reused."""
+    import os
+
+    monkeypatch.setattr(
+        "hydroseason._io_wofs_acquire._query_wofs_items",
+        Mock(return_value=([_item("2015-03-05T00:00:00Z", "a"), _item("2016-03-05T00:00:00Z", "b")], _aoi())),
+    )
+    graph = Mock(side_effect=_graph_on_geobox)
+    monkeypatch.setattr("hydroseason._io_wofs_acquire.build_wofs_year_graph", graph)
+    args = ("https://example.invalid/stac", "ga_ls_wo_3", _aoi(), "2015-01-01", "2016-12-31")
+
+    handle = acquire_wofs_cache(*args, cache_root=tmp_path, resolution=30)
+    # 2015 was published mid-December 2015, before late scenes arrived; 2016 today.
+    written = pd.Timestamp("2015-12-15", tz="UTC").timestamp()
+    os.utime(Path(handle.path) / "years" / "2015" / "complete.json", (written, written))
+    graph.reset_mock()
+
+    acquire_wofs_cache(*args, cache_root=tmp_path, resolution=30)
+
+    assert [pd.Timestamp(call.args[2]).year for call in graph.call_args_list] == [2015]
+
+
 def test_corrupt_final_year_directory_is_rebuilt_with_overwrite(monkeypatch, tmp_path):
     handle = SimpleNamespace(path=tmp_path / "store.zarr", identity="id", request_digest="request")
     (handle.path / "years" / "2015").mkdir(parents=True)
+    (handle.path / "manifest.json").write_text("{}", encoding="utf-8")
     writer = Mock(return_value=_stats())
     monkeypatch.setattr("hydroseason._io_wofs_acquire.resolve_cached_request", Mock(return_value=handle))
     monkeypatch.setattr("hydroseason._io_wofs_acquire.create_cache_handle", Mock(return_value=handle))
@@ -1701,11 +1774,14 @@ def test_resume_path_verifies_cache_analysis_mask_before_accepting_completed_yea
     )
     monkeypatch.setattr("hydroseason._io_wofs_acquire.write_annual_group", Mock(return_value=_stats()))
 
-    acquire_wofs_cache(
+    handle = acquire_wofs_cache(
         "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
         "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
         historical_water_mask=historical_mask,
     )
+    # The writer is mocked, so stand in for the settled group it would publish.
+    (Path(handle.path) / "years" / "2015").mkdir(parents=True)
+    (Path(handle.path) / "years" / "2015" / "complete.json").write_text("{}", encoding="utf-8")
 
     monkeypatch.setattr(
         "hydroseason._io_wofs_acquire.completed_years", Mock(return_value={2015})

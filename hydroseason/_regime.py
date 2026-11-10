@@ -197,7 +197,7 @@ def assess_water_regime(
         timing_evidence = assess_timing_identifiability(
             sample,
             thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
-            value_col=value_col,
+            value_col="extent_pct",
             max_invalid_pct=max_invalid_pct,
             quality_policy=quality_policy,
             measurement_tolerance_pct=measurement_tolerance_pct,
@@ -227,7 +227,7 @@ def assess_water_regime(
     if len(qualifying_years) < _MIN_USABLE_YEARS:
         snr = 0.0
     else:
-        by_month = sample[value_col].groupby(sample.index.month)
+        by_month = sample["extent_pct"].groupby(sample.index.month)
         climatology = by_month.mean()
         amplitude = float(climatology.max() - climatology.min())
         within_month_sd = (
@@ -242,7 +242,7 @@ def assess_water_regime(
     recurrence: TimingRecurrenceResult = assess_timing_recurrence(
         prepared,
         thresholds=TIMING_IDENTIFIABILITY_DEFAULTS,
-        value_col=value_col,
+        value_col="extent_pct",
         measurement_tolerance_pct=measurement_tolerance_pct,
         min_months_per_year=min_months_per_year,
         min_years=_MIN_USABLE_YEARS,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import tempfile
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,10 +25,10 @@ from ._report_copy import (
     wet_event_explainer,
 )
 from ._report_export import (
+    _write_text_atomic,
     build_events_export,
     build_hydro_years_export,
     build_monthly_export,
-    build_summary_export,
     build_user_events_export,
     build_user_hydro_years_export,
     build_user_low_spells_export,
@@ -73,30 +72,36 @@ class CatchmentReportPaths:
         return self.wet_event_csv
 
 
-def _write_text_atomic(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_name = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", dir=path.parent, delete=False, suffix=".tmp", encoding="utf-8"
-        ) as tmp:
-            tmp.write(text)
-            tmp_name = tmp.name
-        Path(tmp_name).replace(path)
-    except PermissionError:
-        if tmp_name is not None:
-            try:
-                Path(tmp_name).unlink(missing_ok=True)
-            except Exception:
-                pass
-        path.write_text(text, encoding="utf-8")
-    except Exception:
-        if tmp_name is not None:
-            try:
-                Path(tmp_name).unlink(missing_ok=True)
-            except Exception:
-                pass
-        raise
+_BUNDLE_SUFFIXES = (".html", "_monthly.csv", "_hydro_years.csv", "_wet_event.csv", "_low_spells.csv", "_manifest.json")
+
+
+def _check_bundle_target(
+    output_dir: str | Path, name: str | None, input_path: str | Path | None = None
+) -> Path:
+    """Refuse to overwrite the run's input or files no bundle for ``name`` wrote; return the manifest path."""
+    display_name = normalise_report_name(name)
+    stem = safe_stem(display_name)
+    targets = [Path(output_dir) / f"{stem}{suffix}" for suffix in _BUNDLE_SUFFIXES]
+    if input_path is not None and Path(input_path).exists() and any(
+        target.exists() and target.samefile(input_path) for target in targets
+    ):
+        raise FileExistsError(
+            f"{input_path} is this run's input and would be overwritten; "
+            "choose another output directory or name."
+        )
+    if any(target.exists() for target in targets):
+        try:
+            # A manifest written before names were recorded counts as the same catchment.
+            owner = json.loads(targets[-1].read_text(encoding="utf-8")).get("catchment", display_name)
+        except (OSError, ValueError, AttributeError):
+            owner = None
+        if owner != display_name:
+            raise FileExistsError(
+                f"{Path(output_dir) / stem}.* files exist but are not a finished HydroSeason "
+                f"bundle for {display_name!r}; choose another output directory or name, "
+                "or delete those files."
+            )
+    return targets[-1]
 
 
 def _validate_analysis_for_extent(
@@ -283,6 +288,10 @@ def generate_catchment_report(
     output.mkdir(parents=True, exist_ok=True)
     display_name = normalise_report_name(name)
     clean_stem = safe_stem(display_name)
+    acquisition = (run_context or {}).get("acquisition")
+    manifest_path = _check_bundle_target(
+        output, display_name, acquisition.get("path") if isinstance(acquisition, Mapping) else None
+    )
 
     if analysis is None:
         analysis = analyze_catchment(extent, value_col=value_col, date_col=date_col)
@@ -295,7 +304,6 @@ def generate_catchment_report(
     hydro_years = build_hydro_years_export(analysis, name=display_name)
     events, low_spells = build_events_export(analysis)
     verdict = verdict_sentence(analysis)
-    summary = build_summary_export(analysis, name=display_name, verdict=verdict)
 
     has_rainfall = "rainfall_mm" in monthly and monthly["rainfall_mm"].notna().any()
     effective_rainfall_source = rainfall_source or ("csv" if has_rainfall else None)
@@ -322,6 +330,12 @@ def generate_catchment_report(
                 stacklevel=2,
             )
 
+    # Until the final manifest replaces it, the bundle reads as incomplete but
+    # stays this catchment's, so a rerun after a crash is allowed.
+    _write_text_atomic(
+        manifest_path,
+        json.dumps({"catchment": display_name, "status": "incomplete"}, indent=2) + "\n",
+    )
     # Keep the rich frames for HTML.  The CSV bundle is intentionally a
     # smaller, stable interface with explicit date names and only the fields a
     # manager normally needs to interpret the result.
@@ -356,7 +370,6 @@ def generate_catchment_report(
         hydro_years=hydro_years,
         events=events,
         low_spells=low_spells,
-        summary=summary,
         timeline_figure=timeline_figure(monthly, analysis),
         secondary_figure=secondary_figure(monthly, analysis),
         event_figure=event_duration_figure(analysis),
@@ -371,7 +384,6 @@ def generate_catchment_report(
     )
     _write_text_atomic(html_path, html_text)
 
-    manifest_path = output / f"{clean_stem}_manifest.json"
     artifacts_to_hash = {
         "html": html_path.resolve(),
         "monthly_csv": csv_paths["monthly"].resolve(),
@@ -385,6 +397,7 @@ def generate_catchment_report(
         artifacts=artifacts_to_hash,
         run_context=run_context,
     )
+    manifest["catchment"] = display_name
     _write_text_atomic(
         manifest_path,
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -418,16 +431,6 @@ def generate_html_report(
     output = Path(output_path)
     years = _legacy_years(hydro_years)
     monthly = _legacy_monthly(extent, years)
-    summary = pd.DataFrame(
-        [
-            {
-                "title": title,
-                "n_months": len(monthly),
-                "n_hydro_years": len(years),
-                "compatibility_api": True,
-            }
-        ]
-    )
     verdict = (
         f"Compatibility report rendered from {len(years)} supplied "
         "hydrological-year rows."
@@ -446,7 +449,6 @@ def generate_html_report(
         hydro_years=years,
         events=_empty_events(),
         low_spells=_empty_low_spells(),
-        summary=summary,
         timeline_figure=_legacy_timeline(monthly),
         secondary_figure=_legacy_secondary(monthly),
     )

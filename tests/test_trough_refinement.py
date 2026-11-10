@@ -502,7 +502,7 @@ def test_tiny_residual_noise_cannot_drive_scale_below_pixel_floor():
     values = np.array([90.0, 60.0, 30.0, 10.0001, 10.0, 45.0, 80.0])
     fitted = np.array([90.0, 60.0, 30.0, 10.0, 10.0, 45.0, 80.0])
     preliminary = _CandidateFit(
-        start_position=3, end_position=4, fitted=fitted, loss=0.0, converged=True
+        start_position=3, end_position=4, fitted=fitted, loss=0.0
     )
     frame = pd.DataFrame({"n_valid": [100] * 7})  # pixel floor = 100/100 = 1.0 pp
     scale = _local_scale(values, preliminary, frame, measurement_tolerance_pp=0.0)

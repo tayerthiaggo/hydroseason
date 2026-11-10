@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ._boundary import (
+    PEAK_QUALITY_ABSOLUTE_BACKSTOP_PCT,
+    PEAK_QUALITY_MIN_YEARS,
+    PEAK_QUALITY_PERCENTILE,
+    SIGNAL_FLOOR_FRACTION,
+    RobustBoundaryConfig,
+)
 from ._condition import BASELINE_TIMING_STATUSES
 from ._dry_run import (
     ANCHOR_RANGE_FRACTION,
@@ -18,7 +25,13 @@ from ._dry_run import (
     ZERO_LOW_LABEL_RULE,
     ZERO_LOW_LABEL_RULE_VERSION,
 )
-from ._dynamic_year import TROUGH_LABEL_RULE, TROUGH_LABEL_RULE_VERSION, DynamicHydroYearConfig
+from ._dynamic_year import (
+    _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE,
+    RAW_MINIMUM_REL_TOLERANCE,
+    TROUGH_LABEL_RULE,
+    TROUGH_LABEL_RULE_VERSION,
+    DynamicHydroYearConfig,
+)
 from ._events import _DEFAULT_ENTER_K, _DEFAULT_EXIT_K, _DEFAULT_LOW_K
 from ._scientific_defaults import (
     RECURRENCE_AUTHORITY_SCOPE,
@@ -31,6 +44,7 @@ from ._scientific_defaults import (
 from ._seasonality_test import TIMING_RECURRENCE_ALPHA
 from ._trough_refinement import TroughRefinementPolicy
 from ._trough_refinement_defaults import TROUGH_REFINEMENT_POLICY
+from ._trough_refinement_direct_profile import L_GRID_STEPS_PER_SCALE
 
 
 @dataclass(frozen=True)
@@ -53,7 +67,14 @@ def _config_default(name: str) -> Any:
 
 def method_policy_manifest() -> dict[str, Any]:
     gates = TIMING_IDENTIFIABILITY_DEFAULTS
+    boundary = RobustBoundaryConfig()
     return {
+        "boundary_selection": {
+            "anomaly_noise_scales": boundary.anomaly_noise_scales,
+            "min_window_coverage": boundary.min_window_coverage,
+            "signal_floor_fraction": SIGNAL_FLOOR_FRACTION,
+            "support_threshold": boundary.support_threshold,
+        },
         "condition_baseline": {
             "eligible_timing_statuses": list(BASELINE_TIMING_STATUSES),
             "high_percentile": _config_default("high_percentile"),
@@ -65,6 +86,11 @@ def method_policy_manifest() -> dict[str, Any]:
             "enter_sigma": _DEFAULT_ENTER_K,
             "exit_sigma": _DEFAULT_EXIT_K,
             "low_sigma": _DEFAULT_LOW_K,
+        },
+        "peak_quality": {
+            "absolute_backstop_pct": PEAK_QUALITY_ABSOLUTE_BACKSTOP_PCT,
+            "min_years": PEAK_QUALITY_MIN_YEARS,
+            "percentile": PEAK_QUALITY_PERCENTILE,
         },
         "policy_id": CURRENT_METHOD_POLICY.policy_id,
         "seasonality": {
@@ -80,6 +106,7 @@ def method_policy_manifest() -> dict[str, Any]:
         "trough_refinement": {
             "delta_rel": CURRENT_METHOD_POLICY.trough_refinement.delta_rel,
             "huber_k": CURRENT_METHOD_POLICY.trough_refinement.huber_k,
+            "l_grid_steps_per_scale": L_GRID_STEPS_PER_SCALE,
             "l_uncertainty_k": CURRENT_METHOD_POLICY.trough_refinement.l_uncertainty_k,
             "method": "direct_profile_combined",
             "profile_loss_cutoff": CURRENT_METHOD_POLICY.trough_refinement.profile_loss_cutoff,
@@ -116,6 +143,14 @@ def method_policy_manifest() -> dict[str, Any]:
                 "version": ZERO_LOW_LABEL_RULE_VERSION,
             },
         },
+        "trough_search": {
+            "adaptive_min_usable_months_per_cycle": _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE,
+            "adaptive_radius_months": _config_default("adaptive_trough_search_radius_months"),
+            "min_usable_months_per_cycle": _config_default("min_usable_months_per_cycle"),
+            "min_usable_trough_candidates": _config_default("min_usable_trough_candidates"),
+            "radius_months": _config_default("trough_search_radius_months"),
+            "raw_minimum_rel_tolerance": RAW_MINIMUM_REL_TOLERANCE,
+        },
         "trough_search_anchor": {
             "range_fraction": ANCHOR_RANGE_FRACTION,
             "rule": ANCHOR_RULE,
@@ -139,6 +174,7 @@ SCIENTIFIC_SOURCE_FILES = (
     "hydroseason/_events.py",
     "hydroseason/_seasonality_test.py",
     "hydroseason/_trough_refinement.py",
+    "hydroseason/_trough_refinement_direct_profile.py",
     "hydroseason/_trough_refinement_defaults.py",
     "hydroseason/_scientific_defaults.py",
     "hydroseason/_regime.py",

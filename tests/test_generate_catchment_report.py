@@ -152,7 +152,6 @@ def test_report_interactions_restore_scale_without_secondary_range_sync(tmp_path
         hydro_years=pd.DataFrame(),
         events=pd.DataFrame(),
         low_spells=pd.DataFrame(),
-        summary=pd.DataFrame(),
         timeline_figure=timeline,
         secondary_figure={"data": [], "layout": {}, "config": {"responsive": True}},
     )
@@ -456,6 +455,54 @@ def test_report_escapes_rainfall_warning(tmp_path, seasonal_extent):
 
     assert '<script id="rain-owned">' not in html
     assert "&lt;/script&gt;" in html
+
+
+def test_run_refuses_to_overwrite_its_own_input(tmp_path, seasonal_extent):
+    from hydroseason import run_hydroseason
+
+    source = run_hydroseason(seasonal_extent, output_dir=tmp_path, aoi_name="Site", show_map=False).artifacts.monthly_csv
+    before = source.read_bytes()
+    with pytest.raises(FileExistsError, match="input"):
+        run_hydroseason(source, output_dir=tmp_path, aoi_name="Site", show_map=False)
+    assert source.read_bytes() == before
+
+
+def test_report_refuses_a_bundle_written_for_another_catchment(tmp_path, seasonal_extent):
+    paths = generate_catchment_report(seasonal_extent, tmp_path, name="Daly River (upper)")
+    with pytest.raises(FileExistsError, match="Daly-River upper"):
+        generate_catchment_report(seasonal_extent, tmp_path, name="Daly-River upper")
+    generate_catchment_report(seasonal_extent, tmp_path, name="Daly River (upper)")
+    # A manifest from before names were recorded counts as the same catchment.
+    manifest = json.loads(paths.manifest_json.read_text(encoding="utf-8"))
+    del manifest["catchment"]
+    paths.manifest_json.write_text(json.dumps(manifest), encoding="utf-8")
+    generate_catchment_report(seasonal_extent, tmp_path, name="Daly-River upper")
+
+
+def test_report_refuses_files_with_no_manifest(tmp_path, seasonal_extent):
+    (tmp_path / "site_monthly.csv").write_text("not a bundle", encoding="utf-8")
+    with pytest.raises(FileExistsError):
+        generate_catchment_report(seasonal_extent, tmp_path, name="Site")
+
+
+def test_a_rerun_that_crashes_leaves_an_incomplete_manifest(
+    tmp_path, seasonal_extent, monkeypatch
+):
+    paths = generate_catchment_report(seasonal_extent, tmp_path, name="Site")
+
+    def crash(**_kwargs):
+        raise RuntimeError("crash while rendering")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("hydroseason.report.render_report_html", crash)
+        with pytest.raises(RuntimeError):
+            generate_catchment_report(seasonal_extent, tmp_path, name="Site")
+    manifest = json.loads(paths.manifest_json.read_text(encoding="utf-8"))
+    assert manifest == {"catchment": "Site", "status": "incomplete"}
+
+    # The same catchment can be rerun once the cause is fixed.
+    generate_catchment_report(seasonal_extent, tmp_path, name="Site")
+    assert "status" not in json.loads(paths.manifest_json.read_text(encoding="utf-8"))
 
 
 def test_events_csv_alias_is_deprecated(tmp_path):

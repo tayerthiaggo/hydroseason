@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from hydroseason._fsutil import (
-    _canonical_json_bytes,
+    _read_json,
     _sha256_digest,
+    _write_json_atomic,
 )
 
 if TYPE_CHECKING:
@@ -272,25 +271,6 @@ def _cache_root(cache_dir: Path) -> Path:
 
 def _cache_dir_for_digest(cache_dir: Path, cache_digest: str) -> Path:
     return _cache_root(cache_dir) / cache_digest
-
-
-def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}-", suffix=".tmp")
-    temp_path = Path(temp_name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(_canonical_json_bytes(payload))
-        os.replace(str(temp_path), str(path))
-    finally:
-        temp_path.unlink(missing_ok=True)
-
-
-def _read_json(path: Path) -> dict[str, Any] | None:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
 
 
 def _manifest_payload(

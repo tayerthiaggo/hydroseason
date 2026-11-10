@@ -50,7 +50,8 @@ dependencies = [
 
 [project.optional-dependencies]
 raster = [
-  "xarray>=2023.8",
+  # xarray 2026.9 needs zarr 3 to write stores; this package's caches use zarr 2.
+  "xarray>=2023.8,<2026.9",
   "rioxarray>=0.15",
   "rasterio>=1.3",
   "geopandas>=0.14",
@@ -83,9 +84,6 @@ stac = [
 all = [
   "hydroseason[raster,stac]"
 ]
-case-study = [
-  "hydroseason[stac]",
-]
 docs = [
   "mkdocs>=1.6,<2",
   "mkdocs-material>=9.5",
@@ -100,7 +98,6 @@ dev = [
   "twine>=6.1",
   "check-wheel-contents>=0.6",
   "tomli>=2.0; python_version < '3.11'",
-  "playwright>=1.40",
 ]
 
 [project.urls]

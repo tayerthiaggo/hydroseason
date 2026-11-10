@@ -341,7 +341,7 @@ def test_short_six_month_cycle_keeps_observed_peak_and_local_trough():
 
     result = detect_dynamic_hydrological_years(
         raw,
-        config=DynamicHydroYearConfig(expected_trough_month=10),
+        config=DynamicHydroYearConfig(expected_trough_month=10, measurement_tolerance_pct=1.0),
     )
 
     short = result.loc[result["hy_year"] == 2020].iloc[0]
@@ -360,7 +360,7 @@ def test_adaptive_pass_relaxes_only_unresolved_interior_year():
     raw = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
 
     result = detect_dynamic_hydrological_years(
-        raw, config=DynamicHydroYearConfig(expected_trough_month=10)
+        raw, config=DynamicHydroYearConfig(expected_trough_month=10, measurement_tolerance_pct=1.0)
     )
 
     middle = result.loc[result["hy_year"] == 2020].iloc[0]

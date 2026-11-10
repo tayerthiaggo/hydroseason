@@ -10,7 +10,9 @@ the returned items by calendar year (:func:`partition_items_by_year`), and
 lazy Dask graph for that year (:func:`build_wofs_year_graph`, which lives
 in :mod:`hydroseason._io_geo`) and writes it once
 (:func:`hydroseason._io_wofs_zarr.write_annual_group`). Years already
-completed are never rebuilt, and a query/graph/write failure for one year
+completed after the catalog settled for that year
+(:func:`hydroseason._fsutil._year_settled`) are never rebuilt, and a
+query/graph/write failure for one year
 never rolls back or deletes a different year's already-completed group,
 because each year's write is independent and atomic
 (:func:`write_annual_group` publishes via a single ``os.replace``).
@@ -31,6 +33,7 @@ from typing import Any, Callable, Literal
 
 import pandas as pd
 
+from hydroseason._fsutil import _write_atomic
 from hydroseason._io_dea_stats import (
     DEAStatsUnavailable,
     WetPlanningFootprint,
@@ -55,7 +58,9 @@ from hydroseason._io_wofs_zarr import (
     _long_path,
     _read_json,
     _sha256_digest,
+    _updated_manifest,
     _write_json_atomic,
+    _year_group_settled,
     _zarr_store,
     cache_writer_lock,
     completed_years,
@@ -507,9 +512,7 @@ def _probe_local_wet_aoi_handle(
     if wet_aoi is not None or wet_mask == "off":
         return None
     return resolve_cached_request(
-        cache_root,
-        WOfSCacheRequest(**base_request_kwargs, wet_mask_sha256=None),
-        offline=True,
+        cache_root, WOfSCacheRequest(**base_request_kwargs, wet_mask_sha256=None)
     )
 
 
@@ -805,9 +808,12 @@ def acquire_wofs_cache(
 
     requested_years = set(requested_years)
 
-    existing_handle = resolve_cached_request(cache_root, request, offline=True)
+    existing_handle = resolve_cached_request(cache_root, request)
     if existing_handle is not None and not force:
-        already_done = completed_years(existing_handle)
+        already_done = {
+            year for year in completed_years(existing_handle)
+            if _year_group_settled(existing_handle, year)
+        }
         if requested_years <= already_done and _resumed_years_are_trustworthy(
             existing_handle, historical_water_mask
         ):
@@ -878,7 +884,10 @@ def acquire_wofs_cache(
             # convention just above.
             record_cache_analysis_mask(handle, historical_water_mask)
 
-        already_done = set() if force else completed_years(handle)
+        # A year written before it settled may miss late-ingested scenes: rebuild it.
+        already_done = set() if force else {
+            year for year in completed_years(handle) if _year_group_settled(handle, year)
+        }
         missing_years = sorted(requested_years - already_done)
 
         if not missing_years:
@@ -1299,8 +1308,7 @@ def load_or_build_cached_wet_aoi(
     )
     wet_aoi = wet_aoi_polygon(ever_wet, close_m=close_m, buffer_m=buffer_m)
 
-    Path(_long_path(geojson_path.parent)).mkdir(parents=True, exist_ok=True)
-    _write_geojson_atomic(geojson_path, wet_aoi)
+    _write_atomic(geojson_path, lambda temp: wet_aoi.to_file(temp, driver="GeoJSON"))
     _write_json_atomic(
         identity_path,
         {
@@ -1316,35 +1324,6 @@ def load_or_build_cached_wet_aoi(
     wet_aoi.attrs["hydroseason_wet_aoi_identity"] = geojson_path.stem
 
     return wet_aoi
-
-
-def _write_geojson_atomic(path: Path, gdf) -> None:
-    """Write ``gdf`` as GeoJSON to ``path`` without ever leaving a partial file.
-
-    Mirrors :func:`hydroseason._fsutil._write_json_atomic`'s
-    write-to-temp-then-``os.replace`` pattern (same directory, so the final
-    rename is atomic on the same filesystem, and routed through
-    :func:`hydroseason._fsutil._long_path` so this also works past
-    Windows' legacy ``MAX_PATH`` limit) rather than reimplementing a second
-    atomic-write helper for JSON payloads -- this one only differs because
-    ``gpd.GeoDataFrame.to_file`` writes to a path itself instead of
-    returning bytes to write.
-    """
-    import os
-    import tempfile
-
-    parent = Path(_long_path(path.parent))
-    parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temp_name = tempfile.mkstemp(
-        dir=str(parent), prefix=f".{path.name}-", suffix=".tmp"
-    )
-    os.close(descriptor)
-    temp_path = Path(temp_name)
-    try:
-        gdf.to_file(temp_path, driver="GeoJSON")
-        os.replace(str(temp_path), _long_path(path))
-    finally:
-        temp_path.unlink(missing_ok=True)
 
 
 def _aoi_digest(aoi_gdf) -> str:
@@ -1384,16 +1363,12 @@ def _write_acquisition_progress(
     handle: WOfSCacheHandle,
     year_diagnostics: list[dict[str, Any]],
 ) -> None:
-    from hydroseason._io_wofs_zarr import _read_json, _write_json_atomic
-
-    manifest_path = Path(handle.path) / "manifest.json"
-    manifest = _read_json(manifest_path) or {}
-    acq = manifest.setdefault("acquisition", {})
-    existing = {d["year"]: d for d in acq.get("year_diagnostics", [])}
-    for d in year_diagnostics:
-        existing[d["year"]] = d
-    acq["year_diagnostics"] = [existing[y] for y in sorted(existing)]
-    _write_json_atomic(manifest_path, manifest)
+    with _updated_manifest(handle.path) as manifest:
+        acq = manifest.setdefault("acquisition", {})
+        existing = {d["year"]: d for d in acq.get("year_diagnostics", [])}
+        for d in year_diagnostics:
+            existing[d["year"]] = d
+        acq["year_diagnostics"] = [existing[y] for y in sorted(existing)]
 
 
 def _write_acquisition_manifest(
@@ -1413,8 +1388,8 @@ def _write_acquisition_manifest(
 
     Read-modify-write, preserving every key
     :func:`hydroseason._io_wofs_zarr.create_cache_handle`/``_validate_hit``
-    already depend on (``identity``/``request_digest``), mirroring
-    :func:`hydroseason._io_wofs_zarr._record_completed_year`'s pattern.
+    already depend on (``identity``/``request_digest``), via
+    :func:`hydroseason._io_wofs_zarr._updated_manifest`.
 
     ``planning_footprint``/``composite_bundle`` are recorded as a small
     ``planning_footprint`` diagnostics block (source collection/version,
@@ -1428,43 +1403,38 @@ def _write_acquisition_manifest(
     import hashlib
     import json
 
-    from hydroseason._io_wofs_zarr import _read_json, _write_json_atomic
-
-    manifest_path = Path(handle.path) / "manifest.json"
-    manifest = _read_json(manifest_path) or {}
     item_digest = hashlib.sha256(
         json.dumps({"item_ids": sorted(item_ids)}, sort_keys=True).encode("utf-8")
     ).hexdigest()
-    acq = manifest.get("acquisition", {})
-    existing_diags = {d["year"]: d for d in acq.get("year_diagnostics", [])}
-    for d in year_diagnostics:
-        existing_diags[d["year"]] = d
-
-    manifest["acquisition"] = {
-        "query_count": acq.get("query_count", 0) + query_count,
-        "graph_count": acq.get("graph_count", 0) + graph_count,
-        "plan_diagnostics": acq.get("plan_diagnostics", []) + plan_diagnostics,
-        "item_ids": sorted(item_ids),
-        "item_digest": item_digest,
-        "output_digest": _output_digest(write_stats),
-        "package_versions": _package_versions(),
-        "elapsed_phases": elapsed_phases,
-        "year_diagnostics": [existing_diags[y] for y in sorted(existing_diags)],
-        "composite_bundle": composite_bundle,
-        "planning_footprint": (
-            {
-                "digest": planning_footprint.digest,
-                "factor": int(planning_footprint.factor),
-                "safety_cells": int(planning_footprint.safety_cells),
-                "covered_years": list(sorted(planning_footprint.covered_years)),
-                "source_collection": planning_footprint.source_collection,
-                "source_version": planning_footprint.source_version,
-            }
-            if planning_footprint is not None
-            else None
-        ),
-    }
-    _write_json_atomic(manifest_path, manifest)
+    with _updated_manifest(handle.path) as manifest:
+        acq = manifest.get("acquisition", {})
+        existing_diags = {d["year"]: d for d in acq.get("year_diagnostics", [])}
+        for d in year_diagnostics:
+            existing_diags[d["year"]] = d
+        manifest["acquisition"] = {
+            "query_count": acq.get("query_count", 0) + query_count,
+            "graph_count": acq.get("graph_count", 0) + graph_count,
+            "plan_diagnostics": acq.get("plan_diagnostics", []) + plan_diagnostics,
+            "item_ids": sorted(item_ids),
+            "item_digest": item_digest,
+            "output_digest": _output_digest(write_stats),
+            "package_versions": _package_versions(),
+            "elapsed_phases": elapsed_phases,
+            "year_diagnostics": [existing_diags[y] for y in sorted(existing_diags)],
+            "composite_bundle": composite_bundle,
+            "planning_footprint": (
+                {
+                    "digest": planning_footprint.digest,
+                    "factor": int(planning_footprint.factor),
+                    "safety_cells": int(planning_footprint.safety_cells),
+                    "covered_years": list(sorted(planning_footprint.covered_years)),
+                    "source_collection": planning_footprint.source_collection,
+                    "source_version": planning_footprint.source_version,
+                }
+                if planning_footprint is not None
+                else None
+            ),
+        }
 
 
 __all__ = [

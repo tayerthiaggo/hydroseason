@@ -217,6 +217,55 @@ def test_release_metadata_enforces_clean_scope(tmp_path):
     assert any("Forbidden tracked files" in e and "docs/paper/draft.tex" in e for e in errors)
 
 
+def test_release_metadata_enforces_scope_in_a_git_worktree(tmp_path):
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        return
+
+    def git(*args, cwd):
+        subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+    main = tmp_path / "main"
+    main.mkdir()
+    git("init", cwd=main)
+    git("config", "user.name", "Test User", cwd=main)
+    git("config", "user.email", "test@example.com", cwd=main)
+    (main / "README.md").write_text("x\n", encoding="utf-8")
+    git("add", "README.md", cwd=main)
+    git("commit", "-m", "init", cwd=main)
+    worktree = tmp_path / "wt"
+    git("worktree", "add", str(worktree), cwd=main)
+    assert (worktree / ".git").is_file()
+
+    root = minimal_release_tree(worktree, version="0.2.0")
+    (root / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+    forbidden_file = root / "docs" / "paper" / "draft.tex"
+    forbidden_file.parent.mkdir(parents=True, exist_ok=True)
+    forbidden_file.write_text("content", encoding="utf-8")
+    git("add", "docs/paper/draft.tex", cwd=root)
+
+    errors = validate_release_metadata(root, require_released=False)
+    assert any("Forbidden tracked files" in e for e in errors)
+
+
+def test_release_receipt_must_name_the_release_policy(tmp_path):
+    import json
+
+    root = minimal_release_tree(tmp_path, version="0.3.0")
+    (root / "CHANGELOG.md").write_text("# Changelog\n## [0.3.0] - 2026-11-09\n", encoding="utf-8")
+    docs = root / "docs"
+    docs.mkdir()
+    (docs / "method-policy-v0.3.0.json").write_text("{}", encoding="utf-8")
+    (docs / "method-policy-v0.3.0-validation.json").write_text(
+        json.dumps({"release_decision": "pass", "method_policy_id": "hydroseason-v0.2.0"}),
+        encoding="utf-8",
+    )
+    errors = validate_release_metadata(root, expected_tag="v0.3.0", require_released=True)
+    assert any("policy ID 'hydroseason-v0.2.0'" in e for e in errors)
+
+
 def test_release_metadata_enforces_tracked_gitignored_scope(tmp_path):
     import shutil
     import subprocess

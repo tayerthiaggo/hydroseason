@@ -225,11 +225,7 @@ def build_monthly_export(
                 t_dt = pd.Timestamp(row.trough_month)
                 out.loc[out["date"] == t_dt, "is_hy_trough"] = True
     else:
-        out["hy_year"] = pd.Series(index=prepared.index, dtype="Int64")
-        out["confidence"] = pd.Series(index=prepared.index, dtype=object)
         out["phase"] = "unspecified"
-        out["is_hy_peak"] = False
-        out["is_hy_trough"] = False
 
     out["in_wet_event"] = False
     out["wet_event_id"] = pd.Series(index=prepared.index, dtype="Int64")
@@ -322,18 +318,6 @@ def build_events_export(
         else _empty_low_spells()
     )
     return events_df.reset_index(drop=True), low_spells_df.reset_index(drop=True)
-
-
-def build_summary_export(
-    analysis: CatchmentAnalysis,
-    *,
-    name: str,
-    verdict: str,
-) -> pd.DataFrame:
-    """Build single-row summary export DataFrame."""
-    row = analysis.summary_row(name=name)
-    row["verdict"] = verdict
-    return pd.DataFrame([row])
 
 
 def _first_column(frame: pd.DataFrame, *names: str) -> pd.Series:
@@ -510,6 +494,32 @@ def build_user_low_spells_export(
     return out.loc[:, LOW_SPELL_CSV_COLUMNS].reset_index(drop=True)
 
 
+def _write_text_atomic(path: Path, text: str, *, newline: str | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=path.parent, delete=False, suffix=".tmp", encoding="utf-8", newline=newline
+        ) as tmp:
+            tmp.write(text)
+            tmp_name = tmp.name
+        Path(tmp_name).replace(path)
+    except PermissionError:
+        if tmp_name is not None:
+            try:
+                Path(tmp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+        path.write_text(text, encoding="utf-8", newline=newline)
+    except Exception:
+        if tmp_name is not None:
+            try:
+                Path(tmp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+        raise
+
+
 def write_report_csvs(
     output_dir: str | Path,
     *,
@@ -538,30 +548,8 @@ def write_report_csvs(
     }
 
     for key, target in targets.items():
-        df = frames[key]
-        tmp_name = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", dir=out_path, delete=False, suffix=".tmp", encoding="utf-8"
-            ) as tmp:
-                df.to_csv(tmp.name, index=False)
-                tmp_name = tmp.name
-            Path(tmp_name).replace(target)
-        except (PermissionError, OSError) as exc:
-            if tmp_name is not None:
-                try:
-                    Path(tmp_name).unlink(missing_ok=True)
-                except Exception:
-                    pass
-            try:
-                df.to_csv(target, index=False)
-            except (PermissionError, OSError):
-                import warnings
-                warnings.warn(
-                    f"Could not overwrite {target} (file may be open in another application): {exc}",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
+        # newline="" keeps pandas' own line endings, as its direct file write does.
+        _write_text_atomic(target, frames[key].to_csv(index=False), newline="")
 
     return targets
 
@@ -576,7 +564,6 @@ __all__ = [
     "build_events_export",
     "build_hydro_years_export",
     "build_monthly_export",
-    "build_summary_export",
     "build_user_events_export",
     "build_user_hydro_years_export",
     "build_user_low_spells_export",

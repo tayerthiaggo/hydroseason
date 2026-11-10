@@ -94,9 +94,32 @@ def test_manifest_pins_the_condition_baseline_and_the_trough_label_rule():
     assert manifest["trough_label"] == {"rule": "covers_trough_boundary", "form": "widen", "version": 1}
 
 
+def test_manifest_pins_the_trough_search_boundary_selection_and_peak_quality_settings():
+    manifest = method_policy_manifest()
+    assert manifest["trough_search"] == {
+        "radius_months": 3,
+        "adaptive_radius_months": 5,
+        "min_usable_months_per_cycle": 8,
+        "adaptive_min_usable_months_per_cycle": 6,
+        "min_usable_trough_candidates": 2,
+        "raw_minimum_rel_tolerance": 0.0,
+    }
+    assert manifest["boundary_selection"] == {
+        "min_window_coverage": 0.70,
+        "support_threshold": 0.80,
+        "anomaly_noise_scales": 3.0,
+        "signal_floor_fraction": 0.10,
+    }
+    assert manifest["peak_quality"] == {"percentile": 90.0, "absolute_backstop_pct": 80.0, "min_years": 5}
+    assert manifest["trough_refinement"]["l_grid_steps_per_scale"] == 4
+
+
 @pytest.mark.parametrize(
     "module",
-    ["_timing_identifiability.py", "_dynamic_year.py", "_boundary.py", "_condition.py"],
+    [
+        "_timing_identifiability.py", "_dynamic_year.py", "_boundary.py", "_condition.py",
+        "_trough_refinement_direct_profile.py",
+    ],
 )
 def test_manifest_generation_guards_the_modules_that_implement_the_policy(module):
     from hydroseason._method_policy import SCIENTIFIC_SOURCE_FILES

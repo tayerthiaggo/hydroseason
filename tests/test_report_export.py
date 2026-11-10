@@ -7,7 +7,6 @@ from hydroseason._report_export import (
     build_events_export,
     build_hydro_years_export,
     build_monthly_export,
-    build_summary_export,
     build_user_events_export,
     build_user_low_spells_export,
     build_user_monthly_export,
@@ -106,7 +105,7 @@ def test_monthly_export_aligns_optional_rainfall_by_month(seasonal_extent, rainf
     assert out["date"].is_unique
 
 
-def test_build_hydro_years_export_and_summary(seasonal_extent):
+def test_build_hydro_years_export(seasonal_extent):
     analysis = analyze_catchment(
         seasonal_extent,
         phase_scheme="two_phase",
@@ -116,50 +115,6 @@ def test_build_hydro_years_export_and_summary(seasonal_extent):
     assert not years.empty
     assert "catchment" in years.columns
     assert (years["catchment"] == "Test Catchment").all()
-
-    summary = build_summary_export(analysis, name="Test Catchment", verdict="Seasonal regime detected.")
-    assert len(summary) == 1
-    assert summary.loc[0, "verdict"] == "Seasonal regime detected."
-    assert list(summary.columns) == [
-        "catchment",
-        "decision_policy",
-        "regime",
-        "route",
-        "amplitude_snr",
-        "peak_timing_concentration",
-        "peak_timing_concentration_ci_low",
-        "peak_timing_concentration_ci_high",
-        "peak_timing_uniformity_p",
-        "peak_phase_iqr_months",
-        "trough_timing_concentration",
-        "trough_timing_concentration_ci_low",
-        "trough_timing_concentration_ci_high",
-        "trough_timing_uniformity_p",
-        "trough_phase_iqr_months",
-        "n_timing_years",
-        "n_peak_timing_years",
-        "n_trough_timing_years",
-        "n_zero_months",
-        "zero_month_fraction",
-        "n_whole_zero_years",
-        "pixel_support_status",
-        "timing_evidence",
-        "n_usable_years",
-        "n_usable_months",
-        "n_hydro_years",
-        "boundary_basis",
-        "mean_monthly_peak_month",
-        "mean_monthly_trough_month",
-        "n_wet_events",
-        "median_event_duration_months",
-        "longest_low_spell_months",
-        "median_recurrence_months",
-        "years_without_wet_event",
-        "verdict",
-    ]
-    assert summary.loc[0].drop("verdict").to_dict() == analysis.summary_row(
-        name="Test Catchment"
-    )
 
 
 def test_build_events_export(seasonal_extent):
@@ -205,6 +160,16 @@ def test_write_report_csvs(tmp_path, seasonal_extent):
     assert paths["wet_event"].name == "test-catchment_wet_event.csv"
     for p in paths.values():
         assert p.exists()
+
+
+def test_write_report_csvs_raises_when_a_csv_cannot_be_replaced(tmp_path):
+    # A directory in the target's place fails both the atomic replace and the direct write.
+    (tmp_path / "locked_monthly.csv").mkdir()
+    frame = pd.DataFrame({"a": [1]})
+    with pytest.raises(OSError):
+        write_report_csvs(
+            tmp_path, stem="locked", monthly=frame, hydro_years=frame, events=frame, low_spells=frame
+        )
 
 
 def test_hydro_years_csv_carries_timing_identifiability_columns(seasonal_extent):

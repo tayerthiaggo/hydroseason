@@ -104,15 +104,13 @@ def test_harmonic_accepts_the_same_trough_without_floods():
     assert result.expected_trough_month == 9
 
 
-def test_default_low_variability_floor_is_the_one_point_measurement_tolerance():
-    # Fitted range 0.8 pp is at or below the default 1.0 pp tolerance.
-    at_floor = classify_seasonal_pattern(_sinusoid(0.4), n_null=49)
+def test_low_variability_floor_is_the_measurement_tolerance():
+    # Fitted range 0.8 pp is at or below a 1.0 pp tolerance.
+    at_floor = classify_seasonal_pattern(_sinusoid(0.4), n_null=49, measurement_tolerance_pct=1.0)
     # Fitted range 2.0 pp clears it.
-    above = classify_seasonal_pattern(_sinusoid(1.0), n_null=49)
-    # With tolerance 0 the floor is machine epsilon and any positive amplitude passes.
-    zero_tolerance = classify_seasonal_pattern(
-        _sinusoid(0.4), n_null=49, measurement_tolerance_pct=0.0
-    )
+    above = classify_seasonal_pattern(_sinusoid(1.0), n_null=49, measurement_tolerance_pct=1.0)
+    # The default tolerance is 0, so the floor is machine epsilon and any positive amplitude passes.
+    zero_tolerance = classify_seasonal_pattern(_sinusoid(0.4), n_null=49)
 
     assert at_floor.pattern == "low_variability"
     assert at_floor.selected_harmonic_order == 1

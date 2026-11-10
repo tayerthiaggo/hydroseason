@@ -221,7 +221,8 @@ def extract_water_events(
         extent, value_col=value_col, date_col=date_col,
         max_invalid_pct=max_invalid_pct, quality_policy=quality_policy,
     )
-    usable_values = prepared.loc[prepared["candidate_usable"], value_col].dropna()
+    # prepare_monthly_extent renames value_col to extent_pct.
+    usable_values = prepared.loc[prepared["candidate_usable"], "extent_pct"].dropna()
     if usable_values.empty:
         return WaterEventResult(_empty_events(), _empty_low_spells(), {
             "n_events": 0, "n_low_spells": 0, "longest_low_spell_months": 0,
@@ -260,7 +261,7 @@ def extract_water_events(
             lower = usable_values[usable_values < baseline]
             low_threshold = float(lower.max()) if not lower.empty else float("-inf")
 
-    series = prepared[value_col].where(prepared["candidate_usable"])
+    series = prepared["extent_pct"].where(prepared["candidate_usable"])
     observed = series.notna()
 
     # Hysteresis walk: open above the entry threshold, hold until the value

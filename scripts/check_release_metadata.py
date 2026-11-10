@@ -62,8 +62,8 @@ def validate_release_metadata(
     if expected_tag is not None and expected_tag != f"v{version}":
         errors.append(f"tag {expected_tag} does not match version {version}")
 
-    # Scope enforcement via git (only when .git directory exists; skip in unpacked sdist)
-    if (root / ".git").is_dir() and shutil.which("git"):
+    # Scope enforcement via git (skip in an unpacked sdist). ``.git`` is a file in a worktree.
+    if (root / ".git").exists() and shutil.which("git"):
         try:
             res = subprocess.run(
                 ["git", "ls-files"],
@@ -129,24 +129,10 @@ def validate_release_metadata(
 
         # Method policy manifest and validation receipt checks
         policy_manifest = root / "docs" / f"method-policy-v{version}.json"
-        if (
-            not policy_manifest.is_file()
-            and (root / "docs" / "method-policy-v0.2.0.json").is_file()
-            and version.startswith("0.2.0")
-        ):
-            policy_manifest = root / "docs" / "method-policy-v0.2.0.json"
-
         if not policy_manifest.is_file():
             errors.append(f"Method policy manifest docs/method-policy-v{version}.json does not exist")
 
         validation_receipt = root / "docs" / f"method-policy-v{version}-validation.json"
-        if (
-            not validation_receipt.is_file()
-            and (root / "docs" / "method-policy-v0.2.0-validation.json").is_file()
-            and version.startswith("0.2.0")
-        ):
-            validation_receipt = root / "docs" / "method-policy-v0.2.0-validation.json"
-
         if not validation_receipt.is_file():
             errors.append(
                 f"Method validation receipt docs/method-policy-v{version}-validation.json does not exist"
@@ -165,7 +151,7 @@ def validate_release_metadata(
 
             expected_policy_id = f"hydroseason-v{version}"
             policy_id = receipt.get("method_policy_id")
-            if policy_id != expected_policy_id and policy_id != "hydroseason-v0.2.0":
+            if policy_id != expected_policy_id:
                 errors.append(
                     f"Method validation receipt policy ID '{policy_id}' does not match expected '{expected_policy_id}'"
                 )

@@ -100,7 +100,6 @@ class _CandidateFit:
     end_position: int
     fitted: np.ndarray
     loss: float
-    converged: bool
 
 
 _RELATIVE_CONVERGENCE = float(np.sqrt(np.finfo(float).eps))
@@ -125,7 +124,6 @@ def _fit_valley_l1(
         end_position=end,
         fitted=np.asarray(fitted_values, dtype=float),
         loss=loss,
-        converged=True,
     )
 
 
@@ -151,7 +149,6 @@ def _fit_valley_huber(
         end_position=end,
         fitted=np.asarray(fitted_values, dtype=float),
         loss=loss,
-        converged=True,
     )
 
 
@@ -269,7 +266,7 @@ def _convex_loss(
     return float(np.sum(weights * losses))
 
 
-def _fit_valley_convex(
+def _isotonic_branches(
     values: np.ndarray,
     weights: np.ndarray,
     start: int,
@@ -277,8 +274,8 @@ def _fit_valley_convex(
     *,
     scale: float,
     huber_k: float,
-) -> tuple[np.ndarray, float]:
-    """Solve a fixed-block valley under weighted L1 or Huber loss."""
+) -> np.ndarray:
+    """Valley branches: non-increasing before ``start``, non-decreasing after ``end``, NaN between."""
     branch = np.full(values.size, np.nan, dtype=float)
     if start:
         branch[:start] = _robust_isotonic(
@@ -294,6 +291,20 @@ def _fit_valley_convex(
             scale=scale,
             huber_k=huber_k,
         )
+    return branch
+
+
+def _fit_valley_convex(
+    values: np.ndarray,
+    weights: np.ndarray,
+    start: int,
+    end: int,
+    *,
+    scale: float,
+    huber_k: float,
+) -> tuple[np.ndarray, float]:
+    """Solve a fixed-block valley under weighted L1 or Huber loss."""
+    branch = _isotonic_branches(values, weights, start, end, scale=scale, huber_k=huber_k)
 
     active = np.zeros(values.size, dtype=bool)
     active[start:end + 1] = True

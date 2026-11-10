@@ -651,6 +651,23 @@ def test_complete_monthly_axis_preserves_lazy_data_and_marks_missing_months():
     assert (completed.sel(time="2020-02-01").compute().values == -1).all()
 
 
+def test_complete_monthly_axis_warn_keeps_first_mid_month_scene():
+    xr = pytest.importorskip("xarray")
+    from hydroseason.io import complete_monthly_axis
+
+    masks = xr.DataArray(
+        np.array([1, 0, 0], dtype=np.int8)[:, None, None] * np.ones((3, 2, 2), np.int8),
+        dims=("time", "y", "x"),
+        coords={"time": pd.to_datetime(["2020-01-05", "2020-01-20", "2020-02-10"])},
+    )
+
+    with pytest.warns(UserWarning, match="Duplicate month"):
+        completed = complete_monthly_axis(masks, "2020-01-01", "2020-02-29", duplicate_month_policy="warn")
+
+    assert completed.isel(y=0, x=0).values.tolist() == [1, 0]
+    assert completed.attrs["inserted_months"] == []
+
+
 def test_complete_monthly_axis_keeps_outside_aoi_and_grid_on_inserted_months():
     xr = pytest.importorskip("xarray")
     rioxarray = pytest.importorskip("rioxarray")  # noqa: F841 - registers .rio

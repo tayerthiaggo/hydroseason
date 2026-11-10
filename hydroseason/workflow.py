@@ -73,7 +73,7 @@ from .preflight import (
     RegularWorkflowPreflight,
     run_regular_preflight as run_preflight,
 )
-from .report import CatchmentReportPaths, generate_catchment_report
+from .report import CatchmentReportPaths, _check_bundle_target, generate_catchment_report
 
 RainfallStatus = Literal[
     "disabled", "provided", "fetched", "provided_failed", "fetch_failed"
@@ -205,6 +205,10 @@ def run_hydroseason(
     raises.
     """
     validate_analysis_options(analysis_options)
+    # Fail before a long acquisition, not after it; the report re-checks before writing.
+    _check_bundle_target(
+        output_dir, aoi_name, water_source if isinstance(water_source, (str, Path)) else None
+    )
     show_aoi_map = _resolve_show_map(show_map)
     messages: list[str] = []
     aoi_gdf = None

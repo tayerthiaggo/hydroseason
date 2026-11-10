@@ -262,12 +262,66 @@ def test_same_request_writer_is_rejected(tmp_path):
                 pass
 
 
+def test_writer_lock_admits_one_process_and_frees_when_the_holder_dies(tmp_path):
+    """An empty lock file left by a crash never blocks; a live holder in
+    another process always does, and its death releases the lock."""
+    import os
+    import subprocess
+    import sys
+    import time
+
+    import hydroseason
+
+    lock_file = tmp_path / ".locks" / "abc.lock"
+    lock_file.parent.mkdir()
+    lock_file.write_text("", encoding="utf-8")
+    holder = subprocess.Popen(
+        [
+            sys.executable, "-c",
+            "import sys, time\n"
+            "from hydroseason._io_wofs_zarr import cache_writer_lock\n"
+            "with cache_writer_lock(sys.argv[1], 'abc'):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(60)\n",
+            str(tmp_path),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join(
+                [str(Path(hydroseason.__file__).parents[1]), os.environ.get("PYTHONPATH", "")]
+            ),
+        },
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(RuntimeError, match="already being written"):
+            with cache_writer_lock(tmp_path, "abc"):
+                pass
+    finally:
+        holder.kill()
+        holder.wait()
+        holder.stdout.close()
+
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            with cache_writer_lock(tmp_path, "abc"):
+                break
+        except RuntimeError:
+            # Windows frees a dead process's locks a few ms after it exits.
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.05)
+
+
 def test_offline_lookup_uses_local_index_without_network(tmp_path):
     identity = WOfSCacheIdentity.from_request(
         _request(), shape=(10, 20), transform=(30, 0, 0, 0, -30, 0)
     )
     handle = create_cache_handle(tmp_path, identity)
-    assert resolve_cached_request(tmp_path, _request(), offline=True) == handle
+    assert resolve_cached_request(tmp_path, _request()) == handle
 
 
 def test_offline_lookup_rejects_store_not_named_for_full_identity(tmp_path):
@@ -283,7 +337,7 @@ def test_offline_lookup_rejects_store_not_named_for_full_identity(tmp_path):
     index_payload["store"] = f"stores/{identity.request_digest}"
     index_path.write_text(json.dumps(index_payload), encoding="utf-8")
 
-    assert resolve_cached_request(tmp_path, _request(), offline=True) is None
+    assert resolve_cached_request(tmp_path, _request()) is None
 
 
 def test_full_grid_identities_use_physically_distinct_stores(tmp_path):
@@ -668,6 +722,24 @@ def test_annual_writer_persists_exact_monthly_extent_counts(tmp_path):
     assert extent["n_invalid"].tolist() == [1, 1]
     assert extent["extent_pct"].tolist() == [50.0, 50.0]
     assert extent["invalid_pct"].tolist() == [20.0, 20.0]
+
+
+def test_extent_counts_keep_the_first_month_of_a_mid_month_start(tmp_path):
+    mask = _canonical_cube(shape=(2, 2, 3), fill=1).assign_coords(
+        time=pd.date_range("2020-03-01", periods=2, freq="MS")
+    )
+    handle = _handle_for_cube(tmp_path, mask)
+    write_annual_group(
+        handle,
+        2020,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+
+    extent = open_completed_extent_counts(handle, "2020-03-15", "2020-04-30")
+
+    assert list(extent.index) == list(pd.date_range("2020-03-01", periods=2, freq="MS"))
 
 
 def test_pruned_extent_counts_do_not_infer_full_aoi_denominator_from_footprints(tmp_path):

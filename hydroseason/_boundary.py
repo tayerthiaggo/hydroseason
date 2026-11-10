@@ -206,7 +206,8 @@ def _select_window_extreme(
     observation cannot silently anchor a historical condition baseline.
     """
     sign = 1.0 if kind == "min" else -1.0
-    value_present = window["extent_pct"].notna() & window["invalid_pct"].lt(100.0)
+    # Unknown invalid_pct (NaN) still counts as observed, as in candidate_usable.
+    value_present = window["extent_pct"].notna() & ~window["invalid_pct"].ge(100.0)
     all_obs = window.loc[value_present].copy()
     n_usable = int(window.loc[window["candidate_usable"], "extent_pct"].notna().sum()) if "candidate_usable" in window.columns else int(len(all_obs))
     if len(all_obs) < config.min_usable_candidates:
@@ -218,15 +219,7 @@ def _select_window_extreme(
     raw_extent = float(all_obs.loc[raw_month, "extent_pct"])
 
     # Screen for usable candidates with acceptable quality
-    if "quality_state" in window.columns:
-        usable_obs = window.loc[window["quality_state"].isin(["usable", "unknown"]) & window["extent_pct"].notna()].copy()
-    elif "candidate_usable" in window.columns:
-        if "invalid_pct" in window.columns:
-            usable_obs = window.loc[window["candidate_usable"] & window["invalid_pct"].le(20.0) & window["extent_pct"].notna()].copy()
-        else:
-            usable_obs = window.loc[window["candidate_usable"] & window["extent_pct"].notna()].copy()
-    else:
-        usable_obs = window.loc[window["invalid_pct"].le(20.0) & window["extent_pct"].notna()].copy()
+    usable_obs = window.loc[window["quality_state"].isin(["usable", "unknown"]) & window["extent_pct"].notna()].copy()
 
     raw_is_usable = bool(raw_month in usable_obs.index)
 

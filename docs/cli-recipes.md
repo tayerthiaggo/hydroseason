@@ -198,7 +198,11 @@ hydroseason run --water-source monthly_extent.csv --output-dir out --json
 Every run writes `<stem>_manifest.json` (schema `hydroseason-run-manifest-v1`)
 next to the report. There is no method selector: every run uses the frozen
 `hydroseason-v0.3.0` method, and the manifest records its fingerprint with the
-input and output checksums. Abridged:
+input and output checksums. It also names the catchment: a run refuses, with
+`FileExistsError`, to overwrite its own input, or existing output files unless
+their manifest names the same catchment. While a bundle is being written its
+manifest reads
+`{"status": "incomplete"}`. Abridged:
 
 ```json
 {
@@ -207,7 +211,7 @@ input and output checksums. Abridged:
   "python": "3.12.13",
   "method": {
     "policy_id": "hydroseason-v0.3.0",
-    "fingerprint": "59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65"
+    "fingerprint": "07f1eaa173372e2544c46f794426917539a774756a64ccdac400ea0a747171cb"
   },
   "input": {
     "date_min": "2005-01-01",

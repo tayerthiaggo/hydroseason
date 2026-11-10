@@ -13,7 +13,9 @@ import json
 import os
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable
 
 
 def _canonical_json_bytes(payload: dict) -> bytes:
@@ -117,29 +119,53 @@ def _zarr_store(path: Path):
     return _LongPathDirectoryStore(path)
 
 
-def _write_json_atomic(path: Path, payload: dict) -> None:
-    """Write ``payload`` as canonical JSON to ``path`` without ever partial-writing.
+def _write_atomic(path: Path, write: Callable[[Path], object]) -> None:
+    """Create ``path`` via ``write(temp_path)`` without ever leaving a partial file.
 
-    Uses ``tempfile.mkstemp`` in the same directory as ``path`` (so the
-    final ``os.replace`` is an atomic rename on the same filesystem), then
-    replaces the target in one step. A crash or concurrent read at any point
-    before the final ``os.replace`` observes either the old file or nothing
-    new -- never a truncated/partial one. Routes through :func:`_long_path`
-    so this also works when ``path`` is nested deep enough to exceed
-    Windows' legacy ``MAX_PATH`` (e.g. an annual group's ``complete.json``).
+    ``write`` fills a temporary file in the same directory as ``path`` (so the
+    final ``os.replace`` is an atomic rename on the same filesystem); a crash
+    or concurrent read before that replace sees the old file or nothing new.
+    Routes through :func:`_long_path` so this also works when ``path`` is
+    nested deep enough to exceed Windows' legacy ``MAX_PATH``.
     """
     parent = Path(_long_path(path.parent))
     parent.mkdir(parents=True, exist_ok=True)
     descriptor, temp_name = tempfile.mkstemp(
         dir=str(parent), prefix=f".{path.name}-", suffix=".tmp"
     )
+    os.close(descriptor)
     temp_path = Path(temp_name)
     try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(_canonical_json_bytes(payload))
-        os.replace(str(temp_path), _long_path(path))
+        write(temp_path)
+        _retry_while_held(lambda: os.replace(str(temp_path), _long_path(path)))
     finally:
         temp_path.unlink(missing_ok=True)
+
+
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    """Write ``payload`` as canonical JSON to ``path`` (see :func:`_write_atomic`)."""
+    _write_atomic(path, lambda temp: temp.write_bytes(_canonical_json_bytes(payload)))
+
+
+# shortcut: a fixed lag after 31 December, because DEA keeps ingesting late
+# scenes for a closed year for weeks; upgrade if the catalog ever publishes a
+# per-year completeness flag.
+_YEAR_SETTLE_LAG = timedelta(days=60)
+
+
+def _now() -> datetime:
+    """The current UTC time; the one clock cache freshness reads (tests patch it)."""
+    return datetime.now(timezone.utc)
+
+
+def _year_settled(year: int, written_at: float) -> bool:
+    """True when a cache of ``year`` written at ``written_at`` (POSIX seconds) is final.
+
+    Anything written earlier may lack scenes the catalog had not ingested
+    yet, so callers rebuild it instead of trusting it for good.
+    """
+    settled_from = datetime(int(year), 12, 31, tzinfo=timezone.utc) + _YEAR_SETTLE_LAG
+    return written_at >= settled_from.timestamp()
 
 
 def _read_json(path: Path) -> dict | None:
@@ -149,12 +175,11 @@ def _read_json(path: Path) -> dict | None:
         return None
 
 
-def _rename_dir(source: Path | str, target: Path | str) -> None:
-    source_str = str(source)
-    target_str = str(target)
+def _retry_while_held(operation: Callable[[], object]) -> None:
+    """Run a rename/replace, retrying briefly while Windows (antivirus, a lingering handle) holds a file."""
     for attempt in range(5):
         try:
-            os.rename(source_str, target_str)
+            operation()
             return
         except PermissionError:
             if attempt == 4:
@@ -163,3 +188,7 @@ def _rename_dir(source: Path | str, target: Path | str) -> None:
             import gc
 
             gc.collect()
+
+
+def _rename_dir(source: Path | str, target: Path | str) -> None:
+    _retry_while_held(lambda: os.rename(str(source), str(target)))

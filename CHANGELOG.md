@@ -26,9 +26,8 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ### Changed
 - **Method policy `hydroseason-v0.3.0`** replaces `hydroseason-v0.2.0`, so
-  every output carries a new policy id and fingerprint. Five changes; the
-  first four leave boundaries, dates, peaks, routes and cycle status as they
-  were:
+  every output carries a new policy id and fingerprint. Six changes; only the
+  fifth moves boundaries, dates, peaks, routes or cycle status:
   - The trough timing label now covers the trough boundary. A label that
     singled out a different month (usually a cloudy month before the
     boundary) is widened to cover both and graded by its width, so some
@@ -60,6 +59,11 @@ All notable changes to HydroSeason are documented here. This project follows
     catchment (WA), years ending three or more months before the dry season
     fall from 251 to 104, of about 1,600 tile-years. Whole
     catchments and most subbasins are unchanged.
+  - The fingerprint also covers the trough search (radii, minimum usable
+    months and candidates), the boundary-selection thresholds, the
+    peak-quality rule and the trough-refinement level grid. Their values are
+    unchanged, so nothing computed changes; the fingerprint is
+    `07f1eaa1…` instead of `59756dfe…`.
 - **Migration:** trough timing labels, `baseline_eligible`, `baseline_n`, the
   percentiles and the condition labels can differ from 0.2.x, and so can the
   monthly `phase` and `phase_status` in years whose timing label changes. On
@@ -119,6 +123,35 @@ All notable changes to HydroSeason are documented here. This project follows
   `"dual_composite_v1"`; any other value raises `ValueError` instead of
   silently acting as `"single_mask"`. Caches written with the old `"legacy"`
   value stay valid.
+- `measurement_tolerance_pct` defaults to 0.0 everywhere, as in
+  `analyze_catchment`. `DynamicHydroYearConfig`, `classify_seasonal_pattern`
+  and `assess_timing_identifiability` defaulted to 1.0, so a direct call could
+  disagree with `analyze_catchment` (on Fitzroy, 1 of 21 peaks resolved
+  instead of 18). In
+  `analyze_catchment` only the advisory seasonal pattern changes: on Daly it
+  reads `unimodal_annual` instead of `low_variability`.
+- Trough refinement is 2–3 times faster (Daly at 30 m: 36 s to 13 s) with
+  identical output.
+- `generate_catchment_report` and the CLI refuse to overwrite the run's input
+  file, or a bundle written for another catchment, with `FileExistsError`.
+  While a bundle is being written its manifest reads
+  `{"status": "incomplete"}`, so a crash no longer leaves old and new files
+  that look complete. A CSV that cannot be written (for example, open in
+  Excel) now raises instead of warning and keeping the old file.
+- The run manifest records `catchment`, and under `analysis` the
+  `measurement_tolerance_pct`, `min_months_per_year`, `n_bootstrap` and
+  `quality_policy` used; `CatchmentAnalysis` carries the first three.
+  `pass2_abstained_count` counts refinements that ended `unresolved`; it
+  was always 0.
+- Download caches treat a year as final only when it was written at least
+  60 days after its 31 December. Earlier writes are fetched again, so a year
+  cached before its last scenes were ingested no longer keeps the gaps for
+  good; such caches are rebuilt once.
+- The cache writer lock is an operating-system file lock, released when the
+  process dies. Two processes could both take over a stale lock, and on
+  Linux another user's live lock could be taken.
+- The `raster` extra requires `xarray<2026.9`: xarray 2026.9 writes Zarr
+  stores only with zarr 3, and the caches use zarr 2.
 - Public functions and result classes that had no docstring now have one, and
   docstrings, comments and messages describe current behaviour.
 - Resolution case study: the peak and trough timing medians now cover only
@@ -144,8 +177,29 @@ All notable changes to HydroSeason are documented here. This project follows
 - `hydroseason.io.mark_in_aoi_nodata_as_invalid`, which was importable but not
   in `__all__`, undocumented and unused.
 - The undocumented `composite_bundle="legacy"` input value.
+- The `case-study` extra (the same as `stac`) and `playwright` from the `dev`
+  extra; `scripts/render_report_preview.py` says how to install it.
 
 ### Fixed
+- A record without an `invalid_pct` column found no hydrological years
+  through `analyze_catchment` (`run_hydroseason` was unaffected): a missing
+  invalid share was read as 100% invalid.
+- `analyze_catchment(..., value_col=...)` with a column other than
+  `extent_pct` crashed.
+- `aggregate_basin_monthly_extent` counted areas missing a month as dry (a
+  month every area missed read 0%), and a missing area could leave a month
+  looking fully observed.
+- `complete_monthly_axis(..., duplicate_month_policy="warn")` marked every
+  month invalid.
+- Extent counts read back from the cache dropped the first month when
+  `start_date` was not the 1st, or raised `KeyError` with `cache_dir`.
+- NetCDF masks with `_FillValue=-2` were decoded as missing data, which
+  overstated the AOI and the invalid share.
+- `year_workers` above 1 crashed on Windows and could drop sections of the
+  cache manifest.
+- `scripts/check_release_metadata.py` accepted a `hydroseason-v0.2.0` receipt
+  for any version and skipped its git checks in a git worktree. The release
+  workflows now run the tests with every extra installed.
 - The report's seasonality-evidence card said both Kuiper tests reject
   12-month uniformity even when recurrence was not established; the wet-events
   and low-extent-spell cards named the wrong thresholds.

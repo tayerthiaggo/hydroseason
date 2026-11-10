@@ -2,5 +2,5 @@
   "source": "tests/fixtures/v020/case_studies/main_rainfall_summary.csv",
   "generator": "scripts/_build_study_case_rainfall.py",
   "source_sha256": "3aaf79dbc26428d9b5e612e683ab843753236ad5adaf6fa111d523530eab4730",
-  "method_fingerprint": "59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65"
+  "method_fingerprint": "07f1eaa173372e2544c46f794426917539a774756a64ccdac400ea0a747171cb"
 }

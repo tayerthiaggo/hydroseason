@@ -195,8 +195,9 @@ def resolve_water_input(
                 "extent_csv",
             )
         xr = _require_xarray()
+        # Mask codes are data: decoding a _FillValue of -2 would turn outside pixels into NaN.
         if suffix in {".nc", ".nc4", ".netcdf"}:
-            dataset = xr.open_dataset(path, chunks={})
+            dataset = xr.open_dataset(path, chunks={}, mask_and_scale=False)
             kind: WaterSourceKind = "netcdf_mask"
         elif suffix == ".zarr":
             dataset = xr.open_zarr(path, chunks={}, mask_and_scale=False)

@@ -67,6 +67,9 @@ class CatchmentAnalysis:
     )
     random_state: int = 0
     input_fingerprint: str = ""
+    measurement_tolerance_pct: float = 0.0
+    min_months_per_year: int = 9
+    n_bootstrap: int = 200
 
     @property
     def public_route(self) -> Route:
@@ -278,6 +281,9 @@ def analyze_catchment(
             decision_policy=regime.decision_policy,
             random_state=random_state,
             input_fingerprint=input_fingerprint,
+            measurement_tolerance_pct=measurement_tolerance_pct,
+            min_months_per_year=min_months_per_year,
+            n_bootstrap=n_bootstrap,
         )
 
     if regime.regime == "seasonal":
@@ -348,6 +354,9 @@ def analyze_catchment(
                 decision_policy=regime.decision_policy,
                 random_state=random_state,
                 input_fingerprint=input_fingerprint,
+                measurement_tolerance_pct=measurement_tolerance_pct,
+                min_months_per_year=min_months_per_year,
+                n_bootstrap=n_bootstrap,
             )
         years = state.hydro_years.copy()
         if years.empty:
@@ -367,6 +376,9 @@ def analyze_catchment(
                 decision_policy=regime.decision_policy,
                 random_state=random_state,
                 input_fingerprint=input_fingerprint,
+                measurement_tolerance_pct=measurement_tolerance_pct,
+                min_months_per_year=min_months_per_year,
+                n_bootstrap=n_bootstrap,
             )
         years["boundary_basis"] = "detected_per_year"
         state = replace(state, hydro_years=years)
@@ -407,6 +419,9 @@ def analyze_catchment(
                 decision_policy=regime.decision_policy,
                 random_state=random_state,
                 input_fingerprint=input_fingerprint,
+                measurement_tolerance_pct=measurement_tolerance_pct,
+                min_months_per_year=min_months_per_year,
+                n_bootstrap=n_bootstrap,
             )
 
         route_reason = (
@@ -430,6 +445,9 @@ def analyze_catchment(
             decision_policy=regime.decision_policy,
             random_state=random_state,
             input_fingerprint=input_fingerprint,
+            measurement_tolerance_pct=measurement_tolerance_pct,
+            min_months_per_year=min_months_per_year,
+            n_bootstrap=n_bootstrap,
         )
 
     route_reason = (
@@ -452,4 +470,7 @@ def analyze_catchment(
         decision_policy=regime.decision_policy,
         random_state=random_state,
         input_fingerprint=input_fingerprint,
+        measurement_tolerance_pct=measurement_tolerance_pct,
+        min_months_per_year=min_months_per_year,
+        n_bootstrap=n_bootstrap,
     )
