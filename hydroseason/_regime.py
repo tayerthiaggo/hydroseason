@@ -15,7 +15,6 @@ independently of rainfall, so a flat or shifted signal is evidence about water
 """
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -96,33 +95,6 @@ class WaterRegimeAssessment:
     seasonality_test: TimingRecurrenceResult | None = None
     decision_policy: DecisionPolicy = DECISION_POLICY
     public_route: Route = "insufficient_record"
-
-    @property
-    def supports_per_year_boundaries(self) -> bool:
-        """Deprecated: whether public hydrological years may be published for this record."""
-        _warn_deprecated("supports_per_year_boundaries", 'public_route == "per_year_detection"')
-        return self.public_route == "per_year_detection"
-
-    @property
-    def attempts_per_year_detection(self) -> bool:
-        """Deprecated: whether the detector runs at all, as an internal diagnostic."""
-        _warn_deprecated("attempts_per_year_detection", 'regime == "seasonal"')
-        return self.regime == "seasonal"
-
-    @property
-    def supports_fixed_window(self) -> bool:
-        """Deprecated: always False; no route publishes a fixed climatological window."""
-        _warn_deprecated("supports_fixed_window", "public_route (no route uses a fixed window)")
-        return False
-
-
-def _warn_deprecated(name: str, replacement: str) -> None:
-    warnings.warn(
-        f"WaterRegimeAssessment.{name} is deprecated and will be removed in "
-        f"hydroseason 0.4.0; use {replacement} instead.",
-        DeprecationWarning,
-        stacklevel=3,
-    )
 
 
 _ACTIONS: dict[Regime, str] = {

@@ -33,7 +33,7 @@ items first.
 
 | Parameter / result | Contract |
 |---|---|
-| `id_col` | Optional source identifier column. Values must be non-null, nonblank, and unique before and after safe filename conversion; defaults are `aoi-0001`, `aoi-0002`, ... |
+| `id_col` | Optional source identifier column. Values must be non-null, nonblank, and unique before and after safe filename conversion; defaults are `aoi-0001`, `aoi-0002`, ... by row order, with a warning when there are several AOIs |
 | `workers` | `"auto"` or a positive integer. Auto uses `min(2, logical CPU count)`; `1` is sequential; a larger integer is honoured subject to memory admission. |
 | `memory_budget_gb` | Optional positive finite decimal-GB budget. `None` uses 80% of currently available RAM. |
 | `show_map` | `"auto"`, `True`, or `False`; batch preview is best-effort and never changes child analyses. |

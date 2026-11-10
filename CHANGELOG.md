@@ -96,7 +96,7 @@ All notable changes to HydroSeason are documented here. This project follows
   `analyze_hydrological_state` can raise on a record that `analyze_catchment`
   routes as seasonal.
 - Documented what the advisory pattern labels mean (`low_variability` is a
-  statement about the fitted curve against the 1.0 pp default tolerance, not
+  statement about the fitted curve against `measurement_tolerance_pct`, not
   about observed variability), when `suggest_dynamic_hydro_year_config` raises,
   which `SeasonalPatternResult` fields are sentinels, and how a record with a
   recurrent trough but irregular peaks is reported by `assess_water_regime`.
@@ -146,10 +146,18 @@ All notable changes to HydroSeason are documented here. This project follows
 - Download caches treat a year as final only when it was written at least
   60 days after its 31 December. Earlier writes are fetched again, so a year
   cached before its last scenes were ingested no longer keeps the gaps for
-  good; such caches are rebuilt once.
+  good; such caches are rebuilt once. The write time is stored in the cache
+  (`written_at` in each year's `complete.json`, a `.written_at` file next to
+  each extent CSV), so a copied cache keeps it; caches written before this
+  fall back to the file's modification time.
 - The cache writer lock is an operating-system file lock, released when the
   process dies. Two processes could both take over a stale lock, and on
-  Linux another user's live lock could be taken.
+  Linux another user's live lock could be taken. NFS shares may not honour
+  the lock; keep a shared cache on a local disk or a Windows share.
+- `run_hydroseason_many` warns when several AOIs have no `id_col`: they are
+  named by row position (`aoi-0001`, ...), so reordering or filtering the AOI
+  file and rerunning into the same `output_dir` would write a different
+  area's report under an old name.
 - The `raster` extra requires `xarray<2026.9`: xarray 2026.9 writes Zarr
   stores only with zarr 3, and the caches use zarr 2.
 - Public functions and result classes that had no docstring now have one, and
@@ -161,14 +169,17 @@ All notable changes to HydroSeason are documented here. This project follows
   as a miss, and a timing gate with no seasonal catchment fails instead of
   passing.
 
-### Deprecated
+### Removed
 - `CatchmentAnalysis.public_route` (use `route`),
   `CatchmentReportPaths.events_csv` (use `wet_event_csv`), and
-  `WaterRegimeAssessment.supports_per_year_boundaries`,
-  `attempts_per_year_detection` and `supports_fixed_window`. They warn and
-  will be removed in 0.4.0.
-
-### Removed
+  `WaterRegimeAssessment.supports_per_year_boundaries` (use
+  `public_route == "per_year_detection"`), `attempts_per_year_detection` (use
+  `regime == "seasonal"`) and `supports_fixed_window` (always `False`). They
+  were removed in this release without a deprecation period.
+- `phase_model`, deprecated in 0.2.0, from `run_hydroseason`,
+  `analyze_catchment` and `DynamicHydroYearConfig`: use `phase_scheme`
+  (`rule_based` and `cycle_relative` became `two_phase`). Passing it raises
+  `TypeError`.
 - `DynamicHydroYearConfig` parameters `dry_plateau_rule`,
   `sustained_rise_months` and `pulse_rejection_window_months`, deprecated in
   0.1.0. Nothing read them; passing them now raises `TypeError`, and

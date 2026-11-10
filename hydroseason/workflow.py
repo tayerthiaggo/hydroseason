@@ -47,7 +47,6 @@ from ._io_dea_stats import DEAStatsUnavailable
 from ._io_preflight_stats import AnnualStatisticsUnavailable
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
-    LegacyPhaseModel,
     PhaseScheme,
     UnsetPhaseScheme,
     inject_phase_options,
@@ -174,7 +173,6 @@ def run_hydroseason(
     statistics_stac_url: str | None = None,
     cache_dir: str | Path | None = None,
     phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET,
-    phase_model: LegacyPhaseModel | None = None,
     analysis_options: Mapping[str, Any] | None = None,
     report_title: str | None = None,
     report_subtitle: str | None = None,
@@ -313,11 +311,7 @@ def run_hydroseason(
     tracker.finish(1, f"{len(resolved.extent)} months, {resolved.source_kind}")
 
     tracker.start(2)
-    options = inject_phase_options(
-        analysis_options,
-        phase_scheme=phase_scheme,
-        phase_model=phase_model,
-    )
+    options = inject_phase_options(analysis_options, phase_scheme=phase_scheme)
     analysis = analyze_catchment(resolved.extent, **options)
     tracker.finish(2, f"{analysis.route} route")
     messages = messages + list(analysis.warnings) + ancillary_preflight + list(resolved.warnings)

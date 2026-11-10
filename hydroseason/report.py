@@ -60,17 +60,6 @@ class CatchmentReportPaths:
     low_spells_csv: Path
     manifest_json: Path
 
-    @property
-    def events_csv(self) -> Path:
-        """Deprecated alias for :attr:`wet_event_csv`; removed in hydroseason 0.4.0."""
-        warnings.warn(
-            "CatchmentReportPaths.events_csv is deprecated and will be removed in "
-            "hydroseason 0.4.0; use wet_event_csv instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.wet_event_csv
-
 
 _BUNDLE_SUFFIXES = (".html", "_monthly.csv", "_hydro_years.csv", "_wet_event.csv", "_low_spells.csv", "_manifest.json")
 

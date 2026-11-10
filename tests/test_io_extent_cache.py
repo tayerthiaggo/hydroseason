@@ -831,9 +831,12 @@ def test_offline_without_mask_cache_dir_is_explicit():
         )
 
 
-def test_csv_part_written_before_its_year_settled_is_refetched(monkeypatch, tmp_path):
+@pytest.mark.parametrize("stamped", [True, False], ids=["stamp", "pre-stamp-cache-mtime"])
+def test_csv_part_written_before_its_year_settled_is_refetched(monkeypatch, tmp_path, stamped):
     """DEA keeps ingesting a year's scenes for weeks after it closes, so a
-    part written before then is refetched; a settled part is reused."""
+    part written before then is refetched; a settled part is reused. The
+    write time is the sidecar stamp, so a copy (fresh mtime) keeps it; a
+    part from before stamps existed falls back to its mtime."""
     import os
 
     import hydroseason.io as hio
@@ -848,7 +851,13 @@ def test_csv_part_written_before_its_year_settled_is_refetched(monkeypatch, tmp_
     hio.load_wofs_monthly_extent(**kwargs)
     # The 2015 part was written mid-December 2015, before late scenes arrived.
     written = pd.Timestamp("2015-12-15", tz="UTC").timestamp()
-    os.utime(next(tmp_path.glob("extent_20150101_*.csv")), (written, written))
+    part = next(tmp_path.glob("extent_20150101_*.csv"))
+    stamp = part.with_name(part.name + ".written_at")
+    if stamped:
+        stamp.write_text(repr(written), encoding="utf-8")  # the part's mtime stays fresh
+    else:
+        stamp.unlink()
+        os.utime(part, (written, written))
     load.reset_mock()
 
     hio.load_wofs_monthly_extent(**kwargs)

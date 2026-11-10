@@ -521,15 +521,15 @@ def test_detector_field_rejects_unknown_value():
         DynamicHydroYearConfig(expected_trough_month=9, detector="not_a_real_detector")
 
 
-def test_phase_model_does_not_change_annual_hydrological_years():
+def test_phase_scheme_does_not_change_annual_hydrological_years():
     raw = _candidate_frame(start="2017-01-01", periods=84)
     without_phases = detect_dynamic_hydrological_years(
-        raw, config=DynamicHydroYearConfig(expected_trough_month=9, phase_model="none")
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="none")
     )
-    with_rule_based_axis = detect_dynamic_hydrological_years(
-        raw, config=DynamicHydroYearConfig(expected_trough_month=9, phase_model="rule_based")
+    with_two_phase = detect_dynamic_hydrological_years(
+        raw, config=DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="two_phase")
     )
-    pd.testing.assert_frame_equal(with_rule_based_axis, without_phases)
+    pd.testing.assert_frame_equal(with_two_phase, without_phases)
 
 
 def test_raw_peak_reports_maximum_in_first_month_after_previous_trough():
@@ -780,7 +780,11 @@ def test_aggregate_timing_status_is_the_weaker_of_peak_and_trough():
 def test_two_phase_is_the_default_phase_scheme():
     config = DynamicHydroYearConfig(expected_trough_month=9)
     assert config.phase_scheme == "two_phase"
-    assert config.phase_model is None
+
+
+def test_removed_phase_model_is_rejected():
+    with pytest.raises(TypeError, match="phase_model"):
+        DynamicHydroYearConfig(expected_trough_month=9, phase_model="rule_based")
 
 
 def test_explicit_phase_schemes_are_stored():

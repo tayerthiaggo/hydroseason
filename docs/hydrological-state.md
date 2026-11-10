@@ -108,7 +108,7 @@ The stable columns are `hy_year`, `phase`, `phase_status`,
 condition ranks historical wet/dry extremeness, while phase describes within
 cycle timing.
 
-Legacy parameter `phase_model` maps to `phase_scheme` with a deprecation warning (`rule_based` and `cycle_relative` -> `two_phase`, `none` -> `none`). Legacy aliases are still accepted in 0.3.0 and are targeted for removal in a later release. Phase selection cannot change regime, route, extrema, boundaries, events, or low spells.
+The 0.2.x parameter `phase_model` was removed in 0.3.0; use `phase_scheme` (`rule_based` and `cycle_relative` became `two_phase`, `none` stays `none`). Phase selection cannot change regime, route, extrema, boundaries, events, or low spells.
 
 ```python
 from hydroseason import DynamicHydroYearConfig, analyze_hydrological_state

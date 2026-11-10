@@ -14,6 +14,7 @@ from typing import Callable, Literal
 import numpy as np
 import pandas as pd
 
+import hydroseason._fsutil as _fsutil
 from hydroseason._fsutil import _write_atomic, _year_settled
 from hydroseason._historical_water_mask import HistoricalWaterMask
 from hydroseason._io_dea_stats import (
@@ -204,7 +205,7 @@ def _read_cached_extent(path: Path, *, settled_only: bool = True) -> pd.DataFram
     """
     try:
         frame = pd.read_csv(path, index_col="time", parse_dates=["time"])
-        written_at = os.stat(path).st_mtime
+        written_at = _written_at(path)
     except (OSError, ValueError, pd.errors.ParserError):
         return None
     if tuple(frame.columns) != _EXTENT_COLUMNS or not isinstance(frame.index, pd.DatetimeIndex):
@@ -215,8 +216,24 @@ def _read_cached_extent(path: Path, *, settled_only: bool = True) -> pd.DataFram
     return frame
 
 
+def _written_at_path(path: Path) -> Path:
+    return path.with_name(path.name + ".written_at")
+
+
+def _written_at(path: Path) -> float:
+    """When ``path`` was written: its sidecar stamp, else (older caches) its mtime."""
+    try:
+        return float(_written_at_path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return os.stat(path).st_mtime
+
+
 def _write_extent_atomic(frame: pd.DataFrame, path: Path) -> None:
     _write_atomic(path, lambda temp: frame.to_csv(temp, index_label="time"))
+    # A copy resets mtime, so the write time travels in a sidecar the copy keeps.
+    # Written second: a crash in between leaves an older stamp, which only refetches.
+    stamp = repr(_fsutil._now().timestamp())
+    _write_atomic(_written_at_path(path), lambda temp: temp.write_text(stamp, encoding="utf-8"))
 
 
 def _write_requested_annual_extent_parts(
@@ -961,7 +978,7 @@ def load_wofs_monthly_extent(
                 _write_requested_annual_extent_parts(
                     fast_extent,
                     # Offline data is no fresher than the Zarr cache; a fresh
-                    # part mtime would mark an unsettled year settled.
+                    # part write time would mark an unsettled year settled.
                     cache_root=None if offline else cache_root,
                     stac_url=stac_url,
                     collection=collection,

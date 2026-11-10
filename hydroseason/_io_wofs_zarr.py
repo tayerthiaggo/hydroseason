@@ -58,6 +58,7 @@ from typing import Any, Iterator
 import numpy as np
 import pandas as pd
 
+import hydroseason._fsutil as _fsutil
 from hydroseason._fsutil import (
     _canonical_json_bytes,
     _long_path,
@@ -1088,6 +1089,8 @@ def write_annual_group(
             "chunks_written": chunks_written,
             "loaded_pixels": loaded_pixels,
             "written_chunk_keys": written_chunk_keys,
+            # Settle checks read this, not the file's mtime, which a copy resets.
+            "written_at": _fsutil._now().timestamp(),
         }
         _write_json_atomic(temp_path / _COMPLETE_FILENAME, complete_payload)
 
@@ -1360,6 +1363,8 @@ def write_empty_annual_group(
             "chunks_written": chunks_written,
             "loaded_pixels": 0,
             "written_chunk_keys": written_chunk_keys,
+            # Settle checks read this, not the file's mtime, which a copy resets.
+            "written_at": _fsutil._now().timestamp(),
         }
         _write_json_atomic(temp_path / _COMPLETE_FILENAME, complete_payload)
 
@@ -2398,13 +2403,19 @@ def completed_years(handle: WOfSCacheHandle) -> set[int]:
 def _year_group_settled(handle: WOfSCacheHandle, year: int) -> bool:
     """True when ``year``'s completed group was published after the year settled.
 
-    The publish time is ``complete.json``'s mtime (the final rename keeps
-    it); see :func:`hydroseason._fsutil._year_settled`.
+    The publish time is ``complete.json``'s ``written_at``; groups written
+    before that field existed fall back to the file's mtime. See
+    :func:`hydroseason._fsutil._year_settled`.
     """
+    complete_path = _year_dir(handle.path, year) / _COMPLETE_FILENAME
+    complete = _read_json(complete_path)
     try:
-        written_at = os.stat(_long_path(_year_dir(handle.path, year) / _COMPLETE_FILENAME)).st_mtime
-    except OSError:
-        return False
+        written_at = float(complete["written_at"])
+    except (TypeError, KeyError, ValueError):
+        try:
+            written_at = os.stat(_long_path(complete_path)).st_mtime
+        except OSError:
+            return False
     return _year_settled(year, written_at)
 
 

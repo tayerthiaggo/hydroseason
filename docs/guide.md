@@ -308,8 +308,10 @@ batch.raise_for_failures()
 
 Each run writes `output_dir/<safe-id>/`; a shared cache writes to
 `cache_dir/<safe-id>/`. `id_col` values must be nonblank and unique (including
-after filename sanitisation). Without it, identifiers are stable
-`aoi-0001`, `aoi-0002`, and so on. A failed AOI is captured in its
+after filename sanitisation). Without it, identifiers follow row order,
+`aoi-0001`, `aoi-0002`, and so on, and the run warns: reorder or filter the
+AOI file and a rerun into the same `output_dir` writes a different area's
+report under an old name. A failed AOI is captured in its
 `HydroSeasonAOIOutcome` and does not cancel unrelated rows; call
 `batch.raise_for_failures()` after handling any successes to raise one summary
 error for all failures.

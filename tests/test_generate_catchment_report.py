@@ -290,7 +290,7 @@ def test_generate_catchment_report_serializes_strict_json(tmp_path, seasonal_ext
 def test_generate_catchment_report_rejects_inconsistent_supplied_analysis(
     tmp_path, seasonal_extent, aseasonal_extent
 ):
-    analysis = analyze_catchment(aseasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    analysis = analyze_catchment(aseasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
 
     with pytest.raises(ValueError, match="analysis does not match"):
         generate_catchment_report(seasonal_extent, tmp_path, name="Mismatch", analysis=analysis)
@@ -308,7 +308,7 @@ def test_generate_catchment_report_rejects_fingerprint_mismatch(tmp_path, season
 
 
 def test_compatibility_report_uses_light_shell_without_csv_bundle(tmp_path, seasonal_extent):
-    analysis = analyze_catchment(seasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    analysis = analyze_catchment(seasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
     output = tmp_path / "legacy.html"
 
     result = generate_html_report(
@@ -330,7 +330,7 @@ def test_compatibility_report_uses_light_shell_without_csv_bundle(tmp_path, seas
 
 
 def test_aseasonal_bundle_has_no_hydrological_year_claims(tmp_path, aseasonal_extent):
-    analysis = analyze_catchment(aseasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    analysis = analyze_catchment(aseasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
     paths = generate_catchment_report(aseasonal_extent, tmp_path, name="Dry test", analysis=analysis)
     html = paths.html.read_text(encoding="utf-8").casefold()
     hydro_years = pd.read_csv(paths.hydro_years_csv)
@@ -351,7 +351,7 @@ def test_report_renders_event_and_low_spell_panels_with_grounded_explainers(
     """The event/low-spell charts and their above-the-graph prose both appear,
     and the prose states this record's own resolved threshold numbers rather
     than generic boilerplate."""
-    analysis = analyze_catchment(aseasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    analysis = analyze_catchment(aseasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
     assert analysis.events.summary["n_events"] > 0
     assert analysis.events.summary["n_low_spells"] > 0
 
@@ -383,7 +383,7 @@ def test_report_adds_collapsible_rainfall_context(
     tmp_path, seasonal_extent
 ):
     analysis = analyze_catchment(
-        seasonal_extent, phase_model="rule_based", n_bootstrap=40
+        seasonal_extent, phase_scheme="two_phase", n_bootstrap=40
     )
     rainfall = pd.DataFrame(
         {"rainfall_mm": np.linspace(1, 120, len(seasonal_extent))},
@@ -504,15 +504,3 @@ def test_a_rerun_that_crashes_leaves_an_incomplete_manifest(
     generate_catchment_report(seasonal_extent, tmp_path, name="Site")
     assert "status" not in json.loads(paths.manifest_json.read_text(encoding="utf-8"))
 
-
-def test_events_csv_alias_is_deprecated(tmp_path):
-    paths = CatchmentReportPaths(
-        html=tmp_path / "r.html",
-        monthly_csv=tmp_path / "m.csv",
-        hydro_years_csv=tmp_path / "h.csv",
-        wet_event_csv=tmp_path / "w.csv",
-        low_spells_csv=tmp_path / "l.csv",
-        manifest_json=tmp_path / "manifest.json",
-    )
-    with pytest.warns(DeprecationWarning, match="events_csv is deprecated.*0.4.0; use wet_event_csv"):
-        assert paths.events_csv == paths.wet_event_csv

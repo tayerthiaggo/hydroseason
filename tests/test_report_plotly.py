@@ -792,7 +792,7 @@ def test_aseasonal_route_still_gets_a_climatology():
         {"extent_pct": np.abs(rng.normal(0.15, 0.12, 120)), "invalid_pct": 0.0},
         index=dates,
     )
-    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
+    analysis = analyze_catchment(extent, phase_scheme="two_phase", n_bootstrap=20)
     monthly = build_monthly_export(extent, analysis=analysis)
 
     assert analysis.route == "event_characterisation"

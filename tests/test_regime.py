@@ -639,17 +639,3 @@ def test_mean_monthly_month_fields_are_canonical():
     assert regime.mean_monthly_peak_month == 6
     assert regime.mean_monthly_trough_month is not None
 
-
-@pytest.mark.parametrize(
-    "name, expected",
-    [
-        ("supports_per_year_boundaries", True),
-        ("attempts_per_year_detection", True),
-        ("supports_fixed_window", False),
-    ],
-)
-def test_route_aliases_are_deprecated(name, expected):
-    cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
-    result = _calibrated_assessment(_series(cycle, noise=0.02))
-    with pytest.warns(DeprecationWarning, match=f"{name} is deprecated.*0.4.0"):
-        assert getattr(result, name) is expected

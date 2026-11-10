@@ -46,7 +46,7 @@ def test_safe_stem():
 
 
 def test_monthly_export_preserves_every_source_month(seasonal_extent):
-    analysis = analyze_catchment(seasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    analysis = analyze_catchment(seasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
     out = build_monthly_export(seasonal_extent, analysis=analysis)
     assert len(out) == len(seasonal_extent)
     assert out["date"].is_monotonic_increasing
@@ -88,7 +88,7 @@ def test_flagged_analysis_exports_partial_quality_months_as_usable():
 
 
 def test_aseasonal_export_has_no_hy_or_phase_claims(aseasonal_extent):
-    analysis = analyze_catchment(aseasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    analysis = analyze_catchment(aseasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
     monthly = build_monthly_export(aseasonal_extent, analysis=analysis)
     years = build_hydro_years_export(analysis, name="Dryland")
     assert years.empty
@@ -125,7 +125,7 @@ def test_build_events_export(seasonal_extent):
 
 
 def test_user_csv_exports_include_quality_threshold_and_event_baseline(seasonal_extent):
-    analysis = analyze_catchment(seasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    analysis = analyze_catchment(seasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
     monthly = build_monthly_export(seasonal_extent, analysis=analysis)
     events, low_spells = build_events_export(analysis)
     baseline = analysis.events.summary["baseline_pct"]
@@ -143,7 +143,7 @@ def test_user_csv_exports_include_quality_threshold_and_event_baseline(seasonal_
 
 
 def test_write_report_csvs(tmp_path, seasonal_extent):
-    analysis = analyze_catchment(seasonal_extent, phase_model="rule_based", n_bootstrap=40)
+    analysis = analyze_catchment(seasonal_extent, phase_scheme="two_phase", n_bootstrap=40)
     monthly = build_monthly_export(seasonal_extent, analysis=analysis)
     years = build_hydro_years_export(analysis, name="Test Catchment")
     events, low_spells = build_events_export(analysis)

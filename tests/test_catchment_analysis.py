@@ -517,8 +517,7 @@ def test_catchment_analysis_exposes_decision_policy():
     result = _calibrated(_seasonal(), n_bootstrap=40)
     assert result.decision_policy == "hydroseason_0_2_0"
     assert result.route == "per_year_detection"
-    with pytest.warns(DeprecationWarning, match="public_route is deprecated.*0.4.0; use route"):
-        assert result.public_route == result.route
+    assert not hasattr(result, "public_route")
     assert result.method_policy_id == "hydroseason-v0.3.0"
     assert result.method_policy_fingerprint
 

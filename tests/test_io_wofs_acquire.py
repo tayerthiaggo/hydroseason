@@ -292,10 +292,13 @@ def test_year_workers_share_the_store_manifest_safely(monkeypatch, tmp_path):
     assert len(manifest["acquisition"]["year_diagnostics"]) == len(years)
 
 
-def test_year_written_before_it_settled_is_rebuilt(monkeypatch, tmp_path):
+@pytest.mark.parametrize("stamped", [True, False], ids=["written_at", "pre-stamp-cache-mtime"])
+def test_year_written_before_it_settled_is_rebuilt(monkeypatch, tmp_path, stamped):
     """DEA keeps ingesting a year's scenes for weeks after it closes, so a
     group published before then is rebuilt on the next run; a settled one is
-    reused."""
+    reused. The publish time is complete.json's written_at, so a copy (fresh
+    mtime) keeps it; a group from before the field existed uses its mtime."""
+    import json
     import os
 
     monkeypatch.setattr(
@@ -309,7 +312,15 @@ def test_year_written_before_it_settled_is_rebuilt(monkeypatch, tmp_path):
     handle = acquire_wofs_cache(*args, cache_root=tmp_path, resolution=30)
     # 2015 was published mid-December 2015, before late scenes arrived; 2016 today.
     written = pd.Timestamp("2015-12-15", tz="UTC").timestamp()
-    os.utime(Path(handle.path) / "years" / "2015" / "complete.json", (written, written))
+    complete_path = Path(handle.path) / "years" / "2015" / "complete.json"
+    complete = json.loads(complete_path.read_text(encoding="utf-8"))
+    if stamped:
+        complete["written_at"] = written  # the file's mtime stays fresh
+        complete_path.write_text(json.dumps(complete), encoding="utf-8")
+    else:
+        del complete["written_at"]
+        complete_path.write_text(json.dumps(complete), encoding="utf-8")
+        os.utime(complete_path, (written, written))
     graph.reset_mock()
 
     acquire_wofs_cache(*args, cache_root=tmp_path, resolution=30)

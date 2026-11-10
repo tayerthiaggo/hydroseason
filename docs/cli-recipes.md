@@ -182,6 +182,11 @@ with the same `--cache-dir`: completed calendar years are read from cache
 and only the missing ones are re-fetched. There is no separate checkpoint
 protocol — cache identity includes every data-affecting input, so a changed
 AOI, date range, resolution, or STAC URL never silently reuses stale work.
+A year cached less than 60 days after it ended is fetched again, so scenes
+DEA ingests late are picked up; the cache stores its own write time, so a
+copied cache keeps it. Keep `--cache-dir` on a local disk or a Windows share:
+the cache lock is an operating-system file lock, which NFS shares may not
+honour, so two machines writing one cache over NFS could collide.
 
 **Exit status.** `0` success, including an ancillary rainfall failure. `1` a
 fatal water-input, analysis, or report-writing failure. `2` a usage error.

@@ -201,7 +201,8 @@ def test_scattered_source_rows_remain_separate_without_unioning(tmp_path):
         ]
     )
 
-    items = _prepare(frame, tmp_path)
+    with pytest.warns(UserWarning, match="named by row position"):
+        items = _prepare(frame, tmp_path)
 
     assert [item.source_position for item in items] == [0, 1, 2]
     assert [len(item.gdf) for item in items] == [1, 1, 1]
@@ -225,7 +226,8 @@ def test_preflight_rejects_unusable_explicit_ids(frame, id_col, tmp_path):
 
 def test_preflight_generates_stable_ids_and_child_paths_without_creating_them(tmp_path):
     """Changing generated IDs, child layout, or preflight writes must break this."""
-    items = _prepare(_frame(), tmp_path)
+    with pytest.warns(UserWarning, match="named by row position"):
+        items = _prepare(_frame(), tmp_path)
 
     assert [(item.id, item.safe_id, item.source_position) for item in items] == [
         ("aoi-0001", "aoi-0001", 0),

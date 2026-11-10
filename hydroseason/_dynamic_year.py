@@ -18,7 +18,6 @@ from ._boundary import (
 from ._dry_run import DryRun, find_dry_run
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
-    LegacyPhaseModel,
     PhaseScheme,
     UnsetPhaseScheme,
     resolve_phase_scheme,
@@ -90,8 +89,7 @@ class DynamicHydroYearConfig:
     ``max_invalid_pct``, ``allow_unknown_quality`` and ``quality_policy`` set
     which months count as usable; ``min_baseline_cycles``, ``low_percentile``
     and ``high_percentile`` set the annual condition baseline;
-    ``phase_scheme`` selects the monthly phase labels; ``phase_model`` is a
-    deprecated alias for it.
+    ``phase_scheme`` selects the monthly phase labels.
     """
 
     expected_trough_month: int
@@ -116,15 +114,10 @@ class DynamicHydroYearConfig:
     recurrence_policy: RecurrencePolicy | None = None
     detector: Literal["robust_extrema"] = "robust_extrema"
     phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET
-    phase_model: LegacyPhaseModel | None = None
 
     def __post_init__(self) -> None:
-        canonical = resolve_phase_scheme(
-            phase_scheme=self.phase_scheme,
-            phase_model=self.phase_model,
-        )
+        canonical = resolve_phase_scheme(phase_scheme=self.phase_scheme)
         object.__setattr__(self, "phase_scheme", canonical)
-        object.__setattr__(self, "phase_model", None)
 
         if self.expected_trough_month not in range(1, 13):
             raise ValueError("expected_trough_month must be in 1..12.")

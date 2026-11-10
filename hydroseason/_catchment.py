@@ -24,7 +24,6 @@ from ._fingerprint import extent_fingerprint
 from ._method_policy import CURRENT_METHOD_POLICY, method_policy_fingerprint
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
-    LegacyPhaseModel,
     PhaseScheme,
     UnsetPhaseScheme,
     resolve_phase_scheme,
@@ -70,17 +69,6 @@ class CatchmentAnalysis:
     measurement_tolerance_pct: float = 0.0
     min_months_per_year: int = 9
     n_bootstrap: int = 200
-
-    @property
-    def public_route(self) -> Route:
-        """Deprecated alias for :attr:`route`; removed in hydroseason 0.4.0."""
-        warnings.warn(
-            "CatchmentAnalysis.public_route is deprecated and will be removed in "
-            "hydroseason 0.4.0; use route instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.route
 
     def summary_row(self, *, name: str) -> dict:
         """Flat one-row-per-catchment record for a cross-catchment table."""
@@ -220,7 +208,6 @@ def analyze_catchment(
     quality_policy: QualityPolicy = "flag",
     measurement_tolerance_pct: float = 0.0,
     phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET,
-    phase_model: LegacyPhaseModel | None = None,
     n_bootstrap: int = 200,
     random_state: int = 0,
 ) -> CatchmentAnalysis:
@@ -236,10 +223,7 @@ def analyze_catchment(
         value_col=value_col,
         date_col=date_col,
     )
-    canonical_scheme = resolve_phase_scheme(
-        phase_scheme=phase_scheme,
-        phase_model=phase_model,
-    )
+    canonical_scheme = resolve_phase_scheme(phase_scheme=phase_scheme)
 
     regime = assess_water_regime(
         extent,
