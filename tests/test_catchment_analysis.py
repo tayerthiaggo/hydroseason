@@ -109,7 +109,7 @@ def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_popula
     # When pixel count columns are present, 0.2.0 timing identifiability activates
     # count-aware detectability (resolution = 100 / n_valid). For full_aoi (n_valid=3000),
     # the 1% trough step is resolvable (resolution 0.033%), routing to per_year_detection.
-    # Task 2 restricts trough candidates to the post-peak limb in cycles, removing the
+    # Trough candidates are restricted to the post-peak limb in cycles, removing the
     # contamination from the previous dry season's tail and making troughs resolvable
     # even for historical (n_valid=100 at trough):
     assert full_result.route == "per_year_detection"
@@ -206,7 +206,7 @@ def test_seasonal_record_with_unstable_trough_routes_to_per_year_detection():
     troughs are resolved across cycles and the seasonal record routes to per-year detection."""
     result = _calibrated(_timing_route_record("unstable_trough"), n_bootstrap=40)
 
-    assert result.regime.supports_per_year_boundaries is True
+    assert result.regime.public_route == "per_year_detection"
     assert result.route == "per_year_detection"
     assert not result.hydro_years.empty
 
@@ -479,7 +479,9 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
 def test_catchment_analysis_exposes_decision_policy():
     result = _calibrated(_seasonal(), n_bootstrap=40)
     assert result.decision_policy == "hydroseason_0_2_0"
-    assert result.public_route == "per_year_detection"
+    assert result.route == "per_year_detection"
+    with pytest.warns(DeprecationWarning, match="public_route is deprecated.*0.4.0; use route"):
+        assert result.public_route == result.route
     assert result.method_policy_id == "hydroseason-v0.3.0"
     assert result.method_policy_fingerprint
 

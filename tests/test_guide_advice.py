@@ -46,7 +46,7 @@ def test_docs_state_the_default_gates_and_what_they_were_checked_on():
     pixels = TIMING_IDENTIFIABILITY_DEFAULTS.min_peak_water_pixels
     assert f"at least {ratio:.1f} times its floor" in text
     assert f"at least {pixels} water pixels" in text
-    assert "less accurate in a known-truth test (G2), so the defaults stay" in text
+    assert "less accurate in a known-truth test, so the defaults stay" in text
     assert "They are tested values, not values fitted to lowland channels, floodplains or wetlands." in text
     assert "calibrated detectability floor" not in text
 
@@ -64,7 +64,7 @@ def test_docs_do_not_promise_an_exact_month_for_point_timing():
     dates = " ".join(_section(guide, "## Dates around the dry-season low").split())
     assert "the low is distinct, but the month is not necessarily exact" in dates
     assert "between 1 in 3 and just over 4 in 10 `point` troughs were more than a month from the true month" in dates
-    assert "Three November 2026 known-truth tests (G2, L1 and L2, each on fresh records)" in dates
+    assert "Three November 2026 known-truth tests, each on fresh records," in dates
     assert "A `point` trough was not right more often than an `interval` one" in dates
 
 

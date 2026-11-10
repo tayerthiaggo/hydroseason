@@ -51,41 +51,6 @@ def _circular_lag_months(from_month: int, to_month: int) -> int:
     return raw if raw <= 6 else raw - 12
 
 
-_DETERMINATE_REGIMES = {"seasonal", "marginal"}
-
-
-def compare_extent_and_rainfall_regimes(
-    extent,
-    rainfall,
-    *,
-    value_col: str = "extent_pct",
-    rainfall_value_col: str = "rainfall_mm",
-    date_col: str | None = None,
-    min_months_per_year: int = 9,
-) -> RegimeComparison:
-    """Assess extent and rainfall regimes and interpret their relationship.
-
-    ``rainfall`` may be ``None`` (no ancillary data available), a Series, or a
-    DataFrame with a ``rainfall_value_col`` column -- raw SILO output or any
-    other monthly rainfall series in the same shape.
-
-    The extent regime returned here is byte-identical to calling
-    ``assess_water_regime(extent)`` directly: this function only adds
-    rainfall as a second, independently-computed opinion, never feeds it into
-    the first.
-    """
-    extent_regime = assess_water_regime(
-        extent, value_col=value_col, date_col=date_col, min_months_per_year=min_months_per_year
-    )
-    return compare_rainfall_to_extent_regime(
-        extent_regime,
-        rainfall,
-        rainfall_value_col=rainfall_value_col,
-        date_col=date_col,
-        min_months_per_year=min_months_per_year,
-    )
-
-
 def compare_rainfall_to_extent_regime(
     extent_regime: WaterRegimeAssessment,
     rainfall,
@@ -100,8 +65,7 @@ def compare_rainfall_to_extent_regime(
     regime as an already-built ``WaterRegimeAssessment`` rather than raw
     extent data, so there is no path -- accidental or otherwise -- for
     rainfall to feed back into extent/regime computation. Callers that only
-    have raw extent should use ``compare_extent_and_rainfall_regimes``, which
-    computes the assessment and delegates here.
+    have raw extent should run ``assess_water_regime`` on it first.
 
     ``rainfall`` may be ``None`` (no ancillary data available), a Series, or a
     DataFrame with a ``rainfall_value_col`` column -- raw SILO output or any
@@ -174,8 +138,7 @@ def _interpret(
             "direct rainfall-driven relationship."
         )
 
-    _weak = ("aseasonal", "marginal")
-    if e in _weak and r in _weak:
+    if e == "aseasonal" and r == "aseasonal":
         return "agree", (
             f"Neither rainfall ({r}) nor observed surface-water extent ({e}) shows "
             "a strongly reproducible annual cycle: the absence of a clear signal in "
@@ -183,7 +146,8 @@ def _interpret(
             "local rainfall climate, not obviously evidence of a non-rainfall driver."
         )
 
-    if r in _DETERMINATE_REGIMES and e in _weak and e != r:
+    # Both regimes are now seasonal or aseasonal and they differ.
+    if r == "seasonal":
         return "extent_damped", (
             f"Rainfall is {r} but observed surface-water extent is {e}: the "
             "catchment's rainfall input has a seasonal cycle that its surface-water "
@@ -195,23 +159,16 @@ def _interpret(
             "concluding regulation specifically."
         )
 
-    if e in _DETERMINATE_REGIMES and r in _weak and e != r:
-        return "extent_more_seasonal", (
-            f"Observed surface-water extent is {e} but rainfall is {r}: the extent "
-            "record shows more seasonal structure than local rainfall alone would "
-            "predict. Consider upstream inflow from outside this catchment, snowmelt, "
-            "or a rainfall record that does not represent the catchment well."
-        )
-
-    return "partial", (
-        f"Extent regime is {e}, rainfall regime is {r}. No single interpretation "
-        "template applies; compare the two regime assessments directly."
+    return "extent_more_seasonal", (
+        f"Observed surface-water extent is {e} but rainfall is {r}: the extent "
+        "record shows more seasonal structure than local rainfall alone would "
+        "predict. Consider upstream inflow from outside this catchment, snowmelt, "
+        "or a rainfall record that does not represent the catchment well."
     )
 
 
 __all__ = [
     "Divergence",
     "RegimeComparison",
-    "compare_extent_and_rainfall_regimes",
     "compare_rainfall_to_extent_regime",
 ]

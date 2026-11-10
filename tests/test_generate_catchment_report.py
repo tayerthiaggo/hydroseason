@@ -456,3 +456,16 @@ def test_report_escapes_rainfall_warning(tmp_path, seasonal_extent):
 
     assert '<script id="rain-owned">' not in html
     assert "&lt;/script&gt;" in html
+
+
+def test_events_csv_alias_is_deprecated(tmp_path):
+    paths = CatchmentReportPaths(
+        html=tmp_path / "r.html",
+        monthly_csv=tmp_path / "m.csv",
+        hydro_years_csv=tmp_path / "h.csv",
+        wet_event_csv=tmp_path / "w.csv",
+        low_spells_csv=tmp_path / "l.csv",
+        manifest_json=tmp_path / "manifest.json",
+    )
+    with pytest.warns(DeprecationWarning, match="events_csv is deprecated.*0.4.0; use wet_event_csv"):
+        assert paths.events_csv == paths.wet_event_csv

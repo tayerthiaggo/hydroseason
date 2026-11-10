@@ -16,6 +16,7 @@ from dataclasses import dataclass, field, replace
 import pandas as pd
 
 from ._decision_policy import DECISION_POLICY, DecisionPolicy, Route
+from ._dry_run import ANCHOR_RANGE_FRACTION
 from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
 from ._exceptions import BoundaryNotSupported
@@ -31,7 +32,6 @@ from ._phase_scheme import (
 from ._regime import WaterRegimeAssessment, assess_water_regime
 from ._state_input import QualityPolicy, prepare_monthly_extent
 from .hydrological_state import HydrologicalStateResult, analyze_hydrological_state
-from ._dry_run import ANCHOR_RANGE_FRACTION
 
 __all__ = ["CatchmentAnalysis", "Route", "analyze_catchment"]
 
@@ -70,6 +70,13 @@ class CatchmentAnalysis:
 
     @property
     def public_route(self) -> Route:
+        """Deprecated alias for :attr:`route`; removed in hydroseason 0.4.0."""
+        warnings.warn(
+            "CatchmentAnalysis.public_route is deprecated and will be removed in "
+            "hydroseason 0.4.0; use route instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.route
 
     def summary_row(self, *, name: str) -> dict:
@@ -175,7 +182,7 @@ def _warns_on_collapsed_floor(func):
 
 
 def _end_of_climatological_low(climatology: pd.Series, lowest_month: int) -> int:
-    """The last month of the typical low before water returns (DE2 candidate R1).
+    """The last month of the typical low before water returns (rule ``end_of_climatological_low``).
 
     The trough search is centred on one month for the whole record. On a
     flat-bottomed record every dry month ties near zero and the lowest mean

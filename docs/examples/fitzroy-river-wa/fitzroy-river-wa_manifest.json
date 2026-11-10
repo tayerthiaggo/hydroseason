@@ -26,11 +26,11 @@
     "warnings": [
       "extent_pct measures observed surface water (water availability), not rainfall and not a climate variable",
       "river regulation, extraction, diversion and land-use change move surface-water extent independently of rainfall, so regime here describes the catchment as observed, not its natural condition",
-      "seasonality policy hydroseason-v0.2.0: class decided by calendar recurrence of annual peak and trough timing at alpha 0.05; aseasonal means recurrence was not established, not that timing is uniform",
+      "seasonality policy hydroseason-v0.3.0: class decided by calendar recurrence of annual peak and trough timing at alpha 0.05; aseasonal means recurrence was not established, not that timing is uniform",
       "3 of 21 usable years contain no wet event above 20% invalid ceiling"
     ]
   },
-  "created_at_utc": "2026-10-31T13:00:25.579541+00:00",
+  "created_at_utc": "2026-11-10T04:08:19.599750+00:00",
   "dependencies": {
     "affine": "2.4.0",
     "dask": "2026.3.0",
@@ -53,7 +53,7 @@
     "tqdm": "4.70.0",
     "zarr": "2.18.3"
   },
-  "hydroseason_version": "0.2.0",
+  "hydroseason_version": "0.3.0",
   "input": {
     "date_max": "2025-12-01",
     "date_min": "2005-01-01",
@@ -61,13 +61,45 @@
     "n_rows": 252
   },
   "method": {
+    "condition_baseline": {
+      "eligible_timing_statuses": [
+        "point",
+        "interval",
+        "broad"
+      ],
+      "high_percentile": 80.0,
+      "low_percentile": 20.0,
+      "min_baseline_cycles": 5,
+      "requires": [
+        "boundary_status confirmed",
+        "peak_quality not anomalous",
+        "status complete"
+      ]
+    },
+    "dry_season_end": {
+      "boundary": "unchanged",
+      "end_statuses": [
+        "censored",
+        "interval"
+      ],
+      "observed_month": "quality_state_usable",
+      "rule": "report_dry_run",
+      "tolerance": "boundary_epsilon_pp",
+      "version": 1,
+      "zero_low_label": {
+        "floor": "max(measurement_tolerance_pct, one pixel)",
+        "label": "run end to the month before the next peak, graded by width, never point",
+        "rule": "zero_low_end_status",
+        "version": 2
+      }
+    },
     "event_thresholds": {
       "enter_sigma": 3.0,
       "exit_sigma": 1.0,
       "low_sigma": 1.0
     },
-    "fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de",
-    "policy_id": "hydroseason-v0.2.0",
+    "fingerprint": "59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65",
+    "policy_id": "hydroseason-v0.3.0",
     "recurrence_identifiability": {
       "authority_scope": "candidate_for_established_0_2_0",
       "fingerprint": "4b08cd352ce67a6be999e28734963b0ce6b989163923a21d76da8762c5314b00",
@@ -78,6 +110,21 @@
       "method": "timing_recurrence",
       "min_detectable_years": 5
     },
+    "timing_identifiability": {
+      "authority_scope": "candidate_for_established_0_2_0",
+      "fingerprint": "e6cdf3ce960aa011711dc90e3ef4fb0135513eadaf471f4ac9e0656f80884735",
+      "max_boundary_interval_months": 2,
+      "max_broad_interval_months": 5,
+      "max_point_span_months": 0,
+      "min_amplitude_to_floor_ratio": 3.0,
+      "min_informative_years": 7,
+      "min_peak_water_pixels": 5
+    },
+    "trough_label": {
+      "form": "widen",
+      "rule": "covers_trough_boundary",
+      "version": 1
+    },
     "trough_refinement": {
       "delta_rel": 0.05,
       "huber_k": 1.345,
@@ -87,18 +134,23 @@
       "pulse_z": 1.5,
       "scale_mode": "combined",
       "version": "direct_profile_combined_v1"
+    },
+    "trough_search_anchor": {
+      "range_fraction": 0.1,
+      "rule": "end_of_climatological_low",
+      "version": 1
     }
   },
   "outputs": {
     "html": {
       "path": "fitzroy-river-wa.html",
-      "sha256": "e5fe24e2c6ad0d95b6378559cf28d0fb770567f13b4b712830f02a2ba3fef487",
-      "size_bytes": 1758091
+      "sha256": "a21ac95859a80c58ca704b0915532a731944cca607897d2c3b5f3a5524baece0",
+      "size_bytes": 1761809
     },
     "hydro_years_csv": {
       "path": "fitzroy-river-wa_hydro_years.csv",
-      "sha256": "9119f2cecef109534ffef924ae6adf0a3e0cf2b97dcc09837a75a3d871a97ee1",
-      "size_bytes": 10482
+      "sha256": "d874ecde1296fad5b9c903f2e0a0fca33be613dc72d0e879c66a8908601ccb71",
+      "size_bytes": 11376
     },
     "low_spells_csv": {
       "path": "fitzroy-river-wa_low_spells.csv",
@@ -107,8 +159,8 @@
     },
     "monthly_csv": {
       "path": "fitzroy-river-wa_monthly.csv",
-      "sha256": "256a563366d74da37faf7ff0f75c8a6319d6df94039304fa50a2c298e12ada98",
-      "size_bytes": 42917
+      "sha256": "8d95e7cfb714abdfa5572ffc031f14346032a3681776656e99b2f5a24303106e",
+      "size_bytes": 43610
     },
     "wet_event_csv": {
       "path": "fitzroy-river-wa_wet_event.csv",

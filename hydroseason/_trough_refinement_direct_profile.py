@@ -1,6 +1,6 @@
 """Direct-profile trough refinement (``direct_profile_combined_v1``).
 
-Pass 2 of the ``hydroseason-v0.2.0`` boundary method. Profiles the
+Pass 2 of the boundary method (introduced in ``hydroseason-v0.2.0``). Profiles the
 equivalence-state departure ``T(f, L, delta)`` directly over a bounded grid of
 the low-state reference level ``L``, rather than mapping a finite set of best
 trough fits through one fixed reference level.
@@ -244,11 +244,8 @@ class _DirectProfileSolution:
     support_positions: tuple[int, ...]
     departure_position: int | None
     best_loss: float
-    reference_level_at_best: float
     scale: float
     loss_basis: Literal["standardized_huber", "exact_l1", "unavailable"]
-    start_position_at_best: int | None = None
-    fit_at_best: _DirectProfileFit | None = None
     # Fits for every member of the final support cluster (not just the
     # winning departure position), so a caller can re-anchor the reported
     # boundary to an earlier, more reliable cluster member -- e.g. when the
@@ -336,7 +333,7 @@ def solve_direct_profile(
         return _DirectProfileSolution(
             support_positions=(), departure_position=None,
             best_loss=float(overall_best_loss) if np.isfinite(overall_best_loss) else float("nan"),
-            reference_level_at_best=float("nan"), scale=scale, loss_basis=loss_basis,
+            scale=scale, loss_basis=loss_basis,
         )
 
     # Plausibility is measured against the TRUE global optimum across every
@@ -385,23 +382,19 @@ def solve_direct_profile(
     if not final_cluster:
         return _DirectProfileSolution(
             support_positions=(), departure_position=None, best_loss=float(overall_best_loss),
-            reference_level_at_best=float("nan"), scale=scale, loss_basis=loss_basis,
+            scale=scale, loss_basis=loss_basis,
         )
 
     cluster_best_loss = min(best_by_departure[p].loss for p in final_cluster)
     departure_position = max(
         p for p in final_cluster if best_by_departure[p].loss <= cluster_best_loss + tolerance
     )
-    winning_fit = best_by_departure[departure_position]
     return _DirectProfileSolution(
         support_positions=tuple(final_cluster),
         departure_position=departure_position,
         best_loss=float(overall_best_loss),
-        reference_level_at_best=winning_fit.reference_level,
         scale=scale,
         loss_basis=loss_basis,
-        start_position_at_best=winning_fit.start_position,
-        fit_at_best=winning_fit,
         fits_in_final_cluster={p: best_by_departure[p] for p in final_cluster},
     )
 

@@ -36,6 +36,28 @@ from ._state_input import QualityPolicy, prepare_monthly_extent
 
 @dataclass(frozen=True)
 class HydrologicalStateResult:
+    """Output of :func:`analyze_hydrological_state`.
+
+    Attributes
+    ----------
+    pattern : SeasonalPatternResult
+        Advisory seasonal shape from :func:`classify_seasonal_pattern`.
+    config : DynamicHydroYearConfig
+        The configuration used: the caller's, or the one suggested from
+        ``pattern``.
+    hydro_years : pandas.DataFrame
+        One row per dynamic trough-to-trough cycle: peak, temporal mid-dry,
+        half-loss, trough, dry run and annual condition columns.
+    monthly_condition : pandas.DataFrame
+        Each month's extent ranked against the same calendar month in other
+        years.
+    monthly_phase : pandas.DataFrame
+        Cycle-relative phase label per month (see ``phase_scheme``).
+    data_quality : dict
+        Number of months per ``quality_state``, plus ``n_usable`` and
+        ``n_months``.
+    """
+
     pattern: SeasonalPatternResult
     config: DynamicHydroYearConfig
     hydro_years: pd.DataFrame
@@ -57,6 +79,41 @@ def analyze_hydrological_state(
     random_state: int = 0,
     quality_policy: QualityPolicy = "flag",
 ) -> HydrologicalStateResult:
+    """Run the dynamic hydrological-state chain on one monthly extent record.
+
+    Classifies the seasonal pattern, detects dynamic hydrological years, ranks
+    each cycle's peak and trough against the record's own baseline, ranks each
+    month against the same calendar month, and labels monthly phases.
+
+    Parameters
+    ----------
+    extent : pandas.DataFrame or pandas.Series
+        Monthly water extent: an ``extent_pct`` column (optionally with
+        ``invalid_pct`` and pixel counts) indexed by month or with a ``date``
+        column, or a Series of extent values.
+    config : DynamicHydroYearConfig, optional
+        Search settings. When omitted, they are suggested from the seasonal
+        pattern, which raises ``ValueError`` for ``low_variability``,
+        ``weak_or_irregular`` and ``insufficient_record`` patterns. A supplied
+        config also turns off the low-variability guard on annual condition
+        labels.
+    reference : str
+        Annual condition baseline: ``"full_record"`` (default) or
+        ``"rolling"`` (see :func:`classify_annual_surface_water_condition`).
+    reference_start, reference_end : optional
+        Restrict the annual and monthly baselines to this period.
+    rolling_window_cycles, rolling_min_cycles : int
+        Window length and minimum cycle count for the ``"rolling"`` baseline.
+    n_bootstrap, random_state : int
+        Passed to :func:`classify_seasonal_pattern`.
+    quality_policy : {"flag", "exclude"}
+        How low-quality months are treated. Ignored when ``config`` is given;
+        its own ``quality_policy`` applies.
+
+    Returns
+    -------
+    HydrologicalStateResult
+    """
     effective_quality_policy = config.quality_policy if config is not None else quality_policy
     pattern = classify_seasonal_pattern(
         extent, n_bootstrap=n_bootstrap, random_state=random_state, quality_policy=effective_quality_policy
@@ -94,12 +151,7 @@ def analyze_hydrological_state(
         allow_unknown_quality=selected.allow_unknown_quality,
         quality_policy=selected.quality_policy,
     )
-    monthly_phase = assign_monthly_phases(
-        prepared,
-        annual,
-        selected,
-        noise_pp=noise_pp,
-    )
+    monthly_phase = assign_monthly_phases(prepared, annual, selected)
     quality = prepared["quality_state"].value_counts().to_dict()
     quality["n_usable"] = int(prepared["candidate_usable"].sum())
     quality["n_months"] = int(len(prepared))

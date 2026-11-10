@@ -179,8 +179,8 @@ def _cache_path(
         "wet_aoi_sha256": wet_aoi_hash,
     }
     if wet_mask != "off":
-        # Omitted entirely when "off" (the pre-existing default/only value),
-        # so every CSV cache written before wet_mask existed keeps its
+        # Omitted entirely when "off" (the default), so every CSV cache
+        # written before wet_mask existed keeps its
         # original digest and stays reachable -- mirrors how
         # WOfSCacheRequest.wet_mask_sha256 is omitted from its digest
         # payload when None (see hydroseason/_io_wofs_zarr.py).
@@ -735,10 +735,9 @@ def load_wofs_monthly_extent(
     "is this already cached" without first paying the cost being checked
     for. A fully correct fix would persist the derived wet-AOI geometry as
     its own cache artifact (keyed on the non-wet-AOI-hash-dependent inputs)
-    so it can be reloaded cheaply on a later call instead of re-derived --
-    tracked as follow-up work, not implemented here. This is a performance
-    regression on repeat calls, not a correctness issue: results are still
-    correct, just not resumed cheaply.
+    so it can be reloaded cheaply on a later call instead of re-derived; that
+    is not implemented. This costs time on repeat calls, not correctness:
+    results are still correct, just not resumed cheaply.
 
     Pruning tiles that the wet AOI excludes guarantees those tiles contribute
     no water -- but ``iter_wofs_tiles_from_stac`` never loads them, so their

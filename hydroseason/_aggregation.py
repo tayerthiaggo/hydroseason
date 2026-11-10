@@ -5,6 +5,16 @@ import pandas as pd
 
 
 def aggregate_basin_monthly_extent(monthly: pd.DataFrame, *, date_col: str = "date", aoi_col: str = "aoi_id", area_weight_col: str | None = None) -> pd.DataFrame:
+    """Combine per-AOI monthly extent rows into one basin record.
+
+    With pixel-count columns (``n_water``, ``n_valid``, ``n_invalid``,
+    ``n_aoi``) the counts are summed and ``extent_pct`` and ``invalid_pct``
+    are recomputed from the sums. Otherwise ``extent_pct`` is weighted by
+    ``area_weight_col``, which is then required, and ``invalid_pct`` is NaN.
+    Each AOI may contribute one row per month. ``n_aoi_reporting``,
+    ``n_aoi_expected`` and ``aoi_coverage_pct`` say how many AOIs reported
+    each month.
+    """
     frame = monthly.copy()
     frame[date_col] = pd.to_datetime(frame[date_col]).dt.to_period("M").dt.to_timestamp()
     if frame.duplicated([date_col, aoi_col]).any():

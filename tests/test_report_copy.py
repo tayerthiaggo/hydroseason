@@ -4,8 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from hydroseason import assess_water_regime
 from hydroseason._catchment import analyze_catchment
-from hydroseason._regime_compare import compare_extent_and_rainfall_regimes
+from hydroseason._regime_compare import compare_rainfall_to_extent_regime
 from hydroseason._report_copy import (
     build_rainfall_context,
     low_spell_explainer,
@@ -119,8 +120,16 @@ def test_seasonality_card_states_the_tests_used(seasonal_analysis):
     assert "Kuiper p-values: peak=" in evidence["detail"]
     assert "trough=0.001" in evidence["detail"]
     assert "alpha = 0.05" in evidence["detail"]
+    assert "Both reject 12-month uniformity" in evidence["detail"]
     assert "SNR" not in " ".join(item["detail"] for item in cards.values())
     assert "R >= 0.70" not in evidence["detail"]
+
+
+def test_aseasonal_seasonality_card_does_not_claim_both_tests_reject(aseasonal_analysis):
+    cards = {item["label"]: item for item in select_kpis(aseasonal_analysis)}
+    detail = cards["seasonality evidence"]["detail"]
+    assert "Recurrence needs both to reject 12-month uniformity" in detail
+    assert "Both reject" not in detail
 
 
 def test_kpi_deck_omits_retired_signal_metrics(seasonal_analysis):
@@ -150,7 +159,7 @@ def test_well_observed_and_point_identifiable_cards_are_independent(seasonal_ana
     well_observed = cards["well-observed years"]
     point_identifiable = cards["point-identifiable boundary years"]
     assert "selection_support" in well_observed["detail"]
-    assert "interval or unresolved" in point_identifiable["detail"]
+    assert "interval, broad or unresolved" in point_identifiable["detail"]
 
 
 def test_route_labels_are_short_enough_for_a_card(seasonal_analysis):
@@ -329,8 +338,8 @@ def test_rainfall_context_exposes_comparison_metrics():
         {"rainfall_mm": 100 + 80 * np.cos(2 * np.pi * (dates.month - 1) / 12)},
         index=dates,
     )
-    comparison = compare_extent_and_rainfall_regimes(
-        _seasonal_extent_for_context(),
+    comparison = compare_rainfall_to_extent_regime(
+        assess_water_regime(_seasonal_extent_for_context()),
         rain,
     )
     context = build_rainfall_context(

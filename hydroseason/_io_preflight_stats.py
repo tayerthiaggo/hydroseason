@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
+
+from hydroseason._fsutil import (
+    _canonical_json_bytes,
+    _sha256_digest,
+)
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -260,16 +264,6 @@ def _validate_item_ids_by_year(
         }
         if normalized != expected_normalized:
             raise ValueError("annual statistics cache verification failed: item identity mismatch")
-
-
-def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
-        "utf-8"
-    )
-
-
-def _sha256_digest(payload: dict[str, Any]) -> str:
-    return hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
 
 
 def _cache_root(cache_dir: Path) -> Path:

@@ -55,8 +55,8 @@ return types are on each linked page.
 | `assess_water_regime` | Assess what the observed surface-water record supports | [Analysis](analysis.md) |
 | `WaterRegimeAssessment` | What the record supports, and what it does not | [Analysis](analysis.md) |
 | `Regime` | Regime classification (`seasonal` / `aseasonal` / `insufficient_record`) | [Analysis](analysis.md) |
-| `extract_water_events` | Extract wet episodes and dry spells from a monthly record | [Analysis](analysis.md) |
-| `WaterEventResult` | Wet episodes, dry spells, and record-level summaries | [Analysis](analysis.md) |
+| `extract_water_events` | Extract wet events and low-extent spells from a monthly record | [Analysis](analysis.md) |
+| `WaterEventResult` | Wet events, low-extent spells, and record-level summaries | [Analysis](analysis.md) |
 | `detect_hydrological_years` | Detect hydrological years from a quality-screened monthly series | [Analysis](analysis.md) |
 | `label_hydrological_months` | Assign Wet/Dry and hydrological-year labels from detected boundaries | [Analysis](analysis.md) |
 | `monthly_water_extent` | Summarise monthly canonical masks (invalid pixels never count as dry) | [Analysis](analysis.md) |

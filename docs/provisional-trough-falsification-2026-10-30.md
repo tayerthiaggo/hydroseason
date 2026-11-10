@@ -1,7 +1,6 @@
 # Provisional trough analysis: falsification results
 
 Date: 2026-10-30. Repository baseline: `048a1b6`.
-Plan: `docs/superpowers/plans/2026-10-30-trough-falsification-tests.md` (local working file, not tracked).
 Verdict this answers: `docs/provisional-trough-verdict-2026-10-30.md` (local working file, not tracked), steps 3 and 5.
 
 No library code was changed. Environment: Python 3.12.13, NumPy 2.4.6, pandas 3.0.3.
@@ -152,7 +151,7 @@ July?October near-minimum plateau as wrong; it is not a test of plateau membersh
 
 ## 4. Deviations from the plan
 
-- Task 3: the initial parallel pytest command failed with `PermissionError: [Errno 13] Permission denied: 'C:\Users\00101125\AppData\Local\Temp\pytest-of-00101125\pytest-46991\.lock'`. A workspace `--basetemp` allowed the slow run to pass. Other tests using temporary files ran outside the sandbox.
+- Task 3: the initial parallel pytest command failed with `PermissionError: [Errno 13] Permission denied: '<tmp>/pytest-of-<user>/pytest-46991/.lock'`. A workspace `--basetemp` allowed the slow run to pass. Other tests using temporary files ran outside the sandbox.
 - Task 7: the counts command generated 12 cells, not the expected 8, because its default gaps include wet20. The default grid also includes stable_sharp and wet20, contrary to the shorter list in the Task 8 template; the description above reflects the actual 90-cell grid.
 - Task 7: PowerShell's combined stdout/stderr redirection reported `NativeCommandError` for progress lines written to stderr and returned exit code 1. All three sweep commands wrote their complete CSV and summary files. The default output contains 90 cells, counts output 12, and null output one.
 - Task 7: the 30-year drift/0.0/wet20 peak count was 7/30, not the pilot reference 12/30. The counts variant changed classifications on six paired records, contrary to the plan's expectation of no effect.

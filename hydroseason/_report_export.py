@@ -104,13 +104,14 @@ HY_CSV_COLUMNS = [
     "trough_timing_status",
     "trough_interval_start_date",
     "trough_interval_end_date",
+    "detectability_floor_pp",
+    "amplitude_to_floor_ratio",
+    # Columns added after 0.2.0 go below, so 0.2.0 columns keep their positions.
     "dry_run_start_date",
     "dry_run_end_date",
     "rewetting_date",
     "dry_run_months",
     "dry_end_status",
-    "detectability_floor_pp",
-    "amplitude_to_floor_ratio",
     # Why a cycle is partial/provisional, and whether it anchors the
     # condition baseline. Categorical and count fields only; the numeric
     # refinement fit diagnostics stay on ``analysis.hydro_years``.
@@ -306,7 +307,7 @@ def build_hydro_years_export(
 def build_events_export(
     analysis: CatchmentAnalysis,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Build wet event and dry spell export tables."""
+    """Build wet event and low-extent spell export tables."""
     if analysis.events is None:
         return _empty_events(), _empty_low_spells()
 
@@ -461,7 +462,7 @@ def build_user_hydro_years_export(hydro_years: pd.DataFrame) -> pd.DataFrame:
     out["trough_boundary_date"] = out["trough_date"]
 
     # A public exact-date field is populated only when timing status is
-    # "point": an interval or unresolved extremum has no defensible single
+    # "point": an interval, broad or unresolved extremum has no defensible single
     # date. Callers whose frame carries no timing_status (the fixed-window
     # detector) keep the original, unconditional date behaviour.
     if "peak_timing_status" in out.columns:

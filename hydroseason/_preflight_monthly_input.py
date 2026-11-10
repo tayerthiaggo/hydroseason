@@ -10,6 +10,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ._io_geo import _resolve_aoi_inside_mask, _resolve_raster_crs
+from ._io_wofs_zarr import WOfSCacheHandle, verify_cache_analysis_mask
 from ._preflight_types import (
     MonthlyObservationCapabilities,
     MonthlyObservationRecord,
@@ -43,18 +45,6 @@ def _xarray() -> Any:
         else:
             _xarray_module = xarray
     return _xarray_module
-
-try:  # pragma: no cover - optional dependency boundary
-    from ._io_geo import _resolve_aoi_inside_mask, _resolve_raster_crs
-except ImportError:  # pragma: no cover
-    _resolve_aoi_inside_mask = None
-    _resolve_raster_crs = None
-
-try:  # pragma: no cover - optional dependency boundary
-    from ._io_wofs_zarr import WOfSCacheHandle, verify_cache_analysis_mask
-except ImportError:  # pragma: no cover
-    WOfSCacheHandle = None
-    verify_cache_analysis_mask = None
 
 
 _COUNT_COLUMNS = ("n_water", "n_valid", "n_invalid", "n_aoi")
@@ -106,9 +96,7 @@ def _json_file_payload(path: Path) -> Any:
 
 def _grid_identity_from_array(mask) -> dict[str, Any]:
     transform = None
-    crs = None
-    if _resolve_raster_crs is not None:
-        crs = _resolve_raster_crs(mask)
+    crs = _resolve_raster_crs(mask)
     try:
         transform = tuple(mask.rio.transform())[:6]
     except Exception:
@@ -286,7 +274,7 @@ def _raw_count_to_record(dataset, *, aoi, start_date: str, end_date: str, store_
     missing = [name for name in _RAW_COUNT_VARIABLES if name not in dataset]
     if missing:
         raise ValueError(f"Raw-count monthly input requires variables {missing}.")
-    if _xarray() is None or _resolve_aoi_inside_mask is None:
+    if _xarray() is None:
         raise ImportError("Raw-count monthly inputs require the raster extra.")
     months = _month_window(start_date, end_date)
     raw = dataset[list(_RAW_COUNT_VARIABLES)].copy()
@@ -408,9 +396,7 @@ def normalize_monthly_observations(
     if isinstance(observations, pd.DataFrame):
         return _normalize_dataframe(observations, start_date=start_date, end_date=end_date)
 
-    if WOfSCacheHandle is not None and isinstance(observations, WOfSCacheHandle):
-        if verify_cache_analysis_mask is None:
-            raise ImportError("WOfS cache provenance verification is unavailable.")
+    if isinstance(observations, WOfSCacheHandle):
         analysis_mask = verify_cache_analysis_mask(observations)
         mask = open_completed_mask_cache(observations, start_date, end_date)
         record = _mask_record(

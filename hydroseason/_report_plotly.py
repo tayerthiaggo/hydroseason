@@ -28,15 +28,10 @@ _MARKER_STATUS_COLUMN = {
     "HY Peak": "peak_timing_status",
     "HY End Dry": "trough_timing_status",
 }
-# "HY End Dry" is the exception: it marks the adopted operational boundary
-# (trough_month), which always carries a real date once a trough exists,
-# whatever its timing_status -- the interval/broad shading already
-# communicates the uncertainty, so this marker shows the reader exactly
-# which date the report actually used to partition the cycle, rather than
-# omitting a point entirely and leaving the adopted date implicit. Drawn as
-# an outlined ("-open") symbol whenever status isn't "point", so it never
-# reads as more resolved than the shading beside it claims.
-_ALWAYS_MARK = {"HY End Dry"}
+# Peak and End Dry rows whose status is "interval" or "broad" are still drawn
+# at their adopted date, but in a separate "(interval)" trace with an outlined
+# ("-open") symbol, so they never read as more resolved than the shading
+# beside them claims.
 # Where each year's dry season ends: the end of its trough boundary's dry run
 # (hydroseason-v0.3.0). Its end status is never "point", so the symbol is open.
 DRY_SEASON_END = ("Dry Season Ends", "#7f1d1d", "triangle-down-open")
@@ -912,30 +907,6 @@ def timeline_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[
     return {"data": data, "layout": layout, "config": _config()}
 
 
-def hydro_year_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict[str, Any]:
-    """Generate a hydrological-year interval view on the monthly date domain."""
-    raw_dates = _dates(monthly)
-    dates = [_iso_date(date) for date in raw_dates]
-    data = [_extent_trace(dates, _clean_list(monthly["extent_pct"]), name="Hydrological-year extent")]
-    data.extend(_marker_traces(monthly, analysis))
-    layout = _base_layout(rangeslider=False)
-    shapes: list[dict[str, Any]] = []
-    annotations: list[dict[str, Any]] = []
-    for _, row in analysis.hydro_years.iterrows():
-        start, end = _iso_date(row.get("hy_start")), _iso_date(row.get("hy_end"))
-        if start is None or end is None:
-            continue
-        label = f"HY {row.get('hy_year')}"
-        shapes.append({"name": label, "type": "rect", "xref": "x", "yref": "paper", "x0": start, "x1": end,
-                       "y0": 0, "y1": 1, "fillcolor": "#64748b", "opacity": 0.08, "line": {"width": 0}})
-        midpoint = pd.Timestamp(start) + (pd.Timestamp(end) - pd.Timestamp(start)) / 2
-        annotations.append({"text": label, "xref": "x", "yref": "paper", "x": _iso_date(midpoint), "y": 1,
-                            "showarrow": False, "yanchor": "bottom", "font": {"size": 10, "color": "#475569"}})
-    layout["shapes"] = shapes + _timing_interval_shapes(analysis)
-    layout["annotations"] = annotations
-    return {"data": data, "layout": layout, "config": _config()}
-
-
 def _secondary_config() -> dict[str, Any]:
     return {
         "responsive": True,
@@ -952,9 +923,8 @@ def secondary_figure(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> dict
     that a reproducible annual cycle exists -- and where none does, a flat or
     ragged profile with wide bands *is* the evidence for that, which a reader
     can only weigh if it is drawn. Routing this panel on ``analysis.route``
-    previously withheld it from exactly the catchments whose seasonality was
-    most in question, and substituted an event histogram whose axes answer an
-    unrelated question under a "Seasonal Context" heading.
+    would withhold it from exactly the catchments whose seasonality is most in
+    question.
     """
     months = range(1, 13)
     month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]

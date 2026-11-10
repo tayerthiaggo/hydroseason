@@ -225,6 +225,8 @@ def test_hydro_years_csv_carries_timing_identifiability_columns(seasonal_extent)
     ]
     for column in timing_columns:
         assert column in user_hy.columns
+    # 0.2.0 ended at amplitude_to_floor_ratio (column 32); later columns are appended.
+    assert list(user_hy.columns).index("amplitude_to_floor_ratio") == 31
 
 
 def test_hydro_years_csv_explains_provisional_boundaries_and_baseline(seasonal_extent):
@@ -399,7 +401,7 @@ def test_trough_date_keeps_its_point_only_meaning():
 
 
 
-# --- trough refinement candidate evidence (Task 7) -----------------------
+# --- trough refinement candidate evidence ---------------------------------
 
 
 def _refinement_hy_frame():

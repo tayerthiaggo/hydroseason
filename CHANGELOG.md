@@ -21,7 +21,7 @@ All notable changes to HydroSeason are documented here. This project follows
   select columns by name are unaffected. `analysis.hydro_years` also carries
   `baseline_eligible`.
 - Report: the timeline for aseasonal records now shades wet events and
-  low-water spells and marks event peaks. Each shading has a legend entry with
+  low-extent spells and marks event peaks. Each shading has a legend entry with
   its count that hides and shows it. Seasonal timelines are unchanged.
 
 ### Changed
@@ -45,7 +45,8 @@ All notable changes to HydroSeason are documented here. This project follows
     `dry_run_end_month`, `rewetting_month`, `dry_run_months` and
     `dry_end_status` on `analysis.hydro_years` (`dry_run_start_date`,
     `dry_run_end_date`, `rewetting_date`, `dry_run_months` and
-    `dry_end_status` in the hydro-years CSV). On a flat-bottomed trough the
+    `dry_end_status` in the hydro-years CSV, appended after the 0.2.0
+    columns). On a flat-bottomed trough the
     boundary can sit months before the dry season ends; the run end is the
     better date for it. `dry_end_status` is `interval` or `censored`, never
     `point`. The report timeline marks it as "Dry Season Ends".
@@ -55,8 +56,9 @@ All notable changes to HydroSeason are documented here. This project follows
     end of a dry, zero-extent low is dated from the run end to the month
     before the next peak (`trough_label_basis` = `end_of_dry_run`; never
     `point`). On ephemeral channels boundaries move months later, and with
-    them the years, phases and baselines; on the Fitzroy tiles years ending
-    three or more months before the dry season fall from 251 to 104. Whole
+    them the years, phases and baselines; on 40 grid tiles over the Fitzroy
+    catchment (WA), years ending three or more months before the dry season
+    fall from 251 to 104, of about 1,600 tile-years. Whole
     catchments and most subbasins are unchanged.
 - **Migration:** trough timing labels, `baseline_eligible`, `baseline_n`, the
   percentiles and the condition labels can differ from 0.2.x, and so can the
@@ -94,20 +96,62 @@ All notable changes to HydroSeason are documented here. This project follows
   about observed variability), when `suggest_dynamic_hydro_year_config` raises,
   which `SeasonalPatternResult` fields are sentinels, and how a record with a
   recurrent trough but irregular peaks is reported by `assess_water_regime`.
-- The docs no longer say a `point` timing status "resolves to an exact
-  month". It means one month stood out by more than the detectability floor.
+- The docs and the report's point-identifiable card no longer say a `point`
+  timing status "resolves to an exact month". It means one month stood out by
+  more than the detectability floor.
   For the trough, only the months from the cycle's peak to the boundary are
-  compared, and the docs now say so. In three known-truth tests, many `point`
+  compared, and the docs now say so. In three tests on records with known
+  answers (synthetic seasons, and seasons injected into real records), many `point`
   troughs on weak cycles were more than a month off, and troughs at the end of
   long, flat recessions were dated early. The later tests, on fresh records,
   found that neither widening the trough tolerance nor also comparing the
   months after the trough fixes this, so the method is unchanged. The guide
   says how far to trust a single trough month.
   The docs now list
-  the `broad` trough status and say the identifiability gates held up in that
-  test. Outputs are unchanged.
+  the `broad` trough status and say why the default identifiability gates
+  stay: looser gates repeated as well between two halves of each test
+  window's pixels, but the dates they added were less accurate on records
+  with known answers. Outputs are unchanged.
+- Monthly `phase_status` is `interval_boundary` in years whose timing is
+  `broad` as well as `interval`; `broad` years read `ok` or `provisional`
+  before, although their boundary is less certain than an `interval` one.
+- `composite_bundle` accepts only `"single_mask"` and
+  `"dual_composite_v1"`; any other value raises `ValueError` instead of
+  silently acting as `"single_mask"`. Caches written with the old `"legacy"`
+  value stay valid.
+- Public functions and result classes that had no docstring now have one, and
+  docstrings, comments and messages describe current behaviour.
+- Resolution case study: the peak and trough timing medians now cover only
+  the seasonal catchments; aseasonal catchments, which have no years to time,
+  were scored as 100%. The 300 m trough median falls from 95.2% to 85.7%; no
+  decision changes. A 30 m year missing at the coarser resolution now counts
+  as a miss, and a timing gate with no seasonal catchment fails instead of
+  passing.
+
+### Deprecated
+- `CatchmentAnalysis.public_route` (use `route`),
+  `CatchmentReportPaths.events_csv` (use `wet_event_csv`), and
+  `WaterRegimeAssessment.supports_per_year_boundaries`,
+  `attempts_per_year_detection` and `supports_fixed_window`. They warn and
+  will be removed in 0.4.0.
+
+### Removed
+- `DynamicHydroYearConfig` parameters `dry_plateau_rule`,
+  `sustained_rise_months` and `pulse_rejection_window_months`, deprecated in
+  0.1.0. Nothing read them; passing them now raises `TypeError`, and
+  positional arguments after `trough_search_radius_months` shift.
+- `hydroseason.io.probe_amplitude`, which was undocumented and unused.
+- `hydroseason.io.mark_in_aoi_nodata_as_invalid`, which was importable but not
+  in `__all__`, undocumented and unused.
+- The undocumented `composite_bundle="legacy"` input value.
 
 ### Fixed
+- The report's seasonality-evidence card said both Kuiper tests reject
+  12-month uniformity even when recurrence was not established; the wet-events
+  and low-extent-spell cards named the wrong thresholds.
+- The seasonality caveat named the previous method policy.
+- Caches on Windows network shares (`\\server\share\...`) failed with
+  `WinError 123`: the long-path prefix is now `\\?\UNC\` for these paths.
 - `complete_monthly_axis` no longer turns outside-AOI cells (`-2`) into
   unobserved cells (`-1`) on months it inserts for missing scenes. The AOI
   denominator is now the same in every month, so an inserted month no longer

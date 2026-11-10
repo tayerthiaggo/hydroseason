@@ -39,18 +39,18 @@ def test_package_import_exposes_only_migration_safe_surface():
     assert callable(hydroseason.load_wofs_monthly_extent)
     assert callable(hydroseason.acquire_wofs_cache)
     # open_completed_mask_cache is acquire_wofs_cache's public reader
-    # counterpart (Task W2.1): a caller that acquired a cache must be able to
+    # counterpart: a caller that acquired a cache must be able to
     # read it back through the top-level package surface, not just via the
     # private hydroseason._io_wofs_zarr module.
     assert callable(hydroseason.open_completed_mask_cache)
     # verify_cache_footprints is the public tamper-detection entry point for
-    # a cache's persisted full-AOI/analysis-footprint metadata (Task W2.3):
-    # HydroFragments calls hydroseason.verify_cache_footprints(handle)
+    # a cache's persisted full-AOI/analysis-footprint metadata: a downstream
+    # consumer calls hydroseason.verify_cache_footprints(handle)
     # directly, so it must be reachable from the top-level package surface,
     # not just via the private hydroseason._io_wofs_zarr module.
     assert callable(hydroseason.verify_cache_footprints)
     # open_completed_dual_extent_counts is the public reader counterpart for
-    # composite_bundle="dual_composite_v1" acquisitions (Task W2.2): the
+    # composite_bundle="dual_composite_v1" acquisitions: the
     # second (max_water) composite's per-month counts must be reachable from
     # the top-level package surface, not just via the private
     # hydroseason._io_wofs_zarr module.
@@ -104,10 +104,9 @@ def test_removed_method_policies_and_selectors_stay_unexported():
 
 
 def test_package_metadata_declares_only_the_orchestrator_cli():
-    """0.1.1 adds exactly one console script: the thin `hydroseason run`
-    wrapper around run_hydroseason (see
-    docs/superpowers/specs/2026-08-11-cli-case-study-maps-design.md). The
-    removed pre-rewrite rainfall CLI must never come back."""
+    """The package declares exactly one console script: the thin
+    `hydroseason run` wrapper around run_hydroseason. The removed
+    pre-rewrite rainfall CLI must never come back."""
     try:
         import tomllib
     except ImportError:

@@ -8,10 +8,10 @@ Hydrological-year detection and seasonal/aseasonal analysis from **monthly
 satellite surface-water extent**, such as Digital Earth Australia Water
 Observations.
 
-HydroSeason tests whether a catchment floods and dries on a reliable annual
-cycle. If it does, you get per-year boundaries and wet/dry phases. If it
-doesn't, you get flood events and low-water spells instead of a forced
-calendar.
+HydroSeason tests whether a catchment's surface water rises and falls on a
+reliable annual cycle. If it does, you get per-year boundaries and rising
+and receding phases. If it doesn't, you get wet events and low-extent spells
+instead of a forced calendar.
 
 !!! note "Scope"
     HydroSeason measures surface-water **extent**. It does not estimate

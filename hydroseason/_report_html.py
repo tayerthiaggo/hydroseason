@@ -1,4 +1,4 @@
-"""Self-contained light HTML report assembly for manager bundles."""
+"""Self-contained light HTML report assembly for report bundles."""
 
 from __future__ import annotations
 

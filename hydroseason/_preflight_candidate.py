@@ -111,9 +111,6 @@ def compute_candidate_raw_metrics(annual) -> CandidateMetrics:
     return CandidateMetrics(raw_metrics=raw_metrics, evidence=annual)
 
 
-compute_candidate_metrics = compute_candidate_raw_metrics
-
-
 def _margin_payload(observed: int | float, minimum: int | float) -> dict[str, Any]:
     signed_margin = observed - minimum
     if minimum == 0:
@@ -359,7 +356,6 @@ def evaluate_candidate(raw_metrics: CandidateMetrics, thresholds: PreflightThres
 
 __all__ = [
     "CandidateEvaluation",
-    "compute_candidate_metrics",
     "compute_candidate_raw_metrics",
     "evaluate_candidate",
 ]

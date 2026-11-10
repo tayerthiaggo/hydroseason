@@ -1,8 +1,7 @@
 """Pre-registered known-truth checks of the circular Kuiper timing tests.
 
 Bounds are binomial sampling-error bounds at the method's own alpha of 0.05 and
-were fixed before the first run (see the plan in docs/superpowers/plans/). They
-are not method thresholds. A failing test is a finding to record in
+were fixed before the first run. They are not method thresholds. A failing test is a finding to record in
 docs/provisional-trough-falsification-2026-10-30.md, never a reason to change
 library code or to loosen the bound.
 

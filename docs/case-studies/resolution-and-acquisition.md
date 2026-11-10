@@ -7,12 +7,13 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 1. **Resolution coarsening:** All three coarser resolutions (60, 90, 300 m)
    route every catchment the same way as 30 m (5/5). What changes is the
    detail. **60 m tracks 30 m closely** (median correlation 0.9997, median
-   nMAE 0.0030, every peak and trough within one month, at most one event
-   different) but misses the pre-declared gate on one criterion: its longest
+   nMAE 0.0030, every peak and at least 20 of 21 troughs per seasonal
+   catchment within one month, at most one event different) but misses the pre-declared gate on one criterion: its longest
    low spell differs by up to 3 months against a ceiling of 2. **90 m** fails
    the same criterion by more (4 months). **300 m** also fails on correlation
-   (0.9907 < 0.995) and event count (up to 3 events different), and places
-   only 95.2% of troughs within a month. No coarsened resolution
+   (0.9907 < 0.995), event count (up to 3 events different) and trough timing:
+   a median of 85.7% of troughs within a month (81.0% to 95.2% in the three
+   seasonal catchments) against a floor of 90%. No coarsened resolution
    clears every gate, so 30 m remains the release standard.
 2. **Bounded historical-mask comparison:** The opt-in acquisition benchmark is
    restricted to the 2015 Fitzroy and Gilbert AOIs at 30 m in EPSG:3577. It
@@ -28,21 +29,27 @@ This study evaluates the scientific impact of spatial resolution coarsening, the
 <!-- BEGIN GENERATED RESOLUTION RESULTS -->
 | Candidate Resolution | Route Agreement | Median Correlation | Median nMAE | Peak Within 1 Month | Trough Within 1 Month | Max Event Delta | Max Low Spell Delta | Recommended |
 |---|---|---|---|---|---|---|---|---|
-| 60 m | 5/5 | 0.9997 | 0.0030 | 100.0% | 100.0% | 1 | 3 | False |
-| 90 m | 5/5 | 0.9991 | 0.0058 | 100.0% | 100.0% | 1 | 4 | False |
-| 300 m | 5/5 | 0.9907 | 0.0198 | 100.0% | 95.2% | 3 | 6 | False |
+| 60 m | 5/5 | 0.9997 | 0.0030 | 100.0% | 95.2% | 1 | 3 | False |
+| 90 m | 5/5 | 0.9991 | 0.0058 | 100.0% | 95.2% | 1 | 4 | False |
+| 300 m | 5/5 | 0.9907 | 0.0198 | 95.2% | 85.7% | 3 | 6 | False |
 <!-- END GENERATED RESOLUTION RESULTS -->
 
 !!! note "Decision rationale"
     Every coarsened resolution fails at least one pre-declared gate (route
-    agreement 5/5, median correlation ≥ 0.995, median nMAE ≤ 0.05, max event
-    delta ≤ 1, max low-spell delta ≤ 2 months). The gates were fixed before the
+    agreement 5/5, median correlation ≥ 0.995, median nMAE ≤ 0.05, median
+    peak and trough within one month ≥ 90%, max event delta ≤ 1, max low-spell
+    delta ≤ 2 months). The gates were fixed before the
     results were computed and have not been revised, so 30 m stays the single
-    release standard.
+    release standard. The peak and trough medians cover the three seasonal
+    catchments only: Lachlan and Moonie have no hydrological years to time.
+    Before 0.3.0 the study scored them as 100%, which raised the 300 m trough
+    median from 85.7% to 95.2%; no decision changed. A 30 m year missing at
+    the coarser resolution counts as a miss.
 
     **Practical reading of the 60 m result.** 60 m fails one criterion, by one
     month of low-spell duration, while agreeing with 30 m on every route and
-    placing all peaks and troughs within a month. For a compute- or
+    placing every peak and at least 20 of 21 troughs per seasonal catchment
+    within a month. For a compute- or
     bandwidth-constrained run on a **large** catchment, 60 m is a defensible
     working resolution. It is not endorsed as equivalent and is not the
     default.

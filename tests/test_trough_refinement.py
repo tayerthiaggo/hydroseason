@@ -251,8 +251,8 @@ def test_daly_gap_keeps_full_pre_gap_low_state_and_uses_november_boundary():
 
 
 def test_gap_before_the_true_low_state_does_not_answer_from_the_recession_limb():
-    """Opus checkpoint-1 finding F1: `_refine_gap_after_low_state` only ever
-    fits the pre-gap segment. A single cloud-obscured month early in the
+    """`_refine_gap_after_low_state` only ever fits the pre-gap segment. A
+    single cloud-obscured month early in the
     recession, with the true (lower) minimum fully observed afterwards, must
     not be answered from the pre-gap segment alone -- the pre-gap segment
     is still descending, so its fitted "low level" is not the actual low
@@ -280,13 +280,12 @@ def test_gap_before_the_true_low_state_does_not_answer_from_the_recession_limb()
 
 
 def test_gap_with_exact_later_return_to_low_abstains_instead_of_pre_gap_only_support():
-    """Codex final review C1: a post-gap value materially above the fitted
-    low (recovery-looking) followed by a *later* post-gap value that exactly
-    equals the pre-gap low is real evidence the low state is not confined to
-    the pre-gap segment. The old code only inspected the first post-gap
-    value, so it committed to `recovery_crosses_gap` with pre-gap-only
-    support and silently dropped the later equivalent low. It must abstain
-    instead.
+    """A post-gap value materially above the fitted low (recovery-looking)
+    followed by a *later* post-gap value that exactly equals the pre-gap low
+    is real evidence the low state is not confined to the pre-gap segment.
+    Inspecting only the first post-gap value would commit to
+    `recovery_crosses_gap` with pre-gap-only support and drop the later
+    equivalent low. It must abstain instead.
     """
     frame = _prepared([90.0, 60.0, 30.0, 10.0, 10.0, 11.0, 10.0, 30.0, 80.0])
     frame.loc["2020-05-01", ["extent_pct", "observed_fraction"]] = float("nan")
@@ -539,7 +538,7 @@ def test_combine_sensitivity_results_uses_a_real_scenario_boundary_not_union_end
     """`_combine_sensitivity_results` must report a scenario's own selected
     operational boundary, not the union support set's last date -- those
     differ once a single scenario's own support set legitimately extends
-    past its own operational boundary (the Task 2 untruncated-cluster fix).
+    past its own operational boundary (an untruncated cluster).
     """
     from hydroseason._trough_refinement import _combine_sensitivity_results
 
@@ -562,7 +561,7 @@ def test_combine_sensitivity_results_uses_a_real_scenario_boundary_not_union_end
     nominal = _result("2020-04-01", ["2020-03-01", "2020-04-01"])
     scenario_a = _result("2020-04-01", ["2020-03-01", "2020-04-01"])
     # This scenario's own support set extends one month past its own chosen
-    # operational boundary -- exactly the untruncated shape Task 2 produces.
+    # operational boundary -- an untruncated cluster.
     scenario_b = _result("2020-04-01", ["2020-03-01", "2020-04-01", "2020-05-01"])
 
     combined = _combine_sensitivity_results(

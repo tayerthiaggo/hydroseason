@@ -10,7 +10,7 @@ from hydroseason import analyze_hydrological_state
 result = analyze_hydrological_state(monthly_extent)
 result.pattern          # advisory seasonal shape
 result.config           # inspect the suggested phase and tolerance
-result.hydro_years      # peak, temporal mid-dry, half-loss, trough, condition
+result.hydro_years      # peak, temporal mid-dry, half-loss, trough, dry run, condition
 result.monthly_condition
 result.monthly_phase    # labelled by default; pass phase_scheme="none" to disable
 ```
@@ -42,8 +42,9 @@ claim you are making, not one the data made.
 
 `analyze_catchment` and `run_hydroseason` do not raise on these records. They
 first route the record with `assess_water_regime` and, when it is seasonal,
-pass the regime's trough month to `analyze_hydrological_state` as an explicit
-config. The same record can therefore fail here and run there. For batch work,
+pass the end of the typical low, found from the regime's trough month (see the
+[Methods Reference, section 5a](methods.md#5a-where-the-dry-season-ends)), to
+`analyze_hydrological_state` as an explicit config. The same record can therefore fail here and run there. For batch work,
 call `run_hydroseason` or `analyze_catchment`.
 
 Fields in the `low_variability` result are sentinels, not computed tests:
@@ -66,9 +67,9 @@ route did my catchment take?").
   least five; with fewer, every cycle reads `insufficient_baseline`. The baseline ranks the extents
   read at the peak and at the trough boundary, not their dates, so since `hydroseason-v0.3.0` a
   bounded interval is enough. On real records this gives about ten times as many units a
-  baseline. On known truth (the B2 test,
-  `docs/handoff/2026-11-04-b2-refuge-labels-results.md`), the larger baseline does not make
-  labels worse on the cycles both rules label, and the labels it adds beat chance, though only
+  baseline. In a test on records with known answers ("known truth":
+  synthetic seasons, and seasons injected into real flat records), the
+  larger baseline does not make labels worse on the cycles both rules label, and the labels it adds beat chance, though only
   fairly (kappa about 0.35 for refuge, 0.16 to 0.28 for recharge).
 - Continuous percentiles are primary. Public labels are compact interpretation aids.
 
@@ -90,10 +91,14 @@ The annual `half_loss_month` field remains the separate peak-to-trough
 diagnostic. These are descriptive surface-water phases, not discharge or
 baseflow separation.
 
-Labels are anchored to the selected robust trough boundaries and `peak_month`;
-months outside complete cycles remain
-`unspecified` with `phase_status="outside_cycle"`, and months in partial cycles
-are marked `phase_status="unresolved_cycle"`. Unusable months keep their
+Labels are anchored to the selected robust trough boundaries and `peak_month`.
+Months outside any cycle with a peak remain `unspecified` with
+`phase_status="outside_cycle"`. A year whose `timing_status` is `unresolved`
+has no rising or receding months: `phase` stays `unspecified` and
+`phase_status` is `unresolved_cycle`. Otherwise usable months read
+`phase_status="interval_boundary"` when the year's `timing_status` is
+`interval` or `broad`, and `ok` in a complete cycle or `provisional` in a
+partial one when it is `point`. Unusable months keep their
 positional phase label for continuity, but use `phase_status="unusable"` with
 lower confidence.
 
@@ -103,7 +108,7 @@ The stable columns are `hy_year`, `phase`, `phase_status`,
 condition ranks historical wet/dry extremeness, while phase describes within
 cycle timing.
 
-Legacy parameter `phase_model` maps to `phase_scheme` with a deprecation warning (`rule_based` and `cycle_relative` -> `two_phase`, `none` -> `none`). Legacy aliases are targeted for removal in 0.3.0. Phase selection cannot change regime, route, extrema, boundaries, events, or low spells.
+Legacy parameter `phase_model` maps to `phase_scheme` with a deprecation warning (`rule_based` and `cycle_relative` -> `two_phase`, `none` -> `none`). Legacy aliases are still accepted in 0.3.0 and are targeted for removal in a later release. Phase selection cannot change regime, route, extrema, boundaries, events, or low spells.
 
 ```python
 from hydroseason import DynamicHydroYearConfig, analyze_hydrological_state
@@ -193,7 +198,8 @@ Each year's trough opportunity carries diagnostics that separate what was
   thresholds as the record-level regime assessment. `timing_status` is the
   weaker of the two (`unresolved` < `broad` < `interval` < `point`). A
   `point` status says the extremum is distinct, not that its month is exact.
-  In known-truth tests (G2, L1 and L2, November 2026) on noisy, weak cycles, many
+  In November 2026 known-truth tests of the identifiability gates and the
+  timing labels, on noisy, weak cycles many
   `point` troughs fell more than a month from the true month, and on long,
   flat recessions the trough was dated early; see the
   [usage guide](guide.md#dates-around-the-dry-season-low). This is a separate concept from
@@ -208,17 +214,35 @@ Each year's trough opportunity carries diagnostics that separate what was
   to cover both and graded by width (`interval` up to 2 months apart, `broad`
   up to 5, `unresolved` beyond). This runs after the boundaries are final and
   changes only the timing labels: a trough widened to `unresolved` keeps its
-  cycle's `boundary_status` and `status`, as a refined trough does. Only
+  cycle's `boundary_status` and `status`, as a refined trough does. On a
+  flat, dry low the label can instead run past the boundary; see the dry-run
+  columns below. Only
   complete rows with `boundary_status="confirmed"`, a peak that is not
   `anomalous` and a dated `timing_status` (`point`, `interval` or `broad`) may
   anchor a historical condition baseline. Before `hydroseason-v0.3.0` only
   `point` rows could; see [Annual interpretation](#annual-interpretation).
 - `peak_interval_start`/`peak_interval_end` and
   `trough_interval_start`/`trough_interval_end`: the bounds of the defensible
-  interval when the corresponding status is `interval` (or the single month
-  when `point`); blank when `unresolved`. The compact CSV export blanks
-  `peak_date`/`trough_date` unless the status is `point`, but always
-  populates the interval columns when the status is `interval`.
+  interval when the corresponding status is `interval` or `broad` (or the
+  single month when `point`). When `unresolved`, they keep the too-wide span
+  if the cycle cleared its detectability floor and are blank if it did not.
+  The compact CSV export blanks `peak_date`/`trough_date` unless the status
+  is `point`, but keeps the interval columns.
+- `dry_run_start_month` / `dry_run_end_month` / `rewetting_month` /
+  `dry_run_months` / `dry_end_status` (since `hydroseason-v0.3.0`): the dry
+  run of the trough boundary, the months around it whose extent stays within
+  the boundary's own tolerance, followed past the search window and over
+  unobserved months. `dry_run_end_month` is the end of the dry season and
+  `rewetting_month` the first observed month above it. `dry_end_status` is
+  `interval` or `censored` (`unavailable` when the cycle has no boundary),
+  never `point`. Reporting the run does not move the boundary. When the
+  boundary is the last month of a dry run at zero extent, water was seen to
+  return, and the trough label is `broad` or `unresolved`, the label runs
+  from the run end to the month before the next peak and is graded by that
+  width (`interval` or `broad`, never `point`; wider leaves the label as it
+  was). Those rows read `trough_label_basis = "end_of_dry_run"`; other rows
+  read `"lowest_month"`. See the
+  [Methods Reference, section 5a](methods.md#5a-where-the-dry-season-ends).
 - `detectability_floor_pp` / `amplitude_to_floor_ratio`: the cycle's
   detectability floor (percentage points) and its amplitude expressed as a
   multiple of that floor. `amplitude_to_floor_ratio` is `0.0` when the
@@ -227,10 +251,11 @@ Each year's trough opportunity carries diagnostics that separate what was
   counts, its peak holds at least 5 water pixels. These defaults were first
   checked on synthetic records and on gauged CAMELS-AUS catchments, most of
   them upper catchments with little surface water. In November 2026 they were
-  tested on water-bearing windows across Australia. Looser gates (1.5 times
-  the floor, 2 pixels) reproduced as well under split-half reproducibility
-  (G1), but the dates they added were less accurate in a known-truth test
-  (G2), so the defaults stay. They are tested values, not values fitted to
+  tested on 319 national DEA WOfS windows (about 15 km a side) that hold
+  water across Australia. Looser gates (1.5 times the floor, 2 pixels)
+  repeated as well between two halves of each window's pixels, but the
+  dates they added were less accurate in a known-truth test, so the
+  defaults stay. They are tested values, not values fitted to
   lowland channels, floodplains or wetlands.
 - `detector` (a `DynamicHydroYearConfig` field, not an annual output column):
   `"robust_extrema"` is the only supported value, gated on real Fitzroy and
@@ -263,10 +288,11 @@ Observed extrema from low-quality months remain visible for auditability, but
 they are flagged `low_quality`, reduce support, and cannot produce a confirmed
 annual boundary -- true for the TROUGH. The PEAK's admissibility no longer
 depends on this flat threshold; it is instead judged by `peak_quality`
-against its own calendar month's norm (see above). Use `quality_policy="flag"`
-when finite observations with
-partial invalid coverage should remain `candidate_usable`/`usable_month` for
-cycle identification; their invalid counts still lower confidence. A 100%
+against its own calendar month's norm (see above). With
+`quality_policy="flag"`, the default, finite observations with
+partial invalid coverage remain `candidate_usable`/`usable_month` for
+cycle identification; their invalid counts still lower confidence.
+`quality_policy="exclude"` keeps only months at or below `max_invalid_pct`. A 100%
 invalid month (or a month with no observed extent) remains ineligible. Aggregate
 basins with summed `n_water` and `n_valid` counts, or explicit AOI area weights;
 unweighted percentage means are rejected. Regime routing, hydrological-year

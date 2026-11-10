@@ -8,9 +8,10 @@
 
 HydroSeason reads a monthly surface-water extent record (for example, from
 Digital Earth Australia Water Observations) and tells you whether the
-catchment floods and dries on a reliable annual cycle. If it does, you get
-per-year boundaries and wet/dry phases. If it doesn't, you get flood events
-and low-water spells instead of a forced calendar.
+catchment's surface water rises and falls on a reliable annual cycle. If it
+does, you get per-year boundaries and rising and receding phases. If it
+doesn't, you get wet events and low-extent spells instead of a forced
+calendar.
 
 > **Scope:** HydroSeason measures surface-water **extent**. It does not
 > estimate discharge, depth, volume, or groundwater.
@@ -28,7 +29,7 @@ records the method version and input checksums.
 Open a real report (no install needed):
 
 - [Fitzroy River (WA)](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa.html) — seasonal: per-year boundaries
-- [Lachlan River (NSW)](https://tayerthiaggo.github.io/hydroseason/examples/lachlan-river-nsw.html) — aseasonal: events and dry spells
+- [Lachlan River (NSW)](https://tayerthiaggo.github.io/hydroseason/examples/lachlan-river-nsw.html) — aseasonal: wet events and low-extent spells
 - [Fitzroy River + rainfall](https://tayerthiaggo.github.io/hydroseason/examples/fitzroy-river-wa-rainfall.html) — rainfall shown as context only
 
 Browse a complete output folder (no install needed):

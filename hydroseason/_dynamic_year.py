@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 from typing import Literal
 
@@ -50,13 +49,6 @@ _TIMING_STATUS_RANK: dict[TimingStatus, int] = {
     "point": 3,
 }
 
-# Fallback values substituted for the deprecated recovery-window fields when a
-# caller has not supplied them. These match the historical defaults (2 and 4)
-# so that the legacy `last_before_confirmed_recovery` dry_plateau_rule keeps
-# behaving exactly as before during the one-release deprecation window.
-_DEFAULT_SUSTAINED_RISE_MONTHS = 2
-_DEFAULT_PULSE_REJECTION_WINDOW_MONTHS = 4
-
 # Default adaptive geometry.  These are the shipped values and the defaults for
 # the matching ``DynamicHydroYearConfig`` fields.  They are inherited from the
 # first dynamic-year implementation and have not been selected against truth.
@@ -85,12 +77,22 @@ _DIAGNOSTIC_AUDIT_RADIUS_MONTHS = 5
 
 @dataclass(frozen=True)
 class DynamicHydroYearConfig:
+    """Search settings for :func:`detect_dynamic_hydrological_years`.
+
+    ``expected_trough_month`` (1-12) centres each year's trough search; it is
+    not a fixed year boundary. ``trough_search_radius_months`` sets how far the
+    search reaches either side of it, widened up to
+    ``adaptive_trough_search_radius_months`` on an adaptive retry.
+    ``max_invalid_pct``, ``allow_unknown_quality`` and ``quality_policy`` set
+    which months count as usable; ``min_baseline_cycles``, ``low_percentile``
+    and ``high_percentile`` set the annual condition baseline;
+    ``phase_scheme`` selects the monthly phase labels; ``phase_model`` is a
+    deprecated alias for it.
+    """
+
     expected_trough_month: int
     expected_peak_month: int | None = None
     trough_search_radius_months: int = 3
-    dry_plateau_rule: Literal["raw_minimum", "last_before_confirmed_recovery", "middle", "first"] = "raw_minimum"
-    sustained_rise_months: int | None = None
-    pulse_rejection_window_months: int | None = None
     max_invalid_pct: float = 20.0
     allow_unknown_quality: bool = False
     quality_policy: QualityPolicy = "flag"
@@ -144,10 +146,6 @@ class DynamicHydroYearConfig:
                 "adaptive_min_usable_months_per_cycle must be in "
                 "1..min_usable_months_per_cycle; the relaxation never tightens the base."
             )
-        if self.sustained_rise_months is not None and self.sustained_rise_months < 1:
-            raise ValueError("recovery windows must be positive.")
-        if self.pulse_rejection_window_months is not None and self.pulse_rejection_window_months < 1:
-            raise ValueError("recovery windows must be positive.")
         if not 0 <= self.max_invalid_pct <= 100:
             raise ValueError("max_invalid_pct must be between 0 and 100.")
         if self.quality_policy not in {"exclude", "flag"}:
@@ -158,23 +156,17 @@ class DynamicHydroYearConfig:
             raise ValueError("measurement_tolerance_pct must be non-negative.")
         if self.detector != "robust_extrema":
             raise ValueError("detector must be 'robust_extrema'.")
-        if self.sustained_rise_months is not None or self.pulse_rejection_window_months is not None:
-            warnings.warn(
-                "recovery-window fields (sustained_rise_months, pulse_rejection_window_months) "
-                "are deprecated and ignored by robust_extrema; they are retained only for "
-                "backward compatibility with dry_plateau_rule='last_before_confirmed_recovery'.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        if self.dry_plateau_rule == "last_before_confirmed_recovery":
-            warnings.warn(
-                "dry_plateau_rule='last_before_confirmed_recovery' is deprecated; use 'raw_minimum'.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
 
 
 def suggest_dynamic_hydro_year_config(extent, *, pattern: SeasonalPatternResult | None = None, **overrides) -> DynamicHydroYearConfig:
+    """Build a :class:`DynamicHydroYearConfig` from the record's seasonal pattern.
+
+    Uses the pattern's expected trough and peak months (``pattern`` is
+    computed with :func:`classify_seasonal_pattern` when omitted);
+    ``overrides`` are passed to the config as given. Raises ``ValueError``
+    when the pattern is ``weak_or_irregular``, ``low_variability`` or
+    ``insufficient_record`` and ``expected_trough_month`` is not supplied.
+    """
     result = pattern or classify_seasonal_pattern(extent)
     user_supplied_trough = "expected_trough_month" in overrides
     expected_trough = overrides.pop("expected_trough_month", result.expected_trough_month)
@@ -256,16 +248,6 @@ _TROUGH_DIAGNOSTIC_COLUMNS = (
     "trough_search_radius_used", "boundary_at_search_edge",
     "boundary_search_edge_side", "outside_window_observed", "outside_window_lower",
 )
-
-# Geometry diagnostics published on every annual row.  ``retry_outcome`` is set
-# once, after the adaptive retry loop settles, because only the loop knows
-# whether a widened result survived.
-GEOMETRY_DIAGNOSTIC_COLUMNS = (
-    "trough_search_radius_used", "boundary_at_search_edge",
-    "boundary_search_edge_side", "outside_window_observed",
-    "outside_window_lower", "retry_outcome",
-)
-
 
 def _find_robust_trough_opportunities(
     frame: pd.DataFrame,
@@ -499,6 +481,38 @@ def _blank_cycle(opportunity: pd.Series) -> dict:
 
 
 def detect_dynamic_hydrological_years(extent, *, config: DynamicHydroYearConfig, value_col: str = "extent_pct", date_col: str | None = None, pattern: SeasonalPatternResult | None = None) -> pd.DataFrame:
+    """Detect data-driven trough-to-trough hydrological years.
+
+    Each year's boundary is the observed low found in a search window centred
+    on ``config.expected_trough_month``; the boundaries are then made
+    consistent across years and refined. Short interior cycles, and interior
+    years whose window clipped a lower trough, are retried with a wider
+    window. Each cycle reports its peak, temporal mid-dry, half-loss and
+    trough extents, timing labels, quality and status columns, and the dry
+    run of its trough boundary.
+
+    Parameters
+    ----------
+    extent : pandas.DataFrame or pandas.Series
+        Monthly water extent (``value_col``, optionally ``invalid_pct`` and
+        pixel counts), indexed by month or with a ``date_col`` column.
+    config : DynamicHydroYearConfig
+        Search settings.
+    value_col : str
+        Extent column name.
+    date_col : str, optional
+        Date column, when the dates are not the index.
+    pattern : SeasonalPatternResult, optional
+        Seasonal pattern of the record; secondary extrema of the fitted curve
+        are added only when it is ``bimodal_or_complex``. Trough refinement
+        may still report the strongest re-wetting pulse as
+        ``secondary_peak_month``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per hydrological year; see the report columns reference.
+    """
     frame = prepare_monthly_extent(
         extent, value_col=value_col, date_col=date_col,
         max_invalid_pct=config.max_invalid_pct,
@@ -1427,15 +1441,6 @@ def _apply_trough_refinement(
     return rows.loc[:, ANNUAL_COLUMNS]
 
 
-_DRY_RUN_COLUMNS = (
-    "dry_run_start_month",
-    "dry_run_end_month",
-    "rewetting_month",
-    "dry_run_months",
-    "dry_end_status",
-)
-
-
 def _is_zero_extent(frame: pd.DataFrame, month: pd.Timestamp, run: DryRun, config: DynamicHydroYearConfig) -> bool:
     """Whether a dry run sits at zero extent: at or below the measurement floor.
 
@@ -1449,11 +1454,13 @@ def _is_zero_extent(frame: pd.DataFrame, month: pd.Timestamp, run: DryRun, confi
 
 
 def _report_dry_runs(frame: pd.DataFrame, rows: pd.DataFrame, config: DynamicHydroYearConfig) -> pd.DataFrame:
-    """Report the dry run of each cycle's trough boundary (DE1 change A).
+    """Report the dry run of each cycle's trough boundary (rule ``report_dry_run``).
 
-    Reported only: no boundary, date, peak, label or status changes. The run
-    may continue past the next boundary when a year has no wet season, and it
-    stops at a cloudy reported peak of the next cycle (see ``find_dry_run``).
+    The run moves no boundary, date or peak. It may continue past the
+    next boundary when a year has no wet season, and it stops at a cloudy
+    reported peak of the next cycle (see ``find_dry_run``). Rule
+    ``zero_low_end_status`` then re-dates the trough label of a boundary at
+    the end of a dry low.
     """
     rows = rows.copy(deep=True).reset_index(drop=True)
     amplitude_pp, noise_pp = robust_scale(frame)
@@ -1476,7 +1483,7 @@ def _report_dry_runs(frame: pd.DataFrame, rows: pd.DataFrame, config: DynamicHyd
                 next_peak=next_peak,
             )
         )
-    # DE2 candidate R2: a boundary at the end of a dry (zero-extent) low is
+    # Rule zero_low_end_status: a boundary at the end of a dry (zero-extent) low is
     # dated by where the low ends, not by how distinct its lowest month is:
     # every month of a dry run ties as the minimum, but the month before
     # water returns is identifiable.
@@ -1499,7 +1506,7 @@ def _report_dry_runs(frame: pd.DataFrame, rows: pd.DataFrame, config: DynamicHyd
         # The dry season ends somewhere from the last dry month of the run to
         # the month before the next peak: a noisy dry month can end the run
         # early, so the re-wetting month alone is not a safe upper bound. The
-        # label is graded by that span and is never `point` (DE1 rule 3).
+        # label is graded by that span and is never `point`.
         following_peak = (
             rows.at[position + 1, "peak_month"] if position + 1 < len(rows) else pd.NaT
         )

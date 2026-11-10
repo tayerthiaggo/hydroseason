@@ -21,7 +21,7 @@ def load_extent_csv(
     gapfill missing months or quality-screen invalid coverage. The CSV is
     valid input for ``detect_hydrological_years`` only if the upstream
     extent series already went through mask completion and quality
-    screening (see the migration plan's gapfilling recommendation).
+    screening (see "Data quality before you trust it" in the Usage Guide).
     """
     frame = pd.read_csv(path)
     missing = {date_col, value_col}.difference(frame.columns)

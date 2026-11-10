@@ -2,13 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hydroseason._dynamic_year import (
-    DynamicHydroYearConfig,
-    detect_dynamic_hydrological_years,
-)
+from hydroseason._dynamic_year import DynamicHydroYearConfig
 from hydroseason._phase import (
-    PHASES,
-    assign_rule_based_phases,
     assign_two_phase_phases,
     empty_monthly_phase,
 )
@@ -125,80 +120,14 @@ def test_disabled_phase_frame_has_one_row_per_month(prepared_extent):
     assert out["phase_status"].eq("disabled").all()
 
 
-def test_rule_based_phases_honor_peak_and_trough(monsonal_extent):
-    base = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="none")
-    phased = DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="two_phase")
-    annual_base = detect_dynamic_hydrological_years(monsonal_extent, config=base)
-    annual_phased = detect_dynamic_hydrological_years(monsonal_extent, config=phased)
-    pd.testing.assert_frame_equal(annual_base, annual_phased)
-    prepared = prepare_monthly_extent(monsonal_extent)
-    labels = assign_rule_based_phases(prepared, annual_phased, noise_pp=0.0)
-    assert labels.index.equals(prepared.index)
-    assert labels["phase_method"].eq("rule_based").all()
-    assert set(labels["phase_status"]).issubset(
-        {"ok", "provisional", "unresolved_cycle", "outside_cycle", "unusable"}
-    )
-    assert labels.loc[labels["phase_status"].eq("outside_cycle"), "phase"].eq("unspecified").all()
-    complete = annual_phased.loc[annual_phased["status"].eq("complete")]
-    for row in complete.itertuples():
-        assert labels.loc[row.peak_month, "phase"] == "rising"
-        assert labels.loc[row.trough_month, "phase"] == "receding"
-
-
-def test_rule_based_phases_follow_one_way_order(monsonal_extent):
-    prepared = prepare_monthly_extent(monsonal_extent)
-    annual = detect_dynamic_hydrological_years(
-        monsonal_extent, config=DynamicHydroYearConfig(expected_trough_month=9, phase_scheme="none")
-    )
-    monthly_phase = assign_rule_based_phases(prepared, annual, noise_pp=0.0)
-    rank = {"rising": 0, "receding": 1}
-    for _, group in monthly_phase.dropna(subset=["hy_year"]).groupby("hy_year"):
-        usable = group.loc[group["phase_status"].ne("unusable"), "phase"]
-        assert set(usable).issubset(set(PHASES))
-        values = [rank[value] for value in usable]
-        assert values == sorted(values)
-
-
-def test_rule_based_phases_use_baseline_and_half_peak_anomaly():
-    dates = pd.date_range("2018-01-01", "2020-12-01", freq="MS")
-    baseline_year = [10, 10, 11, 12, 12, 11, 10, 9, 8, 7, 6, 5]
-    target_year = [5, 8, 15, 30, 25, 20, 15, 10, 8, 6, 5, 4]
-    values = baseline_year + baseline_year + target_year
-    raw = pd.DataFrame({"extent_pct": values, "invalid_pct": 0.0}, index=dates)
-    prepared = prepare_monthly_extent(raw)
-    hydro_years = pd.DataFrame(
-        [
-            {
-                "hy_year": 2020,
-                "status": "complete",
-                "hy_start": pd.Timestamp("2020-01-01"),
-                "hy_end": pd.Timestamp("2020-12-01"),
-                "peak_month": pd.Timestamp("2020-04-01"),
-                "peak_extent_pct": 30.0,
-                "trough_month": pd.Timestamp("2020-12-01"),
-                "trough_extent_pct": 4.0,
-                "boundary_status": "confirmed",
-            }
-        ]
-    )
-
-    labels = assign_rule_based_phases(prepared, hydro_years, noise_pp=0.0)
-    actual = labels.loc["2020", "phase"].tolist()
-
-    assert actual == [
-        "rising", "rising", "rising", "rising", "rising", "receding",
-        "receding", "receding", "receding", "receding", "receding", "receding",
-    ]
-
-
 def test_record_start_boundary_cycle_receives_monthly_phases():
     """An opening cycle bounded from the record start must be phaseable.
 
-    assign_rule_based_phases skips rows whose hy_start/hy_end/peak_month
-    is None, so before the opening-boundary fix the record's first months
-    stayed "unspecified"/"outside_cycle" and left the timeline unshaded
-    there. Once those fields are populated the months must get real
-    phases like any other partial cycle.
+    The phase labeller skips rows whose hy_start/hy_end/peak_month is None,
+    so before the opening-boundary fix the record's first months stayed
+    "unspecified"/"outside_cycle" and left the timeline unshaded there. Once
+    those fields are populated the months must get real phases like any
+    other partial cycle.
     """
     index = pd.date_range("2005-01-01", periods=10, freq="MS")
     raw = pd.DataFrame(
@@ -224,7 +153,7 @@ def test_record_start_boundary_cycle_receives_monthly_phases():
         ]
     )
 
-    out = assign_rule_based_phases(prepared, hydro_years, noise_pp=1.0)
+    out = assign_two_phase_phases(prepared, hydro_years)
 
     assert (out["phase_status"] != "outside_cycle").any()
     assert (out["hy_year"] == 2005).any()
@@ -240,9 +169,10 @@ def test_two_phase_unresolved_timing_yields_unresolved_cycle_status(prepared_ext
     assert (months["phase"] == "unspecified").all()
 
 
-def test_two_phase_interval_timing_yields_interval_boundary_status(prepared_extent):
+@pytest.mark.parametrize("timing_status", ["interval", "broad"])
+def test_two_phase_interval_timing_yields_interval_boundary_status(prepared_extent, timing_status):
     cycle = _one_cycle()
-    cycle["timing_status"] = "interval"
+    cycle["timing_status"] = timing_status
     out = assign_two_phase_phases(prepared_extent, cycle, boundary_basis="robust_extrema")
     months = out.loc["2019-01":"2019-06"]
     assert (months["phase_status"] == "interval_boundary").all()
@@ -259,8 +189,7 @@ def test_two_phase_point_timing_keeps_ok_status(prepared_extent):
 
 
 def test_monthly_phase_boundary_basis_matches_actual_annual_boundary_detector(monsonal_extent):
-    # Regression for the stage-06 review finding: monthly_phase.boundary_basis
-    # must report the detector that actually produced the annual boundaries,
+    # monthly_phase.boundary_basis must report the detector that actually produced the annual boundaries,
     # not a hard-coded "robust_extrema" string. Since the public
     # DynamicHydroYearConfig.detector is robust_extrema-only, this must hold
     # for both phase_model settings against the config actually used.
@@ -308,12 +237,11 @@ def test_no_four_phase_scores_are_exposed(seasonal_frame):
 
 
 def test_legacy_rule_based_selector_uses_public_two_phase_labels(seasonal_frame):
-    prepared = prepare_monthly_extent(seasonal_frame)
-    annual = detect_dynamic_hydrological_years(
-        seasonal_frame, config=DynamicHydroYearConfig(expected_trough_month=7, phase_scheme="none")
-    )
-    monthly_phase = assign_rule_based_phases(prepared, annual, noise_pp=0.0)
+    with pytest.warns(DeprecationWarning, match="phase_model"):
+        config = DynamicHydroYearConfig(expected_trough_month=7, phase_model="rule_based")
+    monthly_phase = analyze_hydrological_state(seasonal_frame, config=config).monthly_phase
 
+    assert monthly_phase["phase_method"].eq("two_phase").all()
     assert set(monthly_phase["phase"]) <= {"rising", "receding", "unspecified"}
     assert list(monthly_phase.columns) == PHASE_COLUMNS
 

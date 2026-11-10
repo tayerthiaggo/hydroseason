@@ -15,8 +15,8 @@ independently of rainfall, so a flat or shifted signal is evidence about water
 """
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
-from typing import Literal
 
 import numpy as np
 
@@ -26,7 +26,6 @@ from ._circular_timing import (
 )
 from ._decision_policy import (
     DECISION_POLICY,
-    REGIME_THRESHOLDS,
     DecisionPolicy,
     EstablishedDecision,
     Regime,
@@ -35,6 +34,7 @@ from ._decision_policy import (
     decide_regime,
 )
 from ._events import extract_water_events
+from ._method_policy import CURRENT_METHOD_POLICY
 from ._scientific_defaults import TIMING_IDENTIFIABILITY_DEFAULTS
 from ._seasonality_test import TimingRecurrenceResult, assess_timing_recurrence
 from ._state_input import QualityPolicy, prepare_monthly_extent
@@ -46,7 +46,6 @@ from ._timing_identifiability import (
 
 _DEFAULT_MIN_MONTHS_PER_YEAR = 9
 _MIN_USABLE_YEARS = 5
-_DRIFT_MIN_TIMING_YEARS = 10
 
 
 _SCOPE_CAVEAT = (
@@ -100,19 +99,30 @@ class WaterRegimeAssessment:
 
     @property
     def supports_per_year_boundaries(self) -> bool:
-        """Whether public hydrological years may be published for this record."""
+        """Deprecated: whether public hydrological years may be published for this record."""
+        _warn_deprecated("supports_per_year_boundaries", 'public_route == "per_year_detection"')
         return self.public_route == "per_year_detection"
 
     @property
     def attempts_per_year_detection(self) -> bool:
-        """Whether the detector runs at all, as an internal diagnostic."""
+        """Deprecated: whether the detector runs at all, as an internal diagnostic."""
+        _warn_deprecated("attempts_per_year_detection", 'regime == "seasonal"')
         return self.regime == "seasonal"
 
     @property
     def supports_fixed_window(self) -> bool:
-        """Whether one fixed climatological wet/dry window is defensible."""
+        """Deprecated: always False; no route publishes a fixed climatological window."""
+        _warn_deprecated("supports_fixed_window", "public_route (no route uses a fixed window)")
         return False
 
+
+def _warn_deprecated(name: str, replacement: str) -> None:
+    warnings.warn(
+        f"WaterRegimeAssessment.{name} is deprecated and will be removed in "
+        f"hydroseason 0.4.0; use {replacement} instead.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 _ACTIONS: dict[Regime, str] = {
@@ -242,7 +252,6 @@ def assess_water_regime(
     decision = decide_regime(
         classification=recurrence.classification,
         status=recurrence.status,
-        reason=recurrence.reason,
     )
 
     populate_months = (
@@ -264,7 +273,7 @@ def assess_water_regime(
     years_without = int(event_summary["years_without_event"])
 
     caveats.append(
-        "seasonality policy hydroseason-v0.2.0: class decided by calendar recurrence of annual peak and trough timing at "
+        f"seasonality policy {CURRENT_METHOD_POLICY.policy_id}: class decided by calendar recurrence of annual peak and trough timing at "
         f"alpha {recurrence.alpha:g}; aseasonal means recurrence was not established, "
         "not that timing is uniform"
     )
@@ -310,30 +319,13 @@ def assess_water_regime(
     )
 
 
-PublicRoute = Literal[
-    "per_year_detection", "event_characterisation", "insufficient_record"
-]
-
-
-def public_route(regime: Regime) -> PublicRoute:
-    """Map regime to public route."""
-    if regime == "seasonal":
-        return "per_year_detection"
-    if regime == "insufficient_record":
-        return "insufficient_record"
-    return "event_characterisation"
-
-
 __all__ = [
     "DecisionPolicy",
     "DECISION_POLICY",
     "EstablishedDecision",
-    "PublicRoute",
-    "REGIME_THRESHOLDS",
     "Regime",
     "Route",
     "WaterRegimeAssessment",
     "assess_water_regime",
     "decide_regime",
-    "public_route",
 ]

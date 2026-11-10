@@ -1,4 +1,4 @@
-"""Public report APIs for self-contained HydroSeason manager bundles."""
+"""Public report APIs for self-contained HydroSeason report bundles."""
 
 from __future__ import annotations
 
@@ -63,7 +63,13 @@ class CatchmentReportPaths:
 
     @property
     def events_csv(self) -> Path:
-        """Backward-compatible alias for :attr:`wet_event_csv`."""
+        """Deprecated alias for :attr:`wet_event_csv`; removed in hydroseason 0.4.0."""
+        warnings.warn(
+            "CatchmentReportPaths.events_csv is deprecated and will be removed in "
+            "hydroseason 0.4.0; use wet_event_csv instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.wet_event_csv
 
 

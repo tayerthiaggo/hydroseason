@@ -1,7 +1,7 @@
 """Cheap feasibility filter: is there any recurrent surface water here?
 
 This module deliberately answers ONE question and refuses to answer more.
-Session testing against 18 real AOIs established that every richer
+Testing against 18 real AOIs showed that every richer
 criterion encodes a hidden assumption about which water regime counts as
 "valid", and each produced wrong answers on real data: absolute
 pixel-count thresholds passed a desert dunefield and a snow/shadow alpine
@@ -23,8 +23,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # A pixel counts as recurrently wet at >=10% of its clear observations,
-# summed over the whole requested window. Fixed, not per-profile: the
-# multi-profile design this replaces produced gates that passed a desert.
+# summed over the whole requested window. Fixed, not per-profile:
+# per-profile gates passed a desert in testing.
 FEASIBILITY_MIN_FREQUENCY_FRACTION = 0.10
 
 SUPPORTED_FEASIBILITY_RESOLUTIONS: tuple[float, ...] = (30.0, 60.0, 90.0)
@@ -141,8 +141,7 @@ def assess_feasibility(annual, *, resolution: float) -> FeasibilityResult:
     # array to NumPy here just to reach scipy. open_annual_wo_statistics
     # materializes by default, but a materialize=False caller (or a very
     # large AOI) is exactly the case dask-backed labelling exists for, and
-    # forcing a compute here would reintroduce the redundant-
-    # materialization cost fixed earlier in this session.
+    # forcing a compute here would materialize the array a second time.
     wet = annual["count_wet"]
     clear = annual["count_clear"]
     reduction_dims = [dim for dim in wet.dims if dim not in {"y", "x"}]

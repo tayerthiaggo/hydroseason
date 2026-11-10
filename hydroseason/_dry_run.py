@@ -8,14 +8,12 @@ and over unobserved months, and reports where it starts, where it ends, the
 first month above it (the re-wetting month) and how sure the end is. The
 boundary itself does not move.
 
-The run end was tested against known truth before adoption (DE1,
-``docs/handoff/2026-11-05-de1-dry-run-end-results.md``): it dates the end of
-the dry season better than the boundary on ephemeral seasons and no worse on
-smooth ones. A ``point`` end status failed DE1's safety rule, so the end is
-reported as ``interval`` (a re-wetting month was observed) or ``censored``
-(the record ends dry), never ``point``. Moving the boundary to the run end
-(DE1's change B) failed its implementation checks and was withdrawn
-(``docs/handoff/2026-11-06-dry-run-end-implementation.md``).
+On known truth the run end dates the end of the dry season better than the
+boundary on ephemeral seasons and no worse on smooth ones. A run end followed
+at once by re-wetting was too often more than a month from the true end to
+earn a ``point`` label, so the end is reported as ``interval`` (a re-wetting
+month was observed) or ``censored`` (the record ends dry), never ``point``.
+See the Methods Reference, section 5a "Where the Dry Season Ends".
 
 A month is observed when ``quality_state == "usable"``. A run continues while
 observed months stay within the boundary's own tolerance
@@ -34,7 +32,8 @@ from ._boundary import _epsilon_pp
 
 DRY_RUN_RULE = "report_dry_run"
 DRY_RUN_RULE_VERSION = 1
-# DE2 candidate rules (not adopted unless DE2 passes).
+# Rules that bring the boundary to the end of the dry season on flat lows
+# (Methods Reference, section 5a).
 ANCHOR_RULE = "end_of_climatological_low"
 ANCHOR_RULE_VERSION = 1
 ANCHOR_RANGE_FRACTION = 0.1
@@ -53,7 +52,6 @@ class DryRun:
     rewetting: pd.Timestamp | None
     end_status: DryEndStatus
     level_pct: float | None
-    tolerance_pp: float | None
 
     @property
     def months(self) -> int | None:
@@ -63,7 +61,7 @@ class DryRun:
 
     @classmethod
     def unavailable(cls) -> "DryRun":
-        return cls(None, None, None, "unavailable", None, None)
+        return cls(None, None, None, "unavailable", None)
 
 
 def find_dry_run(
@@ -126,5 +124,4 @@ def find_dry_run(
         rewetting=None if rewetting is None else pd.Timestamp(months[rewetting]),
         end_status="censored" if rewetting is None else "interval",
         level_pct=level,
-        tolerance_pp=tolerance,
     )

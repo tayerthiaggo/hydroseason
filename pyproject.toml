@@ -144,6 +144,7 @@ filterwarnings = [
 # exercised by the all-extras job instead of lowering the pandas-only gate.
 omit = [
   "hydroseason/_aoi_context.py",
+  "hydroseason/_fsutil.py",
   "hydroseason/_historical_water_mask.py",
   "hydroseason/_io_dea_stats.py",
   "hydroseason/_io_extent_cache.py",
@@ -180,3 +181,8 @@ combine-as-imports = true
 
 [tool.ruff.lint.per-file-ignores]
 "*.ipynb" = ["E402"]
+# Frozen or recorded research scripts: left byte-identical to what their handoff docs cite.
+"scripts/known_truth_de1.py" = ["E702", "F841"]
+"scripts/de2_implementation_checks.py" = ["E731"]
+"scripts/dry_run_end_exploratory.py" = ["E402"]
+"scripts/refinement_eol_anchor_probe.py" = ["E402", "F841"]

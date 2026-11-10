@@ -70,7 +70,10 @@ Zenodo mints it.
 # 1. Freeze metadata: pyproject version, the fallback in
 #    hydroseason/__init__.py, CITATION.cff `version` + `date-released`,
 #    docs/citation.md, and a dated `## [<version>] - YYYY-MM-DD` CHANGELOG
-#    heading must all agree. `check_release_metadata.py` also validates:
+#    heading must all agree. The script below does not read
+#    docs/citation.md; check it by hand. Run `uv lock` after the version
+#    bump: uv.lock records the project version, and `uv lock --check` fails
+#    until it is refreshed. `check_release_metadata.py` also validates:
 #    - structural CHANGELOG headings (no duplicate version sections),
 #    - date-released synchronization with CITATION.cff,
 #    - method policy manifest and validation receipt (release_decision="pass",

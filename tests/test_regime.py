@@ -5,11 +5,7 @@ import pandas as pd
 import pytest
 
 from hydroseason import load_extent_csv
-from hydroseason._regime import (
-    REGIME_THRESHOLDS,
-    assess_water_regime,
-    public_route,
-)
+from hydroseason._regime import assess_water_regime
 
 _CASE_STUDY_EXTENT_DIR = Path("case_studies/data/extent")
 _CASE_STUDY_KEYS = (
@@ -122,18 +118,6 @@ def _small_clean_cycle(*, years: int = 12):
 
 # --- regime classification -------------------------------------------------
 
-def test_regime_thresholds_publish_peak_concentration_contract():
-    assert REGIME_THRESHOLDS == {
-        "seasonal_min_snr": 2.0,
-        "strong_timing_concentration": 0.7,
-        "weak_timing_concentration": 0.3,
-        "aseasonal_max_snr": 0.7,
-        "circular_uniformity_alpha": 0.1,
-        "uniformity_min_timing_years": 10.0,
-        "timing_record_caution_years": 30.0,
-    }
-
-
 def test_checked_case_study_fixtures_preserve_scientific_timing_properties():
     """Changing timing qualification or concentration must not invert these fixtures' evidence."""
     regimes = _checked_case_study_regimes()
@@ -153,7 +137,7 @@ def test_checked_case_study_fixtures_preserve_scientific_timing_properties():
         assert result.n_timing_years == result.n_peak_timing_years
         assert result.n_peak_timing_years <= result.n_usable_years
         assert result.n_trough_timing_years <= result.n_usable_years
-        assert "seasonality policy hydroseason-v0.2.0" in " ".join(result.caveats)
+        assert "seasonality policy hydroseason-v0.3.0" in " ".join(result.caveats)
     assert regimes["daly_river_nt"].peak_timing_concentration_ci_low >= 0.7
     assert regimes["lachlan_river_nsw"].peak_timing_concentration_ci_low < 0.7
 
@@ -169,7 +153,6 @@ def test_checked_case_study_routes_follow_snr_and_trough_timing_evidence():
     ):
         assert regimes[key].regime == "seasonal"
         assert regimes[key].public_route == "per_year_detection"
-        assert regimes[key].supports_per_year_boundaries is True
 
     for key in (
         "lachlan_river_nsw",
@@ -177,7 +160,6 @@ def test_checked_case_study_routes_follow_snr_and_trough_timing_evidence():
     ):
         assert regimes[key].regime == "aseasonal"
         assert regimes[key].public_route == "event_characterisation"
-        assert regimes[key].supports_per_year_boundaries is False
 
 
 def test_candidate_timing_uses_informative_equivalent_month_sets(fitzroy_30m):
@@ -282,7 +264,7 @@ def test_seven_broad_peak_years_with_wide_ci_are_aseasonal():
     assert result.regime == "aseasonal"
     assert result.mean_monthly_peak_month is None
     assert result.mean_monthly_trough_month is None
-    assert "seasonality policy hydroseason-v0.2.0" in " ".join(result.caveats)
+    assert "seasonality policy hydroseason-v0.3.0" in " ".join(result.caveats)
 
 
 def test_ten_year_seasonal_record_reports_v020_policy_caveat():
@@ -292,7 +274,7 @@ def test_ten_year_seasonal_record_reports_v020_policy_caveat():
     assert result.regime == "seasonal"
     assert result.n_timing_years == 10
     caveats = " ".join(result.caveats)
-    assert "seasonality policy hydroseason-v0.2.0" in caveats
+    assert "seasonality policy hydroseason-v0.3.0" in caveats
 
 
 def test_flat_noise_only_series_is_aseasonal():
@@ -354,13 +336,11 @@ def test_regime_is_invariant_to_absolute_extent_scale():
 def test_seasonal_regime_permits_per_year_boundaries():
     cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
     result = _calibrated_assessment(_series(cycle, noise=0.02))
-    assert result.supports_per_year_boundaries is True
-    assert result.supports_fixed_window is False
+    assert result.public_route == "per_year_detection"
 
 
 def test_seasonal_record_with_unstable_trough_permits_per_year_boundaries():
     result = _calibrated_assessment(_stable_peak_unstable_trough_record())
-    assert result.supports_per_year_boundaries is True
     assert result.public_route == "per_year_detection"
 
 
@@ -371,14 +351,12 @@ def test_regime_with_seven_supported_years_permits_per_year_boundaries():
     frame = pd.DataFrame({"extent_pct": vals, "invalid_pct": 0.0}, index=dates)
     result = assess_water_regime(frame, quality_policy="flag", n_bootstrap=100)
     assert result.regime == "seasonal"
-    assert result.supports_per_year_boundaries is True
     assert result.public_route == "per_year_detection"
 
 
 def test_aseasonal_regime_permits_neither():
     result = assess_water_regime(_series(np.repeat(0.15, 12), noise=0.12, seed=3))
-    assert result.supports_fixed_window is False
-    assert result.supports_per_year_boundaries is False
+    assert result.public_route != "per_year_detection"
 
 
 def test_assessment_reports_event_descriptors():
@@ -573,7 +551,6 @@ def test_constant_nonzero_record_is_also_aseasonal():
 def test_stable_peak_with_unstable_trough_permits_per_year_detection():
     """Both seasonal and marginal records use dynamic per-year extrema detection."""
     assessment = _calibrated_assessment(_stable_peak_unstable_trough_record())
-    assert assessment.supports_per_year_boundaries is True
     assert assessment.public_route == "per_year_detection"
 
 
@@ -590,7 +567,7 @@ def test_clean_seasonal_record_is_seasonal():
 
     assessment = _calibrated_assessment(frame)
     assert assessment.regime == "seasonal"
-    assert assessment.supports_per_year_boundaries is True
+    assert assessment.public_route == "per_year_detection"
 
 
 def test_short_record_is_insufficient_under_calibrated_thresholds():
@@ -616,19 +593,6 @@ def test_zero_water_series_handles_zero_division_safely():
         value = getattr(assessment, field_name)
         if isinstance(value, float):
             assert np.isfinite(value), f"{field_name} is not finite"
-
-
-@pytest.mark.parametrize(
-    "regime, expected",
-    [
-        ("seasonal", "per_year_detection"),
-        ("marginal", "event_characterisation"),
-        ("aseasonal", "event_characterisation"),
-        ("insufficient_record", "insufficient_record"),
-    ],
-)
-def test_route_matrix(regime, expected):
-    assert public_route(regime) == expected
 
 
 def test_seasonality_policy_keyword_is_not_accepted():
@@ -674,3 +638,18 @@ def test_mean_monthly_month_fields_are_canonical():
 
     assert regime.mean_monthly_peak_month == 6
     assert regime.mean_monthly_trough_month is not None
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("supports_per_year_boundaries", True),
+        ("attempts_per_year_detection", True),
+        ("supports_fixed_window", False),
+    ],
+)
+def test_route_aliases_are_deprecated(name, expected):
+    cycle = 1.0 + 0.8 * np.cos(2 * np.pi * (np.arange(12) - 1) / 12)
+    result = _calibrated_assessment(_series(cycle, noise=0.02))
+    with pytest.warns(DeprecationWarning, match=f"{name} is deprecated.*0.4.0"):
+        assert getattr(result, name) is expected

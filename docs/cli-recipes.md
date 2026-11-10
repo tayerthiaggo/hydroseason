@@ -217,7 +217,7 @@ input and output checksums. Abridged:
   },
   "analysis": {"regime": "seasonal", "route": "per_year_detection", "n_hydro_years": 21},
   "outputs": {
-    "html": {"path": "fitzroy-river-wa.html", "sha256": "...", "size_bytes": 1757906}
+    "html": {"path": "fitzroy-river-wa.html", "sha256": "...", "size_bytes": 1761779}
   }
 }
 ```

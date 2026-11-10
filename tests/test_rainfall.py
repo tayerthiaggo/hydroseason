@@ -15,10 +15,11 @@ from hydroseason._rainfall import (
     monthly_rainfall_to_frame,
     normalise_monthly_rainfall,
 )
-from hydroseason._regime_compare import (
-    compare_extent_and_rainfall_regimes,
-    compare_rainfall_to_extent_regime,
-)
+from hydroseason._regime_compare import compare_rainfall_to_extent_regime
+
+
+def _compare(extent, rainfall):
+    return compare_rainfall_to_extent_regime(assess_water_regime(extent), rainfall)
 
 
 def _monthly(values, start="1990-01-01", col="rainfall_mm"):
@@ -107,7 +108,7 @@ def test_rainfall_frame_rejects_an_unknown_value_column():
 # --- the comparison --------------------------------------------------------
 
 def test_matching_seasonal_regimes_report_agreement():
-    result = compare_extent_and_rainfall_regimes(
+    result = _compare(
         _seasonal_extent(peak_month=2), _seasonal_rain(peak_month=1)
     )
     assert result.extent_regime == "seasonal"
@@ -118,7 +119,7 @@ def test_matching_seasonal_regimes_report_agreement():
 def test_seasonal_rainfall_with_aseasonal_extent_flags_damping():
     """The diagnostic that matters: rainfall has a cycle, water extent does
     not. Something between the two is removing the signal."""
-    result = compare_extent_and_rainfall_regimes(_flat_extent(), _seasonal_rain())
+    result = _compare(_flat_extent(), _seasonal_rain())
     assert result.extent_regime == "aseasonal"
     assert result.rainfall_regime == "seasonal"
     assert result.divergence == "extent_damped"
@@ -126,18 +127,18 @@ def test_seasonal_rainfall_with_aseasonal_extent_flags_damping():
 
 
 def test_both_aseasonal_reports_climate_consistent():
-    result = compare_extent_and_rainfall_regimes(_flat_extent(), _flat_rain())
+    result = _compare(_flat_extent(), _flat_rain())
     assert result.divergence == "agree"
     assert "rainfall" in result.interpretation.lower()
 
 
 def test_seasonal_extent_with_aseasonal_rainfall_is_flagged_as_unexpected():
-    result = compare_extent_and_rainfall_regimes(_seasonal_extent(), _flat_rain())
+    result = _compare(_seasonal_extent(), _flat_rain())
     assert result.divergence == "extent_more_seasonal"
 
 
 def test_phase_lag_is_reported_in_months():
-    result = compare_extent_and_rainfall_regimes(
+    result = _compare(
         _seasonal_extent(peak_month=4), _seasonal_rain(peak_month=1)
     )
     assert result.peak_lag_months is not None
@@ -147,7 +148,7 @@ def test_phase_lag_is_reported_in_months():
 def test_phase_lag_wraps_across_the_year_boundary():
     """A December rainfall peak and a January extent peak are one month apart,
     not eleven."""
-    result = compare_extent_and_rainfall_regimes(
+    result = _compare(
         _seasonal_extent(peak_month=1), _seasonal_rain(peak_month=12)
     )
     assert result.peak_lag_months == 1
@@ -160,13 +161,13 @@ def test_comparison_never_alters_the_extent_verdict():
 
     extent = _flat_extent()
     standalone = assess_water_regime(extent)
-    compared = compare_extent_and_rainfall_regimes(extent, _seasonal_rain())
+    compared = _compare(extent, _seasonal_rain())
     assert compared.extent_regime == standalone.regime
     assert compared.extent.amplitude_snr == standalone.amplitude_snr
 
 
 def test_missing_rainfall_yields_an_extent_only_result():
-    result = compare_extent_and_rainfall_regimes(_seasonal_extent(), None)
+    result = _compare(_seasonal_extent(), None)
     assert result.rainfall_regime is None
     assert result.divergence == "no_rainfall"
     assert result.extent_regime == "seasonal"
@@ -228,16 +229,3 @@ def test_comparison_reuses_authoritative_extent_assessment():
     assert result.extent is authoritative
     assert result.rainfall_regime == "seasonal"
     assert result.peak_lag_months == 1
-
-
-def test_existing_comparison_wrapper_remains_compatible():
-    extent = _seasonal_extent(peak_month=2)
-    rainfall = _seasonal_rain(peak_month=1)
-    wrapped = compare_extent_and_rainfall_regimes(extent, rainfall)
-    direct = compare_rainfall_to_extent_regime(
-        assess_water_regime(extent), rainfall
-    )
-
-    assert wrapped.divergence == direct.divergence
-    assert wrapped.peak_lag_months == direct.peak_lag_months
-    assert wrapped.interpretation == direct.interpretation

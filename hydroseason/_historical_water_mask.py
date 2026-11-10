@@ -18,13 +18,19 @@ bodies, per the package rule.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
-import tempfile
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
+
+from hydroseason._fsutil import (
+    _long_path,
+    _read_json,
+    _rename_dir,
+    _sha256_digest,
+    _write_json_atomic,
+    _zarr_store,
+)
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -425,103 +431,6 @@ _MANIFEST_FILENAME = "manifest.json"
 # code.
 HISTORICAL_MASK_CACHE_SCHEMA_VERSION = 1
 
-_WINDOWS_EXTENDED_PATH_PREFIX = "\\\\?\\"
-
-
-def _long_path(path) -> str:
-    """A Windows path string safe from the legacy 260-character ``MAX_PATH`` limit.
-
-    Matches hydroseason._io_wofs_zarr._long_path exactly (duplicated here
-    rather than imported, for the same one-way-dependency reason as
-    :func:`_canonical_json_bytes`): ``cache_root / "historical-water-masks"
-    / "artifacts" / <64-char sha256 digest> / "mask.zarr" / ...`` can exceed
-    ``MAX_PATH`` once a caller's own ``cache_root`` is itself nested a few
-    directories deep (this is common in tests, whose ``tmp_path`` fixtures
-    add their own long, nested prefix), and most Windows installs do not
-    have the opt-in ``LongPathsEnabled`` registry value set. A no-op on
-    non-Windows platforms and on already-prefixed paths.
-    """
-    absolute = os.path.abspath(str(path))
-    if os.name != "nt" or absolute.startswith(_WINDOWS_EXTENDED_PATH_PREFIX):
-        return absolute
-    return _WINDOWS_EXTENDED_PATH_PREFIX + absolute
-
-
-class _LongPathDirectoryStore:
-    """A Zarr v2 ``DirectoryStore`` usable past Windows' ``MAX_PATH`` limit.
-
-    Matches hydroseason._io_wofs_zarr._LongPathDirectoryStore exactly:
-    delegates to ``zarr.storage.DirectoryStore`` rooted at a
-    :func:`_long_path`-prefixed path, and normalises every storage key
-    (Zarr uses ``/``-separated keys) to the native separator before
-    delegating, since the ``\\\\?\\``-prefixed extended-length form is
-    passed to Win32 verbatim and rejects any forward slash.
-    """
-
-    def __init__(self, path):
-        import zarr
-
-        self._store = zarr.storage.DirectoryStore(_long_path(path))
-
-    @staticmethod
-    def _native_key(key):
-        return key.replace("/", os.sep) if key else key
-
-    def __getattr__(self, name):
-        return getattr(self._store, name)
-
-    def __getitem__(self, key):
-        return self._store[self._native_key(key)]
-
-    def __setitem__(self, key, value):
-        self._store[self._native_key(key)] = value
-
-    def __delitem__(self, key):
-        del self._store[self._native_key(key)]
-
-    def __contains__(self, key):
-        return self._native_key(key) in self._store
-
-    def __iter__(self):
-        return iter(self._store)
-
-    def __len__(self):
-        return len(self._store)
-
-    def listdir(self, path=None):
-        return self._store.listdir(self._native_key(path) if path else path)
-
-    def rmdir(self, path=None):
-        return self._store.rmdir(self._native_key(path) if path else path)
-
-
-def _zarr_store(path):
-    """A Zarr store for ``path`` that works past Windows' ``MAX_PATH`` limit.
-
-    Every call site in this module that opens or writes the ``mask.zarr``
-    directory should route through this rather than passing a bare
-    path/string to ``zarr`` directly. A no-op wrapper on non-Windows
-    platforms.
-    """
-    return _LongPathDirectoryStore(path)
-
-
-def _canonical_json_bytes(payload: dict) -> bytes:
-    """Order- and whitespace-independent JSON encoding used for all digests.
-
-    Matches hydroseason._io_wofs_zarr._canonical_json_bytes exactly (same
-    sorted-key, separator-free convention), duplicated here rather than
-    imported to preserve this module's one-way dependency direction (it must
-    not depend on the WOfS Zarr cache module).
-    """
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
-        "utf-8"
-    )
-
-
-def _sha256_digest(payload: dict) -> str:
-    return hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
-
 
 @dataclass(frozen=True)
 class HistoricalWaterMaskRequest:
@@ -596,53 +505,6 @@ def _artifact_dir(cache_root, artifact_digest: str) -> Path:
 
 def _index_path(cache_root, request_digest: str) -> Path:
     return _historical_cache_root(cache_root) / _INDEX_DIRNAME / f"{request_digest}.json"
-
-
-def _write_json_atomic(path: Path, payload: dict) -> None:
-    """Write ``payload`` as canonical JSON to ``path`` without ever partial-writing.
-
-    Same pattern as hydroseason._io_wofs_zarr._write_json_atomic: a
-    ``tempfile.mkstemp`` sibling in the same directory (so the final
-    ``os.replace`` is an atomic same-filesystem rename), written then
-    replaced in one step -- a crash or concurrent read at any point before
-    that final step observes either the old file or nothing new, never a
-    truncated one.
-    """
-    parent = Path(_long_path(path.parent))
-    parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temp_name = tempfile.mkstemp(
-        dir=str(parent), prefix=f".{path.name}-", suffix=".tmp"
-    )
-    temp_path = Path(temp_name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(_canonical_json_bytes(payload))
-        os.replace(str(temp_path), _long_path(path))
-    finally:
-        temp_path.unlink(missing_ok=True)
-
-
-def _read_json(path: Path) -> dict | None:
-    try:
-        return json.loads(Path(_long_path(path)).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-
-
-def _rename_dir(source: Path | str, target: Path | str) -> None:
-    source_str = str(source)
-    target_str = str(target)
-    for attempt in range(5):
-        try:
-            os.rename(source_str, target_str)
-            return
-        except PermissionError:
-            if attempt == 4:
-                raise
-            time.sleep(0.05 * (attempt + 1))
-            import gc
-
-            gc.collect()
 
 
 def _mask_manifest_payload(mask: HistoricalWaterMask) -> dict:
@@ -945,7 +807,7 @@ def _maybe_refresh_cached_mask(
        :func:`hydroseason._io_dea_stats.probe_wo_statistics_coverage`).
     3. Probe unavailable (returns ``None``), or still no wider than
        ``cached.coverage_end`` -> keep ``cached`` unchanged; the caller's
-       existing Task 5 ``HistoricalMaskCoverageWarning`` truncation notice
+       existing ``HistoricalMaskCoverageWarning`` truncation notice
        fires as usual for the still-uncovered window.
     4. Probe reports coverage wider than ``cached.coverage_end`` -> rebuild
        via :func:`build_historical_water_mask` +

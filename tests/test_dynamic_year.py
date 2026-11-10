@@ -1,4 +1,3 @@
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -55,11 +54,9 @@ def test_unstable_pattern_requires_explicit_trough():
         suggest_dynamic_hydro_year_config(extent, pattern=pattern)
 
 
-def test_dynamic_config_rejects_invalid_recovery_geometry():
+def test_dynamic_config_rejects_invalid_trough_month():
     with pytest.raises(ValueError):
         DynamicHydroYearConfig(expected_trough_month=13)
-    with pytest.raises(ValueError):
-        DynamicHydroYearConfig(expected_trough_month=9, pulse_rejection_window_months=0)
 
 
 def _candidate_frame(start="2018-01-01", periods=60):
@@ -323,7 +320,7 @@ def test_insufficient_candidate_coverage_is_an_explicit_row():
 
 def test_dynamic_cycle_reports_observed_peak_two_mid_dry_metrics_and_trough():
     raw = _candidate_frame(start="2017-01-01", periods=72)
-    config = DynamicHydroYearConfig(expected_trough_month=8, dry_plateau_rule="middle")
+    config = DynamicHydroYearConfig(expected_trough_month=8)
     result = detect_dynamic_hydrological_years(raw, config=config)
     complete = result.loc[result["status"] == "complete"].iloc[0]
     assert complete["peak_extent_pct"] == raw.loc[complete["peak_month"], "extent_pct"]
@@ -397,7 +394,7 @@ def test_adaptive_edge_retry_finds_earlier_observed_trough():
 def test_unresolved_nominal_year_breaks_cycles_instead_of_merging():
     raw = _candidate_frame(start="2017-01-01", periods=84)
     raw.loc["2020-06-01":"2020-12-01", "invalid_pct"] = 100.0
-    config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle")
+    config = DynamicHydroYearConfig(expected_trough_month=9)
     result = detect_dynamic_hydrological_years(raw, config=config)
     assert result.loc[result["hy_year"] == 2020, "status"].item() == "unresolved"
     assert result.loc[result["hy_year"] == 2021, "status_reason"].item() == "no_previous_boundary"
@@ -479,7 +476,7 @@ def test_mid_record_reset_after_gap_still_reports_no_previous_boundary():
     """
     raw = _candidate_frame(start="2017-01-01", periods=84)
     raw.loc["2020-06-01":"2020-12-01", "invalid_pct"] = 100.0
-    config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle")
+    config = DynamicHydroYearConfig(expected_trough_month=9)
 
     result = detect_dynamic_hydrological_years(raw, config=config)
 
@@ -491,52 +488,27 @@ def test_mid_record_reset_after_gap_still_reports_no_previous_boundary():
 def test_temporary_rewetting_after_half_loss_is_counted():
     raw = _candidate_frame(start="2017-01-01", periods=72)
     raw.loc["2020-06-01":"2020-09-01", "extent_pct"] = [8.0, 14.0, 7.0, 4.0]
-    result = detect_dynamic_hydrological_years(raw, config=DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle"))
+    result = detect_dynamic_hydrological_years(raw, config=DynamicHydroYearConfig(expected_trough_month=9))
     assert result.loc[result["hy_year"] == 2020, "n_rewetting_pulses"].item() >= 1
 
 
 def test_zero_peak_has_explicit_nan_persistence_ratio():
     raw = _candidate_frame(start="2017-01-01", periods=72)
     raw["extent_pct"] = 0.0
-    result = detect_dynamic_hydrological_years(raw, config=DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle"))
+    result = detect_dynamic_hydrological_years(raw, config=DynamicHydroYearConfig(expected_trough_month=9))
     assert result.loc[result["status"] == "complete", "persistence_ratio"].isna().all()
 
 
 def test_unknown_quality_never_receives_high_confidence():
     raw = _candidate_frame(start="2017-01-01", periods=72).drop(columns="invalid_pct")
-    config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle", allow_unknown_quality=True)
+    config = DynamicHydroYearConfig(expected_trough_month=9, allow_unknown_quality=True)
     result = detect_dynamic_hydrological_years(raw, config=config)
     assert "high" not in set(result["confidence"])
 
 
-def test_old_recovery_fields_warn_for_one_release():
-    with pytest.warns(DeprecationWarning, match="recovery-window"):
-        DynamicHydroYearConfig(expected_trough_month=9, sustained_rise_months=2)
-
-
-def test_old_recovery_field_pulse_rejection_window_also_warns():
-    with pytest.warns(DeprecationWarning, match="recovery-window"):
-        DynamicHydroYearConfig(expected_trough_month=9, pulse_rejection_window_months=4)
-
-
-def test_old_dry_plateau_rule_literal_warns():
-    with pytest.warns(DeprecationWarning, match="raw_minimum"):
-        DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="last_before_confirmed_recovery")
-
-
-def test_new_default_dry_plateau_rule_is_raw_minimum_and_does_not_warn():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
-        config = DynamicHydroYearConfig(expected_trough_month=9)
-    assert config.dry_plateau_rule == "raw_minimum"
-
-
-def test_new_config_without_recovery_overrides_does_not_warn():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
-        config = DynamicHydroYearConfig(expected_trough_month=9)
-    assert config.sustained_rise_months is None
-    assert config.pulse_rejection_window_months is None
+def test_removed_dry_plateau_rule_is_rejected():
+    with pytest.raises(TypeError, match="dry_plateau_rule"):
+        DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="raw_minimum")
 
 
 def test_detector_field_defaults_to_robust_extrema():
@@ -558,11 +530,6 @@ def test_phase_model_does_not_change_annual_hydrological_years():
         raw, config=DynamicHydroYearConfig(expected_trough_month=9, phase_model="rule_based")
     )
     pd.testing.assert_frame_equal(with_rule_based_axis, without_phases)
-
-
-def test_explicit_zero_pulse_rejection_window_still_rejected():
-    with pytest.raises(ValueError):
-        DynamicHydroYearConfig(expected_trough_month=9, pulse_rejection_window_months=0)
 
 
 def test_raw_peak_reports_maximum_in_first_month_after_previous_trough():
@@ -645,7 +612,7 @@ def test_additive_diagnostic_columns_are_present_and_populated():
 def test_peak_diagnostic_columns_are_nan_for_unresolved_cycles():
     raw = _candidate_frame(start="2017-01-01", periods=84)
     raw.loc["2020-06-01":"2020-12-01", "invalid_pct"] = 100.0
-    config = DynamicHydroYearConfig(expected_trough_month=9, dry_plateau_rule="middle")
+    config = DynamicHydroYearConfig(expected_trough_month=9)
     result = detect_dynamic_hydrological_years(raw, config=config)
     # The unresolved boundary must not be widened across a fully invalid gap;
     # neither affected row reaches peak selection.
@@ -659,7 +626,7 @@ def test_peak_diagnostic_columns_are_nan_for_unresolved_cycles():
 
 def test_record_start_boundary_cycle_is_never_high_confidence():
     """A cycle opened at the record's edge is an assumption, not a
-    detection, and must never be scored "high". Task 1 forces
+    detection, and must never be scored "high". Detection forces
     boundary_status="provisional" for these, which caps _confidence's
     score at 0.75 -- below the 0.80 "high" threshold.
     """

@@ -48,7 +48,6 @@ import json
 import math
 import os
 import shutil
-import tempfile
 import time
 import uuid
 from contextlib import contextmanager
@@ -57,6 +56,16 @@ from typing import Any, Iterator
 
 import numpy as np
 import pandas as pd
+
+from hydroseason._fsutil import (
+    _canonical_json_bytes,
+    _long_path,
+    _read_json,
+    _rename_dir,
+    _sha256_digest,
+    _write_json_atomic,
+    _zarr_store,
+)
 
 # Bumped whenever the on-disk index/manifest layout changes in a way that
 # makes an old cache unreadable by new code (or vice versa).
@@ -84,9 +93,6 @@ WOFS_PLANNER_VERSION = 1
 # continental 40-year acquisition pushes through it, and because hashing holds
 # the GIL, that directly unblocks the year_workers threads in
 # _io_wofs_acquire.acquire_wofs_cache.
-CONTENT_DIGEST_ALGORITHM = "blake2b"
-
-
 def _content_hasher():
     """A fresh content-digest hash object. Never share one across years."""
     return hashlib.blake2b()
@@ -97,7 +103,7 @@ def _content_hasher():
 CANONICAL_VALUES = (-2, -1, 0, 1)
 
 # Fixed chunk shape (time, y, x) for the annual Zarr mask arrays written by
-# the Task 3 store writer. Defined here because it is part of the cache's
+# the store writer. Defined here because it is part of the cache's
 # on-disk identity/contract, not a per-call tuning knob.
 MASK_CHUNKS = (1, 512, 512)
 
@@ -115,17 +121,6 @@ _YEARS_DIRNAME = "years"
 # passes -- its presence (post-rename) is what distinguishes a genuinely
 # completed annual group from a directory that merely exists.
 _COMPLETE_FILENAME = "complete.json"
-
-
-def _canonical_json_bytes(payload: dict) -> bytes:
-    """Order- and whitespace-independent JSON encoding used for all digests."""
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
-        "utf-8"
-    )
-
-
-def _sha256_digest(payload: dict) -> str:
-    return hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -179,21 +174,22 @@ class WOfSCacheRequest:
     footprint_factor: int | None = None
     footprint_safety_cells: int | None = None
     footprint_covered_years: tuple[int, ...] | None = None
-    # "single_mask" (the default; "legacy" is an accepted alias for caches
-    # written before this rename) preserves every existing hydroseason
+    # "single_mask" (the default; "legacy" is its pre-rename name, no longer
+    # accepted as input but still normalised here so caches written under it
+    # keep their request_digest) preserves every existing hydroseason
     # result and cache identity byte-for-byte, so it is omitted from the
     # digest payload like other absent/default provenance fields.
-    # "dual_composite_v1" is new behaviour (task W2.2's dual-composite
-    # extent counts, not implemented by this field alone) that must never
+    # "dual_composite_v1" (dual-composite extent counts, not implemented by
+    # this field alone) must never
     # share a store with a "single_mask"/"legacy" run of otherwise-identical
     # parameters, so that value remains a digest input.
     composite_bundle: str = "single_mask"
-    # The exact historical maximum-water mask's identity/provenance (Task 4),
+    # The exact historical maximum-water mask's identity/provenance,
     # threaded independently of wet_mask_sha256/footprint_* -- a scientific
     # analysis mask and a planning-only footprint are two different
     # provenance stories that must never be conflated into one digest input.
     # All eight fields are None together when no historical mask is supplied
-    # (the pre-Task-4 shape) and set together when one is (see
+    # and set together when one is (see
     # hydroseason._io_wofs_acquire.acquire_wofs_cache); omitted from the
     # digest payload entirely when None, exactly like wet_mask_sha256/
     # footprint_*, so every cache written before historical-mask support
@@ -346,54 +342,6 @@ def _lock_path(cache_root: Path, request_digest: str) -> Path:
 
 def _store_dir(cache_root: Path, identity_digest: str) -> Path:
     return Path(cache_root) / f"{identity_digest}.zarr"
-
-
-def _write_json_atomic(path: Path, payload: dict) -> None:
-    """Write ``payload`` as canonical JSON to ``path`` without ever partial-writing.
-
-    Uses ``tempfile.mkstemp`` in the same directory as ``path`` (so the
-    final ``os.replace`` is an atomic rename on the same filesystem), then
-    replaces the target in one step. A crash or concurrent read at any point
-    before the final ``os.replace`` observes either the old file or nothing
-    new -- never a truncated/partial one. Routes through :func:`_long_path`
-    so this also works when ``path`` is nested deep enough to exceed
-    Windows' legacy ``MAX_PATH`` (e.g. an annual group's ``complete.json``).
-    """
-    parent = Path(_long_path(path.parent))
-    parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temp_name = tempfile.mkstemp(
-        dir=str(parent), prefix=f".{path.name}-", suffix=".tmp"
-    )
-    temp_path = Path(temp_name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(_canonical_json_bytes(payload))
-        os.replace(str(temp_path), _long_path(path))
-    finally:
-        temp_path.unlink(missing_ok=True)
-
-
-def _read_json(path: Path) -> dict | None:
-    try:
-        return json.loads(Path(_long_path(path)).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-
-
-def _rename_dir(source: Path | str, target: Path | str) -> None:
-    source_str = str(source)
-    target_str = str(target)
-    for attempt in range(5):
-        try:
-            os.rename(source_str, target_str)
-            return
-        except PermissionError:
-            if attempt == 4:
-                raise
-            time.sleep(0.05 * (attempt + 1))
-            import gc
-
-            gc.collect()
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -574,8 +522,8 @@ def resolve_cached_request(
     network regardless of ``offline`` -- the flag is accepted (and required
     ``True`` by every current caller in this module) so that call sites
     stay self-documenting about which lookups are network-free; a future
-    ``offline=False`` mode that also checks a remote catalog is out of
-    scope for this task.
+    ``offline=False`` mode that also checks a remote catalog is not
+    implemented.
 
     Returns ``None`` on any miss: no index entry, an entry that fails
     validation, or a store manifest that cannot be read.
@@ -709,92 +657,6 @@ def _year_dir(store_path: Path, year: int) -> Path:
     return _years_dir(store_path) / str(int(year))
 
 
-_WINDOWS_EXTENDED_PATH_PREFIX = "\\\\?\\"
-
-
-def _long_path(path: Path) -> str:
-    """A Windows path string safe from the legacy 260-character ``MAX_PATH`` limit.
-
-    ``cache_root / "stores" / <64-char sha256 digest> / "years" / ...`` can
-    exceed ``MAX_PATH`` on Windows once a caller's own ``cache_root`` is
-    itself nested a few directories deep (this is common in tests, whose
-    ``tmp_path`` fixtures add their own long, nested prefix) -- and most
-    Windows installs do not have the opt-in ``LongPathsEnabled`` registry
-    value set, so plain long paths simply fail with ``FileNotFoundError``.
-    Prefixing an *absolute* path with ``\\\\?\\`` asks Win32 to bypass
-    ``MAX_PATH`` for that call, without requiring any system-level opt-in.
-    A no-op on non-Windows platforms and on already-prefixed paths.
-    """
-    absolute = os.path.abspath(str(path))
-    if os.name != "nt" or absolute.startswith(_WINDOWS_EXTENDED_PATH_PREFIX):
-        return absolute
-    return _WINDOWS_EXTENDED_PATH_PREFIX + absolute
-
-
-class _LongPathDirectoryStore:
-    """A Zarr v2 ``DirectoryStore`` usable past Windows' ``MAX_PATH`` limit.
-
-    Delegates to ``zarr.storage.DirectoryStore`` rooted at a
-    :func:`_long_path`-prefixed path, and normalises every storage key
-    (Zarr uses ``/``-separated keys like ``"water_mask/.zarray"`` for
-    nested arrays) to the native separator before delegating. This second
-    part matters specifically because of the first: an ordinary (non
-    ``\\\\?\\``-prefixed) Windows path lets the OS silently accept a mixed
-    ``\\``/``/`` path, but the ``\\\\?\\`` extended-length form is passed to
-    Win32 verbatim and rejects any forward slash with ``WinError 123``.
-    """
-
-    def __init__(self, path):
-        import zarr
-
-        self._store = zarr.storage.DirectoryStore(_long_path(Path(path)))
-
-    @staticmethod
-    def _native_key(key):
-        return key.replace("/", os.sep) if key else key
-
-    def __getattr__(self, name):
-        return getattr(self._store, name)
-
-    def __getitem__(self, key):
-        return self._store[self._native_key(key)]
-
-    def __setitem__(self, key, value):
-        self._store[self._native_key(key)] = value
-
-    def __delitem__(self, key):
-        del self._store[self._native_key(key)]
-
-    def __contains__(self, key):
-        return self._native_key(key) in self._store
-
-    def __iter__(self):
-        return iter(self._store)
-
-    def __len__(self):
-        return len(self._store)
-
-    def listdir(self, path=None):
-        return self._store.listdir(self._native_key(path) if path else path)
-
-    def rmdir(self, path=None):
-        return self._store.rmdir(self._native_key(path) if path else path)
-
-
-def _zarr_store(path: Path):
-    """A Zarr store for ``path`` that works past Windows' ``MAX_PATH`` limit.
-
-    Every call site in this module that opens or writes a Zarr *directory*
-    (as opposed to JSON sidecar files, which go through
-    :func:`_write_json_atomic`/plain ``Path`` I/O) should route through this
-    rather than passing a bare path/string to ``zarr``/``xarray`` directly,
-    so long cache-root paths keep working uniformly. A no-op wrapper on
-    non-Windows platforms (:class:`_LongPathDirectoryStore` degrades to a
-    plain, unprefixed ``DirectoryStore`` there).
-    """
-    return _LongPathDirectoryStore(path)
-
-
 def _storage_chunk_starts(start: int, stop: int, chunk: int = _STORAGE_CHUNK) -> list[int]:
     """Storage-grid chunk starts (multiples of ``chunk``) covering ``[start, stop)``."""
     first = (start // chunk) * chunk
@@ -833,9 +695,8 @@ def _check_historical_mask_count_invariants(
     ``n_aoi == historical_mask_pixel_count`` ONLY when the store's own
     request pins a historical mask (``historical_mask_pixel_count is not
     None`` in the manifest's recorded request) -- a request with no
-    historical mask (the pre-Task-4, still-supported shape) has no pinned
-    scientific denominator to compare against, so that third check is
-    skipped entirely for it, exactly as it always behaved before this task.
+    historical mask has no pinned scientific denominator to compare
+    against, so that third check is skipped entirely for it.
 
     Raises ``ValueError`` naming the year and the first violated invariant
     on any mismatch -- a store whose actually-written pixels disagree with
@@ -952,7 +813,7 @@ def write_annual_group(
     :data:`WOFS_CACHE_SCHEMA_VERSION`/:func:`_sha256_digest`, same
     conventions as ``extent_counts.json``). ``dual_counts=None`` (the
     default, and the ONLY value ever passed for
-    ``composite_bundle="single_mask"``/``"legacy"``) performs zero extra computation and
+    ``composite_bundle="single_mask"``) performs zero extra computation and
     writes no such file -- this function's every other output stays
     byte-for-byte identical to before ``dual_counts`` existed.
     """
@@ -1191,7 +1052,7 @@ def write_annual_group(
         _write_json_atomic(temp_path / "extent_counts.json", extent_counts_payload)
 
         if dual_year_counts is not None:
-            # Fixed, per-store reference-area denominators (task W2.3):
+            # Fixed, per-store reference-area denominators:
             # full-AOI pixel count is the entire requested catchment,
             # constant regardless of pruning; analysis-mask pixel count is
             # the (possibly pruned) footprint that actually gated reads for
@@ -1315,7 +1176,7 @@ def write_empty_annual_group(
     keeping the artifact's presence consistent whether or not a given year
     actually had source items. ``dual_extent_counts=False`` (the default,
     and the only value ever passed for
-    ``composite_bundle="single_mask"``/``"legacy"``) writes no such file.
+    ``composite_bundle="single_mask"``) writes no such file.
     """
     import shutil as _shutil
 
@@ -1577,12 +1438,12 @@ class CacheFootprints:
     exact pixel counts of each geometry rasterized onto that grid.
     ``aoi_digest``/``analysis_digest`` are SHA-256 digests over
     ``(crs, wkb)``, independent of anything else in the manifest, so a
-    consumer (e.g. HydroFragments) can re-rasterize from the persisted WKB
+    downstream consumer can re-rasterize from the persisted WKB
     and cross-check both the digest and the pixel count without trusting
     either alone.
 
-    ``aoi_pixel_count`` is the fixed reference-area denominator (APSEC/LPI
-    per the plan's global constraints) and must be identical between a
+    ``aoi_pixel_count`` is the fixed reference-area denominator (for
+    APSEC/LPI) and must be identical between a
     pruned and an unpruned cache covering the same catchment.
     ``analysis_pixel_count`` is the conservative potential-water footprint
     denominator (monthly coverage) and MAY legitimately differ between them.
@@ -1703,8 +1564,8 @@ def record_cache_footprints(
     """Persist full-AOI and analysis-footprint geometry/counts/digests atomically.
 
     ``full_aoi_gdf`` is the caller's full requested catchment (the fixed
-    reference area APSEC/LPI denominators use per the plan's global
-    constraints). ``analysis_footprint_gdf`` is the (possibly pruned, or --
+    reference area that APSEC/LPI denominators use).
+    ``analysis_footprint_gdf`` is the (possibly pruned, or --
     when no pruning was applied -- identical to ``full_aoi_gdf``) footprint
     actually used to gate which storage windows were read/written; it feeds
     the conservative potential-water ``analysis_mask`` denominator.
@@ -1765,7 +1626,7 @@ def read_cache_footprints(handle: WOfSCacheHandle) -> CacheFootprints:
 
     Raises ``FileNotFoundError`` if the store has no manifest, or ``ValueError``
     if the manifest exists but carries no ``footprints`` block (e.g. a cache
-    written before this task existed) or the block is malformed.
+    written before footprints were recorded) or the block is malformed.
     """
     manifest_path = Path(handle.path) / _MANIFEST_FILENAME
     manifest = _read_json(manifest_path)
@@ -1775,8 +1636,8 @@ def read_cache_footprints(handle: WOfSCacheHandle) -> CacheFootprints:
     if payload is None:
         raise ValueError(
             f"manifest at {manifest_path} has no '{_FOOTPRINTS_KEY}' metadata "
-            "(cache was written before task W2.3, or record_cache_footprints "
-            "was never called for it)"
+            "(cache was written before footprints were recorded, or "
+            "record_cache_footprints was never called for it)"
         )
     try:
         return CacheFootprints.from_dict(payload)
@@ -1938,8 +1799,8 @@ def record_cache_analysis_mask(handle: WOfSCacheHandle, historical_mask) -> Cach
     ``historical_mask`` is a
     :class:`hydroseason._historical_water_mask.HistoricalWaterMask`. Writes
     ``analysis-mask/mask.zarr`` (a plain 2D boolean Zarr array, via
-    :func:`hydroseason._historical_water_mask._zarr_store`, same long-path-safe
-    convention as that module's own ``mask.zarr``) and
+    :func:`hydroseason._fsutil._zarr_store`, the same long-path-safe store
+    the historical-water-mask cache uses) and
     ``analysis-mask/manifest.json`` to a sibling temporary directory first,
     verifies the freshly-written artifact against the in-memory mask (so a
     write-time bug can never publish a corrupt sidecar), then renames it into
@@ -1956,38 +1817,32 @@ def record_cache_analysis_mask(handle: WOfSCacheHandle, historical_mask) -> Cach
     import numpy as _np
     import zarr
 
-    from hydroseason._historical_water_mask import (
-        _long_path as _hwm_long_path,
-        _write_json_atomic as _hwm_write_json_atomic,
-        _zarr_store as _hwm_zarr_store,
-    )
-
     store_path = Path(handle.path)
     final_dir = _analysis_mask_dir(store_path)
     temp_dir = _analysis_mask_dir(store_path).parent / (
         f".{_ANALYSIS_MASK_DIRNAME}.incomplete-{uuid.uuid4().hex}"
     )
-    if Path(_hwm_long_path(temp_dir)).exists():
-        _shutil.rmtree(_hwm_long_path(temp_dir))
-    Path(_hwm_long_path(temp_dir)).mkdir(parents=True)
+    if Path(_long_path(temp_dir)).exists():
+        _shutil.rmtree(_long_path(temp_dir))
+    Path(_long_path(temp_dir)).mkdir(parents=True)
     try:
         mask_values = _np.ascontiguousarray(_np.asarray(historical_mask.mask, dtype=bool))
         zarr_path = temp_dir / _ANALYSIS_MASK_ZARR_DIRNAME
         array = zarr.open_array(
-            _hwm_zarr_store(zarr_path), mode="w", shape=mask_values.shape, chunks=True, dtype=bool,
+            _zarr_store(zarr_path), mode="w", shape=mask_values.shape, chunks=True, dtype=bool,
         )
         array[:] = mask_values
 
         manifest = _analysis_mask_manifest_payload(historical_mask)
-        _hwm_write_json_atomic(temp_dir / _ANALYSIS_MASK_MANIFEST_FILENAME, manifest)
+        _write_json_atomic(temp_dir / _ANALYSIS_MASK_MANIFEST_FILENAME, manifest)
 
         _verify_analysis_mask_dir(temp_dir, expected_manifest=manifest, mask_values=mask_values)
 
-        if Path(_hwm_long_path(final_dir)).exists():
-            _shutil.rmtree(_hwm_long_path(final_dir))
-        _rename_dir(_hwm_long_path(temp_dir), _hwm_long_path(final_dir))
+        if Path(_long_path(final_dir)).exists():
+            _shutil.rmtree(_long_path(final_dir))
+        _rename_dir(_long_path(temp_dir), _long_path(final_dir))
     except BaseException:
-        _shutil.rmtree(_hwm_long_path(temp_dir), ignore_errors=True)
+        _shutil.rmtree(_long_path(temp_dir), ignore_errors=True)
         raise
 
     return CacheAnalysisMask(
@@ -2021,10 +1876,7 @@ def _verify_analysis_mask_dir(artifact_dir: Path, *, expected_manifest: dict, ma
     import numpy as _np
     import zarr
 
-    from hydroseason._historical_water_mask import (
-        _mask_digest as _hwm_mask_digest,
-        _zarr_store as _hwm_zarr_store,
-    )
+    from hydroseason._historical_water_mask import _mask_digest as _hwm_mask_digest
 
     expected_content_digest = expected_manifest.get("content_digest")
     if expected_content_digest is not None:
@@ -2039,7 +1891,7 @@ def _verify_analysis_mask_dir(artifact_dir: Path, *, expected_manifest: dict, ma
 
     zarr_path = artifact_dir / _ANALYSIS_MASK_ZARR_DIRNAME
     try:
-        array = zarr.open_array(_hwm_zarr_store(zarr_path), mode="r")
+        array = zarr.open_array(_zarr_store(zarr_path), mode="r")
         on_disk = _np.asarray(array[:], dtype=bool)
     except Exception as exc:
         raise ValueError(
@@ -2097,8 +1949,6 @@ def read_cache_analysis_mask(handle: WOfSCacheHandle) -> "CacheAnalysisMask | No
     own miss-is-not-an-error convention. Callers that need tamper-evidence
     should use :func:`verify_cache_analysis_mask` instead (or in addition).
     """
-    from hydroseason._historical_water_mask import _long_path as _hwm_long_path
-
     manifest_path = _analysis_mask_dir(Path(handle.path)) / _ANALYSIS_MASK_MANIFEST_FILENAME
     manifest = _read_json(manifest_path)
     if manifest is None:
@@ -2112,16 +1962,14 @@ def read_cache_analysis_mask(handle: WOfSCacheHandle) -> "CacheAnalysisMask | No
         return None
 
     zarr_path = _analysis_mask_dir(Path(handle.path)) / _ANALYSIS_MASK_ZARR_DIRNAME
-    if not Path(_hwm_long_path(zarr_path)).exists():
+    if not Path(_long_path(zarr_path)).exists():
         return None
 
     try:
         import numpy as _np
         import zarr
 
-        from hydroseason._historical_water_mask import _zarr_store as _hwm_zarr_store
-
-        array = zarr.open_array(_hwm_zarr_store(zarr_path), mode="r")
+        array = zarr.open_array(_zarr_store(zarr_path), mode="r")
         mask_values = _np.asarray(array[:], dtype=bool)
     except Exception:
         return None
@@ -2179,9 +2027,7 @@ def verify_cache_analysis_mask(handle: WOfSCacheHandle) -> CacheAnalysisMask:
     import numpy as _np
     import zarr
 
-    from hydroseason._historical_water_mask import _zarr_store as _hwm_zarr_store
-
-    array = zarr.open_array(_hwm_zarr_store(artifact_dir / _ANALYSIS_MASK_ZARR_DIRNAME), mode="r")
+    array = zarr.open_array(_zarr_store(artifact_dir / _ANALYSIS_MASK_ZARR_DIRNAME), mode="r")
     mask_values = _np.asarray(array[:], dtype=bool)
 
     return CacheAnalysisMask(
@@ -2711,10 +2557,10 @@ def open_completed_extent_counts(
         ):
             return None
     else:
-        # No historical (scientific) mask on this request -- fall back to
-        # the pre-Task-4 behaviour unchanged: a wet_aoi/planning-only
-        # footprint still lacks a valid scientific denominator and must be
-        # refused, regardless of how tightly it was pruned.
+        # No historical (scientific) mask on this request: a
+        # wet_aoi/planning-only footprint lacks a valid scientific
+        # denominator and must be refused, regardless of how tightly it was
+        # pruned.
         request_uses_pruning = cache_request_uses_pruning(handle)
         if request_uses_pruning:
             try:
@@ -2808,8 +2654,8 @@ def open_completed_dual_extent_counts(
     start_date: str,
     end_date: str,
 ) -> pd.DataFrame | None:
-    """Read back the ``years/<year>/dual_extent_counts.json`` sidecars task
-    W2.2's ``composite_bundle="dual_composite_v1"`` acquisition writes.
+    """Read back the ``years/<year>/dual_extent_counts.json`` sidecars that a
+    ``composite_bundle="dual_composite_v1"`` acquisition writes.
 
     Public reader counterpart to :func:`open_completed_extent_counts`, but
     for the SECOND (any-day-wet ``max_water``) composite's per-month pixel
@@ -2818,7 +2664,7 @@ def open_completed_dual_extent_counts(
     per-month content count with those fixed geometry denominators.
 
     Unlike :func:`open_completed_extent_counts`, there is no backfill path:
-    the secondary composite only ever exists as this sidecar (task W2.2
+    the secondary composite only ever exists as this sidecar (acquisition
     deliberately never persists a second full-resolution raster to
     reconstruct it from), so a missing or tampered ``dual_extent_counts.json``
     for any requested year returns ``None`` rather than approximating one.

@@ -86,11 +86,7 @@ class HarmonicSelection:
     """Result of leave-one-year-out harmonic order selection."""
 
     order: int
-    fold_skills: tuple[float, ...]
-    mean_skill: float
-    standard_error: float
     pooled_skill: float
-    eligible_orders: tuple[int, ...]
     coefficients: np.ndarray
 
 
@@ -185,7 +181,7 @@ def select_harmonic_order(
     threshold = means[best_order] - best_error
     chosen = min(order for order in scored if means[order] >= threshold)
 
-    skills, pooled_candidate, pooled_null = scored[chosen]
+    _, pooled_candidate, pooled_null = scored[chosen]
     pooled_skill = 1.0 - pooled_candidate / pooled_null if pooled_null > 0.0 else 0.0
 
     design = _design(chosen)
@@ -199,15 +195,9 @@ def select_harmonic_order(
     if coefficients is None:
         return None
 
-    standard_error = float(np.std(skills, ddof=1) / np.sqrt(len(skills))) if len(skills) > 1 else 0.0
-
     return HarmonicSelection(
         order=chosen,
-        fold_skills=tuple(float(value) for value in skills),
-        mean_skill=float(np.mean(skills)),
-        standard_error=standard_error,
         pooled_skill=float(pooled_skill),
-        eligible_orders=tuple(sorted(scored)),
         coefficients=coefficients,
     )
 

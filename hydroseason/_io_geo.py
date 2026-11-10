@@ -285,8 +285,8 @@ def _query_wofs_items(
                 # years already fetched. Search each still-missing year
                 # individually and cache its result (including empty years --
                 # "this year genuinely has no items" is a real, reusable
-                # answer, and re-querying it on every resume is exactly the
-                # waste this task removes).
+                # answer, and re-querying it on every resume is wasted
+                # work).
                 for year in pending:
                     year_start, year_end = _year_bounds(year)
                     year_items = _collect_stac_items(
@@ -362,7 +362,7 @@ def _load_wofs_items(
     resampling=None,
     wet_aoi=None,
     historical_water_mask=None,
-    composite_bundle: Literal["single_mask", "legacy", "dual_composite_v1"] = "single_mask",
+    composite_bundle: Literal["single_mask", "dual_composite_v1"] = "single_mask",
 ):
     """Load WOfS items, classify, compose monthly, and clip to AOI.
 
@@ -385,9 +385,8 @@ def _load_wofs_items(
     (and matching the dtype convention of) the ``wet_count``/``clear_count``
     arrays :func:`hydroseason._io_wofs_zarr.write_annual_group` already
     derives for the primary composite. ``composite_bundle="single_mask"`` (the
-    default; ``"legacy"`` is an accepted alias) performs none of this: zero
-    extra computation, and the return value carries no such attribute,
-    matching every caller's pre-existing behaviour byte-for-byte.
+    default) performs none of this: zero extra computation, and the return
+    value carries no such attribute. Any other value raises ``ValueError``.
 
     ``groupby`` controls how ``odc.stac.stac_load`` places items onto pixel
     planes before this function classifies and monthly-composites them:
@@ -453,6 +452,7 @@ def _load_wofs_items(
     for month, month_items in sorted(groups.items()):
         annual_groups.setdefault(month.year, []).append((month, month_items))
 
+    _validate_composite_bundle(composite_bundle)
     dual_composite = composite_bundle == "dual_composite_v1"
     target = aoi_gdf.to_crs(_crs_value(crs)) if crs is not None else aoi_gdf
     masks, dates, reference = [], [], None
@@ -483,9 +483,8 @@ def _load_wofs_items(
         # Compose each month's observations into a single canonical composite,
         # but do NOT clip per month: the AOI clip is spatial-only and the grid
         # is time-invariant across the whole cube, so clipping every month
-        # rasterises the identical AOI geometry 12x/year (and again inside
-        # mark_in_aoi_nodata_as_invalid -> 24x). Instead collect the unclipped
-        # monthly composites and clip the whole stacked cube exactly once below,
+        # rasterises the identical AOI geometry 12x/year. Instead collect the
+        # unclipped monthly composites and clip the whole stacked cube exactly once below,
         # after the year loop -- one rasterisation for the entire request.
         for month, _month_items in year_groups:
             try:
@@ -536,7 +535,7 @@ def _load_wofs_items(
             )
             secondary_stacked = secondary_stacked.rio.set_spatial_dims(x_dim="x", y_dim="y")
             # A SECOND AOI rasterization here (never performed for the
-            # "legacy" bundle -- this whole branch is gated on
+            # "single_mask" bundle -- this whole branch is gated on
             # dual_composite) so the primary composite's existing
             # `_clip_to_aoi` call above stays byte-for-byte the original
             # single call/call-signature legacy callers and tests rely on;
@@ -727,6 +726,16 @@ def _all_sources_native_aligned(items: list, geobox, band: str = "water") -> boo
         return False
 
 
+_COMPOSITE_BUNDLES = ("single_mask", "dual_composite_v1")
+
+
+def _validate_composite_bundle(composite_bundle) -> None:
+    if composite_bundle not in _COMPOSITE_BUNDLES:
+        raise ValueError(
+            f"composite_bundle must be one of {_COMPOSITE_BUNDLES}, got {composite_bundle!r}."
+        )
+
+
 def build_wofs_year_graph(
     items,
     aoi_gdf,
@@ -742,7 +751,7 @@ def build_wofs_year_graph(
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
     wet_aoi=None,
     historical_water_mask=None,
-    composite_bundle: Literal["single_mask", "legacy", "dual_composite_v1"] = "single_mask",
+    composite_bundle: Literal["single_mask", "dual_composite_v1"] = "single_mask",
 ):
     """Build one shared lazy WOfS cube for a single calendar year onto a fixed grid.
 
@@ -790,8 +799,7 @@ def build_wofs_year_graph(
     attaches a second, any-day-wet composite's per-month pixel counts as
     ``.attrs["dual_composite_counts"]`` on the returned mask, computed
     from the exact same per-day observations this call already loads and
-    classifies. ``"single_mask"`` (the default; ``"legacy"`` is an accepted
-    alias) performs no extra computation.
+    classifies. ``"single_mask"`` (the default) performs no extra computation.
     """
     if geobox is None:
         raise ValueError("build_wofs_year_graph requires a parent geobox.")
@@ -1238,30 +1246,6 @@ def _apply_aoi_inside_mask(mask, inside):
     return _preserve_georef(res, mask)
 
 
-def mark_in_aoi_nodata_as_invalid(mask, aoi, *, outside_value: int = -2, invalid_value: int = -1):
-    aoi_gdf = load_aoi(aoi)
-    crs = _resolve_raster_crs(mask)
-    if crs is None:
-        raise AOIRasterizationError("AOI masking failed: raster is missing CRS.")
-    try:
-        inside = _inside_aoi_mask_like(mask, aoi_gdf.to_crs(crs))
-    except Exception as exc:
-        if isinstance(exc, AOIRasterizationError):
-            raise
-        raise AOIRasterizationError("AOI masking failed; refusing unclipped raster.") from exc
-
-    import xarray as xr
-
-    in_aoi_nodata = (mask == outside_value) & inside
-    res = xr.where(in_aoi_nodata, np.int8(invalid_value), mask).astype(np.int8)
-    res.attrs = mask.attrs
-    if hasattr(mask, "spatial_ref"):
-        res = res.assign_coords(spatial_ref=mask.spatial_ref)
-    if crs is not None:
-        res = res.rio.write_crs(crs)
-    return res
-
-
 def _inside_aoi_mask_like(template, aoi_gdf):
     try:
         import xarray as xr
@@ -1334,5 +1318,5 @@ def _crs_value(crs):
 
 __all__ = [
     "load_aoi", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac",
-    "mark_in_aoi_nodata_as_invalid", "AOIRasterizationError", "GeoreferencingError", "IrregularGridError",
+    "AOIRasterizationError", "GeoreferencingError", "IrregularGridError",
 ]

@@ -1,9 +1,9 @@
 """Source-agnostic hydrological-year detection from monthly water extent.
 
-Ported from WaterMask-TSFill commit
-90983c1559e7c08951096bbf196c0daedead6b4f. Raster masks, WOfS, and extent
-CSVs converge on this module's monthly ``extent_pct`` input.
+Adapted from WaterMask-TSFill. Raster masks, WOfS, and extent CSVs converge
+on this module's monthly ``extent_pct`` input.
 """
+# Source: WaterMask-TSFill commit 90983c1559e7c08951096bbf196c0daedead6b4f.
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -46,12 +46,11 @@ class HydroYearConfig:
     the whole dry window then fall wherever that anchoring puts them, which may
     be the previous or the following calendar year.
 
-    The shipped default is unchanged and describes a tropical monsoon: wet
-    Nov(Y-1)..Apr(Y), then dry Jul(Y)..Dec(Y).
+    The default describes a tropical monsoon: wet Nov(Y-1)..Apr(Y), then dry
+    Jul(Y)..Dec(Y).
 
-    Because the geometry is cyclic, phases the earlier fixed geometry could not
-    express are now valid -- notably southern-Australian winter-rainfall
-    catchments, e.g. ``wet_start_month=6, wet_end_month=9,
+    Because the geometry is cyclic, any phase of the calendar year is valid --
+    notably southern-Australian winter-rainfall catchments, e.g. ``wet_start_month=6, wet_end_month=9,
     dry_start_month=11, dry_end_month=2``, whose dry window ends in ``Y+1``.
     The only ordering rule left is that the dry window must begin after the wet
     window ends.
@@ -241,12 +240,11 @@ def monthly_water_extent(
     spatial grid exactly once (the grid is time-invariant across the whole
     cube), then used to compute ``n_wet_aoi`` -- the per-month count of pixels
     inside the wet AOI that are also not ``outside_value`` -- and the derived
-    ``wet_fill_pct = 100 * n_water / n_wet_aoi`` drought-signal ratio (NaN when
-    ``n_wet_aoi`` is 0). When ``wet_aoi`` is ``None`` (the default), no
-    rasterisation happens at all and ``n_wet_aoi`` is set equal to
-    ``n_valid``, so existing callers adding no wet AOI see no change to any
-    pre-existing column, and get a well-defined ``wet_fill_pct`` computed
-    with the same ``100 * n_water / n_wet_aoi`` formula used in the
+    ``wet_fill_pct = 100 * n_water / n_wet_aoi`` wet-footprint fill ratio
+    (NaN when ``n_wet_aoi`` is 0). When ``wet_aoi`` is ``None`` (the default),
+    no rasterisation happens at all and ``n_wet_aoi`` is set equal to
+    ``n_valid``, so the other columns are unaffected and ``wet_fill_pct`` is
+    still well defined, computed with the same ``100 * n_water / n_wet_aoi`` formula used in the
     ``wet_aoi``-given case (this keeps ``wet_fill_pct`` an exact
     sum-then-percentage tiled aggregation of ``n_water``/``n_wet_aoi``,
     matching how ``extent_pct`` and ``invalid_pct`` already aggregate).

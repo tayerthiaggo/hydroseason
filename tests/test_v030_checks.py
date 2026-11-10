@@ -5,7 +5,6 @@ import hashlib
 import json
 from pathlib import Path
 
-
 HANDOFF = Path("docs/handoff")
 DOC = HANDOFF / "2026-11-04-v0.3.0-implementation-checks.md"
 CASES = HANDOFF / "2026-11-04-v0.3.0-case-study-comparison.json"

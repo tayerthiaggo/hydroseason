@@ -63,7 +63,7 @@ class HydroSeasonBatchError(RuntimeError):
 
 @dataclass(frozen=True)
 class HydroSeasonBatchResult:
-    """Immutable, source-ordered outcomes from a future batch workflow."""
+    """Immutable, source-ordered outcomes from a batch run."""
 
     outcomes: tuple[HydroSeasonAOIOutcome, ...]
 

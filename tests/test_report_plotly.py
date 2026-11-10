@@ -9,7 +9,6 @@ from hydroseason._catchment import analyze_catchment
 from hydroseason._report_export import build_monthly_export
 from hydroseason._report_plotly import (
     event_duration_figure,
-    hydro_year_figure,
     low_spell_duration_figure,
     rainfall_context_figure,
     secondary_figure,
@@ -188,31 +187,6 @@ def test_timeline_hover_has_requested_point_fields_and_two_decimal_extent(season
         for value in analysis.hydro_years["temporal_mid_dry_month"].dropna()
     ]
     assert mid_dry["x"] == expected
-
-
-def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(seasonal_data):
-    monthly, analysis = seasonal_data
-    figure = hydro_year_figure(monthly, analysis)
-
-    assert any(trace.get("name") == "Hydrological-year extent" for trace in figure["data"])
-    marker_names = {
-        trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
-    }
-    assert marker_names - {"Dry Season Ends"} == {"HY Peak", "HY Mid Dry", "HY End Dry"}
-    assert any(annotation.get("text", "").startswith("HY ") for annotation in figure["layout"]["annotations"])
-    assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is False
-
-    expected_intervals = {
-        (pd.Timestamp(row.hy_start).strftime("%Y-%m-%d"), pd.Timestamp(row.hy_end).strftime("%Y-%m-%d"))
-        for row in analysis.hydro_years.itertuples()
-        if pd.notna(row.hy_start) and pd.notna(row.hy_end)
-    }
-    intervals = [
-        shape
-        for shape in figure["layout"]["shapes"]
-        if shape.get("name", "").startswith("HY ") and shape.get("type") == "rect"
-    ]
-    assert {(shape["x0"], shape["x1"]) for shape in intervals} == expected_intervals
 
 
 def test_interval_and_unresolved_peak_gets_no_point_marker_but_end_dry_always_marks():

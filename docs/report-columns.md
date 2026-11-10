@@ -37,10 +37,10 @@ month; percentages are 0--100.
 | `hy_year` | Hydrological-year identifier, blank when the selected route does not define years. |
 | `confidence` | Hydrological-year confidence level (`high`, `medium`, `low`), blank when outside a resolved hydrological year. |
 | `phase` | Phase label according to the selected `phase_scheme` (`two_phase` [default]: `rising`/`receding`, split at the observed peak; `none`: `unspecified`). |
-| `phase_status` | Phase provenance (`ok`, `provisional`, `unresolved_cycle`, `outside_cycle`, `unusable`, or `disabled`). |
+| `phase_status` | Phase provenance (`ok`, `provisional`, `interval_boundary`, `unresolved_cycle`, `outside_cycle`, `unusable`, or `disabled`). `interval_boundary` marks usable months of a year whose `timing_status` is `interval` or `broad`. |
 | `is_hy_peak` | `True` for the detected annual maximum month. |
 | `is_hy_mid_dry` | `True` for the temporal mid-dry marker. |
-| `is_hy_trough` | `True` for the detected annual minimum/trough month. |
+| `is_hy_trough` | `True` for each year's trough boundary month (`trough_boundary_date`), whatever its timing status. |
 | `in_wet_event` / `wet_event_id` | Whether the month belongs to a wet event and its identifier. |
 | `in_low_spell` / `low_spell_id` | Whether the month belongs to a low-extent spell and its identifier. |
 | `regime` / `route` | The regime decision and analysis route applied to the record. |
@@ -56,7 +56,7 @@ not define hydrological years. Date columns are month starts.
 | `catchment` | User-supplied AOI name, or `HydroSeason results` when the name is blank. |
 | `hy_year` | Hydrological-year identifier. |
 | `start_date` / `end_date` | Closed interval used for that hydrological year. `start_date` is the month after the previous cycle's `trough_boundary_date` (except for the first year of the record and a year after a gap). See [Dates around the dry-season low](guide.md#dates-around-the-dry-season-low). |
-| `peak_date` / `mid_dry_date` / `trough_date` | Wet maximum, mid-dry, and dry minimum markers. |
+| `peak_date` / `mid_dry_date` / `trough_date` | Wet maximum, mid-dry, and trough boundary markers. |
 | `peak_extent_pct` / `mid_dry_extent_pct` / `trough_extent_pct` | Extent observed at each marker. |
 | `peak_invalid_pct` / `mid_dry_invalid_pct` / `trough_invalid_pct` | Invalid-pixel percentage at each marker. High values make the marker provisional/low confidence. |
 | `drawdown_pct` | Peak-to-trough extent range when available. |
@@ -67,20 +67,31 @@ not define hydrological years. Date columns are month starts.
 | `boundary_basis` | Whether the boundary was detected per year or imposed from a fixed window derived from mean monthly extent. |
 | `regime` / `route` | Record-level routing metadata. |
 | `timing_status` | Aggregate timing identifiability for the row (`point`, `interval`, `broad` or `unresolved`): the weaker of `peak_timing_status` and `trough_timing_status`. `boundary_status` describes selection/data admissibility; `timing_status` describes temporal identifiability -- the two are independent. |
-| `peak_timing_status` / `trough_timing_status` | How many months are tied with the peak or trough, within the cycle's detectability floor. For the trough, only the months from the cycle's peak to the trough boundary are compared; months after the boundary are not. `point` means a single month stood out, and it is the trough boundary. Since `hydroseason-v0.3.0` a dated trough label always covers `trough_month`: when the months compared single out another month (for example a cloudy month the boundary search skipped), the interval is widened to cover both and graded by its width, and the boundary does not move. `interval` means a span of up to 3 months. `broad` (troughs only) means up to 6 months. `unresolved` means no bounded span. These statuses describe how distinct the extremum is, not how close the reported month is to the true one; see [Dates around the dry-season low](guide.md#dates-around-the-dry-season-low). |
-| `peak_date` / `trough_date` | Populated only when the corresponding `*_timing_status` is `point`; blank for `interval` or `unresolved` so a broad plateau or diffuse peak is never presented as a fabricated exact date. |
+| `peak_timing_status` / `trough_timing_status` | How many months are tied with the peak or trough, within the cycle's detectability floor. For the trough, only the months from the cycle's peak to the trough boundary are compared; months after the boundary are not. `point` means a single month stood out, and it is the trough boundary. Since `hydroseason-v0.3.0` a dated trough label always covers `trough_month`: when the months compared single out another month (for example a cloudy month the boundary search skipped), the interval is widened to cover both and graded by its width, and the boundary does not move. The exception is a boundary at the end of a dry, zero-extent low (`trough_label_basis` = `end_of_dry_run`, below): its label runs from the boundary to the month before the next peak and is graded by that width, `interval` or `broad`, never `point`. `interval` means a span of up to 3 months. `broad` (troughs only) means up to 6 months. `unresolved` means no bounded span. These statuses describe how distinct the extremum is, not how close the reported month is to the true one; see [Dates around the dry-season low](guide.md#dates-around-the-dry-season-low). |
+| `peak_date` / `trough_date` | Populated only when the corresponding `*_timing_status` is `point`; blank for `interval`, `broad` or `unresolved` so a broad plateau or diffuse peak is never presented as a fabricated exact date. |
 | `trough_boundary_date` | The **operational** boundary used for cycle segmentation, populated whenever a trough was detected regardless of timing status (blank only for a blank cycle with no trough opportunity at all). This is always `trough_month`, the actual date used to define `hy_start`/`hy_end` -- it is **not** the same as `trough_interval_end_date`: a refined boundary can sit strictly inside its own support interval, so the two must not be assumed equal. Use `trough_date` for a strict point-only claim and `trough_boundary_date` for "what date this cycle actually uses". |
-| `peak_interval_start_date` / `peak_interval_end_date` / `trough_interval_start_date` / `trough_interval_end_date` | Bounds of equivalent evidence for that extremum across the cycle window (or robust-loss profile support interval for refined troughs). Populated for `point` and `interval`; also populated for `unresolved` when candidate extrema exist to preserve complete equivalent evidence. These are deterministic non-parametric support bounds, not nominal confidence intervals or probability distributions. |
+| `peak_interval_start_date` / `peak_interval_end_date` / `trough_interval_start_date` / `trough_interval_end_date` | Bounds of equivalent evidence for that extremum across the cycle window (or robust-loss profile support interval for refined troughs; for an `end_of_dry_run` trough label, the boundary to the month before the next peak). Populated for `point`, `interval` and `broad`; also populated for `unresolved` when candidate extrema exist to preserve complete equivalent evidence. These are deterministic non-parametric support bounds, not nominal confidence intervals or probability distributions. |
+| `detectability_floor_pp` | The record's detectability floor for that cycle, in percentage points: `max(measurement_tolerance_pct, robust_noise_pp, peak_resolution_pp, trough_resolution_pp, machine epsilon)`. |
+| `amplitude_to_floor_ratio` | That cycle's amplitude divided by `detectability_floor_pp`; `0.0` when the amplitude is at or below the floor. |
 | `dry_run_start_date` / `dry_run_end_date` | Start and end of the dry run of this cycle's trough boundary: the months around the boundary whose extent stays within the boundary's own tolerance, followed past the search window and over cloudy months. `dry_run_end_date` is the end of the dry season. It can lie months after `trough_boundary_date` on a flat-bottomed trough, and past the next boundary in a year with no wet season. See [Dates around the dry-season low](guide.md#dates-around-the-dry-season-low). |
 | `rewetting_date` | The first observed month above the dry run: when water returns. Blank when the record ends dry. |
 | `dry_run_months` | Months from `dry_run_start_date` to `dry_run_end_date`, inclusive. |
 | `dry_end_status` | `interval` when a re-wetting month was observed (the dry season ends between `dry_run_end_date` and the month before `rewetting_date`), `censored` when the record ends dry, `unavailable` when the cycle has no boundary. Never `point`. |
-| `detectability_floor_pp` | The record's detectability floor for that cycle, in percentage points: `max(measurement_tolerance_pct, robust_noise_pp, peak_resolution_pp, trough_resolution_pp, machine epsilon)`. |
-| `amplitude_to_floor_ratio` | That cycle's amplitude divided by `detectability_floor_pp`; `0.0` when the amplitude is at or below the floor. |
 | `status_reason` | Why `status` and `boundary_status` have their values; see [Why a cycle is provisional](#why-a-cycle-is-provisional). `ok` for a complete, confirmed cycle. |
 | `trough_refinement_status` / `trough_refinement_reason` | The pass-2 refinement verdict for the trough that ends this cycle and the reason code behind it; see [Trough refinement diagnostics](#trough-refinement-diagnostics). Blank when pass 2 did not run (for example the fixed-window route). |
 | `baseline_eligible` | Whether this cycle anchors the annual condition baseline: `status` is `complete`, `boundary_status` is `confirmed`, `timing_status` is `point`, `interval` or `broad` (only `point` before `hydroseason-v0.3.0`), `peak_quality` is not `anomalous`, and, with a fixed reference period, the cycle ends inside it. |
 | `baseline_n` | Number of cycles this row's `annual_condition` is ranked against. With the full-record or a fixed reference it is the eligible count, minus one when the row is itself eligible; with a rolling reference it is that row's window size. When the eligible count is below `min_baseline_cycles` (default 5), `annual_condition` is `insufficient_baseline`. |
+
+`result.analysis.hydro_years` also carries `trough_label_basis`, which is not
+in the CSV. It says how the trough timing label was set: `lowest_month` when
+it comes from comparing the months from the peak to the boundary, and
+`end_of_dry_run` when the boundary is the last month of a dry, zero-extent low
+longer than a month, water was seen to return, and the label was `broad` or
+`unresolved` because every dry month ties. The label then runs from the
+boundary to the month before the next peak; when that span is too wide to
+grade, the label is left as it was and the basis stays `lowest_month`. It is
+blank when the cycle has no trough. The dry-run dates are there as
+`dry_run_start_month`, `dry_run_end_month` and `rewetting_month`.
 
 ### Trough search geometry diagnostics
 
@@ -114,7 +125,7 @@ bootstrap.
 
 Seasonal boundaries are found in two passes: pass 1 picks a robust trough in
 each year's search window, and pass 2 refines it with the direct-profile
-Huber fit of `hydroseason-v0.2.0`. These columns record what pass 2 found.
+Huber fit (introduced in `hydroseason-v0.2.0`, unchanged in `hydroseason-v0.3.0`). These columns record what pass 2 found.
 They are on `result.analysis.hydro_years`. Of these, only
 `trough_refinement_status` and `trough_refinement_reason` are also in the CSV.
 

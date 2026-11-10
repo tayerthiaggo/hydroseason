@@ -203,7 +203,7 @@ def test_acquisition_reports_query_and_graph_counts_to_diagnostics_callback(monk
     assert payload["chunks_considered"] == 24
     assert payload["chunks_written"] == 24
     assert payload["loaded_pixels"] == 384
-    # Task 5 additive diagnostics -- new keys, existing keys unchanged above.
+    # Additional diagnostics keys, alongside the keys checked above.
     for new_key in (
         "statistics_prepare_seconds", "stac_read_seconds", "active_window_count",
         "planned_native_pixels", "local_reduction_seconds",
@@ -893,11 +893,11 @@ def test_default_wet_mask_off_reuses_existing_full_coverage_store(monkeypatch, t
         "2015-01-01", "2016-12-31", cache_root=tmp_path, resolution=30,
     )
 
-    # Pre-existing behaviour (unrelated to this task): a repeat call still
-    # re-queries STAC even on a full cache hit, but must resolve to the SAME
-    # store. The property under test here is that this call resolves to the
-    # same store/identity as before, never a different (pruned) one, even
-    # though a locally-derivable wet mask now exists for that same store.
+    # A repeat call still re-queries STAC even on a full cache hit, but must
+    # resolve to the SAME store. The property under test here is that this
+    # call resolves to the same store/identity as before, never a different
+    # (pruned) one, even though a locally-derivable wet mask now exists for
+    # that same store.
     monkeypatch.setattr(
         "hydroseason._io_wofs_acquire._query_wofs_items",
         Mock(return_value=([], _aoi())),
@@ -944,13 +944,13 @@ def test_resolve_wet_aoi_off_refuses_pruning_even_with_a_working_local_handle(tm
 
 
 # ---------------------------------------------------------------------------
-# W2.1: planning_footprint threading -- query-count / pruning tests (Step 1)
+# planning_footprint threading -- query-count / pruning tests
 # ---------------------------------------------------------------------------
 
 
 def test_passing_a_prepared_planning_footprint_never_queries_dea_stats(monkeypatch, tmp_path):
     """The whole point of accepting a prepared WetPlanningFootprint: a caller
-    (later, HydroFragments' orchestrator) that already built one via
+    (for example a downstream consumer) that already built one via
     build_wet_planning_footprint must never trigger a second DEA-statistics
     STAC query when it hands the footprint to acquire_wofs_cache."""
     import hydroseason._io_wofs_acquire as acquire
@@ -1139,7 +1139,7 @@ def test_planning_footprint_and_composite_bundle_are_recorded_in_manifest(monkey
 
 
 def test_dual_composite_v1_threads_dual_counts_from_graph_to_writer(monkeypatch, tmp_path):
-    """Step 3 (W2.2) wiring: build_wofs_year_graph's
+    """Wiring: build_wofs_year_graph's
     ``.attrs["dual_composite_counts"]`` side-channel must reach
     write_annual_group's ``dual_counts`` keyword unchanged, and must be
     popped off the mask (never left sitting on the object passed to
@@ -1213,6 +1213,23 @@ def test_default_composite_bundle_never_requests_dual_extent_counts_for_empty_ye
 
     empty_writer.assert_called_once()
     assert empty_writer.call_args.kwargs["dual_extent_counts"] is False
+
+
+@pytest.mark.parametrize("bundle", ["legacy", "bogus"])
+def test_unknown_composite_bundle_is_rejected_before_any_query(monkeypatch, tmp_path, bundle):
+    """Only "single_mask" and "dual_composite_v1" are accepted; the old
+    "legacy" alias is rejected as input (caches written under it stay valid
+    through the request-digest normalisation)."""
+    query = Mock(side_effect=AssertionError("network"))
+    monkeypatch.setattr("hydroseason._io_wofs_acquire._query_wofs_items", query)
+
+    with pytest.raises(ValueError, match="single_mask.*dual_composite_v1"):
+        acquire_wofs_cache(
+            "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
+            "2015-01-01", "2015-12-31", cache_root=tmp_path, resolution=30,
+            composite_bundle=bundle,
+        )
+    query.assert_not_called()
 
 
 def test_default_composite_bundle_is_single_mask_with_no_footprint_recorded(monkeypatch, tmp_path):
@@ -1362,7 +1379,7 @@ def test_planning_footprint_derived_wet_aoi_clips_pixels_outside_it_via_clip_to_
 def test_acquire_wofs_cache_persists_identical_aoi_pixel_count_across_pruned_and_unpruned_runs(
     monkeypatch, tmp_path
 ):
-    """End-to-end proof of task W2.3's central correctness property, exercised
+    """End-to-end proof of the cache-footprint correctness property, exercised
     through the real acquire_wofs_cache entry point (not the standalone
     record_cache_footprints unit tests in test_io_cache_footprints.py): a
     pruned acquisition (explicit wet_aoi, a strict subset of the full AOI)
@@ -1408,8 +1425,8 @@ def test_acquire_wofs_cache_persists_identical_aoi_pixel_count_across_pruned_and
 
 
 # ---------------------------------------------------------------------------
-# Task 5: integrate the scientific (historical_water_mask) and planning
-# (planning_footprint) masks into acquire_wofs_cache.
+# acquire_wofs_cache with the scientific (historical_water_mask) and planning
+# (planning_footprint) masks.
 # ---------------------------------------------------------------------------
 
 
@@ -1422,7 +1439,7 @@ def _historical_mask(*, exclude_cells=(), pixel_count=None):
     integration tests below.
 
     ``mask_sha256`` is computed with the REAL _mask_digest function (not a
-    placeholder) -- Task 5's acquire_wofs_cache actually calls
+    placeholder) -- acquire_wofs_cache actually calls
     record_cache_analysis_mask, which re-hashes the on-disk bytes and raises
     if they disagree with the manifest, so a placeholder digest here would
     make every real acquire_wofs_cache call fail verification immediately."""
@@ -1459,7 +1476,7 @@ def _historical_mask(*, exclude_cells=(), pixel_count=None):
 
 def _footprint_from(historical_mask, *, factor=1, safety_cells=0):
     """A real WetPlanningFootprint genuinely derived from ``historical_mask``
-    via build_planning_footprint_from_historical_mask (Task 1) -- the actual
+    via build_planning_footprint_from_historical_mask -- the actual
     production derivation, not a hand-rolled digest, so the tests below
     exercise the real "derives from" contract acquire_wofs_cache must check."""
     from hydroseason._io_dea_stats import build_planning_footprint_from_historical_mask
@@ -1631,8 +1648,8 @@ def test_mask_source_coverage_mismatch_errors_before_any_monthly_wofs_call(monke
 
 
 def test_record_cache_analysis_mask_is_called_before_annual_writes(monkeypatch, tmp_path):
-    """record_cache_analysis_mask() (Task 4) must actually be invoked by
-    acquire_wofs_cache -- nothing called it before this task. Verified via
+    """record_cache_analysis_mask() must actually be invoked by
+    acquire_wofs_cache. Verified via
     the real on-disk sidecar it creates (verify_cache_analysis_mask), not a
     mock of record_cache_analysis_mask itself, so this proves the sidecar is
     genuinely persisted and independently verifiable, not merely that some

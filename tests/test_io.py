@@ -71,7 +71,7 @@ def test_combine_observations_exhaustive_parity():
 
 
 def test_dual_composite_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pixel(monkeypatch):
-    """Step 1 (W2.2): a hand-traceable fixture where max-water (any-day-wet)
+    """A hand-traceable fixture where max-water (any-day-wet)
     and the existing majority-vote composite genuinely disagree at one pixel,
     proving ``composite_bundle="dual_composite_v1"`` must carry a SECOND,
     independently-computed composite's counts through ``_load_wofs_items``
@@ -84,8 +84,8 @@ def test_dual_composite_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pi
     * (0, 0): wet, dry, dry -> majority vote score = 1 - 1 - 1 = -1 (not >
       0) so the existing majority composite falls back to "dry" (0); the
       any-day-wet (``max_water``) composite is 1 (wet) because day 1 alone
-      observed water. This is the exact pixel the plan's "max-water and
-      median genuinely differ" fixture requirement calls for.
+      observed water. This is the pixel where max-water and median
+      genuinely differ.
     * (0, 1): wet, wet, dry -> majority score = 1 > 0 -> wet (1); max_water
       -> wet (1). Same result on both composites (a control cell).
     * (1, 0): dry, dry, dry -> both composites agree: dry (0).
@@ -183,7 +183,7 @@ def test_dual_composite_v1_dual_counts_diverge_from_majority_at_a_hand_traced_pi
 
 
 def test_dual_composite_v1_builds_one_source_graph_not_one_per_composite(monkeypatch):
-    """Step 2 (W2.2): requesting the dual bundle must not cost a second STAC
+    """Requesting the dual bundle must not cost a second STAC
     load or a second classification pass -- both composites come from ONE
     ``odc.stac.stac_load`` call per year and ONE set of classified daily
     observations. Exercised through ``build_wofs_year_graph`` (the real
@@ -1823,7 +1823,7 @@ def test_externally_supplied_wet_aoi_does_not_prune_and_matches_unpruned_extent_
 ):
     """A caller-supplied ``wet_aoi=`` (no ``precompute_wet_aoi``) must not prune.
 
-    This is Task 8's fix: unlike the ``precompute_wet_aoi=True`` path (which
+    Unlike the ``precompute_wet_aoi=True`` path (which
     keeps ``full_ts`` around to reconcile the tiled aggregate's denominator
     against), an externally-supplied ``wet_aoi`` has no such full-time-series
     cube to reconcile against here. Pruning tiles under it would silently
@@ -2183,157 +2183,6 @@ def test_plan_resolution_flags_native_no_fit_when_even_coarsest_exceeds_budget()
     )
 
     assert reason == "native_no_fit"
-
-
-def _synthetic_monthly_mask(xr, np, pd, *, n_months, y, x, water_row_fraction):
-    """Build a canonical water mask cube with a fixed fraction of wet rows.
-
-    ``water_row_fraction`` of the ``y`` rows are set fully wet (1); the rest
-    are fully dry (0). Every pixel is valid (no -1/-2 codes), so
-    ``monthly_water_extent``'s ``extent_pct`` for each month equals
-    ``water_row_fraction`` exactly (in percent) -- this gives full control
-    over the mean water fraction the probe/guard compares, independent of
-    resolution-specific resampling behaviour (which is mocked away here; the
-    two passes differ only in the y/x shape supplied, standing in for what a
-    coarser ``resolution=`` would have produced upstream in the real
-    pipeline).
-    """
-    n_wet_rows = max(1, round(water_row_fraction * y))
-    row = np.zeros(x, dtype=np.int8)
-    wet_row = np.ones(x, dtype=np.int8)
-    plane = np.stack([wet_row if i < n_wet_rows else row for i in range(y)])
-    data = np.stack([plane for _ in range(n_months)])
-    dates = pd.date_range("2020-01-01", periods=n_months, freq="MS")
-    da = xr.DataArray(
-        data,
-        dims=("time", "y", "x"),
-        coords={"time": dates, "y": np.arange(y), "x": np.arange(x)},
-    )
-    return da
-
-
-def test_probe_amplitude_propagates_annual_cache_settings(monkeypatch, tmp_path):
-    from unittest.mock import Mock
-
-    import hydroseason.io as hio
-    from hydroseason.io import probe_amplitude
-
-    dates = pd.date_range("2020-01-01", periods=12, freq="MS")
-    extent = pd.DataFrame(
-        {
-            "n_water": np.arange(1, 13),
-            "n_aoi": [100] * 12,
-            "n_valid": [100] * 12,
-            "n_invalid": [0] * 12,
-            "extent_pct": np.arange(1.0, 13.0),
-            "invalid_pct": [0.0] * 12,
-        },
-        index=dates,
-    )
-    cached_load = Mock(return_value=extent)
-    monkeypatch.setattr(hio, "load_wofs_monthly_extent", cached_load)
-
-    probe_amplitude(
-        "https://example.invalid/stac", "wofs", _aoi(),
-        "2020-01-01", "2020-12-31",
-        cache_dir=tmp_path,
-        mask_cache_dir=tmp_path / "masks",
-        force=True,
-        time_block=6,
-    )
-
-    assert cached_load.call_count == 2
-    for call in cached_load.call_args_list:
-        assert call.kwargs["cache_dir"] == tmp_path
-        assert call.kwargs["mask_cache_dir"] == tmp_path / "masks"
-        assert call.kwargs["force"] is True
-        assert call.kwargs["time_block"] == 6
-
-
-def test_probe_amplitude_guard_fires_on_disproportionate_thin_channel_collapse(monkeypatch):
-    """Braided/thin-channel case: water fraction collapses going one step coarser.
-
-    Probe-resolution pass sees 30% of rows wet; the coarser pass sees only 5%
-    wet -- a collapse to ~1/6 of the probe fraction, far below the 70%
-    retention floor. The guard must fire: ``refuse_coarsen_past`` pinned to
-    the probe resolution, and a non-empty, human-readable ``guard_caveat``.
-    """
-    xr = pytest.importorskip("xarray")
-    pytest.importorskip("dask")
-    import hydroseason.io as hio
-    from hydroseason.hydro_year import monthly_water_extent
-    from hydroseason.io import probe_amplitude
-
-    calls = {"n": 0}
-
-    def fake_load_wofs_monthly_extent(
-        stac_url, collection, aoi, start, end, *, resolution=None, **kwargs
-    ):
-        calls["n"] += 1
-        fraction = 0.30 if calls["n"] == 1 else 0.05
-        return monthly_water_extent(
-            _synthetic_monthly_mask(
-                xr, np, pd, n_months=12, y=20, x=5,
-                water_row_fraction=fraction,
-            )
-        )
-
-    monkeypatch.setattr(hio, "load_wofs_monthly_extent", fake_load_wofs_monthly_extent)
-
-    result = probe_amplitude(
-        "https://example.invalid/stac", "wofs", _aoi(), "2020-01-01", "2020-12-01",
-        crs=3577, probe_res_m=300,
-    )
-
-    assert calls["n"] == 2
-    assert result["refuse_coarsen_past"] == 300
-    assert isinstance(result["guard_caveat"], str) and result["guard_caveat"]
-    assert 300 in result["water_fraction_by_res"]
-    probe_fraction = result["water_fraction_by_res"][300]
-    coarser_res = next(k for k in result["water_fraction_by_res"] if k != 300)
-    coarser_fraction = result["water_fraction_by_res"][coarser_res]
-    assert coarser_fraction < 0.70 * probe_fraction
-    assert result["amplitude_pp"] >= 0.0
-
-
-def test_probe_amplitude_guard_silent_on_stable_water_fraction(monkeypatch):
-    """Normal cube: water fraction barely moves between probe and coarser pass.
-
-    Both passes see 30% wet rows (a tiny difference within noise, not a
-    disproportionate collapse), so retention is ~100% -- well above the 70%
-    floor. The guard must stay silent: ``guard_caveat`` and
-    ``refuse_coarsen_past`` both ``None``.
-    """
-    xr = pytest.importorskip("xarray")
-    pytest.importorskip("dask")
-    import hydroseason.io as hio
-    from hydroseason.hydro_year import monthly_water_extent
-    from hydroseason.io import probe_amplitude
-
-    calls = {"n": 0}
-
-    def fake_load_wofs_monthly_extent(
-        stac_url, collection, aoi, start, end, *, resolution=None, **kwargs
-    ):
-        calls["n"] += 1
-        fraction = 0.30 if calls["n"] == 1 else 0.29
-        return monthly_water_extent(
-            _synthetic_monthly_mask(
-                xr, np, pd, n_months=12, y=20, x=5,
-                water_row_fraction=fraction,
-            )
-        )
-
-    monkeypatch.setattr(hio, "load_wofs_monthly_extent", fake_load_wofs_monthly_extent)
-
-    result = probe_amplitude(
-        "https://example.invalid/stac", "wofs", _aoi(), "2020-01-01", "2020-12-01",
-        crs=3577, probe_res_m=300,
-    )
-
-    assert calls["n"] == 2
-    assert result["guard_caveat"] is None
-    assert result["refuse_coarsen_past"] is None
 
 
 def test_canonical_masks_outside_aoi_pixels_excluded_from_counts():

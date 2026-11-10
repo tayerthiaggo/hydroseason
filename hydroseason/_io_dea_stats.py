@@ -770,11 +770,11 @@ def _wet_planning_footprint_digest(
     coarse_values, *, factor: int, safety_cells: int,
     covered_years: Sequence[int], source_collection: str, source_version: str,
 ) -> str:
-    """A stable SHA-256 over the coarse mask's values and the plan's parameters.
+    """A stable SHA-256 over the coarse mask's values and the footprint's parameters.
 
-    Feeds cache identity per the plan's global constraint ("Cache identity
-    includes both masks, grid, temporal coverage, product provenance,
-    aggregation factor, safety halo, and composite bundle"). Uses the raw
+    Feeds cache identity, which includes both masks, grid, temporal coverage,
+    product provenance, aggregation factor, safety halo, and composite
+    bundle. Uses the raw
     boolean bytes of ``coarse_mask`` rather than a geometry hash so two
     footprints with identical masks and parameters always digest identically,
     independent of dask chunking.

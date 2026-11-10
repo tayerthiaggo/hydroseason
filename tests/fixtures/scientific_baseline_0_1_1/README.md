@@ -11,4 +11,3 @@ This directory contains the immutable, protected scientific baseline fixtures fo
 Any modification to these baseline fixtures is strictly protected:
 - Regenerating expected fixtures or altering them to pass tests is forbidden.
 - Any scientific baseline change requires a new dated scientific-baseline change note reviewed separately from artifact regeneration.
-- Authorizing specification: `docs/superpowers/specs/2026-08-23-baseline-preserving-seasonality-and-phase-schemes-design.md`.
