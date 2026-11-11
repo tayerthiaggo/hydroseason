@@ -159,7 +159,7 @@ def _legacy_monthly(extent: Any, hydro_years: pd.DataFrame) -> pd.DataFrame:
             out.loc[out["date"] == pd.Timestamp(row.peak_month), "key_event"] = "Wet Peak"
         if hasattr(row, "trough_month") and pd.notna(row.trough_month):
             out.loc[out["date"] == pd.Timestamp(row.trough_month), "is_hy_trough"] = True
-            out.loc[out["date"] == pd.Timestamp(row.trough_month), "key_event"] = "Dry End"
+            out.loc[out["date"] == pd.Timestamp(row.trough_month), "key_event"] = "Trough"
     return out.reset_index(drop=True)
 
 

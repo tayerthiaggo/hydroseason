@@ -135,7 +135,7 @@ def test_report_interactions_restore_scale_without_secondary_range_sync(tmp_path
     timeline = {
         "data": [
             {"name": "Reference Median", "x": ["2020-01-01", "2020-02-01"], "y": [-1, 2], "customdata": [-1, 2], "hovertemplate": "Reference Median: %{customdata}%", "meta": {"original_y": [-1, 2], "log_floor": 0.02, "log_safe_y": [0.02, 2]}},
-            {"name": "Extent", "x": ["2020-01-01", "2020-02-01"], "y": [0, 4], "customdata": [[0, -1, 7, "dry", 2020, "HY End Dry"], [4, 2, 0, "recovery", 2021, "None"]], "meta": {"original_y": [0, 4], "log_floor": 0.02, "log_safe_y": [0.02, 4]}},
+            {"name": "Extent", "x": ["2020-01-01", "2020-02-01"], "y": [0, 4], "customdata": [[0, -1, 7, "dry", 2020, "HY Trough"], [4, 2, 0, "recovery", 2021, "None"]], "meta": {"original_y": [0, 4], "log_floor": 0.02, "log_safe_y": [0.02, 4]}},
             {"name": "Invalid", "x": ["2020-01-01"], "y": [7], "yaxis": "y2"},
         ],
         "layout": {"xaxis": {"range": ["2019-01-01", "2019-12-01"]}, "yaxis": {"type": "linear"}, "yaxis2": {"type": "linear"}},

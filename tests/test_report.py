@@ -40,7 +40,7 @@ def test_generate_html_report(tmp_path):
     assert "HY 2019" in html_content
     assert "HY 2020" in html_content
     assert "Wet Peak" in html_content
-    assert "Dry End" in html_content
+    assert ">Trough</span>" in html_content
     assert "svg" in html_content.lower()
     # Quality warnings must not become the H1 title.
     assert "<h1>2 months flagged" not in html_content

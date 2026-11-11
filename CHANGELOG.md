@@ -5,7 +5,7 @@ All notable changes to HydroSeason are documented here. This project follows
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-11-09
+## [0.3.0] - 2026-11-11
 
 ### Added
 - Two input warnings. When pixel counts are supplied with an `extent_pct` that
@@ -48,7 +48,12 @@ All notable changes to HydroSeason are documented here. This project follows
     columns). On a flat-bottomed trough the
     boundary can sit months before the dry season ends; the run end is the
     better date for it. `dry_end_status` is `interval` or `censored`, never
-    `point`. The report timeline marks it as "Dry Season Ends".
+    `point`. The report timeline marks it as "Dry Season Ends" (an open
+    inverted triangle). The trough boundary marker is renamed from
+    "HY End Dry" to "HY Trough" (with "Trough (interval)" and "Trough
+    Interval" shading), and the year table's "Dry End" key event and
+    "End Dry Month" card become "Trough" and "Trough Month", so only one
+    marker reads as the end of the dry season.
   - The year boundary reaches the end of the dry season on records with a
     flat low (the method's definition): the trough search is centred on the
     end of the typical low instead of its first month, and a boundary at the

@@ -242,7 +242,7 @@ def test_year_cards_show_interval_range_instead_of_a_fabricated_exact_date():
     html = _year_cards(monthly, hydro_years)
 
     assert "August 2006 – October 2006" in html
-    assert "Dry End (interval)" in html
+    assert "Trough (interval)" in html
     assert "September 2006</span>" not in html
 
 
@@ -272,7 +272,7 @@ def test_year_cards_show_broad_trough_as_a_bounded_range_not_unresolved():
     html = _year_cards(monthly, hydro_years)
 
     assert "July 2006 – October 2006" in html
-    assert "Dry End (broad)" in html
+    assert "Trough (broad)" in html
     assert "Unresolved" not in html
 
 
@@ -407,9 +407,9 @@ def test_year_cards_render_interval_months_in_key_events():
     # Mid dry: Jun is Mid Dry
     assert '<span class="cell-marker marker-mid">Mid Dry</span>' in html
 
-    # Trough: Oct is Dry End (interval), Sep and Nov are Dry Interval
-    assert '<span class="cell-marker marker-dry">Dry End (interval)</span>' in html
-    assert '<span class="cell-marker marker-dry-interval">Dry Interval</span>' in html
+    # Trough: Oct is Trough (interval), Sep and Nov are Trough Interval
+    assert '<span class="cell-marker marker-dry">Trough (interval)</span>' in html
+    assert '<span class="cell-marker marker-dry-interval">Trough Interval</span>' in html
 
 
 

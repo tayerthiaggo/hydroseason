@@ -35,7 +35,7 @@
     ]
   },
   "catchment": "Fitzroy River (WA)",
-  "created_at_utc": "2026-11-10T09:02:03.943456+00:00",
+  "created_at_utc": "2026-11-11T02:45:10.142831+00:00",
   "dependencies": {
     "affine": "2.4.0",
     "dask": "2026.3.0",
@@ -169,8 +169,8 @@
   "outputs": {
     "html": {
       "path": "fitzroy-river-wa.html",
-      "sha256": "a21ac95859a80c58ca704b0915532a731944cca607897d2c3b5f3a5524baece0",
-      "size_bytes": 1761809
+      "sha256": "82559a092bc2d230916d60c918e9df3d61940fce259edba0ce64ba9e5fb6d47f",
+      "size_bytes": 1761824
     },
     "hydro_years_csv": {
       "path": "fitzroy-river-wa_hydro_years.csv",

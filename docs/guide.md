@@ -447,8 +447,10 @@ The first two come from the same boundary.
   `dry_run_end_date` for when the dry season ended. In a year with no wet
   season, `dry_run_end_date` can lie past the next boundary.
   `dry_end_status` is `interval` or `censored` (`unavailable` when the cycle
-  has no boundary), never `point`. The report's timeline marks it as "Dry
-  Season Ends" (an open triangle) next to the End Dry boundary marker.
+  has no boundary), never `point`. The report's timeline marks the
+  trough boundary as "HY Trough" (a circle; open, as "Trough (interval)",
+  when its month is not a single point) and the end of the dry season as
+  "Dry Season Ends" (an open inverted triangle).
 
 Because both dates come from one boundary, they vary across a catchment in
 the same way. In the five case-study catchments a quarter of level-7

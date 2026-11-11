@@ -18,7 +18,7 @@ PHASE_COLORS = {
 MARKERS = {
     "HY Peak": ("peak_month", "#2563eb", "circle"),
     "HY Mid Dry": ("temporal_mid_dry_month", "#f97316", "square"),
-    "HY End Dry": ("trough_month", "#dc2626", "circle"),
+    "HY Trough": ("trough_month", "#dc2626", "circle"),
 }
 # Status column gating each marker's point candidacy: a marker is only drawn
 # for a row whose corresponding timing status is "point" -- an interval or
@@ -26,9 +26,9 @@ MARKERS = {
 # no timing status of its own (it is not an extremum) and is always eligible.
 _MARKER_STATUS_COLUMN = {
     "HY Peak": "peak_timing_status",
-    "HY End Dry": "trough_timing_status",
+    "HY Trough": "trough_timing_status",
 }
-# Peak and End Dry rows whose status is "interval" or "broad" are still drawn
+# Peak and Trough rows whose status is "interval" or "broad" are still drawn
 # at their adopted date, but in a separate "(interval)" trace with an outlined
 # ("-open") symbol, so they never read as more resolved than the shading
 # beside them claims.
@@ -197,7 +197,7 @@ def _marker_status_by_date(analysis: CatchmentAnalysis) -> dict[str, str]:
     marker_status = {
         "HY Peak": "peak",
         "HY Mid Dry": "mid-dry",
-        "HY End Dry": "end-dry",
+        "HY Trough": "trough",
     }
     for name, (column, _, _) in MARKERS.items():
         if column not in rows.columns:
@@ -283,12 +283,12 @@ def _marker_traces(monthly: pd.DataFrame, analysis: CatchmentAnalysis) -> list[d
     traces: list[dict[str, Any]] = []
     interval_names = {
         "HY Peak": "Peak (interval)",
-        "HY End Dry": "End Dry (interval)",
+        "HY Trough": "Trough (interval)",
     }
     status_labels = {
         "HY Peak": "peak",
         "HY Mid Dry": "mid-dry",
-        "HY End Dry": "end-dry",
+        "HY Trough": "trough",
     }
     for name, (column, color, symbol) in MARKERS.items():
         point_x: list[str] = []
@@ -371,7 +371,7 @@ def _dry_season_end_traces(
 ) -> list[dict[str, Any]]:
     """Mark the end of each year's dry run, where the dry season ends.
 
-    On a flat-bottomed trough the End Dry marker shows the cycle boundary,
+    On a flat-bottomed trough the Trough marker shows the cycle boundary,
     which the trough search places near the typical trough month; the dry
     season can go on for months after it. This marker shows the last month
     before water returns. Imposed fixed windows have no dry run.
@@ -635,7 +635,7 @@ def _phase_legend_traces(phases: list[str] | None = None) -> list[dict[str, Any]
 
 
 def _timing_interval_legend_traces(analysis: CatchmentAnalysis) -> list[dict[str, Any]]:
-    """Name peak and end-of-dry interval shadings in the legend to command layout shapes."""
+    """Name peak and trough interval shadings in the legend to command layout shapes."""
     rows = analysis.hydro_years if analysis.hydro_years is not None else pd.DataFrame()
     traces: list[dict[str, Any]] = []
     if "peak_timing_status" in getattr(rows, "columns", []) and rows["peak_timing_status"].isin(("interval", "broad")).any():
@@ -655,7 +655,7 @@ def _timing_interval_legend_traces(analysis: CatchmentAnalysis) -> list[dict[str
         traces.append({
             "type": "scatter",
             "mode": "lines",
-            "name": "End Dry Interval",
+            "name": "Trough Interval",
             "legend": "legend3",
             "x": [None],
             "y": [None],
