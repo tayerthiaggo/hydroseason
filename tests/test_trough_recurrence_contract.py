@@ -2,8 +2,8 @@
 
 These tests record what the released method (policy hydroseason-v0.2.0) does on
 records whose trough recurs while peaks do not, and on the mirror case. They are
-not claims that the recorded behaviour is scientifically correct. Background:
-docs/provisional-trough-verdict-2026-10-30.md, sections 2 and 4.
+not claims that the recorded behaviour is scientifically correct. The research behind
+them is archived at the v0.3.0 tag.
 """
 
 import numpy as np
@@ -17,7 +17,7 @@ from hydroseason import (
     suggest_dynamic_hydro_year_config,
 )
 from hydroseason._seasonality_test import TIMING_RECURRENCE_ALPHA
-from scripts.trough_synthetic import build_record
+from tests._support.trough_synthetic import build_record
 
 
 def _stable_peak_irregular_trough(seed=0, years=12):

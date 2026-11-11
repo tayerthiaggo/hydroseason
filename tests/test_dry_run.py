@@ -1,10 +1,7 @@
 """Where the dry season ends (DE1 change A, hydroseason-v0.3.0): the reported dry run."""
 from __future__ import annotations
 
-import hashlib
-import json
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -173,38 +170,6 @@ def test_dry_run_pass_changes_only_its_columns_and_dry_low_labels(monkeypatch):
     pd.testing.assert_frame_equal(
         after.drop(columns=added + relabel), before.drop(columns=added + relabel), check_dtype=False
     )
-
-
-CHECKS = Path("docs/handoff/2026-11-06-dry-run-end-implementation-checks.json")
-CHECKS_DOC = Path("docs/handoff/2026-11-06-dry-run-end-implementation.md")
-
-
-def _lf_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
-
-
-def test_implementation_checks_found_only_the_new_columns():
-    from hydroseason._method_policy import method_policy_fingerprint
-
-    result = json.loads(CHECKS.read_text(encoding="utf-8"))
-    # These checks ran on change A alone; R1 and R2 (DE2) later joined the manifest.
-    assert result["after_fingerprint"] == "aba922a9eac29cea8498a30794110c80de340b0f6a2fb76d64f60f93855aeb66"
-    assert method_policy_fingerprint() != result["after_fingerprint"]
-    assert result["script_sha256_lf"] == _lf_sha256(Path("scripts/dry_run_end_checks.py"))
-    assert result["case_studies"]["unexpected"] == []
-    assert result["fitzroy_tiles"]["unexpected"] == {}
-    doc = " ".join(CHECKS_DOC.read_text(encoding="utf-8").split())
-    for name in ("production", "counts"):
-        gaps = result["fitzroy_tiles"]["summary"][name]["run_end_vs_boundary"]
-        n = gaps["cycles"]
-        text = (f"| {n:,} | {gaps['run_end_after_boundary']:,} ({100 * gaps['run_end_after_boundary'] / n:.0f}%) "
-                f"| {gaps['by_3_or_more']:,} ({100 * gaps['by_3_or_more'] / n:.0f}%) "
-                f"| {gaps['by_6_or_more']:,} ({100 * gaps['by_6_or_more'] / n:.0f}%) |")
-        assert text in doc, text
-    series = [s for s in result["case_studies"]["series"].values() if "run_end_vs_boundary" in s]
-    after = sum(s["run_end_vs_boundary"]["run_end_after_boundary"] for s in series)
-    cycles = sum(s["run_end_vs_boundary"]["cycles"] for s in series)
-    assert f"| {cycles} | {after} ({100 * after / cycles:.0f}%) |" in doc
 
 
 def test_timeline_marks_where_each_dry_season_ends():

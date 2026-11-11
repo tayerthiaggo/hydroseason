@@ -22,6 +22,9 @@ FORBIDDEN_TRACKED_PREFIXES = (
     "case_studies/timing-identifiability/",
     "case_studies/trough-refinement/",
     "case_studies/recurrence-identifiability/",
+    # Research archived at the v0.3.0 tag.
+    "docs/handoff/",
+    "docs/provisional-trough-",
 )
 
 FORBIDDEN_CAMPAIGN_SCRIPTS = (
@@ -40,6 +43,38 @@ FORBIDDEN_CAMPAIGN_SCRIPTS = (
     "scripts/evaluate_timing_identifiability_cohort.py",
     "scripts/evaluate_timing_recurrence.py",
     "scripts/evaluate_trough_refinement_cohort.py",
+    # 0.3.0 research scripts, archived at the v0.3.0 tag.
+    "scripts/cross_scale_agreement.py",
+    "scripts/de1_reported_extras.py",
+    "scripts/de2_implementation_checks.py",
+    "scripts/de2_r2_revised_check.py",
+    "scripts/de2_reported_extras.py",
+    "scripts/dry_run_end_checks.py",
+    "scripts/dry_run_end_exploratory.py",
+    "scripts/frozen_window_recurrence.py",
+    "scripts/g1_synthetic_suite_rerun.py",
+    "scripts/gate_calibration.py",
+    "scripts/known_truth_b2.py",
+    "scripts/known_truth_de1.py",
+    "scripts/known_truth_de2.py",
+    "scripts/known_truth_de2_evaluate.py",
+    "scripts/known_truth_gates.py",
+    "scripts/known_truth_l2_r1.py",
+    "scripts/known_truth_labels.py",
+    "scripts/l1_followups.py",
+    "scripts/real_record_impact.py",
+    "scripts/real_record_impact_explore.py",
+    "scripts/refinement_eol_anchor_probe.py",
+    "scripts/refinement_eol_explore.py",
+    "scripts/spatial_unit_study.py",
+    "scripts/spatial_unit_study_explore.py",
+    "scripts/trough_falsification_sweep.py",
+    "scripts/trough_synthetic.py",
+    "scripts/v030_case_study_comparison.py",
+    "scripts/v030_fitzroy_tiles.py",
+    "scripts/v030_label_fix_impact.py",
+    "scripts/v030_real_record_check.py",
+    "scripts/v030_rescore_known_truth.py",
 )
 
 
