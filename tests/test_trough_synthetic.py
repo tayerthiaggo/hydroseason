@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.trough_synthetic import build_record, truth_trough_months
+from tests._support.trough_synthetic import build_record, truth_trough_months
 
 
 def test_stable_record_reproduces_the_judgement_counterexample():

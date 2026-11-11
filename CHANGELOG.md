@@ -91,7 +91,7 @@ All notable changes to HydroSeason are documented here. This project follows
   behave like subbasins of the same size, small areas date the season less
   consistently, and an aseasonal catchment can contain seasonal subbasins.
   It summarises a study of 1,278 areas over the five case-study catchments
-  (`docs/handoff/2026-11-02-spatial-unit-study-results.md`).
+  ([`docs/handoff/2026-11-02-spatial-unit-study-results.md`](https://github.com/tayerthiaggo/hydroseason/tree/v0.3.0/docs/handoff/2026-11-02-spatial-unit-study-results.md), archived at the v0.3.0 tag).
 - Documented every `status_reason` value and the trough-refinement reason
   codes that were missing from `docs/report-columns.md` (including the three
   atomic-rollback codes, `essential_low_quality_recovery`, `unknown_quality`,

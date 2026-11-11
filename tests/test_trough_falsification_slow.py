@@ -1,9 +1,9 @@
 """Pre-registered known-truth checks of the circular Kuiper timing tests.
 
 Bounds are binomial sampling-error bounds at the method's own alpha of 0.05 and
-were fixed before the first run. They are not method thresholds. A failing test is a finding to record in
-docs/provisional-trough-falsification-2026-10-30.md, never a reason to change
-library code or to loosen the bound.
+were fixed before the first run. They are not method thresholds. A failing test is a finding to report,
+never a reason to change library code or to loosen the bound. The original
+run is archived at the v0.3.0 tag (docs/provisional-trough-falsification-2026-10-30.md).
 
 Runtime is roughly two minutes; run with ``-m slow``.
 """
@@ -12,7 +12,7 @@ import pytest
 
 from hydroseason import assess_water_regime
 from hydroseason._seasonality_test import TIMING_RECURRENCE_ALPHA
-from scripts.trough_synthetic import build_record
+from tests._support.trough_synthetic import build_record
 
 pytestmark = pytest.mark.slow
 

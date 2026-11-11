@@ -67,5 +67,3 @@ markdown_extensions:
 exclude_docs: |
   plans/**
   superpowers/**
-  handoff/**
-  provisional-trough-falsification-2026-10-30.md
