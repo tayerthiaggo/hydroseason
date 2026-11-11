@@ -106,7 +106,8 @@ def compare_resolution(
     c_hy = cand_analysis.hydro_years
 
     if not n_hy.empty and not c_hy.empty and "hy_year" in n_hy.columns and "hy_year" in c_hy.columns:
-        merged = pd.merge(n_hy, c_hy, on="hy_year", suffixes=("_nat", "_cand"))
+        # Left join: a 30 m year missing at the candidate scores as a miss.
+        merged = pd.merge(n_hy, c_hy, on="hy_year", how="left", suffixes=("_nat", "_cand"))
 
         def month_diff(v1: str | None, v2: str | None) -> int:
             if pd.isna(v1) or pd.isna(v2):
@@ -126,14 +127,16 @@ def compare_resolution(
         ]
 
         peak_frac = (
-            float(np.mean([d <= 1 for d in peak_diffs])) if peak_diffs else 1.0
+            float(np.mean([d <= 1 for d in peak_diffs])) if peak_diffs else 0.0
         )
         trough_frac = (
-            float(np.mean([d <= 1 for d in trough_diffs])) if trough_diffs else 1.0
+            float(np.mean([d <= 1 for d in trough_diffs])) if trough_diffs else 0.0
         )
     else:
-        peak_frac = 1.0
-        trough_frac = 1.0
+        # No 30 m years (aseasonal): timing agreement does not apply, so it is
+        # left out of the medians. 30 m years lost at the candidate count as misses.
+        no_native_years = n_hy.empty or "hy_year" not in n_hy.columns
+        peak_frac = trough_frac = np.nan if no_native_years else 0.0
 
     return ResolutionMetrics(
         catchment=catchment,
@@ -277,9 +280,10 @@ def recommend_resolution(
             fails.append(f"median correlation {med_corr:.4f} < 0.995")
         if med_nmae > 0.05:
             fails.append(f"median nMAE {med_nmae:.4f} > 0.05")
-        if med_peak_frac < 0.90:
+        # NaN means no catchment had a cycle to time, so the gate fails.
+        if pd.isna(med_peak_frac) or med_peak_frac < 0.90:
             fails.append(f"peak within 1 month fraction {med_peak_frac:.3f} < 0.90")
-        if med_trough_frac < 0.90:
+        if pd.isna(med_trough_frac) or med_trough_frac < 0.90:
             fails.append(f"trough within 1 month fraction {med_trough_frac:.3f} < 0.90")
         if max_ev_delta > 1:
             fails.append(f"max event delta {max_ev_delta} > 1")

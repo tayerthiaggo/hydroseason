@@ -1,9 +1,8 @@
-"""Tests for task W2.3: persisting/verifying full-AOI vs analysis-footprint
+"""Tests for persisting/verifying full-AOI vs analysis-footprint
 cache metadata (:mod:`hydroseason._io_wofs_zarr`'s ``record_cache_footprints``/
 ``read_cache_footprints``/``verify_cache_footprints``).
 
-Two properties are load-bearing for this task (see the plan's global
-constraints and the W2.3 brief):
+Two properties are load-bearing:
 
 1. A pruned (wet-footprint-restricted) cache and an unpruned (full-AOI) cache
    covering the SAME catchment must report the SAME ``aoi_pixel_count`` --

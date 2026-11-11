@@ -206,7 +206,8 @@ def _select_window_extreme(
     observation cannot silently anchor a historical condition baseline.
     """
     sign = 1.0 if kind == "min" else -1.0
-    value_present = window["extent_pct"].notna() & window["invalid_pct"].lt(100.0)
+    # Unknown invalid_pct (NaN) still counts as observed, as in candidate_usable.
+    value_present = window["extent_pct"].notna() & ~window["invalid_pct"].ge(100.0)
     all_obs = window.loc[value_present].copy()
     n_usable = int(window.loc[window["candidate_usable"], "extent_pct"].notna().sum()) if "candidate_usable" in window.columns else int(len(all_obs))
     if len(all_obs) < config.min_usable_candidates:
@@ -218,15 +219,7 @@ def _select_window_extreme(
     raw_extent = float(all_obs.loc[raw_month, "extent_pct"])
 
     # Screen for usable candidates with acceptable quality
-    if "quality_state" in window.columns:
-        usable_obs = window.loc[window["quality_state"].isin(["usable", "unknown"]) & window["extent_pct"].notna()].copy()
-    elif "candidate_usable" in window.columns:
-        if "invalid_pct" in window.columns:
-            usable_obs = window.loc[window["candidate_usable"] & window["invalid_pct"].le(20.0) & window["extent_pct"].notna()].copy()
-        else:
-            usable_obs = window.loc[window["candidate_usable"] & window["extent_pct"].notna()].copy()
-    else:
-        usable_obs = window.loc[window["invalid_pct"].le(20.0) & window["extent_pct"].notna()].copy()
+    usable_obs = window.loc[window["quality_state"].isin(["usable", "unknown"]) & window["extent_pct"].notna()].copy()
 
     raw_is_usable = bool(raw_month in usable_obs.index)
 
@@ -349,19 +342,6 @@ def select_cycle_peak(
     )
 
 
-# Default: how much higher (as a fraction of the year's own observed minimum) a
-# rival candidate may be while still counting as the *same* physical trough that
-# the cross-year coherence pass is free to move onto. Candidates above this
-# relative band are "materially higher" observations, not measurement noise, and
-# the coherence pass may not substitute them for the raw minimum. The value is
-# bracketed by the human-reviewed ground truth itself, independently on two
-# sides: an already-approved synthetic case treats a ~5% relative gap as
-# equivalent (coherence should win), while a real river shows a 7.1% gap is
-# material (coherence must lose). 0.05 sits at the equivalent-side edge of that
-# bracket, so it honours "≤5% is noise" without being tuned to the material
-# value it must exclude.
-_RAW_MINIMUM_REL_TOLERANCE = 0.05
-
 # All DP costs here are sums of small integer month-counts (phase, cycle
 # deviation) plus a 0.0/inf fidelity term, so genuine ties land on exactly
 # equal floats; this only absorbs floating-point summation error, not a
@@ -386,9 +366,9 @@ def select_boundary_sequence(
 
     ``raw_minimum_rel_tolerance`` gates a *fidelity* guard so the coherence pass
     cannot silently override a materially lower observed minimum. It defaults to
-    ``None``, which reproduces the historical value-blind behaviour exactly
-    (callers that pass only raw candidate tuples, such as the approved synthetic
-    optimizer tests, are unaffected). When a fraction is supplied, any candidate
+    ``None``, which applies no fidelity guard (the selection is value-blind,
+    as for callers that pass only raw candidate tuples, such as the synthetic
+    optimizer tests). When a fraction is supplied, any candidate
     whose extent exceeds its own year's observed minimum ``m_i`` by more than
     ``raw_minimum_rel_tolerance * m_i`` is treated as ineligible: it is a
     materially higher observation, not measurement noise around the same physical

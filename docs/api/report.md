@@ -19,7 +19,8 @@ artifacts (HTML, monthly CSV, hydrological-years CSV, wet-events CSV, and
 low-spells CSV) plus the manifest JSON path.
 
 Reports display public results derived under the runtime `decision_policy`
-value `hydroseason_0_2_0`.
+value `hydroseason_0_2_0`. That value names the regime and route decision,
+not the method policy (`hydroseason-v0.3.0`), which the run manifest records.
 
 ::: hydroseason.report
     options:

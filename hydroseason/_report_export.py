@@ -106,6 +106,20 @@ HY_CSV_COLUMNS = [
     "trough_interval_end_date",
     "detectability_floor_pp",
     "amplitude_to_floor_ratio",
+    # Columns added after 0.2.0 go below, so 0.2.0 columns keep their positions.
+    "dry_run_start_date",
+    "dry_run_end_date",
+    "rewetting_date",
+    "dry_run_months",
+    "dry_end_status",
+    # Why a cycle is partial/provisional, and whether it anchors the
+    # condition baseline. Categorical and count fields only; the numeric
+    # refinement fit diagnostics stay on ``analysis.hydro_years``.
+    "status_reason",
+    "trough_refinement_status",
+    "trough_refinement_reason",
+    "baseline_eligible",
+    "baseline_n",
 ]
 
 EVENT_CSV_COLUMNS = [
@@ -211,11 +225,7 @@ def build_monthly_export(
                 t_dt = pd.Timestamp(row.trough_month)
                 out.loc[out["date"] == t_dt, "is_hy_trough"] = True
     else:
-        out["hy_year"] = pd.Series(index=prepared.index, dtype="Int64")
-        out["confidence"] = pd.Series(index=prepared.index, dtype=object)
         out["phase"] = "unspecified"
-        out["is_hy_peak"] = False
-        out["is_hy_trough"] = False
 
     out["in_wet_event"] = False
     out["wet_event_id"] = pd.Series(index=prepared.index, dtype="Int64")
@@ -293,7 +303,7 @@ def build_hydro_years_export(
 def build_events_export(
     analysis: CatchmentAnalysis,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Build wet event and dry spell export tables."""
+    """Build wet event and low-extent spell export tables."""
     if analysis.events is None:
         return _empty_events(), _empty_low_spells()
 
@@ -308,18 +318,6 @@ def build_events_export(
         else _empty_low_spells()
     )
     return events_df.reset_index(drop=True), low_spells_df.reset_index(drop=True)
-
-
-def build_summary_export(
-    analysis: CatchmentAnalysis,
-    *,
-    name: str,
-    verdict: str,
-) -> pd.DataFrame:
-    """Build single-row summary export DataFrame."""
-    row = analysis.summary_row(name=name)
-    row["verdict"] = verdict
-    return pd.DataFrame([row])
 
 
 def _first_column(frame: pd.DataFrame, *names: str) -> pd.Series:
@@ -420,8 +418,18 @@ def build_user_hydro_years_export(hydro_years: pd.DataFrame) -> pd.DataFrame:
         "trough_timing_status": ("trough_timing_status",),
         "trough_interval_start_date": ("trough_interval_start",),
         "trough_interval_end_date": ("trough_interval_end",),
+        "dry_run_start_date": ("dry_run_start_month",),
+        "dry_run_end_date": ("dry_run_end_month",),
+        "rewetting_date": ("rewetting_month",),
+        "dry_run_months": ("dry_run_months",),
+        "dry_end_status": ("dry_end_status",),
         "detectability_floor_pp": ("detectability_floor_pp",),
         "amplitude_to_floor_ratio": ("amplitude_to_floor_ratio",),
+        "status_reason": ("status_reason",),
+        "trough_refinement_status": ("trough_refinement_status",),
+        "trough_refinement_reason": ("trough_refinement_reason",),
+        "baseline_eligible": ("baseline_eligible",),
+        "baseline_n": ("baseline_n",),
     }
     for target, source_names in aliases.items():
         out[target] = _first_column(hydro_years, *source_names).to_numpy()
@@ -438,7 +446,7 @@ def build_user_hydro_years_export(hydro_years: pd.DataFrame) -> pd.DataFrame:
     out["trough_boundary_date"] = out["trough_date"]
 
     # A public exact-date field is populated only when timing status is
-    # "point": an interval or unresolved extremum has no defensible single
+    # "point": an interval, broad or unresolved extremum has no defensible single
     # date. Callers whose frame carries no timing_status (the fixed-window
     # detector) keep the original, unconditional date behaviour.
     if "peak_timing_status" in out.columns:
@@ -486,6 +494,32 @@ def build_user_low_spells_export(
     return out.loc[:, LOW_SPELL_CSV_COLUMNS].reset_index(drop=True)
 
 
+def _write_text_atomic(path: Path, text: str, *, newline: str | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=path.parent, delete=False, suffix=".tmp", encoding="utf-8", newline=newline
+        ) as tmp:
+            tmp.write(text)
+            tmp_name = tmp.name
+        Path(tmp_name).replace(path)
+    except PermissionError:
+        if tmp_name is not None:
+            try:
+                Path(tmp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+        path.write_text(text, encoding="utf-8", newline=newline)
+    except Exception:
+        if tmp_name is not None:
+            try:
+                Path(tmp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+        raise
+
+
 def write_report_csvs(
     output_dir: str | Path,
     *,
@@ -514,30 +548,8 @@ def write_report_csvs(
     }
 
     for key, target in targets.items():
-        df = frames[key]
-        tmp_name = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", dir=out_path, delete=False, suffix=".tmp", encoding="utf-8"
-            ) as tmp:
-                df.to_csv(tmp.name, index=False)
-                tmp_name = tmp.name
-            Path(tmp_name).replace(target)
-        except (PermissionError, OSError) as exc:
-            if tmp_name is not None:
-                try:
-                    Path(tmp_name).unlink(missing_ok=True)
-                except Exception:
-                    pass
-            try:
-                df.to_csv(target, index=False)
-            except (PermissionError, OSError):
-                import warnings
-                warnings.warn(
-                    f"Could not overwrite {target} (file may be open in another application): {exc}",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
+        # newline="" keeps pandas' own line endings, as its direct file write does.
+        _write_text_atomic(target, frames[key].to_csv(index=False), newline="")
 
     return targets
 
@@ -552,7 +564,6 @@ __all__ = [
     "build_events_export",
     "build_hydro_years_export",
     "build_monthly_export",
-    "build_summary_export",
     "build_user_events_export",
     "build_user_hydro_years_export",
     "build_user_low_spells_export",

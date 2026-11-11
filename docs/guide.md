@@ -51,6 +51,17 @@ result = run_hydroseason(
 Optional `invalid_pct` defaults to `0.0`, treating the CSV as an
 already-screened series.
 
+If you have pixel counts, include them as `n_water`, `n_valid`, `n_invalid`
+and `n_aoi` columns. HydroSeason then works out the percentages itself:
+`extent_pct = 100 * n_water / n_valid`, the wet share of the pixels observed
+that month, and `invalid_pct = 100 * n_invalid / n_aoi`. These replace any
+percentages in the file, and a warning reports the months where a supplied
+`extent_pct` disagrees, for example because it was a share of the whole AOI.
+Counts also tell HydroSeason how small a change it can detect. Without them,
+on a series that barely changes from month to month, that detectability floor
+can fall to effectively zero, so tiny fluctuations pass as a season;
+HydroSeason warns when this happens. Pass counts whenever you have them.
+
 ### 2. From rasters, NetCDF, or Zarr
 
 Requires `pip install "hydroseason[raster]"`.
@@ -179,6 +190,35 @@ instead; see [CLI Recipes](cli-recipes.md).
 
 Full CSV column dictionary: [Report Export Columns](report-columns.md).
 
+### Comparing with 0.2.x outputs
+
+HydroSeason 0.3.0 runs method policy `hydroseason-v0.3.0` instead of
+`hydroseason-v0.2.0`. Tell outputs apart by `method_policy_id` or the
+fingerprint (`analysis.method_policy_id`, or `method.policy_id` in the run
+manifest). What can differ:
+
+- Trough timing labels. A dated label now covers the trough boundary, so some
+  `point` troughs become `interval`, `broad` or `unresolved` and lose
+  `trough_date`; `timing_status`, and the monthly `phase` and `phase_status`
+  in those years, change with them.
+- Condition labels. Any dated cycle (`point`, `interval` or `broad`) can now
+  anchor the baseline, so more areas get recharge and refuge labels and some
+  `annual_condition` values shift.
+- Boundaries on records with a flat low, mostly ephemeral channels. They move
+  later, and with them year starts and ends, some peaks, phases and
+  baselines. Whole catchments and most subbasins are unchanged.
+- New hydro-years CSV columns, appended after the 0.2.0 columns:
+  `dry_run_start_date`, `dry_run_end_date`, `rewetting_date`,
+  `dry_run_months` and `dry_end_status` (see
+  [Dates around the dry-season low](#dates-around-the-dry-season-low)), then
+  `status_reason`, `trough_refinement_status`, `trough_refinement_reason`,
+  `baseline_eligible` and `baseline_n`. The 0.2.0 columns keep their
+  positions.
+
+Compare files across versions only on columns that did not change.
+[Changes from hydroseason-v0.2.0](methods.md#changes-from-hydroseason-v020)
+lists every change and the evidence behind it.
+
 ---
 
 ## Which route did my catchment take?
@@ -206,11 +246,22 @@ test complements `R` by testing the discrete 12-month uniform null.
 | Aseasonal | Recurrence not established (peak or trough Kuiper p >= 0.05, or < 5 detectable years) | Timing recurrence is not established; do not force a hydrological year. Report discrete wet events and low-extent spells. |
 | Insufficient record | < 5 qualifying calendar years (>= 9 candidate-usable months each) | Do not infer lack of seasonality from inadequate data. |
 
-The regime label and the route are related but separate. In v0.2.0, the
+The regime label and the route are related but separate. Since v0.2.0, the
 route additionally requires that annual timing be *identifiable* and satisfy the
 **seven-cycle annualization guard**:
 - `per_year_detection` is used only for a seasonal record where at least 7 informative peak cycles and at least 7 informative trough cycles are resolved.
 - If fewer than 7 cycles are resolved, dynamic annual boundaries are withheld, and the catchment routes to `event_characterisation` instead — wet events and low-extent spells are reported, but no dynamic hydrological-year boundary is published.
+
+When only one extremum recurs, the conjunction decides against seasonality and
+the reason says which test failed. A record whose trough returns to the same
+month every year while flood peaks land anywhere is aseasonal with reason
+`peak_uniformity_not_rejected`; the mirror case gives
+`trough_uniformity_not_rejected`. The recurring extremum's test is still
+reported: `peak_timing_uniformity_p` and `trough_timing_uniformity_p` are public
+on `WaterRegimeAssessment`, and the full test, including each year's
+equivalent-month sets and the dominant month, is on
+`assessment.seasonality_test`. `mean_monthly_peak_month` and
+`mean_monthly_trough_month` are `None` unless the record is seasonal.
 
 Fewer than 30 usable annual timings (not 30 months) keeps the classification
 but warns that uncertainty intervals may be wide.
@@ -257,8 +308,10 @@ batch.raise_for_failures()
 
 Each run writes `output_dir/<safe-id>/`; a shared cache writes to
 `cache_dir/<safe-id>/`. `id_col` values must be nonblank and unique (including
-after filename sanitisation). Without it, identifiers are stable
-`aoi-0001`, `aoi-0002`, and so on. A failed AOI is captured in its
+after filename sanitisation). Without it, identifiers follow row order,
+`aoi-0001`, `aoi-0002`, and so on, and the run warns: reorder or filter the
+AOI file and a rerun into the same `output_dir` writes a different area's
+report under an old name. A failed AOI is captured in its
 `HydroSeasonAOIOutcome` and does not cancel unrelated rows; call
 `batch.raise_for_failures()` after handling any successes to raise one summary
 error for all failures.
@@ -281,6 +334,13 @@ typical 8–16 GB machine, so sequential execution may be necessary. The outer
 thread pool improves I/O overlap; it does not force Dask's internal pool and
 does not mean 2x computational throughput.
 
+If you run HydroSeason in your own process pool, for example with
+`concurrent.futures.ProcessPoolExecutor` over many CSVs, set
+`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1` and `MKL_NUM_THREADS=1` in the
+environment before the workers start. Otherwise each worker's numerical
+libraries can start one thread per CPU, and the pool oversubscribes the
+machine.
+
 ## AOI boundary maps
 
 When an AOI is available, HydroSeason carries compact boundary geometry into
@@ -297,6 +357,156 @@ may be topology-preservingly simplified and rounded for compact output. It is
 display-only: the analysed footprint remains the unsimplified acquisition
 geometry and fixed historical water mask.
 
+## Choosing the area to analyse
+
+HydroSeason reports on all the surface water inside the area you give it, so
+the area decides what the dates mean. Choose it for the question you are
+asking: a reach, a refuge, a planning zone, a subbasin or a whole catchment.
+
+A study on the five case-study catchments compared 1,278 areas built from the
+same 30 m pixels: whole catchments, HydroBASINS subbasins (Lehner and Grill
+2013, [10.1002/hyp.9740](https://doi.org/10.1002/hyp.9740)) of about 4,800,
+1,700 and 480 km², and square grid tiles of the same three sizes. Its
+decision rules were fixed before any result was read.
+
+**Grid tiles work as well as subbasins of the same size.** At matched size,
+tiles and subbasins routed to per-year detection at the same rate (difference
+−1.2 percentage points, 95% interval −5.1 to +2.5) and confirmed the same
+share of cycle boundaries (+0.9 points, −0.6 to +2.5). You do not need to
+redraw areas along drainage divides for the method to behave.
+
+**Small areas detect the season but date it less consistently.** In the three
+seasonal catchments, more than 92% of areas routed seasonal even when they
+held very little water. Areas with fewer than about 100 water pixels in a typical month (about
+0.09 km² of open water at 30 m) had a trough within one month of their
+catchment's in only 38–45% of cases, against 80% or more for larger areas, and
+fewer of their cycle boundaries were confirmed. This comparison was
+exploratory, and part of the difference may be real local timing. Treat dates
+from areas that small as indicative, and compare them with a larger area that
+contains them.
+
+**A whole catchment can hide seasonal parts.** The Lachlan routes aseasonal as
+a whole, yet 16 of its 36 level-7 subbasins (about 1,700 km² each) route
+seasonal, mostly in the upper catchment, with winter–spring peaks and summer
+troughs. The subbasins that stay aseasonal hold about four times as much
+water, so they dominate the catchment total. If a large catchment routes
+aseasonal, run its subbasins before concluding it has no season; a catchment
+that is aseasonal throughout (the Moonie: none of its 7 subbasins) stays
+aseasonal when split.
+
+**A catchment's dates describe most of its parts, not all.** In the seasonal
+catchments, a quarter of level-7 subbasins (24.7%) had a typical trough month
+more than one month from their catchment's. When the timing at a particular
+reach or refuge matters, analyse that area as well.
+
+**Borrow peaks more readily than troughs, and from the nearest larger area.**
+A second study compared the dates year by year: each subbasin against the
+subbasin one level up that contains it, and against its whole catchment.
+- **Agreement within one month.** A subbasin's peak agreed with the subbasin
+  containing it in 87% of cycles and with its catchment in 84%. Its trough
+  boundary agreed in 81% and 73%.
+- **Above about 100 water pixels a month.** The containing subbasin's peak
+  and trough dates both agreed in at least 89% of cycles.
+- **The whole catchment's trough boundary** fell below 80% agreement even for
+  the largest subbasins.
+
+If you need a place's dry-season boundary, run that place or the subbasin
+just above it rather than borrowing the catchment's.
+
+In practice:
+
+- Prefer areas with at least a few hundred water pixels in a typical month
+  when you need dates, not only a seasonal or aseasonal call.
+- For a large catchment, also run its subbasins and compare. HydroBASINS
+  level 7 is a convenient, citable set; `run_hydroseason_many` takes one row
+  per subbasin.
+- When you combine areas, sum their pixel counts rather than averaging
+  percentages (see [Dynamic Hydrological State](hydrological-state.md)).
+
+## Dates around the dry-season low
+
+The hydrological-years table gives three dates around the dry-season low.
+The first two come from the same boundary.
+
+- `trough_boundary_date` is the cycle boundary that the trough method places
+  at the end of the dry-season low; [Dynamic Hydrological State](hydrological-state.md)
+  explains how it is found and refined. `trough_date` repeats it only when the
+  low resolves to a single month; the interval columns give its span
+  otherwise.
+- The **following year's `start_date`** is the month after that boundary. It
+  is always `trough_boundary_date` plus one month, except for the first year
+  of the record and a year that starts after a gap.
+- `dry_run_end_date` is where the dry season ends: the last month of the
+  boundary's low run, before water returns in `rewetting_date`. By the
+  method's definition the year boundary is the end of the dry season, and
+  in most years the two dates are the same month. On an ephemeral channel
+  that stays dry most of the year, the search starts from the end of the
+  typical low so the boundary can reach it. Where the two still differ (for
+  example a cloudy or noisy year, or a slow rise out of the low), use
+  `trough_boundary_date` for the dates the years are built on and
+  `dry_run_end_date` for when the dry season ended. In a year with no wet
+  season, `dry_run_end_date` can lie past the next boundary.
+  `dry_end_status` is `interval` or `censored` (`unavailable` when the cycle
+  has no boundary), never `point`. The report's timeline marks the
+  trough boundary as "HY Trough" (a circle; open, as "Trough (interval)",
+  when its month is not a single point) and the end of the dry season as
+  "Dry Season Ends" (an open inverted triangle).
+
+Because both dates come from one boundary, they vary across a catchment in
+the same way. In the five case-study catchments a quarter of level-7
+subbasins had a typical trough more than a month from their catchment's, so
+read these dates for the area your question is about.
+
+**Flat, dry lows.** On a low that sits at zero extent for months, every dry
+month ties, so no single lowest month can be named. Since
+`hydroseason-v0.3.0`, when the boundary is the last month of such a run and
+water was seen to return, the trough label is dated by where the low ends:
+its interval runs from `dry_run_end_date` to the month before the next peak
+and is graded by that width (`interval` or `broad`, never `point`; a wider
+span leaves the label as it was). On `analysis.hydro_years` these rows read
+`trough_label_basis = "end_of_dry_run"` (other rows read `"lowest_month"`);
+the CSV does not carry this column. Accuracy on such records stays modest:
+in a test on records with known answers ("known truth": synthetic seasons,
+and seasons injected into real records), among ephemeral records with
+yearly results, the boundary
+dated the end of the dry season within a month in only about one year in
+four to three in ten. Most ephemeral records route to event
+characterisation and get no yearly results, and a noisy dry month can end a
+dry run early.
+
+**How far to trust a single trough month.** `trough_date` appears only when
+the trough status is `point`. That means one month stood out as the lowest
+since the cycle's peak by more than the cycle's detectability floor, and
+that month is the boundary itself. The months after the trough are not
+compared. (A boundary at the end of a flat, dry low is the exception, above:
+its label runs forward to the month before the next peak and is never
+`point`.) So the low is distinct, but the month is not necessarily exact.
+Since `hydroseason-v0.3.0`, when the lowest month is another one, for
+example a cloudy month the boundary search skips, the trough's interval is
+widened to cover both months and graded by its width (`interval` up to two
+months apart, `broad` up to five, `unresolved` beyond). The boundary does not
+move. In 0.2.x such a row read `point` for a month the label had not
+singled out: about 1 in 10 `point` troughs on 59-236 km² areas and 1 in 30
+on subbasins and tiles. Three November 2026 known-truth tests, each on
+fresh records, used synthetic seasons and seasons
+injected into real records, with today's defaults (the first tested the
+identifiability gates, the other two the timing labels):
+
+- On weak cycles (amplitude 3 to 6 times the floor), between 1 in 3 and
+  just over 4 in 10 `point` troughs were more than a month from the true
+  month.
+- On strong, smooth seasons (10 or more times the floor), fewer than 1 in 7
+  were.
+- Where water recedes slowly to its low, a trough that missed was early
+  eight to nine times in ten, by two to five months, whatever the
+  amplitude.
+- A `point` trough was not right more often than an `interval` one. On
+  smooth seasons it was right less often.
+
+On weak cycles, or where the recession is long and flat, read a single
+trough month as approximate. Check it against `amplitude_to_floor_ratio`
+and the interval columns.
+
 ## Data quality before you trust it
 
 Water-mask gaps, cloud/shadow contamination, and missing months can shift
@@ -305,16 +515,21 @@ on raw/incomplete masks before running hydro-year detection. The robust
 detector still reports an observed extremum when its month exceeds
 `max_invalid_pct=20.0`% invalid coverage. For the TROUGH this still marks
 that extremum `low_quality` and the annual cycle `provisional`; low-quality
-trough cycles cannot anchor historical condition baselines. The PEAK is
+trough cycles cannot anchor historical condition baselines (only complete,
+confirmed cycles with dated timing can; `baseline_eligible` marks them and
+`baseline_n` says how many each row is ranked against; see
+[Dynamic Hydrological State](hydrological-state.md#annual-interpretation)). The PEAK is
 judged differently: it is compared against its own calendar month's typical
 invalid coverage (see `peak_quality` below), so routine wet-season cloud over
 the peak no longer marks the cycle `provisional` on its own — only a peak
 that is anomalous for its own month, or obscured past an absolute backstop,
-does.
+does. `status_reason` and `trough_refinement_reason` say why a cycle is
+partial or provisional; see
+[Why a cycle is provisional](report-columns.md#why-a-cycle-is-provisional).
 
 For review-oriented mapping where every finite observation should
-contribute to the cycle search, pass `quality_policy="flag"` (the main
-case-study build uses this mode). Months with partial invalid coverage
+contribute to the cycle search, keep the default `quality_policy="flag"` (the
+main case-study build uses this mode). Months with partial invalid coverage
 remain `usable_month=True`, while `invalid_pct`, `quality_state="low"`,
 support, and confidence expose the uncertainty. A month with 100% invalid
 coverage or no observed extent remains unusable.
@@ -328,7 +543,7 @@ HydroSeason rigorously separates four distinct uncertainty concepts and avoids c
 1. **Observation uncertainty**: Satellite surface-water measurement error, cloud/shadow gaps, sensor resolution limitations, and historical mask boundaries.
 2. **Statistical sampling uncertainty**: Sampling variation across available observation years, quantified via non-parametric bootstrap confidence intervals (e.g., circular timing concentration CIs) and Wilson score intervals for discrete rates.
 3. **Model structural uncertainty**: Discretization choices in harmonic order selection, circular statistics assumptions, and rule-based cycle-relative phase thresholding.
-4. **Empirical threshold validation**: Calibrated false annualisation, abstention, boundary error, and phase accuracy bounds established over 5,000 independent synthetic benchmarks.
+4. **Empirical threshold validation**: How the method's thresholds behave on records with known answers: synthetic records with real observation gaps, and seasons injected into real flat records. Real-record checks use 319 national DEA WOfS windows (about 15 km a side, drawn for a gap-filling study), 1,278 subbasins and grid tiles in the five case-study catchments, 40 grid tiles over the Fitzroy catchment (WA), and the case-study catchments themselves. The 0.2.0 validation also used 561 CAMELS-AUS catchments (see [Validation Stages & Denominators](methods.md#validation-stages-denominators)); these are mostly upper catchments with little surface water, so they say little about lowland channels and wetlands. These checks describe behaviour under test conditions; they do not calibrate the thresholds or give an error rate for a real area.
 
 ### Post-selection held-out skill (`seasonal_cv_skill`)
 
@@ -336,7 +551,7 @@ The `seasonal_cv_skill` metric measures **post-selection** cross-validation skil
 
 ### Benchmark recoverability vs real-world validation
 
-Boundary recoverability metrics (such as leave-one-year-out within-one-month accuracy and MAE) demonstrate algorithmic recoverability under controlled benchmark data with known truth. Real-world boundary accuracy is not claimed as interchangeable with streamflow or gauge discharge without catchment-specific physical validation. Quality grades indicate methodological admissibility under explicit evidentiary thresholds, not probabilities of truth.
+Boundary recoverability metrics (such as leave-one-year-out within-one-month accuracy and MAE) demonstrate algorithmic recoverability on controlled benchmark data with known answers. Real-world boundary accuracy is not claimed as interchangeable with streamflow or gauge discharge without catchment-specific physical validation. Quality grades indicate methodological admissibility under explicit evidentiary thresholds, not probabilities of truth.
 
 ---
 
@@ -411,7 +626,7 @@ results** and the files use the `hydroseason-results` stem.
 
 `generate_catchment_report` also writes the run manifest
 (`<stem>_manifest.json`, schema `hydroseason-run-manifest-v1`) recording the
-method policy (`hydroseason-v0.2.0`) and its fingerprint, package and
+method policy (`hydroseason-v0.3.0`) and its fingerprint, package and
 dependency versions, and output checksums; `paths.manifest_json` points to it.
 
 ---

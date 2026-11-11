@@ -63,7 +63,7 @@ class HydroSeasonBatchError(RuntimeError):
 
 @dataclass(frozen=True)
 class HydroSeasonBatchResult:
-    """Immutable, source-ordered outcomes from a future batch workflow."""
+    """Immutable, source-ordered outcomes from a batch run."""
 
     outcomes: tuple[HydroSeasonAOIOutcome, ...]
 
@@ -323,6 +323,14 @@ def _prepare_batch_aois(
 def _resolve_ids(frame, *, id_col: str | None) -> tuple[str, ...]:
     """Return explicit cleaned IDs or stable row-position defaults."""
     if id_col is None:
+        if len(frame) > 1:
+            warnings.warn(
+                "No id_col given, so AOIs are named by row position (aoi-0001, ...). "
+                "Reordering or filtering the AOI file and rerunning into the same "
+                "output_dir writes a different AOI's report under an old name; pass id_col.",
+                UserWarning,
+                stacklevel=4,
+            )
         return tuple(f"aoi-{position:04d}" for position in range(1, len(frame) + 1))
 
     import pandas as pd

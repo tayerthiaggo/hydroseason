@@ -1,4 +1,4 @@
-"""Self-contained light HTML report assembly for manager bundles."""
+"""Self-contained light HTML report assembly for report bundles."""
 
 from __future__ import annotations
 
@@ -240,7 +240,7 @@ def _unbounded_year_card(row: pd.Series, year: Any) -> str:
         observed = (
             '<div class="detail-kpis">'
             '<div class="detail-kpi-card">'
-            '<span class="detail-kpi-label">End Dry Month</span>'
+            '<span class="detail-kpi-label">Trough Month</span>'
             f'<span class="detail-kpi-value value-dry">{_escape(_fmt_date(trough_date))}</span>'
             f'<span class="detail-kpi-sub">{_escape(_fmt_extent(trough_extent))} extent</span>'
             "</div></div>"
@@ -371,7 +371,7 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             elif _safe_date(mid_date) == date:
                 event = '<span class="cell-marker marker-mid">Mid Dry</span>'
             elif _safe_date(trough_date) == date:
-                event = f'<span class="cell-marker marker-dry">Dry End{trough_marker_suffix}</span>'
+                event = f'<span class="cell-marker marker-dry">Trough{trough_marker_suffix}</span>'
             elif (
                 peak_interval_start is not None
                 and peak_interval_end is not None
@@ -385,7 +385,7 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
                 and trough_timing_status in ("interval", "broad")
                 and min(trough_interval_start, trough_interval_end) <= date <= max(trough_interval_start, trough_interval_end)
             ):
-                event = '<span class="cell-marker marker-dry-interval">Dry Interval</span>'
+                event = '<span class="cell-marker marker-dry-interval">Trough Interval</span>'
             extent_value = month.get("extent_pct")
             invalid_value = month.get("invalid_pct")
             invalid_text = "N/A" if pd.isna(invalid_value) else f"{float(invalid_value):.2f}%"
@@ -414,7 +414,7 @@ def _year_cards(monthly: pd.DataFrame, hydro_years: pd.DataFrame) -> str:
             '<div class="detail-kpis">'
             f'<div class="detail-kpi-card"><span class="detail-kpi-label">Peak Wet Month</span><span class="detail-kpi-value value-wet">{_escape(peak_display)}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "peak_extent_pct")))} extent</span></div>'
             f'<div class="detail-kpi-card"><span class="detail-kpi-label">Mid-Dry Target</span><span class="detail-kpi-value value-mid">{_escape(_fmt_date(mid_date))}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "temporal_mid_dry_extent_pct", "mid_extent_pct")))} extent</span></div>'
-            f'<div class="detail-kpi-card"><span class="detail-kpi-label">End Dry Month</span><span class="detail-kpi-value value-dry">{_escape(trough_display)}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "trough_extent_pct", "end_extent_pct")))} extent</span></div>'
+            f'<div class="detail-kpi-card"><span class="detail-kpi-label">Trough Month</span><span class="detail-kpi-value value-dry">{_escape(trough_display)}</span><span class="detail-kpi-sub">{_escape(_fmt_extent(_row_value(row, "trough_extent_pct", "end_extent_pct")))} extent</span></div>'
             '</div>'
             f'{inferred_start_note}'
             '<table class="nested-table"><thead><tr><th>Month</th><th>Phase</th><th>Water Extent</th><th>Invalid/Cloud Cover</th><th>Key Event</th></tr></thead>'
@@ -436,7 +436,6 @@ def render_report_html(
     hydro_years: pd.DataFrame,
     events: pd.DataFrame,
     low_spells: pd.DataFrame,
-    summary: pd.DataFrame,
     timeline_figure: dict[str, Any],
     secondary_figure: dict[str, Any],
     event_figure: dict[str, Any] | None = None,
@@ -860,6 +859,7 @@ def render_report_html(
     if (!trace || !trace.meta) return;
     const phase = trace.meta.phase_legend;
     const timingInterval = trace.meta.timing_interval;
+    const eventShading = trace.meta.event_shading;
     if (phase) {{
       const hidden = trace.visible !== "legendonly";
       const nextVisible = hidden ? "legendonly" : true;
@@ -871,10 +871,11 @@ def render_report_html(
       Plotly.relayout(timeline, {{shapes}});
       return false;
     }}
-    if (timingInterval) {{
+    if (timingInterval || eventShading) {{
       const hidden = trace.visible !== "legendonly";
       const nextVisible = hidden ? "legendonly" : true;
-      const prefix = "timing_interval:" + timingInterval;
+      // Interval, wet-event and low-spell shapes are matched by name prefix.
+      const prefix = timingInterval ? "timing_interval:" + timingInterval : eventShading + ":";
       const shapes = (timeline.layout.shapes || []).map(shape =>
         shape.name && shape.name.startsWith(prefix) ? Object.assign({{}}, shape, {{visible: !hidden}}) : shape
       );

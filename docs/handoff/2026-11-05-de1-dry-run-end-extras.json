@@ -1,0 +1,93 @@
+{
+  "reported_only": true,
+  "results_sha256_lf": "98e581f25f6d3f1921a925e466242d0e563c4a91feb2038b8b888727a50e3cb1",
+  "frozen_script_sha256_lf": "8e591be9554aaca531289e746d70ec9e516c7a9f2773a07d3b08827a75447a2b",
+  "routing": {
+    "I|ephemeral|event_characterisation": 393,
+    "I|ephemeral|per_year_detection": 181,
+    "I|pulse|event_characterisation": 125,
+    "I|pulse|per_year_detection": 162,
+    "I|sine|event_characterisation": 129,
+    "I|sine|per_year_detection": 158,
+    "S|ephemeral|event_characterisation": 698,
+    "S|ephemeral|per_year_detection": 502,
+    "S|pulse|event_characterisation": 158,
+    "S|pulse|per_year_detection": 242,
+    "S|sine|event_characterisation": 143,
+    "S|sine|per_year_detection": 257
+  },
+  "ephemeral_early_ends_by_rewet_month": {
+    "I|dry_month_above_tolerance": 1300,
+    "I|mid_dry_pulse": 52,
+    "I|no_rewet_month": 223,
+    "I|wet_season": 120,
+    "S|dry_month_above_tolerance": 3632,
+    "S|mid_dry_pulse": 116,
+    "S|no_rewet_month": 209,
+    "S|wet_season": 178
+  },
+  "ephemeral_early_dry_month_rise_in_eps_quantiles": {
+    "I": {
+      "0.25": 1.48,
+      "0.5": 2.28,
+      "0.75": 4.09
+    },
+    "S": {
+      "0.25": 1.49,
+      "0.5": 2.31,
+      "0.75": 3.68
+    }
+  },
+  "overshoot_pairs": {
+    "I|ephemeral": 43,
+    "I|pulse": 57,
+    "I|sine": 30,
+    "S|ephemeral": 66,
+    "S|pulse": 10,
+    "S|sine": 2
+  },
+  "overshoot_pairs_by_peak_quality": {
+    "I|ephemeral|peak_not_usable": 37,
+    "I|ephemeral|peak_usable": 6,
+    "I|pulse|peak_not_usable": 39,
+    "I|pulse|peak_usable": 18,
+    "I|sine|peak_not_usable": 25,
+    "I|sine|peak_usable": 5,
+    "S|ephemeral|peak_not_usable": 66,
+    "S|pulse|peak_not_usable": 10,
+    "S|sine|peak_not_usable": 1,
+    "S|sine|peak_usable": 1
+  },
+  "point_ends_by_shape": {
+    "I|ephemeral": 2651,
+    "I|pulse": 3386,
+    "I|sine": 3008,
+    "S|ephemeral": 6162,
+    "S|pulse": 2695,
+    "S|sine": 2631
+  },
+  "point_ends_not_correct_by_shape": {
+    "I|ephemeral": 1147,
+    "I|pulse": 796,
+    "I|sine": 270,
+    "S|ephemeral": 3681,
+    "S|pulse": 1003,
+    "S|sine": 263
+  },
+  "moved_point_ends_by_shape": {
+    "I|ephemeral": 1230,
+    "I|pulse": 816,
+    "I|sine": 1157,
+    "S|ephemeral": 2675,
+    "S|pulse": 399,
+    "S|sine": 541
+  },
+  "moved_point_ends_not_correct_by_shape": {
+    "I|ephemeral": 337,
+    "I|pulse": 147,
+    "I|sine": 96,
+    "S|ephemeral": 1230,
+    "S|pulse": 80,
+    "S|sine": 33
+  }
+}

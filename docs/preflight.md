@@ -89,7 +89,7 @@ payload = result.to_dict()
 ### Thresholds are not calibrated yet
 
 !!! warning "`thresholds="default"` raises"
-    The reviewed threshold profile has **not** been installed in 0.2.0.
+    The reviewed threshold profile has **not** been installed in 0.3.0.
     Calling `preflight(...)` without a `thresholds` argument raises
     `PreflightProfileUnavailable` rather than guessing at cut-offs that were
     never reviewed.

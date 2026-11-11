@@ -9,11 +9,14 @@ confidently-labelled boundaries fitted to noise.
 """
 from __future__ import annotations
 
+import functools
+import warnings
 from dataclasses import dataclass, field, replace
 
 import pandas as pd
 
 from ._decision_policy import DECISION_POLICY, DecisionPolicy, Route
+from ._dry_run import ANCHOR_RANGE_FRACTION
 from ._dynamic_year import DynamicHydroYearConfig
 from ._events import WaterEventResult, extract_water_events
 from ._exceptions import BoundaryNotSupported
@@ -21,7 +24,6 @@ from ._fingerprint import extent_fingerprint
 from ._method_policy import CURRENT_METHOD_POLICY, method_policy_fingerprint
 from ._phase_scheme import (
     PHASE_SCHEME_UNSET,
-    LegacyPhaseModel,
     PhaseScheme,
     UnsetPhaseScheme,
     resolve_phase_scheme,
@@ -33,6 +35,11 @@ from .hydrological_state import HydrologicalStateResult, analyze_hydrological_st
 __all__ = ["CatchmentAnalysis", "Route", "analyze_catchment"]
 
 _CYCLE_TIMING_INFORMATIVE_STATUSES: frozenset[str] = frozenset({"point", "interval", "broad"})
+
+# A floor below this is machine precision, not a measurement. Without pixel
+# counts and with a zero measurement tolerance, a series that barely changes
+# between months has nothing else to bound its floor from below.
+_NEGLIGIBLE_FLOOR_PP = 1e-9
 
 
 @dataclass(frozen=True)
@@ -59,10 +66,9 @@ class CatchmentAnalysis:
     )
     random_state: int = 0
     input_fingerprint: str = ""
-
-    @property
-    def public_route(self) -> Route:
-        return self.route
+    measurement_tolerance_pct: float = 0.0
+    min_months_per_year: int = 9
+    n_bootstrap: int = 200
 
     def summary_row(self, *, name: str) -> dict:
         """Flat one-row-per-catchment record for a cross-catchment table."""
@@ -135,6 +141,63 @@ def _policy_evidence(regime: WaterRegimeAssessment) -> str:
     return f"peak p={peak_p}, trough p={trough_p}"
 
 
+def _warn_if_floor_collapsed(extent, analysis: CatchmentAnalysis) -> None:
+    has_counts = isinstance(extent, pd.DataFrame) and "n_valid" in extent.columns
+    hydro_years = analysis.hydro_years
+    if has_counts or hydro_years is None or hydro_years.empty:
+        return
+    if "detectability_floor_pp" not in hydro_years.columns:
+        return
+    floors = pd.to_numeric(hydro_years["detectability_floor_pp"], errors="coerce")
+    collapsed = int((floors < _NEGLIGIBLE_FLOOR_PP).sum())
+    if collapsed:
+        warnings.warn(
+            f"{collapsed} of {len(hydro_years)} hydrological years have a detectability floor of "
+            f"effectively zero (below {_NEGLIGIBLE_FLOOR_PP:g} percentage points), because the record "
+            "has no pixel counts and barely changes between months. Their amplitude-to-floor "
+            "ratios carry no information, so very small changes can pass as a season. Pass "
+            "n_water, n_valid, n_invalid and n_aoi, or set measurement_tolerance_pct.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
+def _warns_on_collapsed_floor(func):
+    @functools.wraps(func)
+    def wrapper(extent, *args, **kwargs):
+        analysis = func(extent, *args, **kwargs)
+        _warn_if_floor_collapsed(extent, analysis)
+        return analysis
+
+    return wrapper
+
+
+def _end_of_climatological_low(climatology: pd.Series, lowest_month: int) -> int:
+    """The last month of the typical low before water returns (rule ``end_of_climatological_low``).
+
+    The trough search is centred on one month for the whole record. On a
+    flat-bottomed record every dry month ties near zero and the lowest mean
+    month is the first of them, months before the dry season ends. Follow
+    the months whose mean extent stays within a tenth of the climatological
+    range of the minimum, from the lowest month forward, and return the last.
+    On a V-shaped season that is the lowest month or the one after.
+    """
+    clim = climatology.reindex(range(1, 13))
+    if clim.isna().any():
+        return lowest_month
+    floor = float(clim.min())
+    ceiling = floor + ANCHOR_RANGE_FRACTION * (float(clim.max()) - floor)
+    month = lowest_month
+    for step in range(1, 12):
+        candidate = (lowest_month - 1 + step) % 12 + 1
+        if float(clim[candidate]) > ceiling:
+            break
+        month = candidate
+    return month
+
+
+
+@_warns_on_collapsed_floor
 def analyze_catchment(
     extent,
     *,
@@ -145,7 +208,6 @@ def analyze_catchment(
     quality_policy: QualityPolicy = "flag",
     measurement_tolerance_pct: float = 0.0,
     phase_scheme: PhaseScheme | UnsetPhaseScheme = PHASE_SCHEME_UNSET,
-    phase_model: LegacyPhaseModel | None = None,
     n_bootstrap: int = 200,
     random_state: int = 0,
 ) -> CatchmentAnalysis:
@@ -161,10 +223,7 @@ def analyze_catchment(
         value_col=value_col,
         date_col=date_col,
     )
-    canonical_scheme = resolve_phase_scheme(
-        phase_scheme=phase_scheme,
-        phase_model=phase_model,
-    )
+    canonical_scheme = resolve_phase_scheme(phase_scheme=phase_scheme)
 
     regime = assess_water_regime(
         extent,
@@ -206,6 +265,9 @@ def analyze_catchment(
             decision_policy=regime.decision_policy,
             random_state=random_state,
             input_fingerprint=input_fingerprint,
+            measurement_tolerance_pct=measurement_tolerance_pct,
+            min_months_per_year=min_months_per_year,
+            n_bootstrap=n_bootstrap,
         )
 
     if regime.regime == "seasonal":
@@ -227,10 +289,11 @@ def analyze_catchment(
                 if regime.mean_monthly_peak_month is not None
                 else int(operational_climatology.idxmax())
             )
-            operational_trough_month = (
+            operational_trough_month = _end_of_climatological_low(
+                operational_climatology,
                 regime.mean_monthly_trough_month
                 if regime.mean_monthly_trough_month is not None
-                else int(operational_climatology.idxmin())
+                else int(operational_climatology.idxmin()),
             )
             if (
                 regime.mean_monthly_peak_month is None
@@ -275,6 +338,9 @@ def analyze_catchment(
                 decision_policy=regime.decision_policy,
                 random_state=random_state,
                 input_fingerprint=input_fingerprint,
+                measurement_tolerance_pct=measurement_tolerance_pct,
+                min_months_per_year=min_months_per_year,
+                n_bootstrap=n_bootstrap,
             )
         years = state.hydro_years.copy()
         if years.empty:
@@ -294,6 +360,9 @@ def analyze_catchment(
                 decision_policy=regime.decision_policy,
                 random_state=random_state,
                 input_fingerprint=input_fingerprint,
+                measurement_tolerance_pct=measurement_tolerance_pct,
+                min_months_per_year=min_months_per_year,
+                n_bootstrap=n_bootstrap,
             )
         years["boundary_basis"] = "detected_per_year"
         state = replace(state, hydro_years=years)
@@ -334,6 +403,9 @@ def analyze_catchment(
                 decision_policy=regime.decision_policy,
                 random_state=random_state,
                 input_fingerprint=input_fingerprint,
+                measurement_tolerance_pct=measurement_tolerance_pct,
+                min_months_per_year=min_months_per_year,
+                n_bootstrap=n_bootstrap,
             )
 
         route_reason = (
@@ -357,6 +429,9 @@ def analyze_catchment(
             decision_policy=regime.decision_policy,
             random_state=random_state,
             input_fingerprint=input_fingerprint,
+            measurement_tolerance_pct=measurement_tolerance_pct,
+            min_months_per_year=min_months_per_year,
+            n_bootstrap=n_bootstrap,
         )
 
     route_reason = (
@@ -379,4 +454,7 @@ def analyze_catchment(
         decision_policy=regime.decision_policy,
         random_state=random_state,
         input_fingerprint=input_fingerprint,
+        measurement_tolerance_pct=measurement_tolerance_pct,
+        min_months_per_year=min_months_per_year,
+        n_bootstrap=n_bootstrap,
     )

@@ -1,9 +1,9 @@
 """Render a PNG preview of a HydroSeason self-contained HTML report.
 
 Used to regenerate docs/assets/report-preview.png (the README/docs "what
-you get" screenshot) whenever the report template changes. Requires the
-``dev`` extra (``pip install -e ".[dev]"`` then ``playwright install
-chromium``); never a runtime dependency of the package itself.
+you get" screenshot) whenever the report template changes. Install
+playwright by hand first (``pip install playwright`` then ``playwright
+install chromium``); it is not a dependency of the package or its extras.
 """
 from __future__ import annotations
 

@@ -19,7 +19,7 @@ def test_peak_selector_flags_isolated_high_without_hiding_raw_maximum():
     index = pd.date_range("2020-01-01", periods=8, freq="MS")
     cycle = pd.DataFrame({
         "extent_pct": [2, 10, 90, 11, 8, 6, 4, 2],
-        "invalid_pct": 0.0, "candidate_usable": True,
+        "invalid_pct": 0.0, "candidate_usable": True, "quality_state": "usable",
     }, index=index)
     peak = select_cycle_peak(cycle, start=index[0], end=index[-1], noise_pp=5, amplitude_pp=88)
     assert peak.raw_month == pd.Timestamp("2020-03-01")
@@ -58,7 +58,7 @@ def test_peak_candidates_exclude_both_trough_boundaries():
     index = pd.date_range("2020-01-01", periods=8, freq="MS")
     cycle = pd.DataFrame({
         "extent_pct": [90, 10, 30, 40, 50, 45, 20, 88],
-        "invalid_pct": 0.0, "candidate_usable": True,
+        "invalid_pct": 0.0, "candidate_usable": True, "quality_state": "usable",
     }, index=index)
     peak = select_cycle_peak(cycle, start=index[0], end=index[-1], noise_pp=1, amplitude_pp=10)
     assert index[0] < peak.selected_month < index[-1]
@@ -119,7 +119,7 @@ def test_singleton_low_is_retained_but_marked_ambiguous():
     index = pd.date_range("2020-06-01", periods=7, freq="MS")
     frame = pd.DataFrame({
         "extent_pct": [20, 15, 10, 1, 11, 16, 22],
-        "invalid_pct": 0.0, "candidate_usable": True,
+        "invalid_pct": 0.0, "candidate_usable": True, "quality_state": "usable",
     }, index=index)
     result = select_window_minimum(frame, expected=pd.Timestamp("2020-09-01"),
                                    expected_count=7, noise_pp=2.0, amplitude_pp=21.0)
@@ -132,7 +132,7 @@ def test_low_run_is_contiguous_and_does_not_cross_rewetting():
     index = pd.date_range("2020-06-01", periods=7, freq="MS")
     frame = pd.DataFrame({
         "extent_pct": [8, 2, 2.2, 9, 2.1, 10, 15],
-        "invalid_pct": 0.0, "candidate_usable": True,
+        "invalid_pct": 0.0, "candidate_usable": True, "quality_state": "usable",
     }, index=index)
     result = select_window_minimum(frame, expected=pd.Timestamp("2020-09-01"),
                                    expected_count=7, noise_pp=0.5, amplitude_pp=13.0)
@@ -143,7 +143,7 @@ def test_low_run_is_contiguous_and_does_not_cross_rewetting():
 def test_right_truncated_window_is_provisional_evidence():
     index = pd.date_range("2020-08-01", periods=5, freq="MS")
     frame = pd.DataFrame({"extent_pct": [5, 4, 3, 2, 1], "invalid_pct": 0.0,
-                          "candidate_usable": True}, index=index)
+                          "candidate_usable": True, "quality_state": "usable"}, index=index)
     result = select_window_minimum(frame, expected=pd.Timestamp("2020-11-01"),
                                    expected_count=7, noise_pp=0.2, amplitude_pp=4.0)
     assert result.window_status == "right_truncated"

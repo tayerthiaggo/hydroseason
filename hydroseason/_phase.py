@@ -13,7 +13,6 @@ import pandas as pd
 if TYPE_CHECKING:
     from ._dynamic_year import DynamicHydroYearConfig
 
-PHASES = ("rising", "receding")
 PHASE_COLUMNS = [
     "hy_year", "phase", "phase_status", "phase_confidence", "phase_method",
     "boundary_basis", "extent_pct", "candidate_usable",
@@ -39,7 +38,6 @@ def empty_monthly_phase(prepared: pd.DataFrame, *, method: str = "none", boundar
     return frame.loc[:, PHASE_COLUMNS]
 
 
-
 def _as_month(value) -> pd.Timestamp | None:
     if pd.isna(value):
         return None
@@ -50,207 +48,15 @@ def _months_in(prepared: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -
     return prepared.loc[start:end].index
 
 
-def _confidence(row: pd.Series, *, has_half_loss: bool, unusable: bool) -> float:
+def _confidence(row: pd.Series, *, unusable: bool) -> float:
     score = 0.55
     if row.get("boundary_status") == "confirmed":
         score += 0.20
-    if has_half_loss:
-        score += 0.10
     if row.get("peak_selection_status") == "raw":
         score += 0.10
     if unusable:
         score -= 0.25
     return float(np.clip(score, 0.0, 1.0))
-
-
-def _monthly_baseline(prepared: pd.DataFrame) -> pd.Series:
-    usable = prepared.loc[
-        prepared["candidate_usable"] & prepared["extent_pct"].notna(),
-        "extent_pct",
-    ]
-    if usable.empty:
-        return pd.Series(dtype=float)
-    return usable.groupby(usable.index.month).median()
-
-
-def _first_baseline_crossing(
-    prepared: pd.DataFrame,
-    *,
-    start: pd.Timestamp,
-    peak: pd.Timestamp,
-    baseline: pd.Series,
-    noise_pp: float,
-) -> pd.Timestamp:
-    window = prepared.loc[start:peak]
-    if window.empty:
-        return peak
-    values = window["extent_pct"]
-    levels = pd.Series(
-        [baseline.get(date.month, np.nan) for date in window.index],
-        index=window.index,
-        dtype=float,
-    )
-    usable = window["candidate_usable"] & values.notna() & levels.notna()
-    if not usable.any():
-        return peak
-    slopes = values.diff()
-    previous = start - pd.DateOffset(months=1)
-    previous_value = prepared.loc[previous, "extent_pct"] if previous in prepared.index else values.iloc[0]
-    slopes.iloc[0] = values.iloc[0] - previous_value
-    candidates = window.index[usable & values.ge(levels) & slopes.ge(-float(noise_pp))]
-    if len(candidates) == 0:
-        return peak
-    return pd.Timestamp(candidates[0])
-
-
-def _first_baseline_downcrossing(
-    prepared: pd.DataFrame,
-    *,
-    start: pd.Timestamp,
-    end: pd.Timestamp,
-    baseline: pd.Series,
-) -> pd.Timestamp | None:
-    window = prepared.loc[start:end]
-    if window.empty:
-        return None
-    values = window["extent_pct"]
-    levels = pd.Series(
-        [baseline.get(date.month, np.nan) for date in window.index],
-        index=window.index,
-        dtype=float,
-    )
-    usable = window["candidate_usable"] & values.notna() & levels.notna()
-    candidates = window.index[usable & values.le(levels)]
-    if len(candidates) == 0:
-        return None
-    return pd.Timestamp(candidates[0])
-
-
-def _first_relative_threshold_crossing(
-    prepared: pd.DataFrame,
-    *,
-    start: pd.Timestamp,
-    end: pd.Timestamp,
-    baseline: pd.Series,
-    amplitude: float,
-    fraction: float,
-) -> pd.Timestamp | None:
-    window = prepared.loc[start:end]
-    if window.empty:
-        return None
-    values = window["extent_pct"]
-    levels = pd.Series(
-        [baseline.get(date.month, np.nan) + fraction * amplitude for date in window.index],
-        index=window.index,
-        dtype=float,
-    )
-    usable = window["candidate_usable"] & values.notna() & levels.notna()
-    candidates = window.index[usable & values.le(levels)]
-    if len(candidates) == 0:
-        return None
-    return pd.Timestamp(candidates[0])
-
-
-def assign_rule_based_phases(
-    prepared: pd.DataFrame,
-    hydro_years: pd.DataFrame,
-    *,
-    noise_pp: float,
-    boundary_basis: str = "robust_extrema",
-) -> pd.DataFrame:
-    """Assign the public rising/receding phases to robust annual cycles.
-
-    The month-specific reference median and half-loss calculations remain in
-    place for legacy boundary semantics, but adjacent intervals are merged into
-    the two canonical labels.
-    """
-    out = empty_monthly_phase(prepared, method="rule_based", boundary_basis=boundary_basis)
-    out["phase_status"] = "outside_cycle"
-    baseline = _monthly_baseline(prepared)
-
-    for _, row in hydro_years.iterrows():
-        start = _as_month(row.get("hy_start"))
-        end = _as_month(row.get("hy_end"))
-        if row.get("status") == "complete" or start is None or end is None:
-            continue
-        months = _months_in(prepared, start, end)
-        out.loc[months, "hy_year"] = int(row["hy_year"])
-        out.loc[months, "phase_status"] = "unresolved_cycle"
-
-    # Partial cycles still contain useful observed structure.  Label them
-    # provisionally instead of discarding every phase and emitting a large
-    # ``unspecified`` block; the annual row's status remains the authority on
-    # boundary quality.
-    phaseable = hydro_years.loc[hydro_years["status"].isin(["complete", "partial"])]
-    for _, row in phaseable.iterrows():
-        start = _as_month(row.get("hy_start"))
-        end = _as_month(row.get("hy_end"))
-        peak = _as_month(row.get("peak_month"))
-        if start is None or end is None or peak is None:
-            continue
-        wet_start = _first_baseline_crossing(
-            prepared,
-            start=start,
-            peak=peak,
-            baseline=baseline,
-            noise_pp=noise_pp,
-        )
-
-        peak_extent = float(row["peak_extent_pct"])
-        peak_baseline = baseline.get(peak.month, np.nan)
-        trough_extent = float(row.get("trough_extent_pct", np.nan))
-        amplitude = peak_extent - float(peak_baseline) if pd.notna(peak_baseline) else np.nan
-        if not np.isfinite(amplitude) or amplitude <= 0:
-            amplitude = peak_extent - trough_extent
-        if not np.isfinite(amplitude) or amplitude <= 0:
-            amplitude = max(float(noise_pp), 1e-6)
-
-        half_crossing = _first_relative_threshold_crossing(
-            prepared,
-            start=peak + pd.DateOffset(months=1),
-            end=end,
-            baseline=baseline,
-            amplitude=amplitude,
-            fraction=0.5,
-        )
-        half_start = half_crossing or peak + pd.DateOffset(months=1)
-        recession_end = _first_baseline_downcrossing(
-            prepared,
-            start=half_start + pd.DateOffset(months=1),
-            end=end,
-            baseline=baseline,
-        )
-        dry_start = recession_end or end
-        has_half_loss = half_crossing is not None
-
-        assignments = [
-            (start, wet_start - pd.DateOffset(months=1), "rising"),
-            (wet_start, half_start - pd.DateOffset(months=1), "rising"),
-            (half_start, dry_start - pd.DateOffset(months=1), "receding"),
-            (dry_start, end, "receding"),
-        ]
-
-        for phase_start, phase_end, phase in assignments:
-            if phase_start > phase_end:
-                continue
-            months = _months_in(prepared, phase_start, phase_end)
-            out.loc[months, "hy_year"] = int(row["hy_year"])
-            out.loc[months, "phase"] = phase
-
-        out.loc[peak, "phase"] = "rising"
-        out.loc[end, "phase"] = "receding"
-        cycle_months = _months_in(prepared, start, end)
-        usable = out.loc[cycle_months, "candidate_usable"].astype(bool)
-        phase_status = "ok" if row.get("status") == "complete" else "provisional"
-        status = np.where(usable, phase_status, "unusable")
-        confidence = [
-            _confidence(row, has_half_loss=has_half_loss, unusable=not bool(is_usable))
-            for is_usable in usable
-        ]
-        out.loc[cycle_months, "phase_status"] = status
-        out.loc[cycle_months, "phase_confidence"] = confidence
-
-    return out.loc[:, PHASE_COLUMNS]
 
 
 def assign_two_phase_phases(
@@ -282,13 +88,13 @@ def assign_two_phase_phases(
         out.loc[recovery, "phase"] = "rising"
         out.loc[recession, "phase"] = "receding"
         usable = out.loc[cycle_months, "candidate_usable"].astype(bool)
-        if timing_status == "interval":
+        if timing_status in {"interval", "broad"}:
             base_status = "interval_boundary"
         else:
             base_status = "ok" if row.get("status") == "complete" else "provisional"
         out.loc[cycle_months, "phase_status"] = np.where(usable, base_status, "unusable")
         out.loc[cycle_months, "phase_confidence"] = [
-            _confidence(row, has_half_loss=False, unusable=not bool(value))
+            _confidence(row, unusable=not bool(value))
             for value in usable
         ]
     return out.loc[:, PHASE_COLUMNS]
@@ -299,7 +105,6 @@ def assign_monthly_phases(
     hydro_years: pd.DataFrame,
     config: DynamicHydroYearConfig,
     *,
-    noise_pp: float,
     boundary_basis: str | None = None,
 ) -> pd.DataFrame:
     """Dispatch monthly phase labelling without mutating annual products.
@@ -318,10 +123,8 @@ def assign_monthly_phases(
 
 
 __all__ = [
-    "PHASES",
     "PHASE_COLUMNS",
     "assign_monthly_phases",
-    "assign_rule_based_phases",
     "assign_two_phase_phases",
     "empty_monthly_phase",
 ]

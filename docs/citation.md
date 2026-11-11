@@ -4,19 +4,20 @@ If you use HydroSeason in research, cite the **software release**.
 
 ## Software
 
-Cite the version you used. For HydroSeason 0.2.0:
+Cite the version you used. For HydroSeason 0.3.0:
 
 ```bibtex
 @software{tayer_hydroseason,
   author  = {Tayer, Thiaggo C.},
   title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
-  version = {0.2.0},
+  version = {0.3.0},
   year    = {2026},
-  url     = {https://github.com/tayerthiaggo/hydroseason},
-  doi     = {10.5281/zenodo.22956109}
+  url     = {https://github.com/tayerthiaggo/hydroseason/releases/tag/v0.3.0}
 }
 ```
 
+The 0.3.0 version DOI is added here once Zenodo archives the release; until
+then, cite the [v0.3.0 GitHub Release](https://github.com/tayerthiaggo/hydroseason/releases/tag/v0.3.0).
 Version DOI (0.2.0): [10.5281/zenodo.22956109](https://doi.org/10.5281/zenodo.22956109).
 To cite the project as a whole, across versions, use the concept DOI
 [10.5281/zenodo.21866898](https://doi.org/10.5281/zenodo.21866898), which the
@@ -51,7 +52,7 @@ These papers motivate transparent circular effect sizes and uncertainty
 reporting; they do **not** prescribe HydroSeason's package thresholds. The
 circular Kuiper recurrence conjunction, detectability floors, five-detectable-year
 guard, seven-cycle annualization guard, and direct-profile refinement thresholds are
-explicit software decisions frozen under `hydroseason-v0.2.0` and are documented in
+explicit software decisions frozen under `hydroseason-v0.3.0` and are documented in
 the [Methods Reference](methods.md).
 
 ### Interpretation limitations

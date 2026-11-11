@@ -17,7 +17,6 @@ import xarray as xr
 from affine import Affine
 
 from hydroseason._io_wofs_zarr import (
-    CONTENT_DIGEST_ALGORITHM,
     WOFS_CACHE_SCHEMA_VERSION,
     WOfSCacheHandle,
     WOfSCacheIdentity,
@@ -43,8 +42,6 @@ pytest.importorskip("rioxarray")
 
 
 def test_content_hasher_is_blake2b_and_is_fresh_each_call():
-    assert CONTENT_DIGEST_ALGORITHM == "blake2b"
-
     first = _content_hasher()
     assert first.name == "blake2b"
 
@@ -143,7 +140,7 @@ def test_absent_wet_mask_preserves_the_legacy_request_digest():
 
 
 # ---------------------------------------------------------------------------
-# W2.1: planning-footprint / composite-bundle cache-identity tests (Step 2)
+# planning-footprint / composite-bundle cache-identity tests
 # ---------------------------------------------------------------------------
 
 
@@ -163,8 +160,9 @@ def test_absent_footprint_fields_preserve_the_legacy_request_digest():
 
 def test_single_mask_composite_bundle_is_the_default_and_preserves_request_digest():
     """composite_bundle="single_mask" is the default and must not perturb
-    the digest of a request that never mentions it -- pre-rename "legacy"
-    callers' caches stay reachable byte-for-byte via the accepted alias."""
+    the digest of a request that never mentions it -- caches written under
+    the pre-rename "legacy" name stay reachable byte-for-byte via the digest
+    normalisation (the name is no longer accepted as acquisition input)."""
     request = _base_request()
     assert request.composite_bundle == "single_mask"
     assert "composite_bundle" not in request._digest_payload()
@@ -264,12 +262,66 @@ def test_same_request_writer_is_rejected(tmp_path):
                 pass
 
 
+def test_writer_lock_admits_one_process_and_frees_when_the_holder_dies(tmp_path):
+    """An empty lock file left by a crash never blocks; a live holder in
+    another process always does, and its death releases the lock."""
+    import os
+    import subprocess
+    import sys
+    import time
+
+    import hydroseason
+
+    lock_file = tmp_path / ".locks" / "abc.lock"
+    lock_file.parent.mkdir()
+    lock_file.write_text("", encoding="utf-8")
+    holder = subprocess.Popen(
+        [
+            sys.executable, "-c",
+            "import sys, time\n"
+            "from hydroseason._io_wofs_zarr import cache_writer_lock\n"
+            "with cache_writer_lock(sys.argv[1], 'abc'):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(60)\n",
+            str(tmp_path),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join(
+                [str(Path(hydroseason.__file__).parents[1]), os.environ.get("PYTHONPATH", "")]
+            ),
+        },
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(RuntimeError, match="already being written"):
+            with cache_writer_lock(tmp_path, "abc"):
+                pass
+    finally:
+        holder.kill()
+        holder.wait()
+        holder.stdout.close()
+
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            with cache_writer_lock(tmp_path, "abc"):
+                break
+        except RuntimeError:
+            # Windows frees a dead process's locks a few ms after it exits.
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.05)
+
+
 def test_offline_lookup_uses_local_index_without_network(tmp_path):
     identity = WOfSCacheIdentity.from_request(
         _request(), shape=(10, 20), transform=(30, 0, 0, 0, -30, 0)
     )
     handle = create_cache_handle(tmp_path, identity)
-    assert resolve_cached_request(tmp_path, _request(), offline=True) == handle
+    assert resolve_cached_request(tmp_path, _request()) == handle
 
 
 def test_offline_lookup_rejects_store_not_named_for_full_identity(tmp_path):
@@ -285,7 +337,7 @@ def test_offline_lookup_rejects_store_not_named_for_full_identity(tmp_path):
     index_payload["store"] = f"stores/{identity.request_digest}"
     index_path.write_text(json.dumps(index_payload), encoding="utf-8")
 
-    assert resolve_cached_request(tmp_path, _request(), offline=True) is None
+    assert resolve_cached_request(tmp_path, _request()) is None
 
 
 def test_full_grid_identities_use_physically_distinct_stores(tmp_path):
@@ -672,6 +724,24 @@ def test_annual_writer_persists_exact_monthly_extent_counts(tmp_path):
     assert extent["invalid_pct"].tolist() == [20.0, 20.0]
 
 
+def test_extent_counts_keep_the_first_month_of_a_mid_month_start(tmp_path):
+    mask = _canonical_cube(shape=(2, 2, 3), fill=1).assign_coords(
+        time=pd.date_range("2020-03-01", periods=2, freq="MS")
+    )
+    handle = _handle_for_cube(tmp_path, mask)
+    write_annual_group(
+        handle,
+        2020,
+        mask.chunk({"time": 1, "y": 2, "x": 3}),
+        windows=(GridWindow("r0c0", 0, 2, 0, 3),),
+        item_ids=("a",),
+    )
+
+    extent = open_completed_extent_counts(handle, "2020-03-15", "2020-04-30")
+
+    assert list(extent.index) == list(pd.date_range("2020-03-01", periods=2, freq="MS"))
+
+
 def test_pruned_extent_counts_do_not_infer_full_aoi_denominator_from_footprints(tmp_path):
     """A pruned store cannot reconstruct monthly full-AOI valid/invalid counts
     from fixed geometry footprints, so the fast reader must fail closed."""
@@ -814,7 +884,7 @@ def test_load_wofs_monthly_extent_rejects_explicit_wet_aoi_pruned_zarr(monkeypat
 
 
 def test_write_annual_group_persists_dual_extent_counts_when_given(tmp_path):
-    """Step 3 (W2.2): write_annual_group must persist a parallel
+    """write_annual_group must persist a parallel
     dual_extent_counts.json when handed already-reduced secondary
     (max_water) counts, without touching extent_counts.json (the primary
     composite's own artifact) at all.
@@ -928,7 +998,7 @@ def test_write_annual_group_omits_dual_extent_counts_by_default(tmp_path):
 
 
 def test_open_completed_dual_extent_counts_round_trips_persisted_values(tmp_path):
-    """Step 4 (W2.2): open_completed_dual_extent_counts must read back
+    """open_completed_dual_extent_counts must read back
     exactly what write_annual_group persisted, over a real completed store,
     with the fixed aoi/analysis-mask pixel-count denominators broadcast per
     row (one fixed value per row, not per-month-varying)."""
@@ -1008,24 +1078,19 @@ def test_open_completed_dual_extent_counts_returns_none_for_legacy_store(tmp_pat
 
 
 def test_legacy_write_annual_group_output_is_byte_identical_to_pre_w22(tmp_path):
-    """Step 5 (W2.2): a REAL regression proof, not just "the code looks
-    unchanged" -- these exact digests were captured by running this same
-    fixture through write_annual_group on the pre-W2.2 commit (b6816da,
-    before dual_counts/composite_bundle threading existed in this module),
-    then hand-confirmed identical after this task's changes landed (a
-    git-stash A/B diff of the full JSON summary below was byte-for-byte
-    equal). Hardcoding them here means any FUTURE change that perturbs
-    legacy's compute path, content digest, or extent_counts.json values
-    fails this test immediately, rather than relying on a one-time manual
-    comparison that itself isn't re-checked by CI.
+    """A real regression proof, not just "the code looks unchanged": these
+    exact digests were captured by running this fixture through
+    write_annual_group before dual_counts/composite_bundle existed in this
+    module (commit b6816da), and confirmed byte-identical after. Hardcoding
+    them means any change that perturbs the single-mask compute path,
+    content digest, or extent_counts.json values fails this test, rather
+    than relying on a one-time manual comparison.
 
-    ``extent_payload["content_digest"]`` was re-pinned for Task 4's
+    ``extent_payload["content_digest"]`` was re-pinned for the
     WOFS_CACHE_SCHEMA_VERSION 3 -> 4 bump: extent_counts.json embeds
-    schema_version in the hashed payload, so bumping it necessarily changes
-    this one digest even though the underlying n_aoi/n_valid/n_water values
-    (asserted below) are byte-identical to before -- confirmed by hand
-    before repinning, exactly like the original pinning process this
-    docstring describes.
+    schema_version in the hashed payload, so the bump changes this one
+    digest even though the n_aoi/n_valid/n_water values (asserted below)
+    are byte-identical.
     """
     rng = np.random.default_rng(1234)
     shape = (12, 64, 96)
@@ -1243,7 +1308,7 @@ def test_write_empty_annual_group_matches_full_path_output(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Task 4: scientific-mask semantics pinned in the WOfS cache
+# Scientific-mask semantics pinned in the WOfS cache
 # ---------------------------------------------------------------------------
 
 
@@ -1334,7 +1399,7 @@ def test_planning_safety_cells_changes_request_digest_independent_of_historical_
 
 
 def test_absent_historical_mask_fields_preserve_the_legacy_request_digest():
-    """Existing (pre-Task-4) caches on disk must stay reachable: with no
+    """Caches written before historical-mask support must stay reachable: with no
     historical mask supplied, the digest payload must be byte-identical to
     the pre-historical-mask-field version (same guarantee as
     test_absent_footprint_fields_preserve_the_legacy_request_digest)."""
@@ -1658,9 +1723,8 @@ def test_write_annual_group_passes_invariants_when_n_aoi_matches_historical_mask
 
 
 def test_write_annual_group_skips_historical_mask_invariant_for_legacy_requests(tmp_path):
-    """A request with no historical mask (the pre-Task-4, still-supported
-    shape) must behave exactly as before: no n_aoi == historical_mask_pixel_count
-    check is even attempted, since there is no pinned denominator to compare
+    """A request with no historical mask must skip the
+    n_aoi == historical_mask_pixel_count check entirely, since there is no pinned denominator to compare
     against."""
     mask = _canonical_cube(shape=(2, 2, 3), fill=-2)
     mask.values[0] = [[1, 0, -1], [-2, 1, 0]]
@@ -1839,12 +1903,12 @@ def test_open_completed_extent_counts_refuses_when_analysis_mask_is_tampered(tmp
 
 
 def test_open_completed_extent_counts_still_refuses_planning_only_footprint(tmp_path):
-    """Pre-existing behaviour (see
+    """As in
     test_pruned_extent_counts_do_not_infer_full_aoi_denominator_from_footprints
-    above) must be unchanged: a store pruned only via wet_mask_sha256/
-    footprint_* (planning-only, no historical mask) is still refused,
-    because it still lacks a valid scientific denominator regardless of
-    Task 4's new acceptance path."""
+    above: a store pruned only via wet_mask_sha256/footprint_*
+    (planning-only, no historical mask) is refused, because it lacks a
+    valid scientific denominator; only a historical mask makes a pruned
+    store acceptable."""
     import geopandas as gpd
     from shapely.geometry import box
 

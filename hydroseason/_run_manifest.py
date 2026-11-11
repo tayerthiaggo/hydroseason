@@ -118,6 +118,7 @@ def _collect_dependencies() -> dict[str, str]:
     return deps
 
 
+
 def build_run_manifest(
     *,
     extent: Any,
@@ -180,8 +181,9 @@ def build_run_manifest(
         if "trough_refinement_applied" in analysis.hydro_years.columns
         else 0
     )
+    # A refinement that ran but found no defensible boundary reports "unresolved".
     pass2_abstained = (
-        int((analysis.hydro_years.get("trough_refinement_status") == "abstained").sum())
+        int((analysis.hydro_years["trough_refinement_status"] == "unresolved").sum())
         if "trough_refinement_status" in analysis.hydro_years.columns
         else 0
     )
@@ -200,10 +202,14 @@ def build_run_manifest(
             n_events = 0
 
     analysis_section = {
+        "measurement_tolerance_pct": analysis.measurement_tolerance_pct,
+        "min_months_per_year": analysis.min_months_per_year,
+        "n_bootstrap": analysis.n_bootstrap,
         "n_events": n_events,
         "n_hydro_years": len(analysis.hydro_years),
         "pass2_abstained_count": pass2_abstained,
         "pass2_applied_count": pass2_applied,
+        "quality_policy": analysis.quality_policy,
         "reason": analysis.route_reason,
         "reason_codes": reason_codes,
         "regime": analysis.regime.regime,

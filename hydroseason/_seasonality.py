@@ -32,6 +32,46 @@ _MIN_EVALUABLE_YEARS = 5
 
 @dataclass(frozen=True)
 class SeasonalPatternResult:
+    """Output of :func:`classify_seasonal_pattern`: an advisory seasonal shape.
+
+    The labels describe the selected fitted harmonic curve, not the observed
+    record, and do not set the analysis route.
+
+    Attributes
+    ----------
+    pattern : str
+        ``unimodal_annual``, ``bimodal_or_complex``, ``weak_or_irregular``,
+        ``low_variability`` or ``insufficient_record``.
+    expected_peak_month, expected_trough_month : int or None
+        Main peak and trough months of the fitted curve (1-12).
+    secondary_peak_month, secondary_trough_month : int or None
+        Second-ranked peak and trough months, when the curve has them.
+    seasonal_strength : float
+        ``seasonal_cv_skill`` clipped to 0-1; 0.0 for ``low_variability``.
+    bootstrap_support : float
+        1.0 when any peak mode was retained, else 0.0. Not a calibrated
+        confidence measure.
+    peak_phase_iqr_months, trough_phase_iqr_months : float or None
+        Always ``None`` from this function.
+    n_complete_years : int
+        Calendar years with all twelve months usable.
+    seasonal_cv_skill : float
+        Leave-one-year-out skill of the selected harmonic order.
+    periodicity_p : float
+        Periodicity test p-value; 1.0 when no test ran.
+    selected_harmonic_order : int
+        Harmonic order of the fitted curve (0 is a constant).
+    seasonal_amplitude_pp : float
+        Peak-to-trough range of the fitted curve, in percentage points.
+    amplitude_noise_ratio : float
+        ``seasonal_amplitude_pp`` over the robust residual scale (at least the
+        resolution floor); 0.0 when the amplitude is at or below the floor.
+    peak_timing_n_modes, trough_timing_n_modes : int
+        Number of retained peak and trough modes.
+    n_evaluable_years : int
+        Years with any weighted, usable month.
+    """
+
     pattern: Pattern
     expected_peak_month: int | None
     expected_trough_month: int | None
@@ -84,14 +124,15 @@ def classify_seasonal_pattern(
     n_bootstrap: int = 200,
     n_null: int = _DEFAULT_N_NULL,
     random_state: int = 0,
-    measurement_tolerance_pct: float = 1.0,
+    measurement_tolerance_pct: float = 0.0,
     quality_policy: Literal["exclude", "flag"] = "flag",
 ) -> SeasonalPatternResult:
     """Classify annual-cycle shape from weighted, partial-year-tolerant evidence.
 
     Every month passing the observation policy contributes, weighted by its
-    observed fraction. Complete calendar years remain a compatibility metric,
-    but evaluable partial years now gate and inform the fit.
+    observed fraction. Evaluable partial years count towards the minimum of
+    five evaluable years and inform the fit; ``n_complete_years`` is reported
+    for reference only.
     """
     if not np.isfinite(measurement_tolerance_pct) or measurement_tolerance_pct < 0.0:
         raise ValueError("measurement_tolerance_pct must be a non-negative finite number.")
@@ -209,9 +250,8 @@ def classify_seasonal_pattern(
         )
 
     if mode_min_frequency is None:
-        # Compatibility path for existing callers until generated calibration
-        # defaults exist. Shape comes from the selected weighted curve, with no
-        # invented mode-retention threshold.
+        # Without a mode-retention threshold, shape comes from the selected
+        # weighted curve rather than an invented threshold.
         peak_modes = tuple(_curve_extrema(curve, "peak"))
         trough_modes = tuple(_curve_extrema(curve, "trough"))
     else:

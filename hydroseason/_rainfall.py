@@ -6,10 +6,8 @@ for the extent record itself -- it is compared *against* their output (see
 one thing that analysis is for: reporting what the satellite actually
 observed, independent of a rainfall model's assumptions.
 
-Ported from ``legacy/rainfall:hydroseason/fetch.py``
-(``get_monthly_silo_rainfall``), narrowed to the one path this repo uses --
-SILO's public monthly-rain NetCDF store on S3, one file per calendar year --
-and changed from a full-file download to a lazy, byte-range read: each
+Reads SILO's public monthly-rain NetCDF store on S3, one file per calendar
+year, lazily by byte range rather than as a full-file download: each
 catchment AOI covers roughly 1% of the national grid (SILO covers all of
 Australia at 0.05 degree resolution), so downloading the ~14 MB national file
 per year to keep 1% of it wastes the other 99% of every transfer, repeated for

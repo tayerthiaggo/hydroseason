@@ -236,7 +236,7 @@ def test_diagnostic_mode_reports_raw_metrics_without_hidden_threshold(monkeypatc
 def test_default_threshold_mode_requires_installed_profile():
     module = importlib.import_module("hydroseason.preflight")
 
-    with pytest.raises(module.PreflightProfileUnavailable, match="finish the calibration/freeze checkpoint"):
+    with pytest.raises(module.PreflightProfileUnavailable, match="has not been reviewed yet"):
         module.preflight("aoi.geojson", "2005-01-01", "2006-12-31")
 
 

@@ -1,0 +1,156 @@
+{
+  "plan": "docs/handoff/2026-11-02-spatial-unit-study-plan.md",
+  "plan_sha256_lf": "8840a23f1e344fa881c616f7c4d0a7176d60ece5996a294ec25fb68403af0c11",
+  "script_sha256_lf": "303a9761047e0f477fdb0d2a793fe3309d920440b987e50171cceae5bb2288ce",
+  "git_head": "d32dd47ff9a829a1927769474df9c8eb7d29c980",
+  "git_branch": "spatial-unit-study",
+  "git_status_short": [
+    "?? RELEASE_PLAN_0.2.1.md",
+    "?? docs/handoff/",
+    "?? docs/provisional-trough-analysis-2026-10-30.md",
+    "?? docs/provisional-trough-judgement-2026-10-30.md",
+    "?? docs/provisional-trough-verdict-2026-10-30.md",
+    "?? scripts/spatial_unit_study.py"
+  ],
+  "hydroseason_version": "0.2.0",
+  "python": "3.12.13",
+  "numpy": "2.4.6",
+  "pandas": "3.0.3",
+  "analysis_call": "analyze_catchment(extent, phase_scheme=\"two_phase\", quality_policy=\"flag\")",
+  "study_window": [
+    "2005-01-01",
+    "2025-12-01"
+  ],
+  "inputs": {
+    "boundaries": {
+      "daly_river_nt": "348b243813702a0096d35b6f2fd574d583995ae83b0b1a2f9edff3339c34f7f9",
+      "fitzroy_river_wa": "e51dc63d92bc832af8f8b04a1750a4c55da419060999719b282398a336fb8ff9",
+      "gilbert_river_qld": "89b9404aa7345542477bbfc8370e61f5152b525ceeb036125adec6324eb05922",
+      "lachlan_river_nsw": "b698f3f091606d13fcffa725d218cb559301da5baaec105458dfaba928010879",
+      "moonie_river_qld_nsw": "00618b14c18f652903f85344777372aaae6b2fac435b998e73b7d440fd46e403"
+    },
+    "fitzroy_dwer_shp_sha256": "780cdf6c1ebfc1dad7094f3f3c96a6ddaece2da494764a56cd6d2ccfcf4683af",
+    "hydrobasins_zip_sha256": "0d92e803d5b18837c811d133be87ea1fc4a1b7362c974a694e423c9bbcb479b8",
+    "hydrobasins_shp_sha256": {
+      "6": "8ff5b2fcf08903b15018121a2fff99038cb207d3160544e8f02128ee6b8f8eb3",
+      "7": "464e1f74c60f2bc786717972f89c9364b6fc52881c1ee34b6fd8bb78b2f2fedf",
+      "8": "f55bea36a5bcf7901c4003ed7a11204129c7c7c562894e97d4ee63d70e2c002f"
+    },
+    "cubes": {
+      "daly_river_nt": {
+        "path": "D:\\RLH\\5.6\\data_local\\raw\\WaterMask-TSFill\\cache\\raw_wofs_flags_daly_river_nt_1986_2026.zarr",
+        "zmetadata_sha256": "7e25e7d89d8300346ea1a4523667808db89af114cdee6d620f7398e99c421ac9",
+        "zattrs_sha256": "d0ab4d0874433709b82a285e6cfdef69ed88e0a723ce325b1755067d450b8df6"
+      },
+      "fitzroy_river_wa": {
+        "path": "D:\\RLH\\5.6\\data_local\\raw\\WaterMask-TSFill\\cache\\raw_wofs_flags_fitzroy_river_1986_2026.zarr",
+        "zmetadata_sha256": "2f11c9feb312af7b6585ea27e5143dd61228953dbc714a73e1a58c4113a28629",
+        "zattrs_sha256": "cbbd78bf885204ae68fa2c36d26100fc362cd0d3ded8da6dae3bad2e4d0bcccb"
+      },
+      "gilbert_river_qld": {
+        "path": "D:\\RLH\\5.6\\data_local\\raw\\WaterMask-TSFill\\cache\\raw_wofs_flags_gilbert_1986_2026.zarr",
+        "zmetadata_sha256": "76d79b9667f93e3d779f9c337f2e42529c6279d5598a55d876d40109238bffcd",
+        "zattrs_sha256": "d6e92ef3d1859a1e824c02e32199d48eeec3d2442592a441103513d82becbc47"
+      },
+      "lachlan_river_nsw": {
+        "path": "D:\\RLH\\5.6\\data_local\\raw\\WaterMask-TSFill\\cache\\raw_wofs_flags_lachlan_river_nsw_1986_2026.zarr",
+        "zmetadata_sha256": "437ec65e5d676d682818ba2767f0fe3175039857d086bce8c682aebe99f4a6fc",
+        "zattrs_sha256": "ba85f947fbb47d5b03bf1c9bf075f862c0b05729b9bdf2078f67f7e26d64de18"
+      },
+      "moonie_river_qld_nsw": {
+        "path": "D:\\RLH\\5.6\\data_local\\raw\\WaterMask-TSFill\\cache\\raw_wofs_flags_moonie_river_qld_nsw_1986_2026.zarr",
+        "zmetadata_sha256": "f76bc8f07df74e68076b19ba766629e8547b555a153f619fbea0aebf04846d4b",
+        "zattrs_sha256": "8fc251e955d944f2159981db6d46b38cd7514d5d05fab47190219ce97be6c559"
+      }
+    }
+  },
+  "units": {
+    "tile_sides": {
+      "6": {
+        "median_subbasin_km2": 4807.093,
+        "tile_side_km": 69
+      },
+      "7": {
+        "median_subbasin_km2": 1693.184,
+        "tile_side_km": 41
+      },
+      "8": {
+        "median_subbasin_km2": 476.305,
+        "tile_side_km": 22
+      }
+    },
+    "counts": {
+      "daly_river_nt": {
+        "catchment": 1,
+        "hb6": 9,
+        "hb7": 33,
+        "hb8": 66,
+        "tile6": 12,
+        "tile7": 32,
+        "tile8": 115
+      },
+      "fitzroy_river_wa": {
+        "catchment": 1,
+        "hb6": 9,
+        "hb7": 40,
+        "hb8": 153,
+        "tile6": 19,
+        "tile7": 55,
+        "tile8": 191
+      },
+      "gilbert_river_qld": {
+        "catchment": 1,
+        "hb6": 4,
+        "hb7": 12,
+        "hb8": 25,
+        "tile6": 4,
+        "tile7": 12,
+        "tile8": 43
+      },
+      "lachlan_river_nsw": {
+        "catchment": 1,
+        "hb6": 10,
+        "hb7": 36,
+        "hb8": 110,
+        "tile6": 17,
+        "tile7": 45,
+        "tile8": 160
+      },
+      "moonie_river_qld_nsw": {
+        "catchment": 1,
+        "hb6": 1,
+        "hb7": 7,
+        "hb8": 15,
+        "tile6": 2,
+        "tile7": 8,
+        "tile8": 28
+      }
+    }
+  },
+  "units_csv_sha256": "45f9acaf070ed4195922533b725c1ed82bd5ccb8a6bec4c85f63fe729e6cb57c",
+  "series_sha256": {
+    "gilbert_river_qld.csv.gz": "340dacdc1c14c896dc94eeee73396360a30798e942bb438fc53879308fb833b9",
+    "moonie_river_qld_nsw.csv.gz": "ef3443e5c9e0d2e2c8d69c9a4e5f6a2ff3a0b1dba1437b333ea9b137d3f1526b"
+  },
+  "validation": {
+    "gilbert_river_qld": {
+      "pearson_r": 0.999479,
+      "months_compared": 252,
+      "n_aoi_cube": 24462518,
+      "n_aoi_case": 24491693,
+      "n_aoi_ratio": 0.998809,
+      "max_abs_extent_diff_pp": 0.222194,
+      "pass": true
+    },
+    "moonie_river_qld_nsw": {
+      "pearson_r": 0.999351,
+      "months_compared": 252,
+      "n_aoi_cube": 16283168,
+      "n_aoi_case": 16308023,
+      "n_aoi_ratio": 0.998476,
+      "max_abs_extent_diff_pp": 0.066318,
+      "pass": true
+    }
+  },
+  "receipt_written_utc": "2026-11-02T03:40:00.442328+00:00"
+}

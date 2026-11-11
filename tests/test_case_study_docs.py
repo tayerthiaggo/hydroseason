@@ -148,3 +148,61 @@ def test_checked_main_summary_has_all_protected_outcomes():
         if peak is not None:
             assert row["water_extent_peak_month"] == peak
             assert row["climatological_trough_month"] == trough
+
+
+def _refinement_reason_codes() -> set[str]:
+    """Reason codes the trough-refinement code can write, read from source."""
+    import re
+
+    sources = [
+        Path("hydroseason/_trough_refinement.py"),
+        Path("hydroseason/_trough_refinement_direct_profile.py"),
+        Path("hydroseason/_dynamic_year.py"),
+    ]
+    patterns = [
+        # Not the first item of a ``status, reason = "...", "..."`` pair.
+        r'\breason\s*=\s*"([a-z_]+)"(?!\s*,\s*")',
+        r'\bunstable_reason\s*=\s*"([a-z_]+)"',
+        r'status,\s*reason\s*=\s*"[a-z_]+",\s*"([a-z_]+)"',
+        r'_empty_result\(\s*"[a-z_]+",\s*"([a-z_]+)"',
+        r'"trough_refinement_reason"\]\s*=\s*"([a-z_]+)"',
+        r'\breason\s*=\s*\(\s*"([a-z_]+)"\s*if[^)]*?else\s*"([a-z_]+)"\s*\)',
+    ]
+    codes: set[str] = set()
+    for source in sources:
+        text = source.read_text(encoding="utf-8")
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, flags=re.S):
+                codes.update(group for group in match.groups() if group)
+    return codes
+
+
+def test_every_trough_refinement_reason_code_is_documented():
+    codes = _refinement_reason_codes()
+    # The scan must keep finding the codes it was written against.
+    assert {
+        "accepted", "interval_peak", "low_quality_peak", "open_span",
+        "missing_or_unresolved_peak", "recovery_within_noise",
+        "essential_low_quality_recovery", "atomic_rollback_cycle",
+        "atomic_rollback_ordering", "atomic_rollback_barrier",
+    } <= codes
+    doc = Path("docs/report-columns.md").read_text(encoding="utf-8")
+    undocumented = sorted(code for code in codes if f"`{code}`" not in doc)
+    assert undocumented == []
+
+
+def test_every_status_reason_is_documented():
+    import re
+
+    text = Path("hydroseason/_dynamic_year.py").read_text(encoding="utf-8")
+    assigned = set(re.findall(r'status_reason"?\]?\s*[=:]\s*"([a-z_]+)"', text))
+    assigned |= set(re.findall(r'status_reason="([a-z_]+)"', text))
+    # Values chosen inside the multi-line conditional expression.
+    assigned |= {
+        "record_start_boundary", "peak_quality_anomalous", "unresolved_timing",
+        "ok", "boundary_provisional",
+    }
+    doc = Path("docs/report-columns.md").read_text(encoding="utf-8")
+    section = doc.split("### Why a cycle is provisional", 1)[1].split("\n## ", 1)[0]
+    undocumented = sorted(code for code in assigned if f"| `{code}` |" not in section)
+    assert undocumented == []

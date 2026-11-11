@@ -5,6 +5,10 @@ import pandas as pd
 
 from ._state_input import QualityPolicy, prepare_monthly_extent
 
+# Aggregate timing statuses that may anchor the annual condition baseline
+# (hydroseason-v0.3.0). Recorded in the method policy manifest.
+BASELINE_TIMING_STATUSES: tuple[str, ...] = ("point", "interval", "broad")
+
 _JOINT_STATE_MAP: dict[tuple[str, str], str] = {
     ("high", "high"): "wet_persistent",
     ("high", "low"): "recharged_then_contracting",
@@ -70,6 +74,46 @@ def classify_annual_surface_water_condition(
     noise_pp: float | None = None,
     timing_amplitude_k: float = 2.0,
 ) -> pd.DataFrame:
+    """Rank each cycle's peak and trough extent against the record's own baseline.
+
+    Anchoring cycles are ``complete``, with a ``confirmed`` boundary and a peak
+    that is not ``anomalous`` (where those columns exist), and dated timing
+    (``point``, ``interval`` or ``broad``). Each cycle's peak (recharge) and
+    trough (refuge) extent is ranked against them by empirical percentile:
+    ``low`` at or below ``low_percentile``, ``high`` at or above
+    ``high_percentile``. The two labels join into ``annual_condition``.
+
+    Parameters
+    ----------
+    annual : pandas.DataFrame
+        Cycles from :func:`detect_dynamic_hydrological_years`.
+    reference : str
+        ``"full_record"`` ranks against all anchoring cycles; ``"rolling"``
+        against up to ``rolling_window_cycles`` earlier ones, needing at least
+        ``rolling_min_cycles``. Any other value needs ``reference_start`` and
+        ``reference_end``.
+    reference_start, reference_end : optional
+        Keep only anchoring cycles whose ``hy_end`` falls in this period.
+    min_baseline_cycles : int
+        With fewer anchoring cycles every label is ``insufficient_baseline``
+        (full and fixed baselines).
+    low_percentile, high_percentile : float
+        Percentile cut-offs for ``low`` and ``high``.
+    low_variability : bool
+        When true, and ``allow_low_variability_labels`` is false, every label
+        is ``not_applicable_low_variability``.
+    noise_pp : float, optional
+        Robust noise scale. In the ``*_qualified`` columns a ``low`` or
+        ``high`` label closer than this to the baseline median reads
+        ``typical_uncertain``; with ``timing_amplitude_k`` it also sets
+        ``timing_confidence``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``annual`` sorted by ``hy_year`` with percentile, condition, baseline
+        and qualified-label columns added.
+    """
     if reference not in ("full_record", "rolling") and (reference_start is None or reference_end is None):
         raise ValueError("reference must be 'full_record', 'rolling', or include reference_start and reference_end.")
     if reference == "rolling" and not 1 <= rolling_min_cycles <= rolling_window_cycles:
@@ -85,29 +129,35 @@ def classify_annual_surface_water_condition(
     # any caller whose frame carries an explicit ``boundary_status`` column
     # (provisional boundaries must never enter the baseline). The check is
     # conditional: callers that never ran the robust detector have no such column
-    # and keep the original ``status``-only behaviour.
+    # and are gated on ``status`` only.
     if "boundary_status" in out.columns:
         reference_mask &= out["boundary_status"].eq("confirmed")
     # A cycle may only anchor the baseline if its peak observation is sound.
     # Cycle completeness is deliberately independent of ROUTINE peak cloud (the
     # peak is interior to a trough-to-trough cycle), so cycles with cloudy but
-    # seasonally-normal peaks now arrive here complete and confirmed. The guard
+    # seasonally-normal peaks arrive here complete and confirmed. The guard
     # must therefore be explicit rather than inherited from the cycle having
     # been marked partial. Conditional, matching the boundary gate above:
     # callers that never ran the robust detector carry no such column.
     if "peak_quality" in out.columns:
         reference_mask &= out["peak_quality"].ne("anomalous")
-    # A cycle may only anchor the baseline if its extremum timing is a
-    # defensible exact date, not merely a bounded interval: a broad plateau's
-    # internal operational date must never confirm a historical condition.
+    # A cycle may only anchor the baseline if its peak and trough timing are
+    # bounded: an exact month (``point``) or an interval (``interval``,
+    # ``broad``). The baseline ranks the extents read at the peak and at the
+    # trough boundary, not their dates, so a bounded interval is enough.
+    # ``unresolved`` cycles stay out. Admitting only ``point`` cycles would
+    # leave most units without a baseline.
     if "timing_status" in out.columns:
-        reference_mask &= out["timing_status"].eq("point")
+        reference_mask &= out["timing_status"].isin(BASELINE_TIMING_STATUSES)
     if reference_start is not None:
         dates = pd.to_datetime(out["hy_end"])
         reference_mask &= dates.between(pd.Timestamp(reference_start), pd.Timestamp(reference_end))
 
     out["baseline_mode"] = "full" if reference == "full_record" else ("fixed" if reference != "rolling" else "")
-    out["baseline_n"] = 0
+    out["baseline_eligible"] = reference_mask.to_numpy(dtype=bool)
+    # Number of cycles each row is ranked against. Rolling mode fills it per
+    # row below; the full and fixed baselines exclude the row itself.
+    out["baseline_n"] = int(reference_mask.sum()) - reference_mask.astype(int)
     out["baseline_uncertain"] = False
 
     if reference == "rolling":
@@ -246,6 +296,15 @@ def compute_monthly_surface_water_condition(
     allow_unknown_quality: bool = False,
     quality_policy: QualityPolicy = "flag",
 ) -> pd.DataFrame:
+    """Rank each month's extent against the same calendar month in other years.
+
+    Only usable months enter the reference, a month is left out of its own
+    reference, and ``reference_start`` and ``reference_end`` (given together)
+    restrict it to that period. Returns one row per month with
+    ``extent_pct``, ``reference_median_pct``, ``anomaly_pct``,
+    ``condition_percentile`` (empirical percentile), ``reference_n`` and
+    ``quality_state``; anomaly and percentile are NaN for unusable months.
+    """
     frame = prepare_monthly_extent(
         extent, value_col=value_col, date_col=date_col,
         max_invalid_pct=max_invalid_pct, allow_unknown_quality=allow_unknown_quality,

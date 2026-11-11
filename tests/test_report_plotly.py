@@ -9,7 +9,6 @@ from hydroseason._catchment import analyze_catchment
 from hydroseason._report_export import build_monthly_export
 from hydroseason._report_plotly import (
     event_duration_figure,
-    hydro_year_figure,
     low_spell_duration_figure,
     rainfall_context_figure,
     secondary_figure,
@@ -124,14 +123,14 @@ def test_timeline_contains_phase_context_quality_and_scale_controls(seasonal_dat
     ]
     assert primary_names[:7] == [
         "Water Extent (%)", "3-Month Rolling Avg", "Reference Median", "Median Baseline",
-        "HY Peak", "HY Mid Dry", "HY End Dry",
+        "HY Peak", "HY Mid Dry", "HY Trough",
     ]
     assert next(trace for trace in figure["data"] if trace["name"] == "Reference Median")["visible"] == "legendonly"
     assert next(trace for trace in figure["data"] if trace["name"] == "Median Baseline")["visible"] == "legendonly"
     marker_names = {
         trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
     }
-    assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
+    assert marker_names - {"Dry Season Ends"} == {"HY Peak", "HY Mid Dry", "HY Trough"}
     assert {"phase:rising", "phase:receding"} <= {
         shape["name"] for shape in phase_shapes
     }
@@ -179,7 +178,7 @@ def test_timeline_hover_has_requested_point_fields_and_two_decimal_extent(season
     assert all(
         trace["marker"]["size"] == 8
         for trace in figure["data"]
-        if trace.get("name") in {"HY Peak", "HY Mid Dry", "HY End Dry"}
+        if trace.get("name") in {"HY Peak", "HY Mid Dry", "HY Trough"}
     )
 
     mid_dry = next(trace for trace in figure["data"] if trace.get("name") == "HY Mid Dry")
@@ -188,31 +187,6 @@ def test_timeline_hover_has_requested_point_fields_and_two_decimal_extent(season
         for value in analysis.hydro_years["temporal_mid_dry_month"].dropna()
     ]
     assert mid_dry["x"] == expected
-
-
-def test_hydro_year_figure_contains_intervals_labels_and_boundary_markers(seasonal_data):
-    monthly, analysis = seasonal_data
-    figure = hydro_year_figure(monthly, analysis)
-
-    assert any(trace.get("name") == "Hydrological-year extent" for trace in figure["data"])
-    marker_names = {
-        trace.get("name") for trace in figure["data"] if trace.get("mode") == "markers"
-    }
-    assert marker_names == {"HY Peak", "HY Mid Dry", "HY End Dry"}
-    assert any(annotation.get("text", "").startswith("HY ") for annotation in figure["layout"]["annotations"])
-    assert figure["layout"]["xaxis"]["rangeslider"]["visible"] is False
-
-    expected_intervals = {
-        (pd.Timestamp(row.hy_start).strftime("%Y-%m-%d"), pd.Timestamp(row.hy_end).strftime("%Y-%m-%d"))
-        for row in analysis.hydro_years.itertuples()
-        if pd.notna(row.hy_start) and pd.notna(row.hy_end)
-    }
-    intervals = [
-        shape
-        for shape in figure["layout"]["shapes"]
-        if shape.get("name", "").startswith("HY ") and shape.get("type") == "rect"
-    ]
-    assert {(shape["x0"], shape["x1"]) for shape in intervals} == expected_intervals
 
 
 def test_interval_and_unresolved_peak_gets_no_point_marker_but_end_dry_always_marks():
@@ -243,15 +217,15 @@ def test_interval_and_unresolved_peak_gets_no_point_marker_but_end_dry_always_ma
     )
     figure = timeline_figure(monthly, analysis)
     peak_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Peak")
-    end_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY End Dry")
+    end_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Trough")
     mid_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Mid Dry")
 
     assert peak_trace["x"] == []
-    # Point boundaries stay in HY End Dry; interval boundaries are emitted in
-    # "End Dry (interval)" so clicking HY End Dry does not filter interval points.
+    # Point boundaries stay in HY Trough; interval boundaries are emitted in
+    # "Trough (interval)" so clicking HY Trough does not filter interval points.
     assert end_dry_trace["x"] == []
     assert end_dry_trace["marker"]["symbol"] == "circle"
-    interval_trace = next(trace for trace in figure["data"] if trace.get("name") == "End Dry (interval)")
+    interval_trace = next(trace for trace in figure["data"] if trace.get("name") == "Trough (interval)")
     assert interval_trace["x"] == ["2020-10-01"]
     assert interval_trace["marker"]["symbol"] == "circle-open"
     # Mid-dry has no timing status of its own and is unaffected.
@@ -299,22 +273,22 @@ class TestEndDryIntervalIsExplainedInTheLegend:
     def test_interval_shading_and_hollow_marker_are_named(self):
         figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
         names = [trace.get("name") for trace in figure["data"]]
-        assert "End Dry Interval" in names
-        assert "End Dry (interval)" in names
+        assert "Trough Interval" in names
+        assert "Trough (interval)" in names
 
     def test_the_hollow_legend_swatch_matches_the_marker_it_explains(self):
         figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
-        end_dry = next(t for t in figure["data"] if t.get("name") == "HY End Dry")
-        swatch = next(t for t in figure["data"] if t.get("name") == "End Dry (interval)")
+        end_dry = next(t for t in figure["data"] if t.get("name") == "HY Trough")
+        swatch = next(t for t in figure["data"] if t.get("name") == "Trough (interval)")
         assert end_dry["marker"]["symbol"] == "circle"
         assert swatch["marker"]["symbol"] == "circle-open"
         assert swatch["marker"]["color"] == end_dry["marker"]["color"]
-        # End Dry (interval) carries the non-point trough markers so clicking it toggles them.
+        # Trough (interval) carries the non-point trough markers so clicking it toggles them.
         assert swatch["x"] == ["2020-10-01"]
 
     def test_the_band_swatch_matches_the_shading_colour(self):
         figure = timeline_figure(_interval_monthly(), _interval_trough_analysis())
-        swatch = next(t for t in figure["data"] if t.get("name") == "End Dry Interval")
+        swatch = next(t for t in figure["data"] if t.get("name") == "Trough Interval")
         shapes = [s for s in figure["layout"]["shapes"]
                   if str(s.get("name", "")).startswith("timing_interval:trough")]
         assert shapes, "expected a trough interval shape to explain"
@@ -331,8 +305,8 @@ class TestEndDryIntervalIsExplainedInTheLegend:
         analysis.hydro_years.loc[:, "trough_interval_end"] = pd.Timestamp("2020-10-01")
         figure = timeline_figure(monthly, analysis)
         names = [trace.get("name") for trace in figure["data"]]
-        assert "End Dry Interval" not in names
-        assert "End Dry (interval)" not in names
+        assert "Trough Interval" not in names
+        assert "Trough (interval)" not in names
 
     def test_point_and_interval_troughs_are_partitioned_into_separate_traces(self):
         monthly = pd.DataFrame({
@@ -352,8 +326,8 @@ class TestEndDryIntervalIsExplainedInTheLegend:
             })
         )
         figure = timeline_figure(monthly, analysis)
-        point_trace = next(t for t in figure["data"] if t.get("name") == "HY End Dry")
-        interval_trace = next(t for t in figure["data"] if t.get("name") == "End Dry (interval)")
+        point_trace = next(t for t in figure["data"] if t.get("name") == "HY Trough")
+        interval_trace = next(t for t in figure["data"] if t.get("name") == "Trough (interval)")
         assert point_trace["x"] == ["2019-10-01"]
         assert point_trace["marker"]["symbol"] == "circle"
         assert interval_trace["x"] == ["2020-10-01"]
@@ -425,7 +399,7 @@ class TestEndDryIntervalIsExplainedInTheLegend:
         )
         figure = timeline_figure(monthly, analysis)
         polygon_traces = [t["name"] for t in figure["data"] if t.get("legend") == "legend3"]
-        assert polygon_traces == ["Rising", "Receding", "Peak Interval", "End Dry Interval"]
+        assert polygon_traces == ["Rising", "Receding", "Peak Interval", "Trough Interval"]
 
     def test_point_and_interval_peaks_are_partitioned_into_separate_traces(self):
         monthly = pd.DataFrame({
@@ -480,7 +454,7 @@ def test_point_timing_status_still_gets_a_marker():
     )
     figure = timeline_figure(monthly, analysis)
     peak_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Peak")
-    end_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY End Dry")
+    end_dry_trace = next(trace for trace in figure["data"] if trace.get("name") == "HY Trough")
 
     assert peak_trace["x"] == ["2020-01-01"]
     assert end_dry_trace["x"] == ["2020-10-01"]
@@ -818,7 +792,7 @@ def test_aseasonal_route_still_gets_a_climatology():
         {"extent_pct": np.abs(rng.normal(0.15, 0.12, 120)), "invalid_pct": 0.0},
         index=dates,
     )
-    analysis = analyze_catchment(extent, phase_model="rule_based", n_bootstrap=20)
+    analysis = analyze_catchment(extent, phase_scheme="two_phase", n_bootstrap=20)
     monthly = build_monthly_export(extent, analysis=analysis)
 
     assert analysis.route == "event_characterisation"
@@ -958,9 +932,9 @@ def test_timeline_3_row_legend_and_dashed_3month_line(seasonal_data):
     assert smoothed_trace.get("legend") == "legend2"
     assert smoothed_trace.get("visible") == "legendonly"
 
-    # Row 1: Points (HY Peak, HY Mid Dry, HY End Dry)
+    # Row 1: Points (HY Peak, HY Mid Dry, HY Trough)
     row1_traces = [t["name"] for t in fig["data"] if t.get("legend") in (None, "legend") and t.get("mode") == "markers"]
-    assert set(row1_traces) == {"HY Peak", "HY Mid Dry", "HY End Dry"}
+    assert set(row1_traces) - {"Dry Season Ends"} == {"HY Peak", "HY Mid Dry", "HY Trough"}
 
     # Row 2: Lines (Water Extent, 3-month, Reference Median, Median Baseline)
     row2_traces = [t["name"] for t in fig["data"] if t.get("legend") == "legend2"]
@@ -971,3 +945,125 @@ def test_timeline_3_row_legend_and_dashed_3month_line(seasonal_data):
     assert set(row3_traces) == {"Rising", "Receding"}
 
 
+
+
+def _with_events(analysis, events, low_spells):
+    from dataclasses import replace
+
+    return replace(analysis, events=replace(analysis.events, events=events, low_spells=low_spells))
+
+
+def _two_events_one_spell():
+    events = pd.DataFrame({
+        "event_id": [1, 2],
+        "start": pd.to_datetime(["2011-01-01", "2015-02-01"]),
+        "end": pd.to_datetime(["2011-03-01", "2015-02-01"]),
+        "duration_months": [3, 1],
+        "peak_month": pd.to_datetime(["2011-02-01", "2015-02-01"]),
+        "peak_extent_pct": [0.61, 0.48],
+        "mean_extent_pct": [0.5, 0.48],
+        "magnitude_pp_months": [0.9, 0.3],
+    })
+    low_spells = pd.DataFrame({
+        "spell_id": [1],
+        "start": pd.to_datetime(["2013-06-01"]),
+        "end": pd.to_datetime(["2013-09-01"]),
+        "duration_months": [4],
+        "min_extent_pct": [0.01],
+    })
+    return events, low_spells
+
+
+def _event_shading(figure):
+    shapes = [
+        shape for shape in figure["layout"]["shapes"]
+        if shape.get("name", "").startswith(("event:", "low_spell:"))
+    ]
+    legend = {
+        trace["name"]: trace["meta"]["event_shading"]
+        for trace in figure["data"]
+        if trace.get("meta", {}).get("event_shading")
+    }
+    peaks = [trace for trace in figure["data"] if trace.get("name") == "Wet event peak"]
+    return shapes, legend, peaks
+
+
+def test_aseasonal_timeline_shades_wet_events_and_low_spells(aseasonal_with_events_data):
+    """Without hydrological years, the timeline shows when events and dry spells happened."""
+    monthly, analysis = aseasonal_with_events_data
+    assert analysis.route == "event_characterisation"
+    assert analysis.hydro_years.empty
+    figure = timeline_figure(monthly, _with_events(analysis, *_two_events_one_spell()))
+    json.dumps(figure, allow_nan=False)
+    shapes, legend, peaks = _event_shading(figure)
+
+    # Each span runs to the end of its last month, so a one-month event is visible.
+    assert [(s["name"], s["x0"], s["x1"]) for s in shapes] == [
+        ("event:1", "2011-01-01", "2011-03-31"),
+        ("event:2", "2015-02-01", "2015-02-28"),
+        ("low_spell:2013-06-01", "2013-06-01", "2013-09-30"),
+    ]
+    assert len(figure["layout"]["shapes"]) == 3
+    for shape in shapes:
+        assert shape["type"] == "rect"
+        assert shape["layer"] == "below"
+        assert shape["yref"] == "paper"
+        assert (shape["y0"], shape["y1"]) == (0, 1)
+    assert shapes[0]["fillcolor"] == "rgba(37, 99, 235, 0.12)"
+    assert shapes[2]["fillcolor"] == "rgba(217, 119, 6, 0.14)"
+
+    assert legend == {"Wet event (2)": "event", "Low-water spell (1)": "low_spell"}
+    legend_traces = [t for t in figure["data"] if t.get("meta", {}).get("event_shading")]
+    assert all(t["legend"] == "legend3" and t["x"] == [None] for t in legend_traces)
+
+    assert len(peaks) == 1
+    peak = peaks[0]
+    assert peak["mode"] == "markers"
+    assert peak["x"] == ["2011-02-01", "2015-02-01"]
+    assert peak["y"] == [0.61, 0.48]
+    assert peak["meta"]["original_y"] == [0.61, 0.48]
+    assert peak["customdata"][0] == [1, "Jan 2011", "Feb 2011", "Mar 2011", 0.61]
+    assert peak["customdata"][1] == [2, "Feb 2015", "Feb 2015", "Feb 2015", 0.48]
+    for field in ("Wet event", "Start", "Peak", "End", "Peak extent"):
+        assert field in peak["hovertemplate"]
+
+
+def test_seasonal_timeline_has_no_event_or_low_spell_shading(seasonal_data, marginal_data):
+    """A seasonal timeline already shows its cycles; events stay in their own charts."""
+    for monthly, analysis in (seasonal_data, marginal_data):
+        assert not analysis.hydro_years.empty
+        with_events = _with_events(analysis, *_two_events_one_spell())
+        shapes, legend, peaks = _event_shading(timeline_figure(monthly, with_events))
+        assert (shapes, legend, peaks) == ([], {}, [])
+
+    _, marginal = marginal_data
+    assert not marginal.events.low_spells.empty
+    assert timeline_figure(*marginal_data) == timeline_figure(
+        marginal_data[0], _with_events(marginal, *_two_events_one_spell())
+    )
+
+
+def test_aseasonal_timeline_without_events_or_spells_adds_nothing(aseasonal_with_events_data):
+    """No events and no spells: no shapes and no empty legend entries."""
+    monthly, analysis = aseasonal_with_events_data
+    empty = _with_events(
+        analysis,
+        analysis.events.events.iloc[0:0],
+        analysis.events.low_spells.iloc[0:0],
+    )
+    figure = timeline_figure(monthly, empty)
+    assert figure["layout"]["shapes"] == []
+    assert _event_shading(figure) == ([], {}, [])
+
+
+def test_aseasonal_timeline_skips_spans_without_dates(aseasonal_with_events_data):
+    monthly, analysis = aseasonal_with_events_data
+    events, low_spells = _two_events_one_spell()
+    events.loc[1, "end"] = pd.NaT
+    events.loc[1, "peak_month"] = pd.NaT
+    shapes, legend, peaks = _event_shading(
+        timeline_figure(monthly, _with_events(analysis, events, low_spells))
+    )
+    assert [s["name"] for s in shapes] == ["event:1", "low_spell:2013-06-01"]
+    assert legend == {"Wet event (1)": "event", "Low-water spell (1)": "low_spell"}
+    assert peaks[0]["x"] == ["2011-02-01"]

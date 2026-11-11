@@ -1,6 +1,6 @@
 # Main Workflow Case Study
 
-This study runs the standard `hydroseason-v0.2.0` workflow on five Australian
+This study runs the standard `hydroseason-v0.3.0` workflow on five Australian
 catchments using committed 30 m whole-catchment monthly surface-water extent
 series from DEA Water Observations (2005–2025, 252 months each). The reports
 are rebuilt offline from those committed series.

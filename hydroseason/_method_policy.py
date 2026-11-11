@@ -8,15 +8,43 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ._boundary import (
+    PEAK_QUALITY_ABSOLUTE_BACKSTOP_PCT,
+    PEAK_QUALITY_MIN_YEARS,
+    PEAK_QUALITY_PERCENTILE,
+    SIGNAL_FLOOR_FRACTION,
+    RobustBoundaryConfig,
+)
+from ._condition import BASELINE_TIMING_STATUSES
+from ._dry_run import (
+    ANCHOR_RANGE_FRACTION,
+    ANCHOR_RULE,
+    ANCHOR_RULE_VERSION,
+    DRY_RUN_RULE,
+    DRY_RUN_RULE_VERSION,
+    ZERO_LOW_LABEL_RULE,
+    ZERO_LOW_LABEL_RULE_VERSION,
+)
+from ._dynamic_year import (
+    _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE,
+    RAW_MINIMUM_REL_TOLERANCE,
+    TROUGH_LABEL_RULE,
+    TROUGH_LABEL_RULE_VERSION,
+    DynamicHydroYearConfig,
+)
 from ._events import _DEFAULT_ENTER_K, _DEFAULT_EXIT_K, _DEFAULT_LOW_K
 from ._scientific_defaults import (
     RECURRENCE_AUTHORITY_SCOPE,
     RECURRENCE_FINGERPRINT,
     RECURRENCE_POLICY,
+    TIMING_IDENTIFIABILITY_AUTHORITY_SCOPE,
+    TIMING_IDENTIFIABILITY_DEFAULTS,
+    TIMING_IDENTIFIABILITY_FINGERPRINT,
 )
 from ._seasonality_test import TIMING_RECURRENCE_ALPHA
 from ._trough_refinement import TroughRefinementPolicy
 from ._trough_refinement_defaults import TROUGH_REFINEMENT_POLICY
+from ._trough_refinement_direct_profile import L_GRID_STEPS_PER_SCALE
 
 
 @dataclass(frozen=True)
@@ -27,18 +55,42 @@ class HydroSeasonMethodPolicy:
 
 
 CURRENT_METHOD_POLICY = HydroSeasonMethodPolicy(
-    policy_id="hydroseason-v0.2.0",
+    policy_id="hydroseason-v0.3.0",
     min_detectable_years=5,
     trough_refinement=TROUGH_REFINEMENT_POLICY,
 )
 
 
+def _config_default(name: str) -> Any:
+    return DynamicHydroYearConfig.__dataclass_fields__[name].default
+
+
 def method_policy_manifest() -> dict[str, Any]:
+    gates = TIMING_IDENTIFIABILITY_DEFAULTS
+    boundary = RobustBoundaryConfig()
     return {
+        "boundary_selection": {
+            "anomaly_noise_scales": boundary.anomaly_noise_scales,
+            "min_window_coverage": boundary.min_window_coverage,
+            "signal_floor_fraction": SIGNAL_FLOOR_FRACTION,
+            "support_threshold": boundary.support_threshold,
+        },
+        "condition_baseline": {
+            "eligible_timing_statuses": list(BASELINE_TIMING_STATUSES),
+            "high_percentile": _config_default("high_percentile"),
+            "low_percentile": _config_default("low_percentile"),
+            "min_baseline_cycles": _config_default("min_baseline_cycles"),
+            "requires": ["boundary_status confirmed", "peak_quality not anomalous", "status complete"],
+        },
         "event_thresholds": {
             "enter_sigma": _DEFAULT_ENTER_K,
             "exit_sigma": _DEFAULT_EXIT_K,
             "low_sigma": _DEFAULT_LOW_K,
+        },
+        "peak_quality": {
+            "absolute_backstop_pct": PEAK_QUALITY_ABSOLUTE_BACKSTOP_PCT,
+            "min_years": PEAK_QUALITY_MIN_YEARS,
+            "percentile": PEAK_QUALITY_PERCENTILE,
         },
         "policy_id": CURRENT_METHOD_POLICY.policy_id,
         "seasonality": {
@@ -54,12 +106,55 @@ def method_policy_manifest() -> dict[str, Any]:
         "trough_refinement": {
             "delta_rel": CURRENT_METHOD_POLICY.trough_refinement.delta_rel,
             "huber_k": CURRENT_METHOD_POLICY.trough_refinement.huber_k,
+            "l_grid_steps_per_scale": L_GRID_STEPS_PER_SCALE,
             "l_uncertainty_k": CURRENT_METHOD_POLICY.trough_refinement.l_uncertainty_k,
             "method": "direct_profile_combined",
             "profile_loss_cutoff": CURRENT_METHOD_POLICY.trough_refinement.profile_loss_cutoff,
             "pulse_z": CURRENT_METHOD_POLICY.trough_refinement.pulse_z,
             "scale_mode": CURRENT_METHOD_POLICY.trough_refinement.scale_mode,
             "version": CURRENT_METHOD_POLICY.trough_refinement.version,
+        },
+        "timing_identifiability": {
+            "authority_scope": TIMING_IDENTIFIABILITY_AUTHORITY_SCOPE,
+            "fingerprint": TIMING_IDENTIFIABILITY_FINGERPRINT,
+            "max_boundary_interval_months": gates.max_boundary_interval_months,
+            "max_broad_interval_months": gates.max_broad_interval_months,
+            "max_point_span_months": gates.max_point_span_months,
+            "min_amplitude_to_floor_ratio": gates.min_amplitude_to_floor_ratio,
+            "min_informative_years": gates.min_informative_years,
+            "min_peak_water_pixels": gates.min_peak_water_pixels,
+        },
+        "trough_label": {
+            "form": "widen",
+            "rule": TROUGH_LABEL_RULE,
+            "version": TROUGH_LABEL_RULE_VERSION,
+        },
+        "dry_season_end": {
+            "boundary": "unchanged",
+            "end_statuses": ["censored", "interval"],
+            "observed_month": "quality_state_usable",
+            "rule": DRY_RUN_RULE,
+            "tolerance": "boundary_epsilon_pp",
+            "version": DRY_RUN_RULE_VERSION,
+            "zero_low_label": {
+                "floor": "max(measurement_tolerance_pct, one pixel)",
+                "label": "run end to the month before the next peak, graded by width, never point",
+                "rule": ZERO_LOW_LABEL_RULE,
+                "version": ZERO_LOW_LABEL_RULE_VERSION,
+            },
+        },
+        "trough_search": {
+            "adaptive_min_usable_months_per_cycle": _ADAPTIVE_MIN_USABLE_MONTHS_PER_CYCLE,
+            "adaptive_radius_months": _config_default("adaptive_trough_search_radius_months"),
+            "min_usable_months_per_cycle": _config_default("min_usable_months_per_cycle"),
+            "min_usable_trough_candidates": _config_default("min_usable_trough_candidates"),
+            "radius_months": _config_default("trough_search_radius_months"),
+            "raw_minimum_rel_tolerance": RAW_MINIMUM_REL_TOLERANCE,
+        },
+        "trough_search_anchor": {
+            "range_fraction": ANCHOR_RANGE_FRACTION,
+            "rule": ANCHOR_RULE,
+            "version": ANCHOR_RULE_VERSION,
         },
     }
 
@@ -79,12 +174,18 @@ SCIENTIFIC_SOURCE_FILES = (
     "hydroseason/_events.py",
     "hydroseason/_seasonality_test.py",
     "hydroseason/_trough_refinement.py",
+    "hydroseason/_trough_refinement_direct_profile.py",
     "hydroseason/_trough_refinement_defaults.py",
     "hydroseason/_scientific_defaults.py",
     "hydroseason/_regime.py",
     "hydroseason/_catchment.py",
     "hydroseason/_exceptions.py",
     "hydroseason/_fingerprint.py",
+    "hydroseason/_timing_identifiability.py",
+    "hydroseason/_dynamic_year.py",
+    "hydroseason/_dry_run.py",
+    "hydroseason/_boundary.py",
+    "hydroseason/_condition.py",
 )
 
 

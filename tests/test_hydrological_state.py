@@ -30,7 +30,7 @@ def test_orchestrator_returns_all_public_products():
 
 
 def test_user_configuration_is_authoritative_over_advisory_pattern():
-    config = DynamicHydroYearConfig(expected_trough_month=7, dry_plateau_rule="middle")
+    config = DynamicHydroYearConfig(expected_trough_month=7)
     result = analyze_hydrological_state(_extent(), config=config, n_bootstrap=40)
     assert result.config is config
     assert result.config.expected_trough_month == 7

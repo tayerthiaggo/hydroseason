@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydroseason"
-version = "0.2.0"
+version = "0.3.0"
 description = "Remote-sensing-first hydro-year detection from monthly surface-water extent"
 readme = "README.md"
 # Upper bound is deliberate, not conservatism-by-default: the raster/stac
@@ -50,7 +50,8 @@ dependencies = [
 
 [project.optional-dependencies]
 raster = [
-  "xarray>=2023.8",
+  # xarray 2026.9 needs zarr 3 to write stores; this package's caches use zarr 2.
+  "xarray>=2023.8,<2026.9",
   "rioxarray>=0.15",
   "rasterio>=1.3",
   "geopandas>=0.14",
@@ -83,9 +84,6 @@ stac = [
 all = [
   "hydroseason[raster,stac]"
 ]
-case-study = [
-  "hydroseason[stac]",
-]
 docs = [
   "mkdocs>=1.6,<2",
   "mkdocs-material>=9.5",
@@ -100,7 +98,6 @@ dev = [
   "twine>=6.1",
   "check-wheel-contents>=0.6",
   "tomli>=2.0; python_version < '3.11'",
-  "playwright>=1.40",
 ]
 
 [project.urls]
@@ -144,6 +141,7 @@ filterwarnings = [
 # exercised by the all-extras job instead of lowering the pandas-only gate.
 omit = [
   "hydroseason/_aoi_context.py",
+  "hydroseason/_fsutil.py",
   "hydroseason/_historical_water_mask.py",
   "hydroseason/_io_dea_stats.py",
   "hydroseason/_io_extent_cache.py",
@@ -180,3 +178,8 @@ combine-as-imports = true
 
 [tool.ruff.lint.per-file-ignores]
 "*.ipynb" = ["E402"]
+# Frozen or recorded research scripts: left byte-identical to what their handoff docs cite.
+"scripts/known_truth_de1.py" = ["E702", "F841"]
+"scripts/de2_implementation_checks.py" = ["E731"]
+"scripts/dry_run_end_exploratory.py" = ["E402"]
+"scripts/refinement_eol_anchor_probe.py" = ["E402", "F841"]

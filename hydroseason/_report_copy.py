@@ -18,7 +18,6 @@ _DIVERGENCE_LABELS = {
     "extent_more_seasonal": "Extent more seasonal than rainfall",
     "rainfall_insufficient": "Rainfall record too short",
     "extent_insufficient": "Extent record too short",
-    "partial": "Partial comparison",
     "no_rainfall": "No rainfall data",
 }
 
@@ -102,9 +101,9 @@ def verdict_sentence(analysis: CatchmentAnalysis) -> str:
     )
 
 
-# Display names for analytical routes. The raw identifiers title-cased into
-# strings like "Event Characterisation" that overflowed their card; these are
-# also plainer language for a reader who has not read the routing docstring.
+# Display names for analytical routes: short enough to fit their card, and
+# plainer than the raw identifiers for a reader who has not read the routing
+# docstring.
 _ROUTE_LABELS = {
     "per_year_detection": "Per-Year Detection",
     "fixed_climatological_window": "Fixed Window",
@@ -277,9 +276,13 @@ def select_kpis(
         else "Not established" if assessment.regime == "aseasonal"
         else "Insufficient"
     )
+    verdict = (
+        "Both reject" if assessment.regime == "seasonal"
+        else "Recurrence needs both to reject"
+    )
     evidence_detail = (
         f"Kuiper p-values: peak={peak_uniformity_p}; trough={trough_uniformity_p}. "
-        f"Both reject 12-month uniformity (alpha = {alpha:g})."
+        f"{verdict} 12-month uniformity (alpha = {alpha:g})."
     )
     if test is not None:
         timing_record_detail = (
@@ -342,8 +345,9 @@ def select_kpis(
             "point-identifiable boundary years",
             **cycle_metric(
                 str(point_identifiable),
-                f"out of {n_years} total years; timing resolved to an exact date, "
-                "not an interval or unresolved extremum",
+                f"out of {n_years} total years; peak and trough each singled out one "
+                "month above the detectability floor, not an interval, broad or "
+                "unresolved extremum",
             ),
         ),
         # Event descriptors presume no cycle, so they are populated on every
@@ -352,12 +356,12 @@ def select_kpis(
         card(
             "wet events",
             str(event_summary.get("n_events", 0)),
-            "episodes above the record's 75th percentile",
+            "episodes above this record's entry threshold",
         ),
         card(
             "longest low-extent spell",
             _number(event_summary.get("longest_low_spell_months"), decimals=0, suffix=" mo"),
-            "longest continuous run below baseline",
+            "longest continuous run below this record's low threshold",
         ),
         card(
             "years without a wet event",
@@ -380,7 +384,7 @@ def build_rainfall_context(
 ) -> dict[str, Any]:
     """Build rainfall context labels and metrics for display.
 
-    Consumes an already-computed RegimeComparison (Task 2 output) and returns
+    Consumes an already-computed RegimeComparison and returns
     presentation-ready metadata: source title, divergence label, comparison status,
     and derived monthly climatology metrics for a paired figure.
     """

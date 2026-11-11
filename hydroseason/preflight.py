@@ -19,7 +19,7 @@ warns and continues, and the standalone feasibility path re-raises.
 candidate, monthly, and timing decisions. Its threshold profile is *not yet
 calibrated*: ``thresholds="default"`` raises
 :class:`PreflightProfileUnavailable` rather than guessing. Until that profile
-is frozen, use ``thresholds="diagnostic"`` to obtain the measured metrics
+is reviewed, use ``thresholds="diagnostic"`` to obtain the measured metrics
 without any pass/fail gating, or supply your own
 :class:`~hydroseason._preflight_types.PreflightThresholds`.
 """
@@ -36,6 +36,8 @@ from ._io_dea_stats import (
     DEA_STATS_ANNUAL_COLLECTION,
     DEFAULT_WO_STATISTICS_PRODUCT,
     DEFAULT_WO_STATISTICS_STAC_URL,
+    DEAStatsUnavailable,
+    WoStatisticsUnavailable,
 )
 from ._io_preflight_stats import AnnualStatisticsUnavailable, open_annual_wo_statistics
 from ._preflight_candidate import compute_candidate_raw_metrics, evaluate_candidate
@@ -51,13 +53,6 @@ from ._preflight_types import (
     ThresholdMode,
 )
 from ._state_input import QualityPolicy
-
-try:
-    from ._io_dea_stats import DEAStatsUnavailable, WoStatisticsUnavailable
-except ImportError:  # pragma: no cover
-    DEAStatsUnavailable = RuntimeError
-    WoStatisticsUnavailable = RuntimeError
-
 
 _CAPABILITIES = PreflightCapabilities(
     annual_recurrence=True,
@@ -103,7 +98,7 @@ _MONTHLY_DECLARED_ERROR_SNIPPETS = (
 
 
 class PreflightProfileUnavailable(RuntimeError):
-    """The reviewed preflight profile has not been installed yet."""
+    """Raised for ``thresholds="default"``: no reviewed default profile exists yet."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -209,7 +204,8 @@ def _resolve_thresholds(
         return _DIAGNOSTIC_THRESHOLDS, True
     if thresholds == "default":
         raise PreflightProfileUnavailable(
-            "Default preflight thresholds are unavailable; finish the calibration/freeze checkpoint before using thresholds='default'."
+            "The default preflight threshold profile has not been reviewed yet; "
+            "pass thresholds='diagnostic' or a PreflightThresholds instance."
         )
     if isinstance(thresholds, PreflightThresholds):
         return thresholds, False
@@ -359,8 +355,8 @@ def preflight(
     # feasibility_only never reads resolved_thresholds/diagnostic_mode: it runs
     # only the fixed-constant recurrent-water filter and skips candidate/
     # monthly evaluation entirely, so resolving (and possibly rejecting) a
-    # threshold profile here would block a cheap pre-filter behind the same
-    # calibration/freeze checkpoint the filter exists to not depend on.
+    # threshold profile here would block a cheap pre-filter behind the
+    # unreviewed default profile it exists to not depend on.
     if feasibility_only:
         resolved_thresholds, diagnostic_mode = None, False
     else:

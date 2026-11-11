@@ -6,7 +6,6 @@ import hashlib
 import itertools
 import json
 import os
-import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -15,6 +14,8 @@ from typing import Callable, Literal
 import numpy as np
 import pandas as pd
 
+import hydroseason._fsutil as _fsutil
+from hydroseason._fsutil import _write_atomic, _year_settled
 from hydroseason._historical_water_mask import HistoricalWaterMask
 from hydroseason._io_dea_stats import (
     DEFAULT_WO_STATISTICS_PRODUCT,
@@ -179,8 +180,8 @@ def _cache_path(
         "wet_aoi_sha256": wet_aoi_hash,
     }
     if wet_mask != "off":
-        # Omitted entirely when "off" (the pre-existing default/only value),
-        # so every CSV cache written before wet_mask existed keeps its
+        # Omitted entirely when "off" (the default), so every CSV cache
+        # written before wet_mask existed keeps its
         # original digest and stays reachable -- mirrors how
         # WOfSCacheRequest.wet_mask_sha256 is omitted from its digest
         # payload when None (see hydroseason/_io_wofs_zarr.py).
@@ -195,29 +196,44 @@ def _cache_path(
     return cache_dir / f"extent_{start:%Y%m%d}_{end:%Y%m%d}_{digest}.csv"
 
 
-def _read_cached_extent(path: Path) -> pd.DataFrame | None:
+def _read_cached_extent(path: Path, *, settled_only: bool = True) -> pd.DataFrame | None:
+    """A cached annual (or tile) part, or ``None`` if unreadable or unsettled.
+
+    With ``settled_only`` a part written before its year settled (see
+    :func:`hydroseason._fsutil._year_settled`) is a miss, so late-ingested
+    scenes are fetched; offline callers, which cannot refetch, pass ``False``.
+    """
     try:
         frame = pd.read_csv(path, index_col="time", parse_dates=["time"])
+        written_at = _written_at(path)
     except (OSError, ValueError, pd.errors.ParserError):
         return None
     if tuple(frame.columns) != _EXTENT_COLUMNS or not isinstance(frame.index, pd.DatetimeIndex):
+        return None
+    if settled_only and not frame.empty and not _year_settled(frame.index.max().year, written_at):
         return None
     frame.index.name = None
     return frame
 
 
-def _write_extent_atomic(frame: pd.DataFrame, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.stem}-", suffix=".tmp"
-    )
-    os.close(descriptor)
-    temporary_path = Path(temporary_name)
+def _written_at_path(path: Path) -> Path:
+    return path.with_name(path.name + ".written_at")
+
+
+def _written_at(path: Path) -> float:
+    """When ``path`` was written: its sidecar stamp, else (older caches) its mtime."""
     try:
-        frame.to_csv(temporary_path, index_label="time")
-        os.replace(temporary_path, path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
+        return float(_written_at_path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return os.stat(path).st_mtime
+
+
+def _write_extent_atomic(frame: pd.DataFrame, path: Path) -> None:
+    _write_atomic(path, lambda temp: frame.to_csv(temp, index_label="time"))
+    # A copy resets mtime, so the write time travels in a sidecar the copy keeps.
+    # Written second: a crash in between leaves an older stamp, which only refetches.
+    stamp = repr(_fsutil._now().timestamp())
+    _write_atomic(_written_at_path(path), lambda temp: temp.write_text(stamp, encoding="utf-8"))
 
 
 def _write_requested_annual_extent_parts(
@@ -279,6 +295,7 @@ def _read_requested_annual_extent_parts(
     wet_aoi_hash: str,
     wet_mask: str = "off",
     historical_mask_identity: str = "",
+    settled_only: bool = True,
 ) -> pd.DataFrame | None:
     """Return the complete requested legacy CSV cache, if every part is valid."""
     parts = []
@@ -302,7 +319,11 @@ def _read_requested_annual_extent_parts(
             wet_mask=wet_mask,
             historical_mask_identity=historical_mask_identity,
         )
-        cached = _read_cached_extent(cache_path) if cache_path.exists() else None
+        cached = (
+            _read_cached_extent(cache_path, settled_only=settled_only)
+            if cache_path.exists()
+            else None
+        )
         if cached is None or not cached.index.equals(expected_index):
             return None
         parts.append(cached)
@@ -735,10 +756,9 @@ def load_wofs_monthly_extent(
     "is this already cached" without first paying the cost being checked
     for. A fully correct fix would persist the derived wet-AOI geometry as
     its own cache artifact (keyed on the non-wet-AOI-hash-dependent inputs)
-    so it can be reloaded cheaply on a later call instead of re-derived --
-    tracked as follow-up work, not implemented here. This is a performance
-    regression on repeat calls, not a correctness issue: results are still
-    correct, just not resumed cheaply.
+    so it can be reloaded cheaply on a later call instead of re-derived; that
+    is not implemented. This costs time on repeat calls, not correctness:
+    results are still correct, just not resumed cheaply.
 
     Pruning tiles that the wet AOI excludes guarantees those tiles contribute
     no water -- but ``iter_wofs_tiles_from_stac`` never loads them, so their
@@ -913,6 +933,7 @@ def load_wofs_monthly_extent(
                 wet_aoi_hash=wet_aoi_hash,
                 wet_mask=wet_mask,
                 historical_mask_identity=historical_mask_identity,
+                settled_only=not offline,
             )
             if cached_extent is not None:
                 return cached_extent
@@ -956,7 +977,9 @@ def load_wofs_monthly_extent(
             if fast_extent is not None:
                 _write_requested_annual_extent_parts(
                     fast_extent,
-                    cache_root=cache_root,
+                    # Offline data is no fresher than the Zarr cache; a fresh
+                    # part write time would mark an unsettled year settled.
+                    cache_root=None if offline else cache_root,
                     stac_url=stac_url,
                     collection=collection,
                     aoi_hash=aoi_hash,
@@ -997,7 +1020,7 @@ def load_wofs_monthly_extent(
         )
         _write_requested_annual_extent_parts(
             extent,
-            cache_root=cache_root,
+            cache_root=None if offline else cache_root,
             stac_url=stac_url,
             collection=collection,
             aoi_hash=aoi_hash,

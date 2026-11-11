@@ -153,3 +153,29 @@ def test_query_caches_per_year_so_a_narrower_rerun_hits(tmp_path, monkeypatch):
     )
     assert {item.id for item in second} == {"i2015"}
     assert calls == []  # fully served from the per-year cache
+
+
+def test_query_fetched_before_its_year_settled_is_refetched(tmp_path, monkeypatch):
+    """DEA keeps ingesting a year's scenes for weeks after it closes, so a
+    scene list fetched before then expires; one fetched after is kept."""
+    from datetime import datetime, timezone
+
+    import hydroseason._fsutil as fsutil
+
+    key = STACItemCacheKey(
+        stac_url="https://example.test/stac",
+        collection="ga_ls_wo_3",
+        aoi_sha256="a" * 64,
+        start_date="2026-01-01",
+        end_date="2026-12-31",
+    )
+    clock = {"now": datetime(2026, 11, 10, tzinfo=timezone.utc)}
+    monkeypatch.setattr(fsutil, "_now", lambda: clock["now"])
+
+    write_cached_items(tmp_path, key, [])
+    clock["now"] = datetime(2027, 6, 1, tzinfo=timezone.utc)
+    assert load_cached_items(tmp_path, key) is None
+
+    write_cached_items(tmp_path, key, [])
+    clock["now"] = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    assert load_cached_items(tmp_path, key) == []

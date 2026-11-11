@@ -1,0 +1,688 @@
+{
+  "script_sha256_lf": "b54290b02316092fe148e07c574723c2dd8b33786971b26d21364283d886a880",
+  "fingerprint": "59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65",
+  "case_studies": {
+    "series": {
+      "daly_river_nt_30m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          4,
+          4
+        ],
+        "labelled": [
+          0,
+          0
+        ]
+      },
+      "daly_river_nt_60m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          5,
+          5
+        ],
+        "labelled": [
+          21,
+          21
+        ]
+      },
+      "daly_river_nt_90m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          6,
+          6
+        ],
+        "labelled": [
+          21,
+          21
+        ]
+      },
+      "daly_river_nt_300m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          4,
+          4
+        ],
+        "labelled": [
+          0,
+          0
+        ]
+      },
+      "fitzroy_river_wa_30m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          7,
+          7
+        ],
+        "labelled": [
+          21,
+          21
+        ]
+      },
+      "fitzroy_river_wa_60m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          5,
+          5
+        ],
+        "labelled": [
+          21,
+          21
+        ]
+      },
+      "fitzroy_river_wa_90m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          5,
+          5
+        ],
+        "labelled": [
+          21,
+          21
+        ]
+      },
+      "fitzroy_river_wa_300m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 4,
+        "shift_months": {
+          "3": 2,
+          "6": 1,
+          "4": 1
+        },
+        "peaks_changed": 1,
+        "trough_labels_changed": 2,
+        "timing_changed": 2,
+        "r2_labels": 0,
+        "eligible": [
+          8,
+          7
+        ],
+        "labelled": [
+          20,
+          21
+        ]
+      },
+      "gilbert_river_qld_30m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          9,
+          9
+        ],
+        "labelled": [
+          21,
+          21
+        ]
+      },
+      "gilbert_river_qld_60m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          9,
+          9
+        ],
+        "labelled": [
+          21,
+          21
+        ]
+      },
+      "gilbert_river_qld_90m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          8,
+          8
+        ],
+        "labelled": [
+          21,
+          21
+        ]
+      },
+      "gilbert_river_qld_300m": {
+        "route": [
+          "per_year_detection",
+          "per_year_detection"
+        ],
+        "years": [
+          21,
+          21
+        ],
+        "boundaries_moved": 0,
+        "shift_months": {},
+        "peaks_changed": 0,
+        "trough_labels_changed": 0,
+        "timing_changed": 0,
+        "r2_labels": 0,
+        "eligible": [
+          6,
+          6
+        ],
+        "labelled": [
+          21,
+          21
+        ]
+      },
+      "lachlan_river_nsw_30m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "years": [
+          0,
+          0
+        ]
+      },
+      "lachlan_river_nsw_60m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "years": [
+          0,
+          0
+        ]
+      },
+      "lachlan_river_nsw_90m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "years": [
+          0,
+          0
+        ]
+      },
+      "lachlan_river_nsw_300m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "years": [
+          0,
+          0
+        ]
+      },
+      "moonie_river_qld_nsw_30m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "years": [
+          0,
+          0
+        ]
+      },
+      "moonie_river_qld_nsw_60m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "years": [
+          0,
+          0
+        ]
+      },
+      "moonie_river_qld_nsw_90m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "years": [
+          0,
+          0
+        ]
+      },
+      "moonie_river_qld_nsw_300m": {
+        "route": [
+          "event_characterisation",
+          "event_characterisation"
+        ],
+        "years": [
+          0,
+          0
+        ]
+      }
+    },
+    "event_and_spell_tables": {
+      "daly_river_nt\\daly-river-nt_low_spells.csv": "identical",
+      "daly_river_nt\\daly-river-nt_wet_event.csv": "identical",
+      "fitzroy_river_wa\\fitzroy-river-wa_low_spells.csv": "identical",
+      "fitzroy_river_wa\\fitzroy-river-wa_wet_event.csv": "identical",
+      "gilbert_river_qld\\gilbert-river-qld_low_spells.csv": "identical",
+      "gilbert_river_qld\\gilbert-river-qld_wet_event.csv": "identical",
+      "lachlan_river_nsw\\lachlan-river-nsw_low_spells.csv": "identical",
+      "lachlan_river_nsw\\lachlan-river-nsw_wet_event.csv": "identical",
+      "moonie_river_qld_nsw\\moonie-river-qld-nsw_low_spells.csv": "identical",
+      "moonie_river_qld_nsw\\moonie-river-qld-nsw_wet_event.csv": "identical"
+    }
+  },
+  "fitzroy_tiles": {
+    "late3": [
+      251,
+      104
+    ],
+    "late": [
+      727,
+      602
+    ],
+    "unresolved_timing": [
+      408,
+      533
+    ],
+    "tiles": [
+      40,
+      40
+    ]
+  },
+  "real_records": {
+    "records": 4468,
+    "fingerprints": {
+      "59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65": 4468
+    },
+    "errors": [],
+    "route_changes": {
+      "g1|quadrant|event_characterisation->per_year_detection": 25,
+      "g1|quadrant|per_year_detection->event_characterisation": 4,
+      "g1|core|event_characterisation->per_year_detection": 3,
+      "su|hb8|per_year_detection->event_characterisation": 2,
+      "su|tile7|event_characterisation->per_year_detection": 1,
+      "su|tile8|event_characterisation->per_year_detection": 1,
+      "su|tile8|per_year_detection->event_characterisation": 1,
+      "su|hb7|per_year_detection->event_characterisation": 1
+    },
+    "cycle_count_changes": {},
+    "cycles": {
+      "g1|quadrant": 58902,
+      "g1|core": 16941,
+      "su|hb6": 483,
+      "su|catchment": 63,
+      "su|hb7": 2100,
+      "su|hb8": 6090,
+      "su|tile6": 924,
+      "su|tile7": 2541,
+      "su|tile8": 8904
+    },
+    "boundary_moves": {
+      "g1|core|earlier 1-2": 22,
+      "g1|core|earlier 3+": 51,
+      "g1|core|later 1-2": 1630,
+      "g1|core|later 3+": 977,
+      "g1|core|same": 14136,
+      "g1|core|unmatched": 125,
+      "g1|quadrant|earlier 1-2": 137,
+      "g1|quadrant|earlier 3+": 971,
+      "g1|quadrant|later 1-2": 9178,
+      "g1|quadrant|later 3+": 7208,
+      "g1|quadrant|same": 40869,
+      "g1|quadrant|unmatched": 539,
+      "su|catchment|same": 63,
+      "su|hb6|later 1-2": 1,
+      "su|hb6|later 3+": 3,
+      "su|hb6|same": 479,
+      "su|hb7|earlier 3+": 1,
+      "su|hb7|later 1-2": 77,
+      "su|hb7|later 3+": 44,
+      "su|hb7|same": 1975,
+      "su|hb7|unmatched": 3,
+      "su|hb8|earlier 1-2": 11,
+      "su|hb8|earlier 3+": 46,
+      "su|hb8|later 1-2": 605,
+      "su|hb8|later 3+": 472,
+      "su|hb8|same": 4933,
+      "su|hb8|unmatched": 23,
+      "su|tile6|earlier 1-2": 1,
+      "su|tile6|earlier 3+": 3,
+      "su|tile6|later 1-2": 29,
+      "su|tile6|later 3+": 29,
+      "su|tile6|same": 857,
+      "su|tile6|unmatched": 5,
+      "su|tile7|earlier 1-2": 4,
+      "su|tile7|earlier 3+": 8,
+      "su|tile7|later 1-2": 90,
+      "su|tile7|later 3+": 84,
+      "su|tile7|same": 2341,
+      "su|tile7|unmatched": 14,
+      "su|tile8|earlier 1-2": 18,
+      "su|tile8|earlier 3+": 66,
+      "su|tile8|later 1-2": 871,
+      "su|tile8|later 3+": 740,
+      "su|tile8|same": 7151,
+      "su|tile8|unmatched": 58
+    },
+    "peaks_changed": {
+      "g1|quadrant": 3967,
+      "g1|core": 514,
+      "su|hb7": 22,
+      "su|hb8": 173,
+      "su|tile6": 8,
+      "su|tile7": 32,
+      "su|tile8": 263
+    },
+    "timing_changes": {
+      "g1|core|None->broad": 38,
+      "g1|core|None->interval": 16,
+      "g1|core|None->point": 10,
+      "g1|core|None->unresolved": 41,
+      "g1|core|broad->None": 19,
+      "g1|core|broad->interval": 577,
+      "g1|core|broad->point": 57,
+      "g1|core|broad->unresolved": 253,
+      "g1|core|interval->None": 23,
+      "g1|core|interval->broad": 261,
+      "g1|core|interval->point": 35,
+      "g1|core|interval->unresolved": 70,
+      "g1|core|point->None": 17,
+      "g1|core|point->broad": 77,
+      "g1|core|point->interval": 76,
+      "g1|core|point->unresolved": 32,
+      "g1|core|unresolved->None": 48,
+      "g1|core|unresolved->broad": 93,
+      "g1|core|unresolved->interval": 229,
+      "g1|core|unresolved->point": 41,
+      "g1|quadrant|None->broad": 132,
+      "g1|quadrant|None->interval": 68,
+      "g1|quadrant|None->point": 35,
+      "g1|quadrant|None->unresolved": 213,
+      "g1|quadrant|broad->None": 59,
+      "g1|quadrant|broad->interval": 2532,
+      "g1|quadrant|broad->point": 304,
+      "g1|quadrant|broad->unresolved": 1680,
+      "g1|quadrant|interval->None": 86,
+      "g1|quadrant|interval->broad": 1418,
+      "g1|quadrant|interval->point": 230,
+      "g1|quadrant|interval->unresolved": 522,
+      "g1|quadrant|point->None": 54,
+      "g1|quadrant|point->broad": 298,
+      "g1|quadrant|point->interval": 410,
+      "g1|quadrant|point->unresolved": 195,
+      "g1|quadrant|unresolved->None": 185,
+      "g1|quadrant|unresolved->broad": 538,
+      "g1|quadrant|unresolved->interval": 1176,
+      "g1|quadrant|unresolved->point": 225,
+      "su|hb6|broad->interval": 1,
+      "su|hb6|interval->broad": 1,
+      "su|hb6|point->broad": 2,
+      "su|hb6|unresolved->interval": 1,
+      "su|hb7|None->broad": 3,
+      "su|hb7|None->unresolved": 2,
+      "su|hb7|broad->None": 1,
+      "su|hb7|broad->interval": 51,
+      "su|hb7|broad->point": 3,
+      "su|hb7|broad->unresolved": 14,
+      "su|hb7|interval->None": 1,
+      "su|hb7|interval->broad": 17,
+      "su|hb7|interval->point": 5,
+      "su|hb7|interval->unresolved": 4,
+      "su|hb7|point->None": 1,
+      "su|hb7|point->broad": 5,
+      "su|hb7|point->interval": 1,
+      "su|hb7|point->unresolved": 1,
+      "su|hb7|unresolved->None": 1,
+      "su|hb7|unresolved->broad": 8,
+      "su|hb7|unresolved->interval": 9,
+      "su|hb7|unresolved->point": 2,
+      "su|hb8|None->broad": 9,
+      "su|hb8|None->interval": 8,
+      "su|hb8|None->unresolved": 18,
+      "su|hb8|broad->None": 5,
+      "su|hb8|broad->interval": 358,
+      "su|hb8|broad->point": 35,
+      "su|hb8|broad->unresolved": 126,
+      "su|hb8|interval->None": 2,
+      "su|hb8|interval->broad": 71,
+      "su|hb8|interval->point": 32,
+      "su|hb8|interval->unresolved": 37,
+      "su|hb8|point->None": 7,
+      "su|hb8|point->broad": 24,
+      "su|hb8|point->interval": 18,
+      "su|hb8|point->unresolved": 8,
+      "su|hb8|unresolved->None": 11,
+      "su|hb8|unresolved->broad": 37,
+      "su|hb8|unresolved->interval": 103,
+      "su|hb8|unresolved->point": 20,
+      "su|tile6|None->broad": 1,
+      "su|tile6|broad->None": 3,
+      "su|tile6|broad->interval": 5,
+      "su|tile6|broad->point": 1,
+      "su|tile6|broad->unresolved": 9,
+      "su|tile6|interval->None": 1,
+      "su|tile6|interval->broad": 5,
+      "su|tile6|interval->point": 4,
+      "su|tile6|interval->unresolved": 4,
+      "su|tile6|point->broad": 3,
+      "su|tile6|point->interval": 2,
+      "su|tile6|point->unresolved": 1,
+      "su|tile6|unresolved->None": 3,
+      "su|tile6|unresolved->broad": 4,
+      "su|tile6|unresolved->interval": 7,
+      "su|tile6|unresolved->point": 3,
+      "su|tile7|None->broad": 3,
+      "su|tile7|None->interval": 2,
+      "su|tile7|None->point": 2,
+      "su|tile7|None->unresolved": 3,
+      "su|tile7|broad->None": 3,
+      "su|tile7|broad->interval": 66,
+      "su|tile7|broad->point": 7,
+      "su|tile7|broad->unresolved": 21,
+      "su|tile7|interval->None": 3,
+      "su|tile7|interval->broad": 18,
+      "su|tile7|interval->point": 3,
+      "su|tile7|interval->unresolved": 11,
+      "su|tile7|point->None": 3,
+      "su|tile7|point->broad": 11,
+      "su|tile7|point->interval": 6,
+      "su|tile7|point->unresolved": 3,
+      "su|tile7|unresolved->None": 4,
+      "su|tile7|unresolved->broad": 13,
+      "su|tile7|unresolved->interval": 23,
+      "su|tile7|unresolved->point": 2,
+      "su|tile8|None->broad": 12,
+      "su|tile8|None->interval": 13,
+      "su|tile8|None->point": 3,
+      "su|tile8|None->unresolved": 30,
+      "su|tile8|broad->None": 10,
+      "su|tile8|broad->interval": 486,
+      "su|tile8|broad->point": 52,
+      "su|tile8|broad->unresolved": 183,
+      "su|tile8|interval->None": 14,
+      "su|tile8|interval->broad": 136,
+      "su|tile8|interval->point": 28,
+      "su|tile8|interval->unresolved": 53,
+      "su|tile8|point->None": 7,
+      "su|tile8|point->broad": 51,
+      "su|tile8|point->interval": 29,
+      "su|tile8|point->unresolved": 22,
+      "su|tile8|unresolved->None": 27,
+      "su|tile8|unresolved->broad": 77,
+      "su|tile8|unresolved->interval": 144,
+      "su|tile8|unresolved->point": 42
+    },
+    "r2_labels": {
+      "g1|quadrant": 8237,
+      "g1|core": 1606,
+      "su|hb6": 3,
+      "su|catchment": 0,
+      "su|hb7": 77,
+      "su|hb8": 737,
+      "su|tile6": 13,
+      "su|tile7": 122,
+      "su|tile8": 1082
+    },
+    "units_with_baseline": {
+      "g1|core|False->False": 161,
+      "g1|core|False->True": 11,
+      "g1|core|True->False": 23,
+      "g1|core|True->True": 251,
+      "g1|quadrant|False->False": 813,
+      "g1|quadrant|False->True": 48,
+      "g1|quadrant|True->False": 96,
+      "g1|quadrant|True->True": 594,
+      "su|catchment|False->False": 2,
+      "su|catchment|True->True": 1,
+      "su|hb6|False->False": 9,
+      "su|hb6|True->True": 14,
+      "su|hb7|False->False": 48,
+      "su|hb7|False->True": 1,
+      "su|hb7|True->False": 1,
+      "su|hb7|True->True": 50,
+      "su|hb8|False->False": 192,
+      "su|hb8|False->True": 6,
+      "su|hb8|True->False": 5,
+      "su|hb8|True->True": 87,
+      "su|tile6|False->False": 26,
+      "su|tile6|False->True": 2,
+      "su|tile6|True->True": 16,
+      "su|tile7|False->False": 67,
+      "su|tile7|False->True": 1,
+      "su|tile7|True->False": 6,
+      "su|tile7|True->True": 47,
+      "su|tile8|False->False": 291,
+      "su|tile8|False->True": 6,
+      "su|tile8|True->False": 18,
+      "su|tile8|True->True": 109
+    },
+    "g1_half_agreement_within_1": {
+      "before": {
+        "pairs": 33457,
+        "share": 0.733688017455241
+      },
+      "after": {
+        "pairs": 33459,
+        "share": 0.7667593173735019
+      }
+    }
+  }
+}

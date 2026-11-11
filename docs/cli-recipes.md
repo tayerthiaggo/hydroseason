@@ -182,6 +182,11 @@ with the same `--cache-dir`: completed calendar years are read from cache
 and only the missing ones are re-fetched. There is no separate checkpoint
 protocol — cache identity includes every data-affecting input, so a changed
 AOI, date range, resolution, or STAC URL never silently reuses stale work.
+A year cached less than 60 days after it ended is fetched again, so scenes
+DEA ingests late are picked up; the cache stores its own write time, so a
+copied cache keeps it. Keep `--cache-dir` on a local disk or a Windows share:
+the cache lock is an operating-system file lock, which NFS shares may not
+honour, so two machines writing one cache over NFS could collide.
 
 **Exit status.** `0` success, including an ancillary rainfall failure. `1` a
 fatal water-input, analysis, or report-writing failure. `2` a usage error.
@@ -197,17 +202,21 @@ hydroseason run --water-source monthly_extent.csv --output-dir out --json
 
 Every run writes `<stem>_manifest.json` (schema `hydroseason-run-manifest-v1`)
 next to the report. There is no method selector: every run uses the frozen
-`hydroseason-v0.2.0` method, and the manifest records its fingerprint with the
-input and output checksums. Abridged:
+`hydroseason-v0.3.0` method, and the manifest records its fingerprint with the
+input and output checksums. It also names the catchment: a run refuses, with
+`FileExistsError`, to overwrite its own input, or existing output files unless
+their manifest names the same catchment. While a bundle is being written its
+manifest reads
+`{"status": "incomplete"}`. Abridged:
 
 ```json
 {
   "schema": "hydroseason-run-manifest-v1",
-  "hydroseason_version": "0.2.0",
+  "hydroseason_version": "0.3.0",
   "python": "3.12.13",
   "method": {
-    "policy_id": "hydroseason-v0.2.0",
-    "fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
+    "policy_id": "hydroseason-v0.3.0",
+    "fingerprint": "07f1eaa173372e2544c46f794426917539a774756a64ccdac400ea0a747171cb"
   },
   "input": {
     "date_min": "2005-01-01",
@@ -217,7 +226,7 @@ input and output checksums. Abridged:
   },
   "analysis": {"regime": "seasonal", "route": "per_year_detection", "n_hydro_years": 21},
   "outputs": {
-    "html": {"path": "fitzroy-river-wa.html", "sha256": "...", "size_bytes": 1757906}
+    "html": {"path": "fitzroy-river-wa.html", "sha256": "...", "size_bytes": 1761779}
   }
 }
 ```

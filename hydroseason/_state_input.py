@@ -1,11 +1,36 @@
 from __future__ import annotations
 
+import warnings
 from typing import Literal
 
 import numpy as np
 import pandas as pd
 
 QualityPolicy = Literal["exclude", "flag"]
+
+
+def _warn_if_supplied_extent_disagrees(supplied, recomputed: np.ndarray, value_col: str) -> None:
+    """Warn when counts replace a supplied percentage that meant something else.
+
+    A common case is a percentage of the whole AOI, which differs from the wet
+    share of observed pixels whenever part of the AOI is unobserved.
+    """
+    supplied = pd.to_numeric(supplied, errors="coerce").to_numpy(dtype=float)
+    both = np.isfinite(supplied) & np.isfinite(recomputed)
+    if not both.any():
+        return
+    difference = np.abs(supplied[both] - recomputed[both])
+    differs = difference > 1e-6 + 1e-6 * np.abs(recomputed[both])
+    if differs.any():
+        warnings.warn(
+            f"Pixel counts were supplied, so {value_col} was recomputed as "
+            "100 * n_water / n_valid (the wet share of the pixels observed that month). "
+            f"The supplied {value_col} differs in {int(differs.sum())} of {int(both.sum())} "
+            f"months (largest difference {float(difference.max()):.3g} percentage points). "
+            "If it uses another denominator, such as the whole AOI, drop it and pass the counts alone.",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 def prepare_monthly_extent(
@@ -55,7 +80,10 @@ def prepare_monthly_extent(
         complete_counts = counts.dropna()
         if ((complete_counts["n_water"] > complete_counts["n_valid"]) | (complete_counts["n_valid"] + complete_counts["n_invalid"] != complete_counts["n_aoi"])).any():
             raise ValueError("pixel counts violate n_water <= n_valid and n_valid + n_invalid == n_aoi.")
-        frame[value_col] = np.where(counts["n_valid"] > 0, 100.0 * counts["n_water"] / counts["n_valid"], np.nan)
+        recomputed = np.where(counts["n_valid"] > 0, 100.0 * counts["n_water"] / counts["n_valid"], np.nan)
+        if value_col in frame.columns:
+            _warn_if_supplied_extent_disagrees(frame[value_col], recomputed, value_col)
+        frame[value_col] = recomputed
         frame["invalid_pct"] = np.where(counts["n_aoi"] > 0, 100.0 * counts["n_invalid"] / counts["n_aoi"], np.nan)
 
     # Force float64 even when the source column is all-integer percentages

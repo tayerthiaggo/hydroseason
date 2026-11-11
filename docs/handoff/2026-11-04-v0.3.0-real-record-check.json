@@ -1,0 +1,1008 @@
+{
+  "old_runs_sha256": "0ea66f513e106666345ebd028991885934835da886d92320a9005d78ac9d2c44",
+  "new_runs_sha256": "61de416fc839b4f6971a758f5d4ba9c48f1d9167b4cdad2be2e7aeb84cb44679",
+  "script_sha256_lf": "9906889e1c8ddabdb099b43e5f4776a915165adbacf5a53276911640d487c768",
+  "records": 4468,
+  "policies": [
+    [
+      "hydroseason-v0.3.0",
+      "4d11d348a745e980d25b933c3f51fe90e7b5931e856223b597c9d5e3566db578",
+      4468
+    ]
+  ],
+  "errors": [],
+  "route_changes": [],
+  "cycle_count_changes": [],
+  "changed_fields": {
+    "trough_interval_end": 1936,
+    "timing_status": 1467,
+    "trough_timing_status": 1861,
+    "baseline_eligible": 9602,
+    "recharge": 39178,
+    "refuge": 40597
+  },
+  "unexpected_changed_fields": {},
+  "trough_label_transitions": {
+    "g1|core|broad->unresolved": 21,
+    "g1|core|interval->broad": 24,
+    "g1|core|interval->unresolved": 14,
+    "g1|core|point->broad": 162,
+    "g1|core|point->interval": 200,
+    "g1|core|point->unresolved": 110,
+    "g1|quadrant|broad->unresolved": 33,
+    "g1|quadrant|interval->broad": 63,
+    "g1|quadrant|interval->unresolved": 38,
+    "g1|quadrant|point->broad": 324,
+    "g1|quadrant|point->interval": 427,
+    "g1|quadrant|point->unresolved": 257,
+    "su|hb6|point->broad": 2,
+    "su|hb6|point->interval": 3,
+    "su|hb6|point->unresolved": 2,
+    "su|hb7|interval->unresolved": 3,
+    "su|hb7|point->broad": 5,
+    "su|hb7|point->interval": 7,
+    "su|hb7|point->unresolved": 6,
+    "su|hb8|interval->broad": 3,
+    "su|hb8|interval->unresolved": 6,
+    "su|hb8|point->broad": 12,
+    "su|hb8|point->interval": 15,
+    "su|hb8|point->unresolved": 13,
+    "su|tile6|interval->broad": 2,
+    "su|tile6|interval->unresolved": 2,
+    "su|tile6|point->broad": 2,
+    "su|tile6|point->interval": 5,
+    "su|tile6|point->unresolved": 3,
+    "su|tile7|interval->broad": 1,
+    "su|tile7|interval->unresolved": 1,
+    "su|tile7|point->broad": 4,
+    "su|tile7|point->interval": 8,
+    "su|tile7|point->unresolved": 8,
+    "su|tile8|broad->unresolved": 1,
+    "su|tile8|interval->broad": 4,
+    "su|tile8|interval->unresolved": 8,
+    "su|tile8|point->broad": 23,
+    "su|tile8|point->interval": 18,
+    "su|tile8|point->unresolved": 21
+  },
+  "widened_to_unresolved_status_kept": {
+    "g1|quadrant|partial|provisional": 246,
+    "g1|core|complete|confirmed": 36,
+    "g1|core|partial|provisional": 109,
+    "g1|quadrant|complete|confirmed": 82,
+    "su|hb6|partial|provisional": 2,
+    "su|hb7|partial|provisional": 9,
+    "su|hb8|partial|provisional": 14,
+    "su|hb8|complete|confirmed": 5,
+    "su|tile6|complete|confirmed": 2,
+    "su|tile6|partial|provisional": 3,
+    "su|tile7|partial|provisional": 6,
+    "su|tile7|complete|confirmed": 3,
+    "su|tile8|partial|provisional": 20,
+    "su|tile8|complete|confirmed": 10
+  },
+  "dated_troughs": {
+    "g1|core": 11502,
+    "g1|quadrant": 36198,
+    "su|catchment": 63,
+    "su|hb6": 461,
+    "su|hb7": 1859,
+    "su|hb8": 4820,
+    "su|tile6": 808,
+    "su|tile7": 2114,
+    "su|tile8": 6921
+  },
+  "dated_troughs_not_covering_boundary": {},
+  "m2_mismatch_new": {
+    "g1|core": {
+      "point_troughs": 3371,
+      "differs": {
+        "n": 3371,
+        "k": 0,
+        "share": 0.0
+      },
+      "differs_cloudy": {
+        "n": 0,
+        "k": 0,
+        "share": null
+      },
+      "differs_side": {},
+      "differs_selection_status": {}
+    },
+    "g1|quadrant": {
+      "point_troughs": 9910,
+      "differs": {
+        "n": 9910,
+        "k": 0,
+        "share": 0.0
+      },
+      "differs_cloudy": {
+        "n": 0,
+        "k": 0,
+        "share": null
+      },
+      "differs_side": {},
+      "differs_selection_status": {}
+    },
+    "su|catchment": {
+      "point_troughs": 22,
+      "differs": {
+        "n": 22,
+        "k": 0,
+        "share": 0.0
+      },
+      "differs_cloudy": {
+        "n": 0,
+        "k": 0,
+        "share": null
+      },
+      "differs_side": {},
+      "differs_selection_status": {}
+    },
+    "su|hb6": {
+      "point_troughs": 131,
+      "differs": {
+        "n": 131,
+        "k": 0,
+        "share": 0.0
+      },
+      "differs_cloudy": {
+        "n": 0,
+        "k": 0,
+        "share": null
+      },
+      "differs_side": {},
+      "differs_selection_status": {}
+    },
+    "su|hb7": {
+      "point_troughs": 540,
+      "differs": {
+        "n": 540,
+        "k": 0,
+        "share": 0.0
+      },
+      "differs_cloudy": {
+        "n": 0,
+        "k": 0,
+        "share": null
+      },
+      "differs_side": {},
+      "differs_selection_status": {}
+    },
+    "su|hb8": {
+      "point_troughs": 1303,
+      "differs": {
+        "n": 1303,
+        "k": 0,
+        "share": 0.0
+      },
+      "differs_cloudy": {
+        "n": 0,
+        "k": 0,
+        "share": null
+      },
+      "differs_side": {},
+      "differs_selection_status": {}
+    },
+    "su|tile6": {
+      "point_troughs": 223,
+      "differs": {
+        "n": 223,
+        "k": 0,
+        "share": 0.0
+      },
+      "differs_cloudy": {
+        "n": 0,
+        "k": 0,
+        "share": null
+      },
+      "differs_side": {},
+      "differs_selection_status": {}
+    },
+    "su|tile7": {
+      "point_troughs": 603,
+      "differs": {
+        "n": 603,
+        "k": 0,
+        "share": 0.0
+      },
+      "differs_cloudy": {
+        "n": 0,
+        "k": 0,
+        "share": null
+      },
+      "differs_side": {},
+      "differs_selection_status": {}
+    },
+    "su|tile8": {
+      "point_troughs": 1809,
+      "differs": {
+        "n": 1809,
+        "k": 0,
+        "share": 0.0
+      },
+      "differs_cloudy": {
+        "n": 0,
+        "k": 0,
+        "share": null
+      },
+      "differs_side": {},
+      "differs_selection_status": {}
+    }
+  },
+  "e0_mismatches_new": 0,
+  "coverage_new": {
+    "g1|core|E0": {
+      "units": 446,
+      "units_with_baseline": {
+        "n": 446,
+        "k": 274,
+        "share": 0.6143497757847534
+      },
+      "cycles": 16948,
+      "recharge_labelled": {
+        "n": 16948,
+        "k": 10063,
+        "share": 0.5937573755015341
+      },
+      "refuge_labelled": {
+        "n": 16948,
+        "k": 10408,
+        "share": 0.6141137597356621
+      },
+      "median_eligible_per_unit": 5.0
+    },
+    "g1|core|E1": {
+      "units": 446,
+      "units_with_baseline": {
+        "n": 446,
+        "k": 274,
+        "share": 0.6143497757847534
+      },
+      "cycles": 16948,
+      "recharge_labelled": {
+        "n": 16948,
+        "k": 10063,
+        "share": 0.5937573755015341
+      },
+      "refuge_labelled": {
+        "n": 16948,
+        "k": 10408,
+        "share": 0.6141137597356621
+      },
+      "median_eligible_per_unit": 5.0
+    },
+    "g1|core|E2": {
+      "units": 446,
+      "units_with_baseline": {
+        "n": 446,
+        "k": 278,
+        "share": 0.6233183856502242
+      },
+      "cycles": 16948,
+      "recharge_labelled": {
+        "n": 16948,
+        "k": 10212,
+        "share": 0.6025489733301864
+      },
+      "refuge_labelled": {
+        "n": 16948,
+        "k": 10560,
+        "share": 0.6230823696011328
+      },
+      "median_eligible_per_unit": 5.0
+    },
+    "g1|quadrant|E0": {
+      "units": 1555,
+      "units_with_baseline": {
+        "n": 1555,
+        "k": 690,
+        "share": 0.4437299035369775
+      },
+      "cycles": 59090,
+      "recharge_labelled": {
+        "n": 59090,
+        "k": 25246,
+        "share": 0.4272465730242004
+      },
+      "refuge_labelled": {
+        "n": 59090,
+        "k": 26210,
+        "share": 0.44356067016415635
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "g1|quadrant|E1": {
+      "units": 1555,
+      "units_with_baseline": {
+        "n": 1555,
+        "k": 690,
+        "share": 0.4437299035369775
+      },
+      "cycles": 59090,
+      "recharge_labelled": {
+        "n": 59090,
+        "k": 25246,
+        "share": 0.4272465730242004
+      },
+      "refuge_labelled": {
+        "n": 59090,
+        "k": 26210,
+        "share": 0.44356067016415635
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "g1|quadrant|E2": {
+      "units": 1555,
+      "units_with_baseline": {
+        "n": 1555,
+        "k": 711,
+        "share": 0.4572347266881029
+      },
+      "cycles": 59090,
+      "recharge_labelled": {
+        "n": 59090,
+        "k": 26009,
+        "share": 0.44015907937045184
+      },
+      "refuge_labelled": {
+        "n": 59090,
+        "k": 27008,
+        "share": 0.4570654933152818
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "su|catchment|E0": {
+      "units": 3,
+      "units_with_baseline": {
+        "n": 3,
+        "k": 1,
+        "share": 0.3333333333333333
+      },
+      "cycles": 63,
+      "recharge_labelled": {
+        "n": 63,
+        "k": 21,
+        "share": 0.3333333333333333
+      },
+      "refuge_labelled": {
+        "n": 63,
+        "k": 21,
+        "share": 0.3333333333333333
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "su|catchment|E1": {
+      "units": 3,
+      "units_with_baseline": {
+        "n": 3,
+        "k": 1,
+        "share": 0.3333333333333333
+      },
+      "cycles": 63,
+      "recharge_labelled": {
+        "n": 63,
+        "k": 21,
+        "share": 0.3333333333333333
+      },
+      "refuge_labelled": {
+        "n": 63,
+        "k": 21,
+        "share": 0.3333333333333333
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "su|catchment|E2": {
+      "units": 3,
+      "units_with_baseline": {
+        "n": 3,
+        "k": 1,
+        "share": 0.3333333333333333
+      },
+      "cycles": 63,
+      "recharge_labelled": {
+        "n": 63,
+        "k": 21,
+        "share": 0.3333333333333333
+      },
+      "refuge_labelled": {
+        "n": 63,
+        "k": 21,
+        "share": 0.3333333333333333
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "su|hb6|E0": {
+      "units": 23,
+      "units_with_baseline": {
+        "n": 23,
+        "k": 14,
+        "share": 0.6086956521739131
+      },
+      "cycles": 483,
+      "recharge_labelled": {
+        "n": 483,
+        "k": 294,
+        "share": 0.6086956521739131
+      },
+      "refuge_labelled": {
+        "n": 483,
+        "k": 294,
+        "share": 0.6086956521739131
+      },
+      "median_eligible_per_unit": 5.0
+    },
+    "su|hb6|E1": {
+      "units": 23,
+      "units_with_baseline": {
+        "n": 23,
+        "k": 14,
+        "share": 0.6086956521739131
+      },
+      "cycles": 483,
+      "recharge_labelled": {
+        "n": 483,
+        "k": 294,
+        "share": 0.6086956521739131
+      },
+      "refuge_labelled": {
+        "n": 483,
+        "k": 294,
+        "share": 0.6086956521739131
+      },
+      "median_eligible_per_unit": 5.0
+    },
+    "su|hb6|E2": {
+      "units": 23,
+      "units_with_baseline": {
+        "n": 23,
+        "k": 14,
+        "share": 0.6086956521739131
+      },
+      "cycles": 483,
+      "recharge_labelled": {
+        "n": 483,
+        "k": 294,
+        "share": 0.6086956521739131
+      },
+      "refuge_labelled": {
+        "n": 483,
+        "k": 294,
+        "share": 0.6086956521739131
+      },
+      "median_eligible_per_unit": 5.0
+    },
+    "su|hb7|E0": {
+      "units": 101,
+      "units_with_baseline": {
+        "n": 101,
+        "k": 51,
+        "share": 0.504950495049505
+      },
+      "cycles": 2121,
+      "recharge_labelled": {
+        "n": 2121,
+        "k": 1065,
+        "share": 0.5021216407355021
+      },
+      "refuge_labelled": {
+        "n": 2121,
+        "k": 1071,
+        "share": 0.504950495049505
+      },
+      "median_eligible_per_unit": 5.0
+    },
+    "su|hb7|E1": {
+      "units": 101,
+      "units_with_baseline": {
+        "n": 101,
+        "k": 51,
+        "share": 0.504950495049505
+      },
+      "cycles": 2121,
+      "recharge_labelled": {
+        "n": 2121,
+        "k": 1065,
+        "share": 0.5021216407355021
+      },
+      "refuge_labelled": {
+        "n": 2121,
+        "k": 1071,
+        "share": 0.504950495049505
+      },
+      "median_eligible_per_unit": 5.0
+    },
+    "su|hb7|E2": {
+      "units": 101,
+      "units_with_baseline": {
+        "n": 101,
+        "k": 52,
+        "share": 0.5148514851485149
+      },
+      "cycles": 2121,
+      "recharge_labelled": {
+        "n": 2121,
+        "k": 1086,
+        "share": 0.512022630834512
+      },
+      "refuge_labelled": {
+        "n": 2121,
+        "k": 1092,
+        "share": 0.5148514851485149
+      },
+      "median_eligible_per_unit": 5.0
+    },
+    "su|hb8|E0": {
+      "units": 292,
+      "units_with_baseline": {
+        "n": 292,
+        "k": 92,
+        "share": 0.3150684931506849
+      },
+      "cycles": 6132,
+      "recharge_labelled": {
+        "n": 6132,
+        "k": 1909,
+        "share": 0.3113176777560339
+      },
+      "refuge_labelled": {
+        "n": 6132,
+        "k": 1932,
+        "share": 0.3150684931506849
+      },
+      "median_eligible_per_unit": 3.0
+    },
+    "su|hb8|E1": {
+      "units": 292,
+      "units_with_baseline": {
+        "n": 292,
+        "k": 92,
+        "share": 0.3150684931506849
+      },
+      "cycles": 6132,
+      "recharge_labelled": {
+        "n": 6132,
+        "k": 1909,
+        "share": 0.3113176777560339
+      },
+      "refuge_labelled": {
+        "n": 6132,
+        "k": 1932,
+        "share": 0.3150684931506849
+      },
+      "median_eligible_per_unit": 3.0
+    },
+    "su|hb8|E2": {
+      "units": 292,
+      "units_with_baseline": {
+        "n": 292,
+        "k": 95,
+        "share": 0.3253424657534247
+      },
+      "cycles": 6132,
+      "recharge_labelled": {
+        "n": 6132,
+        "k": 1970,
+        "share": 0.3212654924983692
+      },
+      "refuge_labelled": {
+        "n": 6132,
+        "k": 1995,
+        "share": 0.3253424657534247
+      },
+      "median_eligible_per_unit": 3.0
+    },
+    "su|tile6|E0": {
+      "units": 44,
+      "units_with_baseline": {
+        "n": 44,
+        "k": 16,
+        "share": 0.36363636363636365
+      },
+      "cycles": 924,
+      "recharge_labelled": {
+        "n": 924,
+        "k": 333,
+        "share": 0.36038961038961037
+      },
+      "refuge_labelled": {
+        "n": 924,
+        "k": 336,
+        "share": 0.36363636363636365
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "su|tile6|E1": {
+      "units": 44,
+      "units_with_baseline": {
+        "n": 44,
+        "k": 16,
+        "share": 0.36363636363636365
+      },
+      "cycles": 924,
+      "recharge_labelled": {
+        "n": 924,
+        "k": 333,
+        "share": 0.36038961038961037
+      },
+      "refuge_labelled": {
+        "n": 924,
+        "k": 336,
+        "share": 0.36363636363636365
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "su|tile6|E2": {
+      "units": 44,
+      "units_with_baseline": {
+        "n": 44,
+        "k": 17,
+        "share": 0.38636363636363635
+      },
+      "cycles": 924,
+      "recharge_labelled": {
+        "n": 924,
+        "k": 354,
+        "share": 0.38311688311688313
+      },
+      "refuge_labelled": {
+        "n": 924,
+        "k": 357,
+        "share": 0.38636363636363635
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "su|tile7|E0": {
+      "units": 121,
+      "units_with_baseline": {
+        "n": 121,
+        "k": 53,
+        "share": 0.4380165289256198
+      },
+      "cycles": 2541,
+      "recharge_labelled": {
+        "n": 2541,
+        "k": 1093,
+        "share": 0.4301456119637938
+      },
+      "refuge_labelled": {
+        "n": 2541,
+        "k": 1113,
+        "share": 0.4380165289256198
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "su|tile7|E1": {
+      "units": 121,
+      "units_with_baseline": {
+        "n": 121,
+        "k": 53,
+        "share": 0.4380165289256198
+      },
+      "cycles": 2541,
+      "recharge_labelled": {
+        "n": 2541,
+        "k": 1093,
+        "share": 0.4301456119637938
+      },
+      "refuge_labelled": {
+        "n": 2541,
+        "k": 1113,
+        "share": 0.4380165289256198
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "su|tile7|E2": {
+      "units": 121,
+      "units_with_baseline": {
+        "n": 121,
+        "k": 54,
+        "share": 0.4462809917355372
+      },
+      "cycles": 2541,
+      "recharge_labelled": {
+        "n": 2541,
+        "k": 1114,
+        "share": 0.43841007477371113
+      },
+      "refuge_labelled": {
+        "n": 2541,
+        "k": 1134,
+        "share": 0.4462809917355372
+      },
+      "median_eligible_per_unit": 4.0
+    },
+    "su|tile8|E0": {
+      "units": 425,
+      "units_with_baseline": {
+        "n": 425,
+        "k": 127,
+        "share": 0.2988235294117647
+      },
+      "cycles": 8925,
+      "recharge_labelled": {
+        "n": 8925,
+        "k": 2628,
+        "share": 0.29445378151260504
+      },
+      "refuge_labelled": {
+        "n": 8925,
+        "k": 2667,
+        "share": 0.2988235294117647
+      },
+      "median_eligible_per_unit": 3.0
+    },
+    "su|tile8|E1": {
+      "units": 425,
+      "units_with_baseline": {
+        "n": 425,
+        "k": 127,
+        "share": 0.2988235294117647
+      },
+      "cycles": 8925,
+      "recharge_labelled": {
+        "n": 8925,
+        "k": 2628,
+        "share": 0.29445378151260504
+      },
+      "refuge_labelled": {
+        "n": 8925,
+        "k": 2667,
+        "share": 0.2988235294117647
+      },
+      "median_eligible_per_unit": 3.0
+    },
+    "su|tile8|E2": {
+      "units": 425,
+      "units_with_baseline": {
+        "n": 425,
+        "k": 132,
+        "share": 0.31058823529411766
+      },
+      "cycles": 8925,
+      "recharge_labelled": {
+        "n": 8925,
+        "k": 2731,
+        "share": 0.30599439775910364
+      },
+      "refuge_labelled": {
+        "n": 8925,
+        "k": 2772,
+        "share": 0.31058823529411766
+      },
+      "median_eligible_per_unit": 3.0
+    }
+  },
+  "units_losing_e1_baseline": {
+    "g1|quadrant": 16,
+    "g1|core": 4,
+    "su|tile8": 2
+  },
+  "case_study_tables_new": {
+    "daly_river_nt": {
+      "route": "per_year_detection",
+      "cycles": 21,
+      "E0": {
+        "eligible": 4,
+        "labelled_years": 0,
+        "labels": {
+          "2005": "insufficient_baseline/insufficient_baseline",
+          "2006": "insufficient_baseline/insufficient_baseline",
+          "2007": "insufficient_baseline/insufficient_baseline",
+          "2008": "insufficient_baseline/insufficient_baseline",
+          "2009": "insufficient_baseline/insufficient_baseline",
+          "2010": "insufficient_baseline/insufficient_baseline",
+          "2011": "insufficient_baseline/insufficient_baseline",
+          "2012": "insufficient_baseline/insufficient_baseline",
+          "2013": "insufficient_baseline/insufficient_baseline",
+          "2014": "insufficient_baseline/insufficient_baseline",
+          "2015": "insufficient_baseline/insufficient_baseline",
+          "2016": "insufficient_baseline/insufficient_baseline",
+          "2017": "insufficient_baseline/insufficient_baseline",
+          "2018": "insufficient_baseline/insufficient_baseline",
+          "2019": "insufficient_baseline/insufficient_baseline",
+          "2020": "insufficient_baseline/insufficient_baseline",
+          "2021": "insufficient_baseline/insufficient_baseline",
+          "2022": "insufficient_baseline/insufficient_baseline",
+          "2023": "insufficient_baseline/insufficient_baseline",
+          "2024": "insufficient_baseline/insufficient_baseline",
+          "2025": "insufficient_baseline/insufficient_baseline"
+        }
+      },
+      "E1": {
+        "eligible": 4,
+        "labelled_years": 0,
+        "labels": {
+          "2005": "insufficient_baseline/insufficient_baseline",
+          "2006": "insufficient_baseline/insufficient_baseline",
+          "2007": "insufficient_baseline/insufficient_baseline",
+          "2008": "insufficient_baseline/insufficient_baseline",
+          "2009": "insufficient_baseline/insufficient_baseline",
+          "2010": "insufficient_baseline/insufficient_baseline",
+          "2011": "insufficient_baseline/insufficient_baseline",
+          "2012": "insufficient_baseline/insufficient_baseline",
+          "2013": "insufficient_baseline/insufficient_baseline",
+          "2014": "insufficient_baseline/insufficient_baseline",
+          "2015": "insufficient_baseline/insufficient_baseline",
+          "2016": "insufficient_baseline/insufficient_baseline",
+          "2017": "insufficient_baseline/insufficient_baseline",
+          "2018": "insufficient_baseline/insufficient_baseline",
+          "2019": "insufficient_baseline/insufficient_baseline",
+          "2020": "insufficient_baseline/insufficient_baseline",
+          "2021": "insufficient_baseline/insufficient_baseline",
+          "2022": "insufficient_baseline/insufficient_baseline",
+          "2023": "insufficient_baseline/insufficient_baseline",
+          "2024": "insufficient_baseline/insufficient_baseline",
+          "2025": "insufficient_baseline/insufficient_baseline"
+        }
+      }
+    },
+    "fitzroy_river_wa": {
+      "route": "per_year_detection",
+      "cycles": 21,
+      "E0": {
+        "eligible": 3,
+        "labelled_years": 0,
+        "labels": {
+          "2005": "insufficient_baseline/insufficient_baseline",
+          "2006": "insufficient_baseline/insufficient_baseline",
+          "2007": "insufficient_baseline/insufficient_baseline",
+          "2008": "insufficient_baseline/insufficient_baseline",
+          "2009": "insufficient_baseline/insufficient_baseline",
+          "2010": "insufficient_baseline/insufficient_baseline",
+          "2011": "insufficient_baseline/insufficient_baseline",
+          "2012": "insufficient_baseline/insufficient_baseline",
+          "2013": "insufficient_baseline/insufficient_baseline",
+          "2014": "insufficient_baseline/insufficient_baseline",
+          "2015": "insufficient_baseline/insufficient_baseline",
+          "2016": "insufficient_baseline/insufficient_baseline",
+          "2017": "insufficient_baseline/insufficient_baseline",
+          "2018": "insufficient_baseline/insufficient_baseline",
+          "2019": "insufficient_baseline/insufficient_baseline",
+          "2020": "insufficient_baseline/insufficient_baseline",
+          "2021": "insufficient_baseline/insufficient_baseline",
+          "2022": "insufficient_baseline/insufficient_baseline",
+          "2023": "insufficient_baseline/insufficient_baseline",
+          "2024": "insufficient_baseline/insufficient_baseline",
+          "2025": "insufficient_baseline/insufficient_baseline"
+        }
+      },
+      "E1": {
+        "eligible": 3,
+        "labelled_years": 0,
+        "labels": {
+          "2005": "insufficient_baseline/insufficient_baseline",
+          "2006": "insufficient_baseline/insufficient_baseline",
+          "2007": "insufficient_baseline/insufficient_baseline",
+          "2008": "insufficient_baseline/insufficient_baseline",
+          "2009": "insufficient_baseline/insufficient_baseline",
+          "2010": "insufficient_baseline/insufficient_baseline",
+          "2011": "insufficient_baseline/insufficient_baseline",
+          "2012": "insufficient_baseline/insufficient_baseline",
+          "2013": "insufficient_baseline/insufficient_baseline",
+          "2014": "insufficient_baseline/insufficient_baseline",
+          "2015": "insufficient_baseline/insufficient_baseline",
+          "2016": "insufficient_baseline/insufficient_baseline",
+          "2017": "insufficient_baseline/insufficient_baseline",
+          "2018": "insufficient_baseline/insufficient_baseline",
+          "2019": "insufficient_baseline/insufficient_baseline",
+          "2020": "insufficient_baseline/insufficient_baseline",
+          "2021": "insufficient_baseline/insufficient_baseline",
+          "2022": "insufficient_baseline/insufficient_baseline",
+          "2023": "insufficient_baseline/insufficient_baseline",
+          "2024": "insufficient_baseline/insufficient_baseline",
+          "2025": "insufficient_baseline/insufficient_baseline"
+        }
+      }
+    },
+    "gilbert_river_qld": {
+      "route": "per_year_detection",
+      "cycles": 21,
+      "E0": {
+        "eligible": 9,
+        "labelled_years": 21,
+        "labels": {
+          "2005": "typical/typical",
+          "2006": "typical/typical",
+          "2007": "high/high",
+          "2008": "typical/typical",
+          "2009": "high/typical",
+          "2010": "high/high",
+          "2011": "high/high",
+          "2012": "high/typical",
+          "2013": "low/low",
+          "2014": "typical/typical",
+          "2015": "low/low",
+          "2016": "typical/typical",
+          "2017": "typical/typical",
+          "2018": "typical/typical",
+          "2019": "typical/typical",
+          "2020": "high/typical",
+          "2021": "high/high",
+          "2022": "typical/high",
+          "2023": "high/typical",
+          "2024": "high/high",
+          "2025": "typical/high"
+        }
+      },
+      "E1": {
+        "eligible": 9,
+        "labelled_years": 21,
+        "labels": {
+          "2005": "typical/typical",
+          "2006": "typical/typical",
+          "2007": "high/high",
+          "2008": "typical/typical",
+          "2009": "high/typical",
+          "2010": "high/high",
+          "2011": "high/high",
+          "2012": "high/typical",
+          "2013": "low/low",
+          "2014": "typical/typical",
+          "2015": "low/low",
+          "2016": "typical/typical",
+          "2017": "typical/typical",
+          "2018": "typical/typical",
+          "2019": "typical/typical",
+          "2020": "high/typical",
+          "2021": "high/high",
+          "2022": "typical/high",
+          "2023": "high/typical",
+          "2024": "high/high",
+          "2025": "typical/high"
+        }
+      }
+    },
+    "lachlan_river_nsw": {
+      "route": "event_characterisation",
+      "cycles": 0
+    },
+    "moonie_river_qld_nsw": {
+      "route": "event_characterisation",
+      "cycles": 0
+    }
+  },
+  "simulation": {
+    "g1": {
+      "records": 2001,
+      "point_troughs": 14761,
+      "changed_troughs": 1480,
+      "aggregate_changed": 1131,
+      "records_losing_an_informative_trough": 272,
+      "records_rerouted": 0,
+      "E0_eligible_cycles": 2549,
+      "E0_eligible_cycles_lost": 247,
+      "E0_units_with_baseline": 97,
+      "E0_units_losing_baseline": 25,
+      "E1_eligible_cycles": 9394,
+      "E1_eligible_cycles_lost": 92,
+      "E1_units_with_baseline": 984,
+      "E1_units_losing_baseline": 15,
+      "new_trough_status": {
+        "broad": 486,
+        "interval": 627,
+        "unresolved": 367
+      }
+    },
+    "su": {
+      "records": 1009,
+      "point_troughs": 4788,
+      "records_losing_an_informative_trough": 47,
+      "records_rerouted": 0,
+      "E0_eligible_cycles": 1087,
+      "E0_eligible_cycles_lost": 24,
+      "E0_units_with_baseline": 26,
+      "E0_units_losing_baseline": 3,
+      "E1_eligible_cycles": 3814,
+      "E1_eligible_cycles_lost": 14,
+      "E1_units_with_baseline": 356,
+      "E1_units_losing_baseline": 1,
+      "changed_troughs": 157,
+      "aggregate_changed": 138,
+      "new_trough_status": {
+        "broad": 48,
+        "unresolved": 53,
+        "interval": 56
+      }
+    }
+  }
+}

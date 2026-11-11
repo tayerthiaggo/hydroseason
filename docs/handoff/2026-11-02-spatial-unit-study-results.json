@@ -1,0 +1,458 @@
+{
+  "receipt_sha256_lf": "95ed565a1bc98a8ce8aced0aade0b326d715a79da8211654b6c09e6421da5040",
+  "series_sha256_at_evaluate": {
+    "daly_river_nt.csv.gz": "f7797bc3d501e2863d00db862a7c8a6ef73dda65c52c4a28badd55eba057838a",
+    "fitzroy_river_wa.csv.gz": "9ea5a4d8d1d9756303acea5fdcd1871d1a71ebe99cc3854da00963c6ca3b572e",
+    "gilbert_river_qld.csv.gz": "340dacdc1c14c896dc94eeee73396360a30798e942bb438fc53879308fb833b9",
+    "lachlan_river_nsw.csv.gz": "502d6c65370747d12769f3a960f7203cc4c4ada4cb1eb39e9494bc389954edb5",
+    "moonie_river_qld_nsw.csv.gz": "ef3443e5c9e0d2e2c8d69c9a4e5f6a2ff3a0b1dba1437b333ea9b137d3f1526b"
+  },
+  "validation_at_evaluate": {
+    "daly_river_nt": {
+      "pearson_r": 0.999826,
+      "months_compared": 252,
+      "n_aoi_cube": 60744825,
+      "n_aoi_case": 60786200,
+      "n_aoi_ratio": 0.999319,
+      "max_abs_extent_diff_pp": 0.153608,
+      "pass": true
+    },
+    "fitzroy_river_wa": {
+      "pearson_r": 0.999436,
+      "months_compared": 252,
+      "n_aoi_cube": 103616139,
+      "n_aoi_case": 108058082,
+      "n_aoi_ratio": 0.958893,
+      "max_abs_extent_diff_pp": 0.218557,
+      "pass": true
+    },
+    "gilbert_river_qld": {
+      "pearson_r": 0.999479,
+      "months_compared": 252,
+      "n_aoi_cube": 24462518,
+      "n_aoi_case": 24491693,
+      "n_aoi_ratio": 0.998809,
+      "max_abs_extent_diff_pp": 0.222194,
+      "pass": true
+    },
+    "lachlan_river_nsw": {
+      "pearson_r": 0.999745,
+      "months_compared": 252,
+      "n_aoi_cube": 85612475,
+      "n_aoi_case": 85665455,
+      "n_aoi_ratio": 0.999382,
+      "max_abs_extent_diff_pp": 0.138516,
+      "pass": true
+    },
+    "moonie_river_qld_nsw": {
+      "pearson_r": 0.999351,
+      "months_compared": 252,
+      "n_aoi_cube": 16283168,
+      "n_aoi_case": 16308023,
+      "n_aoi_ratio": 0.998476,
+      "max_abs_extent_diff_pp": 0.066318,
+      "pass": true
+    }
+  },
+  "excluded_no_pixels": [],
+  "n_units": 1278,
+  "units_by_scheme": {
+    "catchment": 5,
+    "hb6": 33,
+    "hb7": 128,
+    "hb8": 369,
+    "tile6": 54,
+    "tile7": 152,
+    "tile8": 537
+  },
+  "error_share": 0.0,
+  "errors": [],
+  "seasonal_catchments": [
+    "daly_river_nt",
+    "fitzroy_river_wa",
+    "gilbert_river_qld"
+  ],
+  "aseasonal_catchments": [
+    "lachlan_river_nsw",
+    "moonie_river_qld_nsw"
+  ],
+  "v2_catchment_vs_case_study": {
+    "daly_river_nt": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "regime": [
+        "seasonal",
+        "seasonal"
+      ],
+      "n_hydro_years": [
+        21,
+        21
+      ],
+      "peak_month": [
+        3.0,
+        3.0
+      ],
+      "trough_month": [
+        11.0,
+        11.0
+      ]
+    },
+    "fitzroy_river_wa": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "regime": [
+        "seasonal",
+        "seasonal"
+      ],
+      "n_hydro_years": [
+        21,
+        21
+      ],
+      "peak_month": [
+        2.0,
+        2.0
+      ],
+      "trough_month": [
+        11.0,
+        11.0
+      ]
+    },
+    "gilbert_river_qld": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "regime": [
+        "seasonal",
+        "seasonal"
+      ],
+      "n_hydro_years": [
+        21,
+        21
+      ],
+      "peak_month": [
+        2.0,
+        2.0
+      ],
+      "trough_month": [
+        10.0,
+        11.0
+      ]
+    },
+    "lachlan_river_nsw": {
+      "route": [
+        "event_characterisation",
+        "event_characterisation"
+      ],
+      "regime": [
+        "aseasonal",
+        "aseasonal"
+      ],
+      "n_hydro_years": [
+        0,
+        0
+      ],
+      "peak_month": [
+        null,
+        null
+      ],
+      "trough_month": [
+        null,
+        null
+      ]
+    },
+    "moonie_river_qld_nsw": {
+      "route": [
+        "event_characterisation",
+        "event_characterisation"
+      ],
+      "regime": [
+        "aseasonal",
+        "aseasonal"
+      ],
+      "n_hydro_years": [
+        0,
+        0
+      ],
+      "peak_month": [
+        null,
+        null
+      ],
+      "trough_month": [
+        null,
+        null
+      ]
+    }
+  },
+  "c1_unit_type": {
+    "decision": "equivalent",
+    "outcomes": {
+      "routed_seasonal": {
+        "difference": -0.01240222056476895,
+        "ci95": [
+          -0.050528633833304054,
+          0.025057430876842268
+        ],
+        "per_catchment": {
+          "daly_river_nt": 0.03596463400906664,
+          "fitzroy_river_wa": 0.019899785743447463,
+          "gilbert_river_qld": 0.009731250237579364,
+          "lachlan_river_nsw": -0.07804734368678903,
+          "moonie_river_qld_nsw": -0.0990541702493551
+        },
+        "n_positive_catchments": 3,
+        "n_negative_catchments": 2,
+        "n_catchments": 5,
+        "n_draws": 2000
+      },
+      "confirmed_share": {
+        "difference": 0.009002402602323196,
+        "ci95": [
+          -0.006142762148128742,
+          0.02469202653386469
+        ],
+        "per_catchment": {
+          "daly_river_nt": 0.0018894642597271595,
+          "fitzroy_river_wa": 0.0171624857674421,
+          "gilbert_river_qld": 0.04274849781601297,
+          "lachlan_river_nsw": -0.012056877579712093
+        },
+        "n_positive_catchments": 3,
+        "n_negative_catchments": 1,
+        "n_catchments": 4,
+        "n_draws": 2000
+      },
+      "trough_point_share": {
+        "difference": 0.013943629642670928,
+        "ci95": [
+          -0.008296205043641276,
+          0.03723218506214352
+        ],
+        "per_catchment": {
+          "daly_river_nt": 0.016924602905639748,
+          "fitzroy_river_wa": 0.027563393695303987,
+          "gilbert_river_qld": -0.01906092252204309,
+          "lachlan_river_nsw": -0.00593128338671214
+        },
+        "n_positive_catchments": 2,
+        "n_negative_catchments": 2,
+        "n_catchments": 4,
+        "n_draws": 2000
+      },
+      "baseline_eligible_share": {
+        "difference": 0.003218634326769983,
+        "ci95": [
+          -0.005573726505600471,
+          0.01243860228006908
+        ],
+        "per_catchment": {
+          "daly_river_nt": -0.0030923479749806362,
+          "fitzroy_river_wa": 0.012004216243257275,
+          "gilbert_river_qld": -0.00563180417285647,
+          "lachlan_river_nsw": -0.0033966608443592537
+        },
+        "n_positive_catchments": 1,
+        "n_negative_catchments": 3,
+        "n_catchments": 4,
+        "n_draws": 2000
+      }
+    }
+  },
+  "c2_size": {
+    "subbasin": {
+      "by_water_pixels": {
+        "bins": {
+          "[0,100)": {
+            "n": 174,
+            "seasonal_share": 0.9482758620689655
+          },
+          "[100,1000)": {
+            "n": 103,
+            "seasonal_share": 1.0
+          },
+          "[1000,10000)": {
+            "n": 65,
+            "seasonal_share": 0.9846153846153847
+          },
+          "[10000,100000)": {
+            "n": 9,
+            "seasonal_share": 1.0
+          },
+          "[100000,inf)": {
+            "n": 0,
+            "seasonal_share": null
+          }
+        },
+        "minimum_lower_edge": 0
+      },
+      "by_area_km2": {
+        "bins": {
+          "[0,300)": {
+            "n": 99,
+            "seasonal_share": 0.9595959595959596
+          },
+          "[300,1000)": {
+            "n": 115,
+            "seasonal_share": 0.9565217391304348
+          },
+          "[1000,3000)": {
+            "n": 106,
+            "seasonal_share": 0.9905660377358491
+          },
+          "[3000,10000)": {
+            "n": 24,
+            "seasonal_share": 1.0
+          },
+          "[10000,inf)": {
+            "n": 7,
+            "seasonal_share": 1.0
+          }
+        },
+        "minimum_lower_edge": 0
+      }
+    },
+    "tile": {
+      "by_water_pixels": {
+        "bins": {
+          "[0,100)": {
+            "n": 293,
+            "seasonal_share": 0.9249146757679181
+          },
+          "[100,1000)": {
+            "n": 113,
+            "seasonal_share": 0.9823008849557522
+          },
+          "[1000,10000)": {
+            "n": 68,
+            "seasonal_share": 1.0
+          },
+          "[10000,100000)": {
+            "n": 9,
+            "seasonal_share": 1.0
+          },
+          "[100000,inf)": {
+            "n": 0,
+            "seasonal_share": null
+          }
+        },
+        "minimum_lower_edge": 0
+      },
+      "by_area_km2": {
+        "bins": {
+          "[0,300)": {
+            "n": 12,
+            "seasonal_share": 0.75
+          },
+          "[300,1000)": {
+            "n": 346,
+            "seasonal_share": 0.9450867052023122
+          },
+          "[1000,3000)": {
+            "n": 95,
+            "seasonal_share": 0.9789473684210527
+          },
+          "[3000,10000)": {
+            "n": 30,
+            "seasonal_share": 1.0
+          },
+          "[10000,inf)": {
+            "n": 0,
+            "seasonal_share": null
+          }
+        },
+        "minimum_lower_edge": 300
+      }
+    }
+  },
+  "c3_asynchrony": {
+    "trough": {
+      "n": 85,
+      "share_more_than_1_month": 0.24705882352941178
+    },
+    "peak": {
+      "n": 85,
+      "share_more_than_1_month": 0.16470588235294117
+    },
+    "material": false,
+    "catchment_vs_hb7_trough_point_share": {
+      "daly_river_nt": {
+        "catchment": 0.5238095238095238,
+        "hb7_seasonal_median": 0.23809523809523808
+      },
+      "fitzroy_river_wa": {
+        "catchment": 0.2857142857142857,
+        "hb7_seasonal_median": 0.23809523809523808
+      },
+      "gilbert_river_qld": {
+        "catchment": 0.23809523809523808,
+        "hb7_seasonal_median": 0.23809523809523808
+      }
+    }
+  },
+  "c4_hidden_seasonality": {
+    "n": 43,
+    "share_routed_seasonal": 0.37209302325581395,
+    "per_catchment": {
+      "lachlan_river_nsw": {
+        "size": 36,
+        "mean": 0.4444444444444444
+      },
+      "moonie_river_qld_nsw": {
+        "size": 7,
+        "mean": 0.0
+      }
+    },
+    "material": true
+  },
+  "routed_seasonal_by_scheme": {
+    "daly_river_nt": {
+      "catchment": 1.0,
+      "hb6": 1.0,
+      "hb7": 1.0,
+      "hb8": 0.985,
+      "tile6": 1.0,
+      "tile7": 0.969,
+      "tile8": 0.957
+    },
+    "fitzroy_river_wa": {
+      "catchment": 1.0,
+      "hb6": 1.0,
+      "hb7": 1.0,
+      "hb8": 0.948,
+      "tile6": 1.0,
+      "tile7": 0.927,
+      "tile8": 0.932
+    },
+    "gilbert_river_qld": {
+      "catchment": 1.0,
+      "hb6": 1.0,
+      "hb7": 1.0,
+      "hb8": 0.96,
+      "tile6": 1.0,
+      "tile7": 1.0,
+      "tile8": 0.977
+    },
+    "lachlan_river_nsw": {
+      "catchment": 0.0,
+      "hb6": 0.1,
+      "hb7": 0.444,
+      "hb8": 0.527,
+      "tile6": 0.529,
+      "tile7": 0.578,
+      "tile8": 0.562
+    },
+    "moonie_river_qld_nsw": {
+      "catchment": 0.0,
+      "hb6": 0.0,
+      "hb7": 0.0,
+      "hb8": 0.0,
+      "tile6": 0.0,
+      "tile7": 0.125,
+      "tile8": 0.179
+    }
+  }
+}

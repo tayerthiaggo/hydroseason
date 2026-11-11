@@ -26,6 +26,12 @@ python -m pytest -q -n auto   # parallel; drop -n auto to run serially
 Slow calibration-style checks are excluded by default; run them with
 `-m slow`. Tests that need live DEA access are marked `network`.
 
+On Windows, keep pytest's temporary directory short. The Zarr cache tests
+write deep paths, and a long `--basetemp` (for example under a nested user
+temp folder) exceeds the Windows path limit and fails them with
+`FileNotFoundError`. Use the default, or a short path such as
+`--basetemp=C:/tmp/hs-pt`.
+
 Lint and docs:
 
 ```bash

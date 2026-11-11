@@ -13,7 +13,7 @@ def test_docs_name_the_only_method_and_manifest():
         (Path(path) if Path(path).is_file() else ROOT / path).read_text(encoding="utf-8")
         for path in ("README.md", "docs/methods.md", "docs/cli-recipes.md")
     )
-    assert "hydroseason-v0.2.0" in combined
+    assert "hydroseason-v0.3.0" in combined
     assert "run manifest" in combined.lower()
     assert "--method-policy" not in combined
     assert "candidate_timing_recurrence" not in combined

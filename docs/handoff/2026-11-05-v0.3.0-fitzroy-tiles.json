@@ -1,0 +1,1725 @@
+{
+  "before": "D:\\RLH\\5.6\\data_local\\intermediate\\hydroseason_v030_fitzroy_tiles\\v0.2.0",
+  "after": "D:\\RLH\\5.6\\data_local\\intermediate\\hydroseason_v030_fitzroy_tiles\\v0.3.0",
+  "summary": {
+    "counts": {
+      "tiles": 41,
+      "tile_years": 1640,
+      "fails_before": 395,
+      "fails_after": 400,
+      "trough_label_changes": {
+        "broad->unresolved": 1,
+        "interval->unresolved": 1,
+        "point->broad": 7,
+        "point->interval": 3,
+        "point->unresolved": 3
+      },
+      "clock_changes": 2,
+      "years_with_monthly_phase_changes": 7,
+      "baseline_eligible_before": 98,
+      "baseline_eligible_after": 308,
+      "tiles_with_labels_before": 7,
+      "tiles_with_labels_after": 31,
+      "labelled_years_before": 280,
+      "labelled_years_after": 1240,
+      "labelled_both": 280,
+      "label_changed_where_both": 53,
+      "labels_removed": 0
+    },
+    "production": {
+      "tiles": 40,
+      "tile_years": 1600,
+      "fails_before": 334,
+      "fails_after": 338,
+      "trough_label_changes": {
+        "interval->unresolved": 1,
+        "point->broad": 14,
+        "point->interval": 7,
+        "point->unresolved": 3
+      },
+      "clock_changes": 1,
+      "years_with_monthly_phase_changes": 11,
+      "baseline_eligible_before": 107,
+      "baseline_eligible_after": 280,
+      "tiles_with_labels_before": 9,
+      "tiles_with_labels_after": 30,
+      "labelled_years_before": 360,
+      "labelled_years_after": 1200,
+      "labelled_both": 360,
+      "label_changed_where_both": 46,
+      "labels_removed": 0
+    }
+  },
+  "unexpected": {},
+  "tiles": {
+    "production|tile02": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile03": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 1,
+        "annual_condition": 3,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1995"
+      ],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile04": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 5,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile05": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {},
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile06": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 5,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile07": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 3,
+        "annual_condition": 7,
+        "timing_status": 3,
+        "trough_timing_status": 4,
+        "trough_interval_end_date": 4,
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry",
+        "timeline:Water Extent (%)"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1989",
+        "1996",
+        "2005"
+      ],
+      "monthly_phase_changed_years": [
+        "1996"
+      ]
+    },
+    "production|tile08": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile09": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 7,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile11": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile13": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 1,
+        "baseline_n": 39
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile14": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 2,
+        "annual_condition": 9,
+        "timing_status": 2,
+        "trough_timing_status": 2,
+        "trough_interval_end_date": 2,
+        "baseline_eligible": 7,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1995",
+        "2001"
+      ],
+      "monthly_phase_changed_years": [
+        "1995"
+      ]
+    },
+    "production|tile15": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 3,
+        "annual_condition": 7,
+        "timing_status": 3,
+        "trough_timing_status": 3,
+        "trough_interval_end_date": 3,
+        "baseline_eligible": 7,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1995",
+        "1996",
+        "2001"
+      ],
+      "monthly_phase_changed_years": [
+        "1995"
+      ]
+    },
+    "production|tile16": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 10,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile17": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 5,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile20": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 5,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile21": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 2,
+        "annual_condition": 3,
+        "timing_status": 2,
+        "trough_timing_status": 2,
+        "trough_interval_end_date": 2,
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1994",
+        "2010"
+      ],
+      "monthly_phase_changed_years": [
+        "2010"
+      ]
+    },
+    "production|tile22": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 1,
+        "baseline_n": 39
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile24": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 2,
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile25": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 3,
+        "annual_condition": 40,
+        "timing_status": 3,
+        "trough_timing_status": 3,
+        "trough_interval_end_date": 3,
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1989",
+        "1994",
+        "2001"
+      ],
+      "monthly_phase_changed_years": [
+        "1994"
+      ]
+    },
+    "production|tile26": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 1,
+        "annual_condition": 40,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 9,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:HY End Dry",
+        "timeline:Water Extent (%)"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "2002"
+      ],
+      "monthly_phase_changed_years": [
+        "2002"
+      ]
+    },
+    "production|tile27": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 8,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile28": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile31": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile32": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 7,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile33": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 2,
+        "annual_condition": 40,
+        "timing_status": 2,
+        "trough_timing_status": 2,
+        "trough_interval_end_date": 2,
+        "baseline_eligible": 3,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry",
+        "timeline:Water Extent (%)"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1991",
+        "1994"
+      ],
+      "monthly_phase_changed_years": [
+        "1991"
+      ]
+    },
+    "production|tile34": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 3,
+        "annual_condition": 13,
+        "timing_status": 2,
+        "trough_timing_status": 3,
+        "trough_interval_end_date": 3,
+        "baseline_eligible": 3,
+        "baseline_n": 38
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry",
+        "timeline:Water Extent (%)"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1995",
+        "2010"
+      ],
+      "monthly_phase_changed_years": [
+        "1995",
+        "2010"
+      ]
+    },
+    "production|tile35": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 1,
+        "annual_condition": 40,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "2010"
+      ],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile36": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile37": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 2,
+        "annual_condition": 2,
+        "timing_status": 2,
+        "trough_timing_status": 2,
+        "trough_interval_end_date": 2,
+        "baseline_eligible": 5,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1993",
+        "1994"
+      ],
+      "monthly_phase_changed_years": [
+        "1993",
+        "1994"
+      ]
+    },
+    "production|tile38": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 1,
+        "annual_condition": 40,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 10,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1993"
+      ],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile39": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile42": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile46": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 1,
+        "baseline_n": 39
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile47": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {},
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile48": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 3,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile49": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile50": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile54": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {},
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile55": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 3,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "production|tile56": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {},
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile01": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 5,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile02": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile03": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 2,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 7,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:Water Extent (%)"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "2010"
+      ],
+      "monthly_phase_changed_years": [
+        "2010"
+      ]
+    },
+    "counts|tile04": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile05": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {},
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile07": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 5,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:Water Extent (%)"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1996"
+      ],
+      "monthly_phase_changed_years": [
+        "1996"
+      ]
+    },
+    "counts|tile08": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 7,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile09": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 8,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile11": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 3,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile13": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {},
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile14": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 1,
+        "annual_condition": 14,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "2001"
+      ],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile15": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 2,
+        "annual_condition": 14,
+        "timing_status": 2,
+        "trough_timing_status": 2,
+        "trough_interval_end_date": 2,
+        "baseline_eligible": 10,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1996",
+        "2001"
+      ],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile16": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 1,
+        "annual_condition": 40,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 11,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "2001"
+      ],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile17": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile18": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile20": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 5,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile21": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile22": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 11,
+        "baseline_eligible": 5,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile23": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile24": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile25": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 4,
+        "annual_condition": 40,
+        "timing_status": 3,
+        "trough_timing_status": 4,
+        "trough_interval_end_date": 4,
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry",
+        "timeline:Water Extent (%)"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1988",
+        "1989",
+        "2001"
+      ],
+      "monthly_phase_changed_years": [
+        "1988"
+      ]
+    },
+    "counts|tile26": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 1,
+        "annual_condition": 40,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 7,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:HY End Dry",
+        "timeline:Water Extent (%)"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "2002"
+      ],
+      "monthly_phase_changed_years": [
+        "2002"
+      ]
+    },
+    "counts|tile27": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 9,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile28": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 8,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile31": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 7,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile32": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 10,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile33": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 2,
+        "annual_condition": 2,
+        "timing_status": 2,
+        "trough_timing_status": 2,
+        "trough_interval_end_date": 2,
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry",
+        "timeline:Water Extent (%)"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "1991",
+        "1994"
+      ],
+      "monthly_phase_changed_years": [
+        "1991"
+      ]
+    },
+    "counts|tile34": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 1,
+        "annual_condition": 6,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "2010"
+      ],
+      "monthly_phase_changed_years": [
+        "2010"
+      ]
+    },
+    "counts|tile35": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "trough_date": 1,
+        "annual_condition": 40,
+        "timing_status": 1,
+        "trough_timing_status": 1,
+        "trough_interval_end_date": 1,
+        "baseline_eligible": 7,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [
+        "timeline:End Dry (interval)",
+        "timeline:HY End Dry"
+      ],
+      "payload_identical": false,
+      "timing_changed_years": [
+        "2010"
+      ],
+      "monthly_phase_changed_years": [
+        "2010"
+      ]
+    },
+    "counts|tile36": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 9,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile37": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 4,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile38": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 11,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile39": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile42": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile46": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 1,
+        "baseline_n": 39
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile47": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile48": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 4,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile49": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "annual_condition": 40,
+        "baseline_eligible": 6,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile50": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 1,
+        "baseline_n": 39
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile55": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    },
+    "counts|tile56": {
+      "route": [
+        "per_year_detection",
+        "per_year_detection"
+      ],
+      "years": 40,
+      "hydro_years_changed": {
+        "baseline_eligible": 2,
+        "baseline_n": 40
+      },
+      "unexpected": [],
+      "other_tables_changed": {},
+      "graph_traces_changed": [],
+      "payload_identical": true,
+      "timing_changed_years": [],
+      "monthly_phase_changed_years": []
+    }
+  }
+}

@@ -109,7 +109,7 @@ def test_analysis_selections_are_unchanged_for_percentage_equivalent_mask_popula
     # When pixel count columns are present, 0.2.0 timing identifiability activates
     # count-aware detectability (resolution = 100 / n_valid). For full_aoi (n_valid=3000),
     # the 1% trough step is resolvable (resolution 0.033%), routing to per_year_detection.
-    # Task 2 restricts trough candidates to the post-peak limb in cycles, removing the
+    # Trough candidates are restricted to the post-peak limb in cycles, removing the
     # contamination from the previous dry season's tail and making troughs resolvable
     # even for historical (n_valid=100 at trough):
     assert full_result.route == "per_year_detection"
@@ -201,12 +201,29 @@ def test_seasonal_routes_to_per_year_detection():
     assert "reproducible" in result.route_reason.lower()
 
 
+def test_record_without_invalid_pct_still_detects_hydrological_years():
+    result = _calibrated(_seasonal()[["extent_pct"]], n_bootstrap=40)
+    assert result.route == "per_year_detection"
+    assert not result.hydro_years.empty
+
+
+def test_custom_value_col_gives_the_same_years_as_extent_pct():
+    plain = _calibrated(_seasonal(years=12), n_bootstrap=40)
+    renamed = _calibrated(
+        _seasonal(years=12).rename(columns={"extent_pct": "water_pct"}),
+        value_col="water_pct",
+        n_bootstrap=40,
+    )
+    assert renamed.route == plain.route == "per_year_detection"
+    pd.testing.assert_frame_equal(renamed.hydro_years, plain.hydro_years)
+
+
 def test_seasonal_record_with_unstable_trough_routes_to_per_year_detection():
     """Under canonical 0.2.0 direct-profile trough refinement, alternating
     troughs are resolved across cycles and the seasonal record routes to per-year detection."""
     result = _calibrated(_timing_route_record("unstable_trough"), n_bootstrap=40)
 
-    assert result.regime.supports_per_year_boundaries is True
+    assert result.regime.public_route == "per_year_detection"
     assert result.route == "per_year_detection"
     assert not result.hydro_years.empty
 
@@ -283,6 +300,26 @@ def test_catchment_threads_measurement_tolerance_to_regime_assessment():
     assert routed.regime.n_timing_years == direct.n_timing_years
     assert routed.regime.timing_evidence == direct.timing_evidence
     assert routed.route == direct.public_route == "event_characterisation"
+
+
+def test_every_entry_point_defaults_to_the_same_measurement_tolerance():
+    import inspect
+
+    from hydroseason._dynamic_year import DynamicHydroYearConfig
+    from hydroseason._seasonality import classify_seasonal_pattern
+    from hydroseason._seasonality_test import assess_timing_recurrence
+    from hydroseason._timing_identifiability import assess_timing_identifiability
+
+    entry_points = (
+        analyze_catchment, assess_water_regime, assess_timing_recurrence,
+        assess_timing_identifiability, classify_seasonal_pattern,
+    )
+    defaults = {
+        inspect.signature(function).parameters["measurement_tolerance_pct"].default
+        for function in entry_points
+    }
+    defaults.add(DynamicHydroYearConfig(expected_trough_month=1).measurement_tolerance_pct)
+    assert defaults == {0.0}
 
 
 def test_catchment_threads_measurement_tolerance_to_the_dynamic_cycle_detector():
@@ -479,8 +516,9 @@ def test_summary_row_has_canonical_schema_and_rounds_timing_diagnostics():
 def test_catchment_analysis_exposes_decision_policy():
     result = _calibrated(_seasonal(), n_bootstrap=40)
     assert result.decision_policy == "hydroseason_0_2_0"
-    assert result.public_route == "per_year_detection"
-    assert result.method_policy_id == "hydroseason-v0.2.0"
+    assert result.route == "per_year_detection"
+    assert not hasattr(result, "public_route")
+    assert result.method_policy_id == "hydroseason-v0.3.0"
     assert result.method_policy_fingerprint
 
 
@@ -563,7 +601,7 @@ def test_sole_policy_flows_through_to_route_and_reason():
     assert "peak p=" in analysis.route_reason
     assert "SNR" not in analysis.route_reason
     assert analysis.summary_row(name="synthetic")["decision_policy"] == "hydroseason_0_2_0"
-    assert analysis.method_policy_id == "hydroseason-v0.2.0"
+    assert analysis.method_policy_id == "hydroseason-v0.3.0"
     assert analysis.method_policy_fingerprint
 
 

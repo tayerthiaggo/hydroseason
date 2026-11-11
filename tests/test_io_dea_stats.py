@@ -139,10 +139,9 @@ def test_digest_is_stable_for_identical_geometry_and_differs_otherwise():
 
 # --------------------------------------------------------------------------
 # open_wo_statistics: the public native DEA Water Observation Statistics
-# loader (task W1.1). Returns a raw xr.Dataset of count_wet/count_clear plus
-# a lazily derived frequency -- no polygon reduction, no acquisition-side
-# planning logic. Downstream conversion into a planning mask is a separate,
-# later task (W1.5) and is deliberately not exercised here.
+# loader. Returns a raw xr.Dataset of count_wet/count_clear plus a lazily
+# derived frequency -- no polygon reduction, no acquisition-side planning
+# logic. Conversion into a planning mask is tested separately.
 # --------------------------------------------------------------------------
 
 class _FakeItem:
@@ -336,12 +335,11 @@ def test_open_wo_statistics_no_items_raises(monkeypatch):
 
 
 def test_open_wo_statistics_passes_geographic_crs_through_unvalidated(monkeypatch):
-    """Rejecting a geographic CRS is HydroFragments' job
-    (guard_area_metric_crs), not this loader's -- hydroseason has no pyproj
-    dependency and must never import HydroFragments (one-way dependency
-    rule). open_wo_statistics stays source-agnostic: it hands back whatever
-    grid crs/resolution asked for, unvalidated, and the HydroFragments
-    adapter is the one that hard-fails on geographic CRS before use."""
+    """Rejecting a geographic CRS is a downstream consumer's job, not this
+    loader's -- hydroseason has no pyproj dependency and must never import
+    its consumers (one-way dependency rule). open_wo_statistics stays
+    source-agnostic: it hands back whatever grid crs/resolution asked for,
+    unvalidated, and the consumer hard-fails on geographic CRS before use."""
     import hydroseason._io_dea_stats as mod
 
     items = [_FakeItem("item-1", "2020-06-01T00:00:00Z")]
@@ -1435,8 +1433,8 @@ def test_load_or_build_cold_cache_builds_and_persists(tmp_path, monkeypatch):
 
 
 def test_load_or_build_statistics_failure_offline_mode_returns_cache_or_raises(tmp_path, monkeypatch):
-    """After a Statistics failure, offline mode (or the fallback described in
-    the brief) must return only a verified cache, and must never construct a
+    """After a Statistics failure, offline mode (or the fallback) must
+    return only a verified cache, and must never construct a
     full-AOI mask -- with no cache present, it raises rather than silently
     building something unverifiable."""
     def _fail(aoi, **kwargs):
@@ -1549,7 +1547,7 @@ def test_open_wo_statistics_search_failure_names_the_endpoint(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# probe_wo_statistics_coverage (Task 7): a metadata-only STAC search used to
+# probe_wo_statistics_coverage: a metadata-only STAC search used to
 # cheaply check whether DEA has republished a Statistics product with wider
 # coverage than an already-cached HistoricalWaterMask. Must never read a COG
 # or build a dask graph, and must never raise -- it is advisory only, and a

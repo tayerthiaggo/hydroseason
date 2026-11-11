@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import types
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
+import scripts.run_resolution_case_study as study
 from scripts.run_resolution_case_study import (
     ACQUISITION_SPEEDUP_GROUP_KEYS,
     ResolutionMetrics,
     compare_resolution,
+    recommend_resolution,
     summarize_acquisition,
 )
 
@@ -33,8 +37,9 @@ def test_resolution_metrics_compare_scientific_products():
     assert 0.0 <= result.correlation <= 1.0
     assert result.n_months == 4
     assert isinstance(result.route_match, bool)
-    assert 0.0 <= result.peak_within_one_month_fraction <= 1.0
-    assert 0.0 <= result.trough_within_one_month_fraction <= 1.0
+    # Four months give no hydro years, so timing agreement does not apply.
+    assert pd.isna(result.peak_within_one_month_fraction)
+    assert pd.isna(result.trough_within_one_month_fraction)
 
 
 def test_resolution_metrics_handles_constant_input():
@@ -51,6 +56,36 @@ def test_resolution_metrics_handles_constant_input():
     )
     assert result.correlation_status == "constant_input"
     assert pd.isna(result.correlation) or result.correlation is None
+
+
+def test_years_lost_at_the_candidate_count_as_timing_misses(monkeypatch):
+    def analysis(years):
+        return types.SimpleNamespace(
+            hydro_years=pd.DataFrame(
+                {"hy_year": years, "peak_month": "2001-02-01", "trough_month": "2001-09-01"}
+            ),
+            events=types.SimpleNamespace(summary={"n_events": 0, "longest_low_spell_months": 0}),
+            regime=types.SimpleNamespace(amplitude_snr=1.0, regime="seasonal"),
+            route="per_year_detection",
+        )
+
+    # 10 years at 30 m; the candidate keeps one of them, with matching timing.
+    analyses = iter([analysis(list(range(2000, 2010))), analysis([2000])])
+    monkeypatch.setattr(study, "analyze_catchment", lambda *a, **k: next(analyses))
+    extent = pd.DataFrame({"extent_pct": np.arange(12, dtype=float)})
+    result = compare_resolution(extent, extent.copy())
+    assert result.peak_within_one_month_fraction == pytest.approx(0.1)
+    assert result.trough_within_one_month_fraction == pytest.approx(0.1)
+
+
+def test_timing_gates_fail_when_no_catchment_has_a_cycle():
+    row = {
+        "candidate_resolution_m": 60, "route_match": True, "correlation": 0.999,
+        "normalized_mae": 0.003, "event_count_delta": 0, "longest_low_spell_delta": 0,
+        "peak_within_one_month_fraction": np.nan, "trough_within_one_month_fraction": np.nan,
+    }
+    decision = recommend_resolution(pd.DataFrame([row] * 3))
+    assert not decision.loc[0, "recommended"]
 
 
 def test_acquisition_summary_never_compares_different_analysis_resolutions():

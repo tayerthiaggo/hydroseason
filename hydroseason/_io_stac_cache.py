@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import pystac
 
+from hydroseason import _fsutil
 from hydroseason._io_wofs_zarr import _canonical_json_bytes, _read_json, _write_json_atomic
 
 
@@ -56,17 +57,15 @@ def load_cached_items(
     # than leaking ``ValueError`` into acquisition.
     try:
         end_year = int(key.end_date.split("-")[0])
-        now_dt = (
-            datetime.fromisoformat(now.replace("Z", "+00:00"))
-            if now
-            else datetime.now(timezone.utc)
-        )
+        now_dt = datetime.fromisoformat(now.replace("Z", "+00:00")) if now else _fsutil._now()
         fetched_at = datetime.fromisoformat(fetched_at_str.replace("Z", "+00:00"))
     except (AttributeError, TypeError, ValueError, OverflowError):
         return None
     if now_dt.tzinfo is None or fetched_at.tzinfo is None:
         return None
-    if end_year >= now_dt.year and (now_dt - fetched_at).total_seconds() > 86400:
+    # A query fetched before its last year settled is refreshed daily.
+    settled = _fsutil._year_settled(end_year, fetched_at.timestamp())
+    if not settled and (now_dt - fetched_at).total_seconds() > 86400:
         return None
 
     try:
@@ -89,11 +88,7 @@ def write_cached_items(
     items_dir.mkdir(parents=True, exist_ok=True)
     cache_path = items_dir / f"{key.digest()}.json"
 
-    now_iso = (
-        fetched_at
-        if fetched_at
-        else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    )
+    now_iso = fetched_at if fetched_at else _fsutil._now().strftime("%Y-%m-%dT%H:%M:%SZ")
     item_collection = pystac.ItemCollection(items)
     payload = {
         "key": dataclasses.asdict(key),

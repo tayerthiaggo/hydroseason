@@ -1,0 +1,179 @@
+{
+  "release_decision": "pass",
+  "method_policy_id": "hydroseason-v0.3.0",
+  "method_fingerprint": "07f1eaa173372e2544c46f794426917539a774756a64ccdac400ea0a747171cb",
+  "method_manifest_sha256": "93a60215a83a2f5ba88a54316157346e4da7c7ccdcd980d14ce4be34bd60f7af",
+  "validated_fingerprint": {
+    "method_fingerprint": "59756dfe895ffbe5213b558229eb36f1a0452e86e7c1d95e334bab31fd6bfb65",
+    "note": "the evidence below ran under this fingerprint; change F only adds pins with unchanged values, so removing them from today's manifest gives it back (tests/test_de2.py checks this)"
+  },
+  "supersedes": {
+    "method_policy_id": "hydroseason-v0.2.0",
+    "method_fingerprint": "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
+  },
+  "approved": "2026-11-04, by the project lead, on the 0.3.0 proposal and the B2 result; change D added 2026-11-05 on the lead's approval of DE1 route A + B; B withdrawn after its implementation checks (2026-11-06) and A only confirmed by the lead on 2026-11-08; change E approved by the lead on 2026-11-09; change F approved by the lead on 2026-11-10 with the audit fixes",
+  "changes": {
+    "A": "the manifest pins the timing-identifiability gates, the condition-baseline rule and the trough-label rule",
+    "B": "trough timing label widened to cover the trough boundary (covers_trough_boundary, version 1)",
+    "C": "point, interval and broad cycles may anchor the condition baseline",
+    "D": "each cycle reports the dry run of its trough boundary (report_dry_run, version 1); boundaries unchanged",
+    "E": "the year boundary reaches the end of the dry season on flat lows: search anchor at the end of the typical low (end_of_climatological_low v1) and dry, zero-extent lows dated from the run end to the month before the next peak (zero_low_end_status v2)",
+    "F": "the manifest also pins the trough search, boundary selection, peak-quality rule and trough-refinement level grid; values unchanged, nothing computed changes"
+  },
+  "unchanged_validation": "docs/method-policy-v0.2.0-validation.json covers every part of the method that v0.3.0 keeps unchanged",
+  "evidence_sha256_lf": {
+    "g1_gate_calibration_results": {
+      "path": "docs/handoff/2026-11-02-g1-gate-calibration-results.json",
+      "sha256_lf": "bcfb628d6625a256cb0f5d8e642b80d204e476f344766e3624abdc6e47bb443a"
+    },
+    "g2_known_truth_gates_results": {
+      "path": "docs/handoff/2026-11-02-g2-known-truth-gates-results.json",
+      "sha256_lf": "9f51ddfd5e345e00a907f00523890dc4e27fe9579d4e1bd22357028cb7e6b7ac"
+    },
+    "l1_timing_labels_results": {
+      "path": "docs/handoff/2026-11-03-l1-timing-labels-results.json",
+      "sha256_lf": "677fe7f1b911f7d83ade0c046d0cfbbdea79508462ed7dd3a454ad0d50ddc416"
+    },
+    "b1_d1_followups_results": {
+      "path": "docs/handoff/2026-11-03-l1-followups-results.json",
+      "sha256_lf": "df1fc8da5bf8d3a94e8a40148a3c310983d07a152da287495362f709d815693e"
+    },
+    "l2_r1_results": {
+      "path": "docs/handoff/2026-11-03-l2-r1-results.json",
+      "sha256_lf": "7019496126d00278abaa09c9f6d0e34d9e7b269c3110407863957569e05dae53"
+    },
+    "real_record_impact_results": {
+      "path": "docs/handoff/2026-11-03-real-record-impact-results.json",
+      "sha256_lf": "7c008521697f19fb6ae1afa923f3c094d6b5534677a2dd4406a6ddf0e3e93ea7"
+    },
+    "label_fix_impact": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-label-fix-impact.json",
+      "sha256_lf": "f30ab491f394bc02f026860a8e55cdfa1028cc780c6793617ba8981b4ba54f74"
+    },
+    "b2_refuge_labels_receipt": {
+      "path": "docs/handoff/2026-11-04-b2-refuge-labels-receipt.json",
+      "sha256_lf": "8b5f8793f6ca44c279bc72b317151826f2153a43524a4449c261185b1815cdc6"
+    },
+    "b2_refuge_labels_results": {
+      "path": "docs/handoff/2026-11-04-b2-refuge-labels-results.json",
+      "sha256_lf": "e5742af5f8949effb6a52f31bf2b780f7c7188e6855c64e7128de699d134e0f3"
+    },
+    "known_truth_rescore": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-known-truth-rescore.json",
+      "sha256_lf": "2467cf9dac95597727acbd6bf73241c7338f1b3ce98f2a116dc32fdb99071da4"
+    },
+    "proposal": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-proposal.md",
+      "sha256_lf": "a3c324297ab3cb06b76d307e88a474a58e00012f7e4767ae6449adf73ff7b6ad"
+    },
+    "case_study_comparison": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-case-study-comparison.json",
+      "sha256_lf": "c4c2064021c4a35eda3df60dff19cc0f4b6f45dcfd6655f19bf858197f2b6144"
+    },
+    "real_record_check": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-real-record-check.json",
+      "sha256_lf": "192696911d0de04d034f4d035d5f16d77ef55001da67229a5287d721afabc358"
+    },
+    "implementation_checks": {
+      "path": "docs/handoff/2026-11-04-v0.3.0-implementation-checks.md",
+      "sha256_lf": "314259cbfa3999c744559123aed3dbecfaf95f359ee6e72bc40384eb99da995e"
+    },
+    "fitzroy_tiles_results": {
+      "path": "docs/handoff/2026-11-05-v0.3.0-fitzroy-tiles.json",
+      "sha256_lf": "c99433ef800f5b9c0cc5b990cb4028a5b0e1da703d497c37c62e2a36153477c6"
+    },
+    "fitzroy_tiles_identity": {
+      "path": "docs/handoff/2026-11-05-v0.3.0-fitzroy-tiles-identity.json",
+      "sha256_lf": "386c0335d8c838372c48694b3b6091631b3ac4c7e9c2e3a3d0e4bd95905f2b64"
+    },
+    "fitzroy_tiles_note": {
+      "path": "docs/handoff/2026-11-05-v0.3.0-fitzroy-tiles.md",
+      "sha256_lf": "6e16ba452e4f27062f8fc3c36c3620755615a3d7c50708e83f97f095ddd8acd9"
+    },
+    "de1_plan": {
+      "path": "docs/handoff/2026-11-05-de1-dry-run-end-plan.md",
+      "sha256_lf": "95d560999d9bf48fdebe8e28add76f26fff56406353356d204d75b4c41520a74"
+    },
+    "de1_receipt": {
+      "path": "docs/handoff/2026-11-05-de1-dry-run-end-receipt.json",
+      "sha256_lf": "94f290058e28b2a26f01ac7cb4fbc42ebf0f22a37d23c0f2c26039de7c2bd1fa"
+    },
+    "de1_results": {
+      "path": "docs/handoff/2026-11-05-de1-dry-run-end-results.json",
+      "sha256_lf": "98e581f25f6d3f1921a925e466242d0e563c4a91feb2038b8b888727a50e3cb1"
+    },
+    "de1_extras": {
+      "path": "docs/handoff/2026-11-05-de1-dry-run-end-extras.json",
+      "sha256_lf": "9277bb6ec8f152455b8d73db6ff21e51fb48d7c0f204c42f5699fe549a9abbf0"
+    },
+    "de1_real_records": {
+      "path": "docs/handoff/2026-11-05-de1-dry-run-end-real-records.json",
+      "sha256_lf": "337caf13b3a8bcca529543adb86174c6f05079f6107592a259d0af56af992384"
+    },
+    "dry_run_implementation_checks": {
+      "path": "docs/handoff/2026-11-06-dry-run-end-implementation-checks.json",
+      "sha256_lf": "c9901c35216ce5dc13ddc146b998ab64ad7362c2f87ee6a4fc80b72b929111ae"
+    },
+    "dry_run_b_checks": {
+      "path": "docs/handoff/2026-11-06-dry-run-end-b-checks.json",
+      "sha256_lf": "4ade15796150703a92c371138524dc1dce29dae5997d19dc185101014b667f28"
+    },
+    "dry_run_implementation": {
+      "path": "docs/handoff/2026-11-06-dry-run-end-implementation.md",
+      "sha256_lf": "8c7f3b8973a2a9ff48d4f62d88cca064cd5276fce1966ac5b6376a2b9d31107d"
+    },
+    "de2_plan": {
+      "path": "docs/handoff/2026-11-08-de2-end-of-low-plan.md",
+      "sha256_lf": "9791950bb244fad0a489328ce886fe2e61c4490d6b3da401e8c99ee3de9682b2"
+    },
+    "de2_receipt": {
+      "path": "docs/handoff/2026-11-08-de2-end-of-low-receipt.json",
+      "sha256_lf": "d46836e0f20638c530feab2149e0a07b165ab562be7ffcb756e93fc486da1689"
+    },
+    "de2_results": {
+      "path": "docs/handoff/2026-11-08-de2-end-of-low-results.json",
+      "sha256_lf": "7487887257d14025e3b5cbf2bfb2e2576d0972576d745bef958e0dedab7301fa"
+    },
+    "de2_extras": {
+      "path": "docs/handoff/2026-11-08-de2-end-of-low-extras.json",
+      "sha256_lf": "7e7a374b5963d615344a2907fd1396c271a1c3d6afe9bf59fbf080e53562b45b"
+    },
+    "de2_r2_revised_check": {
+      "path": "docs/handoff/2026-11-08-de2-r2-revised-check.json",
+      "sha256_lf": "6afec817b5965a3189062d899ca63f61519e92a7640cf6cb321ca6060ddb767b"
+    },
+    "de2_implementation_checks": {
+      "path": "docs/handoff/2026-11-08-de2-implementation-checks.json",
+      "sha256_lf": "440124ad7ee1439fd2938cc30119d0d933d2d5a9df7e0796a9308d5c0c78e00b"
+    },
+    "de2_implementation_note": {
+      "path": "docs/handoff/2026-11-08-de2-implementation-checks.md",
+      "sha256_lf": "47571c1bbfafd5957df47074824f8e5e495f670449d010acac85147b1cd59322"
+    }
+  },
+  "validation_environment": {
+    "python_version": "3.12.13",
+    "os": "windows"
+  },
+  "fingerprint_history": [
+    {
+      "method_fingerprint": "4d11d348a745e980d25b933c3f51fe90e7b5931e856223b597c9d5e3566db578",
+      "changes": [
+        "A",
+        "B",
+        "C"
+      ],
+      "note": "the 0.3.0 implementation checks and the Fitzroy tile run used this fingerprint"
+    },
+    {
+      "method_fingerprint": "aba922a9eac29cea8498a30794110c80de340b0f6a2fb76d64f60f93855aeb66",
+      "changes": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "note": "the dry-run implementation checks (2026-11-06) and DE2's current library used this fingerprint"
+    }
+  ]
+}

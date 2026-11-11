@@ -21,7 +21,7 @@ def load_extent_csv(
     gapfill missing months or quality-screen invalid coverage. The CSV is
     valid input for ``detect_hydrological_years`` only if the upstream
     extent series already went through mask completion and quality
-    screening (see the migration plan's gapfilling recommendation).
+    screening (see "Data quality before you trust it" in the Usage Guide).
     """
     frame = pd.read_csv(path)
     missing = {date_col, value_col}.difference(frame.columns)
@@ -40,8 +40,14 @@ def complete_monthly_axis(
     *,
     invalid_value: int = -1,
     duplicate_month_policy: Literal["raise", "warn"] = "raise",
+    outside_aoi_value: int = -2,
 ):
-    """Reindex a lazy mask cube to complete monthly starts; gaps become invalid."""
+    """Reindex a lazy mask cube to complete monthly starts; gaps become invalid.
+
+    Inserted months are ``invalid_value`` inside the AOI. Cells marked
+    ``outside_aoi_value`` in the first observed month stay outside on inserted
+    months, so the AOI denominator is the same in every month.
+    """
     if "time" not in masks.dims:
         raise ValueError("complete_monthly_axis expects a DataArray with a 'time' dimension.")
     source = pd.DatetimeIndex(np.asarray(masks.time.values)).to_period("M").to_timestamp()
@@ -54,8 +60,9 @@ def complete_monthly_axis(
         import warnings
 
         warnings.warn(f"Duplicate month timestamps: {duplicates}; keeping first.", UserWarning, stacklevel=2)
-        masks = masks.isel(time=np.flatnonzero(~source.duplicated()))
-        source = pd.DatetimeIndex(np.asarray(masks.time.values))
+        keep = ~source.duplicated()
+        masks = masks.isel(time=np.flatnonzero(keep))
+        source = source[keep]
     start = pd.Timestamp(start_date).to_period("M").to_timestamp()
     end = pd.Timestamp(end_date).to_period("M").to_timestamp()
     axis = pd.date_range(start, end, freq="MS")
@@ -64,6 +71,15 @@ def complete_monthly_axis(
     out = masks.assign_coords(time=("time", source)).reindex(time=axis, fill_value=np.array(invalid_value, dtype=masks.dtype).item())
     if np.issubdtype(out.dtype, np.floating):
         out = out.fillna(np.array(invalid_value, dtype=out.dtype).item())
+    if inserted and masks.sizes.get("time", 0) > 0 and len(masks.dims) > 1:
+        # The AOI clip marks outside cells -2 in every observed month. An
+        # inserted month must keep that marking: filling it with -1 everywhere
+        # would count outside cells as unobserved AOI cells and inflate n_aoi.
+        outside_value = np.array(outside_aoi_value, dtype=out.dtype).item()
+        outside = masks.isel(time=0, drop=True) == outside_value
+        inserted_times = pd.DatetimeIndex([pd.Timestamp(f"{month}-01") for month in inserted])
+        on_inserted_month = out["time"].isin(inserted_times)
+        out = out.where(~(on_inserted_month & outside), outside_value).astype(masks.dtype)
     out.attrs.update(masks.attrs)
     out.attrs.update({"source_months": sorted(source_set), "inserted_months": inserted, "n_inserted_timesteps": len(inserted)})
     return out

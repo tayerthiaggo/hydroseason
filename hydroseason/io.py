@@ -2,10 +2,9 @@
 
 Implementation lives in ``_io_extent`` (pandas-only), ``_io_geo``
 (AOI/raster loading and georeferencing), and ``_io_resolution`` (resolution
-planning and the amplitude probe). This module exists so
-``from hydroseason.io import X`` keeps working for every name that was
-importable here before the split, including the private helpers already
-used directly by scripts and tests.
+planning). This module re-exports their names,
+including the private helpers that scripts and tests use, so
+``from hydroseason.io import X`` works for all of them.
 """
 
 from __future__ import annotations
@@ -32,41 +31,18 @@ from hydroseason._io_geo import (  # noqa: F401
     IrregularGridError,
     MaskEncoding,
     _apply_aoi_inside_mask,
-    _assert_compatible_georef,
     _classify,
     _clip_to_aoi,
-    _combine_observations,
-    _crs_value,
-    _inside_aoi_mask_like,
-    _is_identity_transform,
-    _load_wofs_items,
-    _output_geobox_for_aoi,
-    _parse_date_from_name,
-    _preserve_georef,
-    _query_wofs_items,
     _resolve_aoi_inside_mask,
-    _resolve_raster_crs,
-    _resolve_raster_transform,
-    _spatial_transform_from_xy,
-    _tile_intersects_aoi,
     _tile_slices,
-    _validate_classifier,
     iter_wofs_tiles_from_stac,
     load_aoi,
     load_monthly_masks,
     load_monthly_masks_zarr,
     load_wofs_from_stac,
-    mark_in_aoi_nodata_as_invalid,
 )
 from hydroseason._io_preflight_stats import open_annual_wo_statistics  # noqa: F401
-from hydroseason._io_resolution import (  # noqa: F401
-    _DEFAULT_CANDIDATE_RES_M,
-    _DEFAULT_RETENTION_THRESHOLD,
-    _mean_water_fraction,
-    _next_coarser_res_m,
-    plan_resolution,
-    probe_amplitude,
-)
+from hydroseason._io_resolution import plan_resolution  # noqa: F401
 from hydroseason._io_wofs_zarr import WOfSCacheHandle  # noqa: F401
 from hydroseason._wet_aoi import compute_wet_aoi, tile_intersects_wet_aoi  # noqa: F401
 
@@ -156,5 +132,5 @@ def open_completed_dual_extent_counts(*args, **kwargs):
     return _open_completed_dual_extent_counts(*args, **kwargs)
 
 
-__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "probe_amplitude", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_mask_cache", "open_completed_extent_counts", "open_completed_dual_extent_counts", "WOfSCacheHandle", "open_wo_statistics", "open_annual_wo_statistics", "verify_cache_footprints", "build_wet_planning_footprint", "WetPlanningFootprint", "HistoricalWaterMask", "build_historical_water_mask", "load_or_build_historical_water_mask"]
+__all__ = ["load_aoi", "load_extent_csv", "complete_monthly_axis", "load_monthly_masks", "load_monthly_masks_zarr", "load_wofs_from_stac", "load_wofs_monthly_extent", "plan_resolution", "compute_wet_aoi", "acquire_wofs_cache", "open_completed_mask_cache", "open_completed_extent_counts", "open_completed_dual_extent_counts", "WOfSCacheHandle", "open_wo_statistics", "open_annual_wo_statistics", "verify_cache_footprints", "build_wet_planning_footprint", "WetPlanningFootprint", "HistoricalWaterMask", "build_historical_water_mask", "load_or_build_historical_water_mask"]
 

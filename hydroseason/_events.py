@@ -6,8 +6,7 @@ rivers fill on rainfall events rather than on a calendar -- that view has
 nothing to attach to, and forcing it produces boundaries that describe noise.
 
 This module supplies the alternative vocabulary such records *do* satisfy:
-discrete wet episodes, the dry spells between them, and how often filling
-recurs. These are the terms in which an intermittent river is normally
+discrete wet episodes, low-extent spells, and how often filling recurs. These are the terms in which an intermittent river is normally
 described, and unlike a hydrological year they make no stationarity or
 periodicity assumption.
 
@@ -53,7 +52,7 @@ _DEGENERATE_NOISE_FRACTION = 0.01
 
 @dataclass(frozen=True)
 class WaterEventResult:
-    """Wet episodes, dry spells, and record-level summaries."""
+    """Wet episodes, low-extent spells, and record-level summaries."""
 
     events: pd.DataFrame
     low_spells: pd.DataFrame
@@ -165,7 +164,7 @@ def extract_water_events(
     max_invalid_pct: float = 20.0,
     quality_policy: QualityPolicy = "flag",
 ) -> WaterEventResult:
-    """Extract wet episodes and dry spells from a monthly extent record.
+    """Extract wet episodes and low-extent spells from a monthly extent record.
 
     **A wet event** is a departure above the record's baseline exceeding
     ``enter_k`` noise scales, persisting until it falls back below ``exit_k``
@@ -222,7 +221,8 @@ def extract_water_events(
         extent, value_col=value_col, date_col=date_col,
         max_invalid_pct=max_invalid_pct, quality_policy=quality_policy,
     )
-    usable_values = prepared.loc[prepared["candidate_usable"], value_col].dropna()
+    # prepare_monthly_extent renames value_col to extent_pct.
+    usable_values = prepared.loc[prepared["candidate_usable"], "extent_pct"].dropna()
     if usable_values.empty:
         return WaterEventResult(_empty_events(), _empty_low_spells(), {
             "n_events": 0, "n_low_spells": 0, "longest_low_spell_months": 0,
@@ -251,17 +251,17 @@ def extract_water_events(
         enter_threshold = float(usable_values.quantile(start_quantile))
         exit_threshold = float(usable_values.quantile(end_quantile))
         low_threshold = float(usable_values.quantile(low_quantile))
-        # A dry threshold must sit below the typical condition to mean
+        # A low threshold must sit below the typical condition to mean
         # anything. On a record whose low tail is short, or heavily quantised,
         # the nominal quantile can land exactly on the median and select every
         # month or none. Drop to the highest observed value that is genuinely
         # below the baseline; if there is none, the record has no low tail and
-        # no dry spell is reported.
+        # no low-extent spell is reported.
         if low_threshold >= baseline:
             lower = usable_values[usable_values < baseline]
             low_threshold = float(lower.max()) if not lower.empty else float("-inf")
 
-    series = prepared[value_col].where(prepared["candidate_usable"])
+    series = prepared["extent_pct"].where(prepared["candidate_usable"])
     observed = series.notna()
 
     # Hysteresis walk: open above the entry threshold, hold until the value
@@ -301,7 +301,7 @@ def extract_water_events(
         })
     events = pd.DataFrame(rows) if rows else _empty_events()
 
-    # Dry spells: runs below the dry threshold, independent of any event.
+    # Low-extent spells: runs below the low threshold, independent of any event.
     below = pd.Series((series <= low_threshold) & observed, index=series.index)
     spell_blocks = [
         (a, b) for a, b in _contiguous_blocks(below) if (b - a + 1) >= min_low_months

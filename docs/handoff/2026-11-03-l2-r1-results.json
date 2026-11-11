@@ -1,0 +1,1439 @@
+{
+  "receipt_sha256_lf": "78ac5bc017ec0f46e2e9cb7a84778beb8cd3bf65b6ab85661554ea461a797e19",
+  "errors": {
+    "current": 0,
+    "two_sided": 0
+  },
+  "selftests_read_back": {
+    "current": [
+      "{\"clear_after\": \"point\", \"tie_after\": \"interval\", \"wrapped\": false}"
+    ],
+    "two_sided": [
+      "{\"clear_after\": \"point\", \"tie_after\": \"interval\", \"wrapped\": true}"
+    ]
+  },
+  "fingerprints": {
+    "current": [
+      "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
+    ],
+    "two_sided": [
+      "4bcfed63ed5f04f82417e0164d531595b349d1d8ea0dc2481ce6dc79d72a64de"
+    ]
+  },
+  "l2": {
+    "arms": {
+      "S": {
+        "rule_1": {
+          "current": {
+            "point_dates": 2981,
+            "not_correct": 899,
+            "share": 0.30157665213015766,
+            "wilson_lower": 0.28536564872214587,
+            "wilson_upper": 0.3182983929709152,
+            "exact": 1203
+          },
+          "two_sided": {
+            "point_dates": 1908,
+            "not_correct": 529,
+            "share": 0.2772536687631027,
+            "wilson_lower": 0.2576305675010181,
+            "wilson_upper": 0.29777189746206884,
+            "exact": 917
+          },
+          "difference": -0.024322983367054962,
+          "ci95": [
+            -0.036251004618128885,
+            -0.01163471633348092
+          ],
+          "evaluable": true,
+          "holds": false
+        },
+        "rule_2": {
+          "point_not_correct": 0.2772536687631027,
+          "interval_not_correct": 0.21551052221356196,
+          "interval_dates": 2566,
+          "evaluable": true,
+          "holds": false
+        },
+        "rule_3": {
+          "current": 0.6466666666666666,
+          "two_sided": 0.6416666666666667,
+          "difference": -0.004999999999999893,
+          "evaluable": true,
+          "holds": true
+        },
+        "rule_4": {
+          "records_compared": 385,
+          "records_with_changed_dates": 0,
+          "holds": true
+        },
+        "reported": {
+          "current": {
+            "labels": {
+              "all": {
+                "point": 2981,
+                "interval": 2164,
+                "broad": 1295,
+                "unresolved": 1023,
+                "none": 297
+              },
+              "sine": {
+                "point": 1673,
+                "interval": 1297,
+                "broad": 501,
+                "unresolved": 428,
+                "none": 141
+              },
+              "pulse": {
+                "point": 1308,
+                "interval": 867,
+                "broad": 794,
+                "unresolved": 595,
+                "none": 156
+              }
+            },
+            "accuracy_by_label": {
+              "all": {
+                "point": {
+                  "n": 2981,
+                  "k": 2082,
+                  "share": 0.6984233478698423
+                },
+                "interval": {
+                  "n": 2164,
+                  "k": 1704,
+                  "share": 0.7874306839186691
+                },
+                "broad": {
+                  "n": 1295,
+                  "k": 927,
+                  "share": 0.7158301158301158
+                },
+                "unresolved": {
+                  "n": 1023,
+                  "k": 624,
+                  "share": 0.6099706744868035
+                },
+                "all_boundaries": {
+                  "n": 7760,
+                  "k": 5513,
+                  "share": 0.7104381443298969
+                }
+              },
+              "sine": {
+                "point": {
+                  "n": 1673,
+                  "k": 1405,
+                  "share": 0.8398087268380156
+                },
+                "interval": {
+                  "n": 1297,
+                  "k": 1223,
+                  "share": 0.9429452582883577
+                },
+                "broad": {
+                  "n": 501,
+                  "k": 464,
+                  "share": 0.9261477045908184
+                },
+                "unresolved": {
+                  "n": 428,
+                  "k": 318,
+                  "share": 0.7429906542056075
+                },
+                "all_boundaries": {
+                  "n": 4040,
+                  "k": 3510,
+                  "share": 0.8688118811881188
+                }
+              },
+              "pulse": {
+                "point": {
+                  "n": 1308,
+                  "k": 677,
+                  "share": 0.5175840978593272
+                },
+                "interval": {
+                  "n": 867,
+                  "k": 481,
+                  "share": 0.5547866205305652
+                },
+                "broad": {
+                  "n": 794,
+                  "k": 463,
+                  "share": 0.5831234256926953
+                },
+                "unresolved": {
+                  "n": 595,
+                  "k": 306,
+                  "share": 0.5142857142857142
+                },
+                "all_boundaries": {
+                  "n": 3720,
+                  "k": 2003,
+                  "share": 0.5384408602150538
+                }
+              }
+            },
+            "point_by_ratio": {
+              "sine [3,4)": {
+                "n": 222,
+                "not_correct": 76,
+                "share": 0.34234234234234234
+              },
+              "pulse [3,4)": {
+                "n": 159,
+                "not_correct": 97,
+                "share": 0.610062893081761
+              },
+              "sine [4,6)": {
+                "n": 632,
+                "not_correct": 138,
+                "share": 0.21835443037974683
+              },
+              "pulse [4,6)": {
+                "n": 439,
+                "not_correct": 263,
+                "share": 0.5990888382687927
+              },
+              "sine [6,10)": {
+                "n": 507,
+                "not_correct": 51,
+                "share": 0.10059171597633136
+              },
+              "pulse [6,10)": {
+                "n": 488,
+                "not_correct": 210,
+                "share": 0.430327868852459
+              },
+              "sine [10,inf)": {
+                "n": 312,
+                "not_correct": 3,
+                "share": 0.009615384615384616
+              },
+              "pulse [10,inf)": {
+                "n": 222,
+                "not_correct": 61,
+                "share": 0.2747747747747748
+              }
+            },
+            "interval_covers_truth": {
+              "all": {
+                "n": 3459,
+                "k": 2666,
+                "share": 0.7707429893032668
+              },
+              "sine": {
+                "n": 1798,
+                "k": 1723,
+                "share": 0.9582869855394883
+              },
+              "pulse": {
+                "n": 1661,
+                "k": 943,
+                "share": 0.5677302829620711
+              }
+            },
+            "baseline": {
+              "all": {
+                "n": 497,
+                "k": 335,
+                "share": 0.6740442655935613
+              },
+              "sine": {
+                "n": 212,
+                "k": 177,
+                "share": 0.8349056603773585
+              },
+              "pulse": {
+                "n": 285,
+                "k": 158,
+                "share": 0.5543859649122806
+              }
+            },
+            "pulse_signed": {
+              "-5": 165,
+              "-4": 250,
+              "-3": 507,
+              "-2": 686,
+              "-1": 801,
+              "0": 1160,
+              "1": 42,
+              "2": 11,
+              "3": 14,
+              "4": 5,
+              "5": 18,
+              "6": 61
+            },
+            "pulse_end_signed": {
+              "-5": 122,
+              "-4": 212,
+              "-3": 417,
+              "-2": 593,
+              "-1": 695,
+              "0": 1026,
+              "1": 31,
+              "2": 5,
+              "3": 11,
+              "4": 4,
+              "5": 11,
+              "6": 45
+            },
+            "by_shape": {
+              "all": {
+                "point_dates": 2981,
+                "not_correct": 899,
+                "share": 0.30157665213015766,
+                "wilson_lower": 0.28536564872214587,
+                "wilson_upper": 0.3182983929709152,
+                "exact": 1203
+              },
+              "sine": {
+                "point_dates": 1673,
+                "not_correct": 268,
+                "share": 0.16019127316198445,
+                "wilson_lower": 0.143397046478027,
+                "wilson_upper": 0.17854242849264257,
+                "exact": 823
+              },
+              "pulse": {
+                "point_dates": 1308,
+                "not_correct": 631,
+                "share": 0.48241590214067276,
+                "wilson_lower": 0.4554272199467625,
+                "wilson_upper": 0.5095075671888508,
+                "exact": 380
+              }
+            },
+            "routed_per_year_detection": 0.6466666666666666
+          },
+          "two_sided": {
+            "labels": {
+              "all": {
+                "point": 1908,
+                "interval": 2566,
+                "broad": 1761,
+                "unresolved": 1172,
+                "none": 293
+              },
+              "sine": {
+                "point": 1004,
+                "interval": 1565,
+                "broad": 838,
+                "unresolved": 492,
+                "none": 141
+              },
+              "pulse": {
+                "point": 904,
+                "interval": 1001,
+                "broad": 923,
+                "unresolved": 680,
+                "none": 152
+              }
+            },
+            "accuracy_by_label": {
+              "all": {
+                "point": {
+                  "n": 1908,
+                  "k": 1379,
+                  "share": 0.7227463312368972
+                },
+                "interval": {
+                  "n": 2566,
+                  "k": 2013,
+                  "share": 0.7844894777864381
+                },
+                "broad": {
+                  "n": 1761,
+                  "k": 1243,
+                  "share": 0.7058489494605338
+                },
+                "unresolved": {
+                  "n": 1172,
+                  "k": 681,
+                  "share": 0.5810580204778157
+                },
+                "all_boundaries": {
+                  "n": 7700,
+                  "k": 5490,
+                  "share": 0.712987012987013
+                }
+              },
+              "sine": {
+                "point": {
+                  "n": 1004,
+                  "k": 853,
+                  "share": 0.849601593625498
+                },
+                "interval": {
+                  "n": 1565,
+                  "k": 1449,
+                  "share": 0.9258785942492013
+                },
+                "broad": {
+                  "n": 838,
+                  "k": 744,
+                  "share": 0.8878281622911695
+                },
+                "unresolved": {
+                  "n": 492,
+                  "k": 364,
+                  "share": 0.7398373983739838
+                },
+                "all_boundaries": {
+                  "n": 4040,
+                  "k": 3510,
+                  "share": 0.8688118811881188
+                }
+              },
+              "pulse": {
+                "point": {
+                  "n": 904,
+                  "k": 526,
+                  "share": 0.581858407079646
+                },
+                "interval": {
+                  "n": 1001,
+                  "k": 564,
+                  "share": 0.5634365634365635
+                },
+                "broad": {
+                  "n": 923,
+                  "k": 499,
+                  "share": 0.5406283856988082
+                },
+                "unresolved": {
+                  "n": 680,
+                  "k": 317,
+                  "share": 0.4661764705882353
+                },
+                "all_boundaries": {
+                  "n": 3660,
+                  "k": 1980,
+                  "share": 0.5409836065573771
+                }
+              }
+            },
+            "point_by_ratio": {
+              "sine [3,4)": {
+                "n": 111,
+                "not_correct": 38,
+                "share": 0.34234234234234234
+              },
+              "pulse [3,4)": {
+                "n": 99,
+                "not_correct": 52,
+                "share": 0.5252525252525253
+              },
+              "sine [4,6)": {
+                "n": 371,
+                "not_correct": 80,
+                "share": 0.215633423180593
+              },
+              "pulse [4,6)": {
+                "n": 288,
+                "not_correct": 160,
+                "share": 0.5555555555555556
+              },
+              "sine [6,10)": {
+                "n": 315,
+                "not_correct": 31,
+                "share": 0.09841269841269841
+              },
+              "pulse [6,10)": {
+                "n": 355,
+                "not_correct": 131,
+                "share": 0.36901408450704226
+              },
+              "sine [10,inf)": {
+                "n": 207,
+                "not_correct": 2,
+                "share": 0.00966183574879227
+              },
+              "pulse [10,inf)": {
+                "n": 162,
+                "not_correct": 35,
+                "share": 0.21604938271604937
+              }
+            },
+            "interval_covers_truth": {
+              "all": {
+                "n": 4327,
+                "k": 3715,
+                "share": 0.8585625144441876
+              },
+              "sine": {
+                "n": 2403,
+                "k": 2357,
+                "share": 0.9808572617561382
+              },
+              "pulse": {
+                "n": 1924,
+                "k": 1358,
+                "share": 0.7058212058212058
+              }
+            },
+            "baseline": {
+              "all": {
+                "n": 380,
+                "k": 259,
+                "share": 0.6815789473684211
+              },
+              "sine": {
+                "n": 144,
+                "k": 121,
+                "share": 0.8402777777777778
+              },
+              "pulse": {
+                "n": 236,
+                "k": 138,
+                "share": 0.5847457627118644
+              }
+            },
+            "pulse_signed": {
+              "-5": 157,
+              "-4": 238,
+              "-3": 499,
+              "-2": 677,
+              "-1": 792,
+              "0": 1148,
+              "1": 40,
+              "2": 11,
+              "3": 14,
+              "4": 5,
+              "5": 18,
+              "6": 61
+            },
+            "pulse_end_signed": {
+              "-5": 71,
+              "-4": 156,
+              "-3": 291,
+              "-2": 444,
+              "-1": 509,
+              "0": 1507,
+              "1": 87,
+              "2": 13,
+              "3": 9,
+              "4": 7,
+              "5": 9,
+              "6": 35
+            },
+            "by_shape": {
+              "all": {
+                "point_dates": 1908,
+                "not_correct": 529,
+                "share": 0.2772536687631027,
+                "wilson_lower": 0.2576305675010181,
+                "wilson_upper": 0.29777189746206884,
+                "exact": 917
+              },
+              "sine": {
+                "point_dates": 1004,
+                "not_correct": 151,
+                "share": 0.150398406374502,
+                "wilson_lower": 0.12962181555782437,
+                "wilson_upper": 0.17384005950810122,
+                "exact": 554
+              },
+              "pulse": {
+                "point_dates": 904,
+                "not_correct": 378,
+                "share": 0.41814159292035397,
+                "wilson_lower": 0.3864002594649138,
+                "wilson_upper": 0.4505756810452545,
+                "exact": 363
+              }
+            },
+            "routed_per_year_detection": 0.6416666666666667
+          }
+        }
+      },
+      "I": {
+        "rule_1": {
+          "current": {
+            "point_dates": 4724,
+            "not_correct": 1148,
+            "share": 0.24301439458086369,
+            "wilson_lower": 0.23099564067155037,
+            "wilson_upper": 0.2554507596325507,
+            "exact": 2463
+          },
+          "two_sided": {
+            "point_dates": 3440,
+            "not_correct": 787,
+            "share": 0.22877906976744186,
+            "wilson_lower": 0.21504942897796828,
+            "wilson_upper": 0.24311378141379147,
+            "exact": 1951
+          },
+          "difference": -0.014235324813421824,
+          "ci95": [
+            -0.02473398930201704,
+            -0.003977600812631245
+          ],
+          "evaluable": true,
+          "holds": false
+        },
+        "rule_2": {
+          "point_not_correct": 0.22877906976744186,
+          "interval_not_correct": 0.15922170457659632,
+          "interval_dates": 3649,
+          "evaluable": true,
+          "holds": false
+        },
+        "rule_3": {
+          "current": 0.5069686411149826,
+          "two_sided": 0.5069686411149826,
+          "difference": 0.0,
+          "evaluable": true,
+          "holds": true
+        },
+        "rule_4": {
+          "records_compared": 291,
+          "records_with_changed_dates": 0,
+          "holds": true
+        },
+        "reported": {
+          "current": {
+            "labels": {
+              "all": {
+                "point": 4724,
+                "interval": 3380,
+                "broad": 1275,
+                "unresolved": 1264,
+                "none": 410
+              },
+              "sine": {
+                "point": 2458,
+                "interval": 2037,
+                "broad": 304,
+                "unresolved": 581,
+                "none": 203
+              },
+              "pulse": {
+                "point": 2266,
+                "interval": 1343,
+                "broad": 971,
+                "unresolved": 683,
+                "none": 207
+              }
+            },
+            "accuracy_by_label": {
+              "all": {
+                "point": {
+                  "n": 4724,
+                  "k": 3576,
+                  "share": 0.7569856054191363
+                },
+                "interval": {
+                  "n": 3380,
+                  "k": 2786,
+                  "share": 0.8242603550295858
+                },
+                "broad": {
+                  "n": 1275,
+                  "k": 970,
+                  "share": 0.7607843137254902
+                },
+                "unresolved": {
+                  "n": 1264,
+                  "k": 857,
+                  "share": 0.678006329113924
+                },
+                "all_boundaries": {
+                  "n": 11053,
+                  "k": 8364,
+                  "share": 0.7567176332217498
+                }
+              },
+              "sine": {
+                "point": {
+                  "n": 2458,
+                  "k": 2107,
+                  "share": 0.8572009764035802
+                },
+                "interval": {
+                  "n": 2037,
+                  "k": 1919,
+                  "share": 0.9420716740304369
+                },
+                "broad": {
+                  "n": 304,
+                  "k": 262,
+                  "share": 0.8618421052631579
+                },
+                "unresolved": {
+                  "n": 581,
+                  "k": 494,
+                  "share": 0.8502581755593803
+                },
+                "all_boundaries": {
+                  "n": 5583,
+                  "k": 4901,
+                  "share": 0.877843453340498
+                }
+              },
+              "pulse": {
+                "point": {
+                  "n": 2266,
+                  "k": 1469,
+                  "share": 0.648278905560459
+                },
+                "interval": {
+                  "n": 1343,
+                  "k": 867,
+                  "share": 0.6455696202531646
+                },
+                "broad": {
+                  "n": 971,
+                  "k": 708,
+                  "share": 0.729145211122554
+                },
+                "unresolved": {
+                  "n": 683,
+                  "k": 363,
+                  "share": 0.5314787701317716
+                },
+                "all_boundaries": {
+                  "n": 5470,
+                  "k": 3463,
+                  "share": 0.63308957952468
+                }
+              }
+            },
+            "point_by_ratio": {
+              "sine [3,4)": {
+                "n": 46,
+                "not_correct": 17,
+                "share": 0.3695652173913043
+              },
+              "pulse [3,4)": {
+                "n": 55,
+                "not_correct": 33,
+                "share": 0.6
+              },
+              "sine [4,6)": {
+                "n": 194,
+                "not_correct": 61,
+                "share": 0.31443298969072164
+              },
+              "pulse [4,6)": {
+                "n": 240,
+                "not_correct": 117,
+                "share": 0.4875
+              },
+              "sine [6,10)": {
+                "n": 509,
+                "not_correct": 76,
+                "share": 0.14931237721021612
+              },
+              "pulse [6,10)": {
+                "n": 529,
+                "not_correct": 199,
+                "share": 0.3761814744801512
+              },
+              "sine [10,inf)": {
+                "n": 1709,
+                "not_correct": 197,
+                "share": 0.11527208894090112
+              },
+              "pulse [10,inf)": {
+                "n": 1442,
+                "not_correct": 448,
+                "share": 0.3106796116504854
+              }
+            },
+            "interval_covers_truth": {
+              "all": {
+                "n": 4655,
+                "k": 3809,
+                "share": 0.8182599355531687
+              },
+              "sine": {
+                "n": 2341,
+                "k": 2244,
+                "share": 0.9585647159333618
+              },
+              "pulse": {
+                "n": 2314,
+                "k": 1565,
+                "share": 0.6763180639585133
+              }
+            },
+            "baseline": {
+              "all": {
+                "n": 884,
+                "k": 737,
+                "share": 0.833710407239819
+              },
+              "sine": {
+                "n": 248,
+                "k": 215,
+                "share": 0.8669354838709677
+              },
+              "pulse": {
+                "n": 636,
+                "k": 522,
+                "share": 0.8207547169811321
+              }
+            },
+            "pulse_signed": {
+              "-5": 206,
+              "-4": 290,
+              "-3": 467,
+              "-2": 730,
+              "-1": 1096,
+              "0": 2252,
+              "1": 115,
+              "2": 38,
+              "3": 40,
+              "4": 47,
+              "5": 90,
+              "6": 99
+            },
+            "pulse_end_signed": {
+              "-5": 196,
+              "-4": 284,
+              "-3": 417,
+              "-2": 603,
+              "-1": 908,
+              "0": 1974,
+              "1": 90,
+              "2": 28,
+              "3": 43,
+              "4": 55,
+              "5": 92,
+              "6": 113
+            },
+            "by_shape": {
+              "all": {
+                "point_dates": 4724,
+                "not_correct": 1148,
+                "share": 0.24301439458086369,
+                "wilson_lower": 0.23099564067155037,
+                "wilson_upper": 0.2554507596325507,
+                "exact": 2463
+              },
+              "sine": {
+                "point_dates": 2458,
+                "not_correct": 351,
+                "share": 0.14279902359641986,
+                "wilson_lower": 0.12952472113413602,
+                "wilson_upper": 0.15718807929211187,
+                "exact": 1459
+              },
+              "pulse": {
+                "point_dates": 2266,
+                "not_correct": 797,
+                "share": 0.351721094439541,
+                "wilson_lower": 0.3323264121627306,
+                "wilson_upper": 0.3716176684378594,
+                "exact": 1004
+              }
+            },
+            "routed_per_year_detection": 0.5069686411149826
+          },
+          "two_sided": {
+            "labels": {
+              "all": {
+                "point": 3440,
+                "interval": 3649,
+                "broad": 1986,
+                "unresolved": 1568,
+                "none": 410
+              },
+              "sine": {
+                "point": 1604,
+                "interval": 2299,
+                "broad": 792,
+                "unresolved": 685,
+                "none": 203
+              },
+              "pulse": {
+                "point": 1836,
+                "interval": 1350,
+                "broad": 1194,
+                "unresolved": 883,
+                "none": 207
+              }
+            },
+            "accuracy_by_label": {
+              "all": {
+                "point": {
+                  "n": 3440,
+                  "k": 2653,
+                  "share": 0.7712209302325581
+                },
+                "interval": {
+                  "n": 3649,
+                  "k": 3068,
+                  "share": 0.8407782954234037
+                },
+                "broad": {
+                  "n": 1986,
+                  "k": 1491,
+                  "share": 0.7507552870090635
+                },
+                "unresolved": {
+                  "n": 1568,
+                  "k": 977,
+                  "share": 0.6230867346938775
+                },
+                "all_boundaries": {
+                  "n": 11053,
+                  "k": 8364,
+                  "share": 0.7567176332217498
+                }
+              },
+              "sine": {
+                "point": {
+                  "n": 1604,
+                  "k": 1349,
+                  "share": 0.8410224438902744
+                },
+                "interval": {
+                  "n": 2299,
+                  "k": 2160,
+                  "share": 0.939538929969552
+                },
+                "broad": {
+                  "n": 792,
+                  "k": 714,
+                  "share": 0.9015151515151515
+                },
+                "unresolved": {
+                  "n": 685,
+                  "k": 559,
+                  "share": 0.8160583941605839
+                },
+                "all_boundaries": {
+                  "n": 5583,
+                  "k": 4901,
+                  "share": 0.877843453340498
+                }
+              },
+              "pulse": {
+                "point": {
+                  "n": 1836,
+                  "k": 1304,
+                  "share": 0.710239651416122
+                },
+                "interval": {
+                  "n": 1350,
+                  "k": 908,
+                  "share": 0.6725925925925926
+                },
+                "broad": {
+                  "n": 1194,
+                  "k": 777,
+                  "share": 0.6507537688442211
+                },
+                "unresolved": {
+                  "n": 883,
+                  "k": 418,
+                  "share": 0.4733861834654587
+                },
+                "all_boundaries": {
+                  "n": 5470,
+                  "k": 3463,
+                  "share": 0.63308957952468
+                }
+              }
+            },
+            "point_by_ratio": {
+              "sine [3,4)": {
+                "n": 24,
+                "not_correct": 10,
+                "share": 0.4166666666666667
+              },
+              "pulse [3,4)": {
+                "n": 34,
+                "not_correct": 17,
+                "share": 0.5
+              },
+              "sine [4,6)": {
+                "n": 117,
+                "not_correct": 44,
+                "share": 0.37606837606837606
+              },
+              "pulse [4,6)": {
+                "n": 182,
+                "not_correct": 83,
+                "share": 0.45604395604395603
+              },
+              "sine [6,10)": {
+                "n": 298,
+                "not_correct": 48,
+                "share": 0.1610738255033557
+              },
+              "pulse [6,10)": {
+                "n": 406,
+                "not_correct": 130,
+                "share": 0.32019704433497537
+              },
+              "sine [10,inf)": {
+                "n": 1165,
+                "not_correct": 153,
+                "share": 0.1313304721030043
+              },
+              "pulse [10,inf)": {
+                "n": 1214,
+                "not_correct": 302,
+                "share": 0.2487644151565074
+              }
+            },
+            "interval_covers_truth": {
+              "all": {
+                "n": 5635,
+                "k": 5028,
+                "share": 0.8922803904170363
+              },
+              "sine": {
+                "n": 3091,
+                "k": 3006,
+                "share": 0.9725008087997412
+              },
+              "pulse": {
+                "n": 2544,
+                "k": 2022,
+                "share": 0.7948113207547169
+              }
+            },
+            "baseline": {
+              "all": {
+                "n": 770,
+                "k": 658,
+                "share": 0.8545454545454545
+              },
+              "sine": {
+                "n": 177,
+                "k": 157,
+                "share": 0.8870056497175142
+              },
+              "pulse": {
+                "n": 593,
+                "k": 501,
+                "share": 0.8448566610455311
+              }
+            },
+            "pulse_signed": {
+              "-5": 206,
+              "-4": 290,
+              "-3": 467,
+              "-2": 730,
+              "-1": 1096,
+              "0": 2252,
+              "1": 115,
+              "2": 38,
+              "3": 40,
+              "4": 47,
+              "5": 90,
+              "6": 99
+            },
+            "pulse_end_signed": {
+              "-5": 144,
+              "-4": 205,
+              "-3": 312,
+              "-2": 401,
+              "-1": 564,
+              "0": 2673,
+              "1": 191,
+              "2": 40,
+              "3": 43,
+              "4": 53,
+              "5": 81,
+              "6": 96
+            },
+            "by_shape": {
+              "all": {
+                "point_dates": 3440,
+                "not_correct": 787,
+                "share": 0.22877906976744186,
+                "wilson_lower": 0.21504942897796828,
+                "wilson_upper": 0.24311378141379147,
+                "exact": 1951
+              },
+              "sine": {
+                "point_dates": 1604,
+                "not_correct": 255,
+                "share": 0.1589775561097257,
+                "wilson_lower": 0.14190073608560244,
+                "wilson_upper": 0.17768391950526452,
+                "exact": 973
+              },
+              "pulse": {
+                "point_dates": 1836,
+                "not_correct": 532,
+                "share": 0.289760348583878,
+                "wilson_lower": 0.2694655962777089,
+                "wilson_upper": 0.31093303194463273,
+                "exact": 978
+              }
+            },
+            "routed_per_year_detection": 0.5069686411149826
+          }
+        }
+      }
+    },
+    "null": {
+      "current": {
+        "records": 200,
+        "routed_per_year_detection": 0.005,
+        "point_trough_dates": 2
+      },
+      "two_sided": {
+        "records": 200,
+        "routed_per_year_detection": 0.005,
+        "point_trough_dates": 0
+      }
+    },
+    "passes": false
+  },
+  "r1": {
+    "arms": {
+      "S": {
+        "rule_1": {
+          "pairs": 3503,
+          "rise_accuracy": 0.7990294033685412,
+          "trough_accuracy": 0.5415358264344847,
+          "difference": 0.2574935769340565,
+          "ci95": [
+            0.23472852383422338,
+            0.2812065739679319
+          ],
+          "evaluable": true,
+          "rise_exact": 0.5997716243220097,
+          "trough_exact": 0.3131601484441907,
+          "library_rise_accuracy": 0.5415358264344847,
+          "holds": true
+        },
+        "rule_2": {
+          "pairs": 3813,
+          "rise_accuracy": 0.7519013899816418,
+          "trough_accuracy": 0.8722790453710989,
+          "difference": -0.1203776553894571,
+          "ci95": [
+            -0.14078902572129506,
+            -0.0995299869676789
+          ],
+          "evaluable": true,
+          "rise_exact": 0.35405192761605037,
+          "trough_exact": 0.5698924731182796,
+          "library_rise_accuracy": 0.6582743246787307,
+          "holds": false
+        },
+        "rule_3": {
+          "pairs": 7316,
+          "coverage": 1.0,
+          "evaluable": true,
+          "holds": true
+        },
+        "reported": {
+          "by_ratio": {
+            "pulse 3-4": {
+              "pairs": 489,
+              "rise": 0.6359918200408998,
+              "trough": 0.39263803680981596
+            },
+            "pulse 4-6": {
+              "pairs": 1166,
+              "rise": 0.7521440823327615,
+              "trough": 0.5120068610634648
+            },
+            "pulse 6-10": {
+              "pairs": 1003,
+              "rise": 0.9202392821535393,
+              "trough": 0.6031904287138584
+            },
+            "pulse 10+": {
+              "pairs": 464,
+              "rise": 0.9956896551724138,
+              "trough": 0.7564655172413793
+            },
+            "sine 3-4": {
+              "pairs": 594,
+              "rise": 0.6313131313131313,
+              "trough": 0.803030303030303
+            },
+            "sine 4-6": {
+              "pairs": 1392,
+              "rise": 0.6896551724137931,
+              "trough": 0.8405172413793104
+            },
+            "sine 6-10": {
+              "pairs": 961,
+              "rise": 0.8720083246618107,
+              "trough": 0.9250780437044746
+            },
+            "sine 10+": {
+              "pairs": 522,
+              "rise": 0.9885057471264368,
+              "trough": 0.9865900383141762
+            }
+          },
+          "rise_signed": {
+            "pulse": {
+              "-5": 59,
+              "-4": 91,
+              "-3": 114,
+              "-2": 242,
+              "-1": 522,
+              "0": 2101,
+              "1": 176,
+              "2": 33,
+              "3": 36,
+              "4": 44,
+              "5": 35,
+              "6": 50
+            },
+            "sine": {
+              "-5": 22,
+              "-4": 37,
+              "-3": 52,
+              "-2": 161,
+              "-1": 513,
+              "0": 1350,
+              "1": 1004,
+              "2": 357,
+              "3": 153,
+              "4": 89,
+              "5": 45,
+              "6": 30
+            }
+          },
+          "by_peak_status": {
+            "pulse interval": {
+              "pairs": 872,
+              "rise": 0.8394495412844036,
+              "trough": 0.5756880733944955
+            },
+            "pulse point": {
+              "pairs": 1715,
+              "rise": 0.8723032069970845,
+              "trough": 0.5965014577259475
+            },
+            "pulse unresolved": {
+              "pairs": 916,
+              "rise": 0.6233624454148472,
+              "trough": 0.40611353711790393
+            },
+            "sine interval": {
+              "pairs": 1192,
+              "rise": 0.8489932885906041,
+              "trough": 0.9135906040268457
+            },
+            "sine point": {
+              "pairs": 1253,
+              "rise": 0.7446129289704708,
+              "trough": 0.8802873104549083
+            },
+            "sine unresolved": {
+              "pairs": 1368,
+              "rise": 0.6739766081871345,
+              "trough": 0.8289473684210527
+            }
+          }
+        }
+      },
+      "I": {
+        "rule_1": {
+          "pairs": 5200,
+          "rise_accuracy": 0.6817307692307693,
+          "trough_accuracy": 0.6342307692307693,
+          "difference": 0.04749999999999999,
+          "ci95": [
+            0.011860908268663027,
+            0.08352258693459153
+          ],
+          "evaluable": true,
+          "rise_exact": 0.5328846153846154,
+          "trough_exact": 0.41307692307692306,
+          "library_rise_accuracy": 0.6342307692307693,
+          "holds": false
+        },
+        "rule_2": {
+          "pairs": 5329,
+          "rise_accuracy": 0.6864327265903547,
+          "trough_accuracy": 0.8842184274723213,
+          "difference": -0.19778570088196656,
+          "ci95": [
+            -0.22485658897969185,
+            -0.16950639580789756
+          ],
+          "evaluable": true,
+          "rise_exact": 0.38750234565584535,
+          "trough_exact": 0.6712328767123288,
+          "library_rise_accuracy": 0.7365359354475511,
+          "holds": false
+        },
+        "rule_3": {
+          "pairs": 10529,
+          "coverage": 0.9979105328141324,
+          "evaluable": true,
+          "holds": true
+        },
+        "reported": {
+          "by_ratio": {
+            "pulse 3-4": {
+              "pairs": 193,
+              "rise": 0.616580310880829,
+              "trough": 0.42487046632124353
+            },
+            "pulse 4-6": {
+              "pairs": 592,
+              "rise": 0.6587837837837838,
+              "trough": 0.5793918918918919
+            },
+            "pulse 6-10": {
+              "pairs": 1137,
+              "rise": 0.7458223394898856,
+              "trough": 0.6587510993843447
+            },
+            "pulse 10+": {
+              "pairs": 2874,
+              "rise": 0.6673625608907446,
+              "trough": 0.6701461377870563
+            },
+            "sine 3-4": {
+              "pairs": 206,
+              "rise": 0.6844660194174758,
+              "trough": 0.8640776699029126
+            },
+            "sine 4-6": {
+              "pairs": 599,
+              "rise": 0.6944908180300501,
+              "trough": 0.8497495826377296
+            },
+            "sine 6-10": {
+              "pairs": 1107,
+              "rise": 0.7308039747064138,
+              "trough": 0.8925022583559169
+            },
+            "sine 10+": {
+              "pairs": 3013,
+              "rise": 0.6730833056754065,
+              "trough": 0.8904746100232327
+            }
+          },
+          "rise_signed": {
+            "pulse": {
+              "-5": 164,
+              "-4": 190,
+              "-3": 246,
+              "-2": 308,
+              "-1": 502,
+              "0": 2771,
+              "1": 272,
+              "2": 142,
+              "3": 136,
+              "4": 132,
+              "5": 157,
+              "6": 164
+            },
+            "sine": {
+              "-5": 108,
+              "-4": 136,
+              "-3": 160,
+              "-2": 238,
+              "-1": 516,
+              "0": 2065,
+              "1": 1077,
+              "2": 415,
+              "3": 229,
+              "4": 127,
+              "5": 129,
+              "6": 123
+            }
+          },
+          "by_peak_status": {
+            "pulse interval": {
+              "pairs": 780,
+              "rise": 0.7525641025641026,
+              "trough": 0.6512820512820513
+            },
+            "pulse point": {
+              "pairs": 3463,
+              "rise": 0.6863990759457118,
+              "trough": 0.6710944267975744
+            },
+            "pulse unresolved": {
+              "pairs": 957,
+              "rise": 0.6071055381400209,
+              "trough": 0.48693834900731453
+            },
+            "sine interval": {
+              "pairs": 1643,
+              "rise": 0.8423615337796714,
+              "trough": 0.9190505173463177
+            },
+            "sine point": {
+              "pairs": 2477,
+              "rise": 0.5797335486475576,
+              "trough": 0.8643520387565603
+            },
+            "sine unresolved": {
+              "pairs": 1209,
+              "rise": 0.6931348221670802,
+              "trough": 0.8775847808105872
+            }
+          }
+        }
+      }
+    },
+    "reported_fractions": {
+      "0.1": {
+        "I pulse": {
+          "pairs": 5200,
+          "rise": 0.6646153846153846,
+          "trough": 0.6342307692307693,
+          "coverage": 0.9969230769230769
+        },
+        "I sine": {
+          "pairs": 5329,
+          "rise": 0.7123287671232876,
+          "trough": 0.8842184274723213,
+          "coverage": 0.9988740851942203
+        },
+        "S pulse": {
+          "pairs": 3503,
+          "rise": 0.68541250356837,
+          "trough": 0.5415358264344847,
+          "coverage": 1.0
+        },
+        "S sine": {
+          "pairs": 3813,
+          "rise": 0.7495410437975347,
+          "trough": 0.8722790453710989,
+          "coverage": 1.0
+        }
+      },
+      "0.5": {
+        "I pulse": {
+          "pairs": 5200,
+          "rise": 0.7063461538461538,
+          "trough": 0.6342307692307693,
+          "coverage": 0.9969230769230769
+        },
+        "I sine": {
+          "pairs": 5329,
+          "rise": 0.6526552824169638,
+          "trough": 0.8842184274723213,
+          "coverage": 0.9988740851942203
+        },
+        "S pulse": {
+          "pairs": 3503,
+          "rise": 0.8444190693691122,
+          "trough": 0.5415358264344847,
+          "coverage": 1.0
+        },
+        "S sine": {
+          "pairs": 3813,
+          "rise": 0.7364280094413848,
+          "trough": 0.8722790453710989,
+          "coverage": 1.0
+        }
+      }
+    },
+    "passes": false
+  }
+}

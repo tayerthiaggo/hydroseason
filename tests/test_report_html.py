@@ -28,7 +28,6 @@ def test_report_places_optional_aoi_map_after_the_summary_region():
         hydro_years=pd.DataFrame(),
         events=pd.DataFrame(),
         low_spells=pd.DataFrame(),
-        summary=pd.DataFrame(),
         timeline_figure={"data": [], "layout": {}, "config": {}},
         secondary_figure={"data": [], "layout": {}, "config": {}},
         aoi_map_html='<div id="aoi-map-report">AOI map</div>',
@@ -53,7 +52,6 @@ def test_report_omits_aoi_context_section_without_a_map():
         hydro_years=pd.DataFrame(),
         events=pd.DataFrame(),
         low_spells=pd.DataFrame(),
-        summary=pd.DataFrame(),
         timeline_figure={"data": [], "layout": {}, "config": {}},
         secondary_figure={"data": [], "layout": {}, "config": {}},
     )
@@ -244,7 +242,7 @@ def test_year_cards_show_interval_range_instead_of_a_fabricated_exact_date():
     html = _year_cards(monthly, hydro_years)
 
     assert "August 2006 – October 2006" in html
-    assert "Dry End (interval)" in html
+    assert "Trough (interval)" in html
     assert "September 2006</span>" not in html
 
 
@@ -274,7 +272,7 @@ def test_year_cards_show_broad_trough_as_a_bounded_range_not_unresolved():
     html = _year_cards(monthly, hydro_years)
 
     assert "July 2006 – October 2006" in html
-    assert "Dry End (broad)" in html
+    assert "Trough (broad)" in html
     assert "Unresolved" not in html
 
 
@@ -409,8 +407,34 @@ def test_year_cards_render_interval_months_in_key_events():
     # Mid dry: Jun is Mid Dry
     assert '<span class="cell-marker marker-mid">Mid Dry</span>' in html
 
-    # Trough: Oct is Dry End (interval), Sep and Nov are Dry Interval
-    assert '<span class="cell-marker marker-dry">Dry End (interval)</span>' in html
-    assert '<span class="cell-marker marker-dry-interval">Dry Interval</span>' in html
+    # Trough: Oct is Trough (interval), Sep and Nov are Trough Interval
+    assert '<span class="cell-marker marker-dry">Trough (interval)</span>' in html
+    assert '<span class="cell-marker marker-dry-interval">Trough Interval</span>' in html
 
 
+
+
+def test_report_legend_toggles_event_and_low_spell_shading():
+    """The timeline's wet-event and low-spell legend entries must hide their shading."""
+    from hydroseason._report_plotly import EVENT_SHADE_COLORS
+
+    html = render_report_html(
+        name="Test events",
+        title="Test events",
+        subtitle=None,
+        quality_note=None,
+        verdict="Aseasonal",
+        kpis=[{"value": "1", "label": "KPI", "detail": "detail"}],
+        monthly=pd.DataFrame(),
+        hydro_years=pd.DataFrame(),
+        events=pd.DataFrame(),
+        low_spells=pd.DataFrame(),
+        timeline_figure={"data": [], "layout": {}, "config": {}},
+        secondary_figure={"data": [], "layout": {}, "config": {}},
+    )
+
+    assert "const eventShading = trace.meta.event_shading;" in html
+    assert "if (timingInterval || eventShading) {" in html
+    # Shape names are "<kind>:<key>"; the handler matches that prefix.
+    assert ': eventShading + ":";' in html
+    assert set(EVENT_SHADE_COLORS) == {"event", "low_spell"}

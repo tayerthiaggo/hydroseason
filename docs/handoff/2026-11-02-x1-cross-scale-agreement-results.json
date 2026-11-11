@@ -1,0 +1,332 @@
+{
+  "receipt_sha256_lf": "5dc37fa69d2e05bf1948702cf1225df6a4a4d26eceb555685942fdd081484e8c",
+  "n_units_analysed": 535,
+  "routes": {
+    "per_year_detection": 419,
+    "event_characterisation": 116
+  },
+  "errors": [],
+  "units_without_kept_parent": [
+    "daly_river_nt:hb8:5080062120",
+    "fitzroy_river_wa:hb8:5080059450",
+    "fitzroy_river_wa:hb8:5080059460",
+    "fitzroy_river_wa:hb8:5080059470",
+    "fitzroy_river_wa:hb8:5080059480",
+    "fitzroy_river_wa:hb8:5080288250",
+    "fitzroy_river_wa:hb8:5080288780",
+    "fitzroy_river_wa:hb8:5080288910",
+    "lachlan_river_nsw:hb7:5070095720",
+    "lachlan_river_nsw:hb8:5080595370"
+  ],
+  "match_rate": {
+    "parent": {
+      "matched_cycles": 7607,
+      "inner_cycles": 7725,
+      "rate": 0.9847249190938512
+    },
+    "catchment": {
+      "matched_cycles": 7035,
+      "inner_cycles": 7119,
+      "rate": 0.9882005899705014
+    }
+  },
+  "agreement": {
+    "parent_peak": {
+      "pooled": 0.8686735901143684,
+      "n": 7607,
+      "ci95": [
+        0.8564785305185911,
+        0.8804593325334978
+      ],
+      "by_water_pixels": {
+        "[0,100)": {
+          "share": 0.8094976667581664,
+          "n": 3643
+        },
+        "[100,1000)": {
+          "share": 0.9068980110029623,
+          "n": 2363
+        },
+        "[1000,10000)": {
+          "share": 0.943918426802622,
+          "n": 1373
+        },
+        "[10000,100000)": {
+          "share": 0.9649122807017544,
+          "n": 228
+        },
+        "[100000,inf)": {
+          "share": null,
+          "n": 0
+        }
+      },
+      "by_level": {
+        "hb6": {
+          "share": 0.9190371991247265,
+          "n": 457
+        },
+        "hb7": {
+          "share": 0.8647629310344828,
+          "n": 1856
+        },
+        "hb8": {
+          "share": 0.8656970154892331,
+          "n": 5294
+        }
+      },
+      "point_only": {
+        "share": 0.9078444984380424,
+        "n": 5762
+      },
+      "by_catchment": {
+        "daly_river_nt": {
+          "share": 0.8722347629796839,
+          "n": 2215
+        },
+        "fitzroy_river_wa": {
+          "share": 0.864376130198915,
+          "n": 3871
+        },
+        "gilbert_river_qld": {
+          "share": 0.9230769230769231,
+          "n": 832
+        },
+        "lachlan_river_nsw": {
+          "share": 0.8156748911465893,
+          "n": 689
+        }
+      }
+    },
+    "parent_trough": {
+      "pooled": 0.807808597344551,
+      "n": 7607,
+      "ci95": [
+        0.7866156121293173,
+        0.8292812962983482
+      ],
+      "by_water_pixels": {
+        "[0,100)": {
+          "share": 0.6966785616250343,
+          "n": 3643
+        },
+        "[100,1000)": {
+          "share": 0.8963182395260262,
+          "n": 2363
+        },
+        "[1000,10000)": {
+          "share": 0.9366351056081573,
+          "n": 1373
+        },
+        "[10000,100000)": {
+          "share": 0.8903508771929824,
+          "n": 228
+        },
+        "[100000,inf)": {
+          "share": null,
+          "n": 0
+        }
+      },
+      "by_level": {
+        "hb6": {
+          "share": 0.8643326039387309,
+          "n": 457
+        },
+        "hb7": {
+          "share": 0.8286637931034483,
+          "n": 1856
+        },
+        "hb8": {
+          "share": 0.7956176803928976,
+          "n": 5294
+        }
+      },
+      "point_only": {
+        "share": 0.9013282732447818,
+        "n": 1054
+      },
+      "by_catchment": {
+        "daly_river_nt": {
+          "share": 0.7959367945823927,
+          "n": 2215
+        },
+        "fitzroy_river_wa": {
+          "share": 0.7961766985275123,
+          "n": 3871
+        },
+        "gilbert_river_qld": {
+          "share": 0.8894230769230769,
+          "n": 832
+        },
+        "lachlan_river_nsw": {
+          "share": 0.8127721335268505,
+          "n": 689
+        }
+      }
+    },
+    "catchment_peak": {
+      "pooled": 0.8362473347547974,
+      "n": 7035,
+      "ci95": [
+        0.8251177560113461,
+        0.8478051731634806
+      ],
+      "by_water_pixels": {
+        "[0,100)": {
+          "share": 0.7814256137237504,
+          "n": 3381
+        },
+        "[100,1000)": {
+          "share": 0.8661343353687178,
+          "n": 2129
+        },
+        "[1000,10000)": {
+          "share": 0.9116766467065869,
+          "n": 1336
+        },
+        "[10000,100000)": {
+          "share": 0.9470899470899471,
+          "n": 189
+        },
+        "[100000,inf)": {
+          "share": null,
+          "n": 0
+        }
+      },
+      "by_level": {
+        "hb6": {
+          "share": 0.9190371991247265,
+          "n": 457
+        },
+        "hb7": {
+          "share": 0.8584422967595224,
+          "n": 1759
+        },
+        "hb8": {
+          "share": 0.8202946669433493,
+          "n": 4819
+        }
+      },
+      "point_only": {
+        "share": 0.8731600944939124,
+        "n": 5503
+      },
+      "by_catchment": {
+        "daly_river_nt": {
+          "share": 0.802797833935018,
+          "n": 2216
+        },
+        "fitzroy_river_wa": {
+          "share": 0.8456140350877193,
+          "n": 3990
+        },
+        "gilbert_river_qld": {
+          "share": 0.8805790108564535,
+          "n": 829
+        }
+      }
+    },
+    "catchment_trough": {
+      "pooled": 0.7267945984363895,
+      "n": 7035,
+      "ci95": [
+        0.7051836353944563,
+        0.7492610493076705
+      ],
+      "by_water_pixels": {
+        "[0,100)": {
+          "share": 0.6208222419402544,
+          "n": 3381
+        },
+        "[100,1000)": {
+          "share": 0.8097698449976515,
+          "n": 2129
+        },
+        "[1000,10000)": {
+          "share": 0.8555389221556886,
+          "n": 1336
+        },
+        "[10000,100000)": {
+          "share": 0.7777777777777778,
+          "n": 189
+        },
+        "[100000,inf)": {
+          "share": null,
+          "n": 0
+        }
+      },
+      "by_level": {
+        "hb6": {
+          "share": 0.8643326039387309,
+          "n": 457
+        },
+        "hb7": {
+          "share": 0.7794201250710631,
+          "n": 1759
+        },
+        "hb8": {
+          "share": 0.6945424361900809,
+          "n": 4819
+        }
+      },
+      "point_only": {
+        "share": 0.7219178082191781,
+        "n": 730
+      },
+      "by_catchment": {
+        "daly_river_nt": {
+          "share": 0.6543321299638989,
+          "n": 2216
+        },
+        "fitzroy_river_wa": {
+          "share": 0.7428571428571429,
+          "n": 3990
+        },
+        "gilbert_river_qld": {
+          "share": 0.8431845597104946,
+          "n": 829
+        }
+      }
+    }
+  },
+  "r1_minimum_water_pixels": {
+    "parent_peak": 0,
+    "parent_trough": 100,
+    "catchment_peak": 100,
+    "catchment_trough": null
+  },
+  "r2_peak_vs_trough": {
+    "decision": "peaks_more_widely_shared",
+    "difference": 0.1094527363184079,
+    "ci95": [
+      0.08911530374165487,
+      0.12997146243761182
+    ],
+    "per_catchment": {
+      "daly_river_nt": 0.14846570397111913,
+      "fitzroy_river_wa": 0.10275689223057638,
+      "gilbert_river_qld": 0.03739445114595896
+    }
+  },
+  "r3_parent_vs_catchment": {
+    "peak": {
+      "difference": 0.03948795487437662,
+      "ci95": [
+        0.02851961248165504,
+        0.05056668280724502
+      ],
+      "parent_closer": true,
+      "catchment_closer": false,
+      "n_inner_units": 314
+    },
+    "trough": {
+      "difference": 0.08346029342989802,
+      "ci95": [
+        0.06830167521075875,
+        0.09936190507603294
+      ],
+      "parent_closer": true,
+      "catchment_closer": false,
+      "n_inner_units": 314
+    }
+  }
+}

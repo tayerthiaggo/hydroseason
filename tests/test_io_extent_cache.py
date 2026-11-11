@@ -799,7 +799,6 @@ def test_offline_cache_hit_performs_zero_stac_calls(monkeypatch, tmp_path):
     cube = _mixed_canonical_cube()
     monkeypatch.setattr(hio, "acquire_wofs_cache", Mock(return_value=handle))
     monkeypatch.setattr(hio, "open_completed_mask_cache", Mock(return_value=cube))
-    monkeypatch.setattr(hio, "_query_wofs_items", Mock(side_effect=AssertionError("network")), raising=False)
 
     result = hio.load_wofs_monthly_extent(
         "https://example.invalid/stac", "ga_ls_wo_3", _aoi(),
@@ -830,6 +829,40 @@ def test_offline_without_mask_cache_dir_is_explicit():
             "2020-01-01", "2020-12-31", resolution=30, offline=True,
             use_historical_water_mask=False,
         )
+
+
+@pytest.mark.parametrize("stamped", [True, False], ids=["stamp", "pre-stamp-cache-mtime"])
+def test_csv_part_written_before_its_year_settled_is_refetched(monkeypatch, tmp_path, stamped):
+    """DEA keeps ingesting a year's scenes for weeks after it closes, so a
+    part written before then is refetched; a settled part is reused. The
+    write time is the sidecar stamp, so a copy (fresh mtime) keeps it; a
+    part from before stamps existed falls back to its mtime."""
+    import os
+
+    import hydroseason.io as hio
+
+    load = Mock(side_effect=lambda _url, _coll, _aoi, start, end, **_kw: _fake_monthly_cube(start, end))
+    monkeypatch.setattr(hio, "load_wofs_from_stac", load)
+    kwargs = dict(
+        stac_url="https://example.invalid/stac", collection="wofs", aoi=_aoi(),
+        start_date="2015-01-01", end_date="2016-12-31", resolution=30,
+        cache_dir=tmp_path, use_historical_water_mask=False,
+    )
+    hio.load_wofs_monthly_extent(**kwargs)
+    # The 2015 part was written mid-December 2015, before late scenes arrived.
+    written = pd.Timestamp("2015-12-15", tz="UTC").timestamp()
+    part = next(tmp_path.glob("extent_20150101_*.csv"))
+    stamp = part.with_name(part.name + ".written_at")
+    if stamped:
+        stamp.write_text(repr(written), encoding="utf-8")  # the part's mtime stays fresh
+    else:
+        stamp.unlink()
+        os.utime(part, (written, written))
+    load.reset_mock()
+
+    hio.load_wofs_monthly_extent(**kwargs)
+
+    assert [call.args[3] for call in load.call_args_list] == ["2015-01-01"]
 
 
 def test_offline_without_mask_cache_dir_still_uses_complete_csv_cache(monkeypatch, tmp_path):
@@ -1253,7 +1286,7 @@ def test_cache_path_depends_on_wet_aoi_hash(tmp_path):
 
 def test_cache_path_wet_aoi_hash_defaults_to_empty(tmp_path):
     # Default (no wet_aoi_hash kwarg) must match explicitly passing "" so that
-    # pre-Task-5 callers of _cache_path (no wet AOI involved) are unaffected.
+    # callers of _cache_path with no wet AOI keep the same cache path.
     from hydroseason._io_extent_cache import _cache_path
 
     common = dict(
@@ -1405,13 +1438,10 @@ def test_wet_aoi_passed_explicitly_skips_precompute_pass_but_does_not_prune_tile
 ):
     """An externally-supplied ``wet_aoi`` (no ``precompute_wet_aoi``) still
     skips the internal precompute pass (no redundant full-TS STAC call), but
-    -- per Task 8's fix -- must NOT be threaded into
-    ``iter_wofs_tiles_from_stac`` as a pruning gate, because there is no
-    ``full_ts`` cube here to reconcile the tiled aggregate's denominator
-    against if a tile were skipped. This replaces a prior version of this
-    test that asserted ``tile_calls == [explicit_wet_aoi]`` -- that assertion
-    was exercising exactly the denominator-shrinkage bug Task 8 fixes, not a
-    correct contract worth preserving.
+    must NOT be threaded into ``iter_wofs_tiles_from_stac`` as a pruning
+    gate, because there is no ``full_ts`` cube here to reconcile the tiled
+    aggregate's denominator against if a tile were skipped (pruning would
+    shrink the denominator).
 
     ``n_wet_aoi``/``wet_fill_pct`` are a separate concern with no such
     problem (they only ever read pixels from tiles actually loaded), so the
@@ -1464,7 +1494,7 @@ def test_wet_aoi_passed_explicitly_skips_precompute_pass_but_does_not_prune_tile
 
 
 def test_untiled_path_threads_caller_supplied_wet_aoi_into_wet_fill_pct(monkeypatch, tmp_path):
-    """Finding 2 regression: wet_aoi given without tile_pixels must still flow
+    """wet_aoi given without tile_pixels must still flow
     into monthly_water_extent on the untiled branch, so wet_fill_pct reflects
     the real wet AOI instead of silently falling back to n_valid/extent_pct.
     """
@@ -1756,7 +1786,7 @@ def test_historical_mask_failure_reports_endpoint_product_and_remedy(monkeypatch
 
 
 # --------------------------------------------------------------------------
-# load_or_build_historical_water_mask refresh-on-cache-hit (Task 7): when a
+# load_or_build_historical_water_mask refresh-on-cache-hit: when a
 # cache hit's requested window overhangs the cached artifact's coverage_end,
 # a metadata-only probe checks whether DEA now has wider Statistics coverage
 # and, if so, rebuilds and repoints the index to a NEW artifact -- the old

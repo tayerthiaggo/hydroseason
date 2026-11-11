@@ -1,0 +1,168 @@
+{
+  "plan": "docs/handoff/2026-11-03-l1-timing-labels-plan.md",
+  "plan_sha256_lf": "437af450b0bc5a5ee96799b9dcf09885e5b8dc37c33dc1a09e2171910b49e288",
+  "script_sha256_lf": "285f0b5ebd89fca9407a0d60180110343accd58c9bc27d482b9b0b0f01631f17",
+  "g2_script_sha256_lf": "5bfa4fa7574366e39f2d2dfec7965c8455a27f8304480664541eb534a0a22067",
+  "g1_script_sha256_lf": "1b19e6055cf0caac99016fc20502bedf34e0c8cd2cc7a5d3ba9ba3fa0b95a4cb",
+  "git_head": "d32dd47ff9a829a1927769474df9c8eb7d29c980",
+  "git_branch": "spatial-unit-study",
+  "git_status_short": [
+    "M CHANGELOG.md",
+    " M docs/api/analysis.md",
+    " M docs/guide.md",
+    " M docs/hydrological-state.md",
+    " M docs/report-columns.md",
+    " M hydroseason/_catchment.py",
+    " M hydroseason/_state_input.py",
+    " M mkdocs.yml",
+    " M tests/test_method_policy.py",
+    " M tests/test_state_input.py",
+    " M tests/test_timing_identifiability.py",
+    "?? RELEASE_PLAN_0.2.1.md",
+    "?? docs/handoff/",
+    "?? docs/provisional-trough-analysis-2026-10-30.md",
+    "?? docs/provisional-trough-judgement-2026-10-30.md",
+    "?? docs/provisional-trough-verdict-2026-10-30.md",
+    "?? scripts/cross_scale_agreement.py",
+    "?? scripts/g1_synthetic_suite_rerun.py",
+    "?? scripts/gate_calibration.py",
+    "?? scripts/known_truth_gates.py",
+    "?? scripts/known_truth_labels.py",
+    "?? scripts/spatial_unit_study.py",
+    "?? scripts/spatial_unit_study_explore.py",
+    "?? tests/test_cross_scale_agreement.py",
+    "?? tests/test_gate_calibration.py",
+    "?? tests/test_guide_advice.py",
+    "?? tests/test_input_warnings.py",
+    "?? tests/test_known_truth_gates.py",
+    "?? tests/test_spatial_unit_study.py"
+  ],
+  "hydroseason_version": "0.2.0",
+  "library_gates": {
+    "ratio": 3.0,
+    "peak_pixels": 5
+  },
+  "settings": {
+    "current": 1.0,
+    "k1": 1.4142135623730951,
+    "k2": 2.3261743073533476,
+    "k3": 2.771807648699356
+  },
+  "settings_kept": [
+    "current",
+    "k1",
+    "k2",
+    "k3"
+  ],
+  "corpus_records": 1374,
+  "corpus_sha256": "9ed2879d98cc1c8cdd0467ebb91949060831b7529b65f25b9206811716ec785a",
+  "check": {
+    "current": {
+      "factor": 1.0,
+      "by_shape": {
+        "sine": {
+          "cycles": 216,
+          "at_truth": 216,
+          "share": 1.0
+        },
+        "pulse": {
+          "cycles": 216,
+          "at_truth": 216,
+          "share": 1.0
+        }
+      },
+      "kept": true,
+      "selftests": [
+        "{\"max\": 1, \"min\": 2}"
+      ]
+    },
+    "k1": {
+      "factor": 1.4142135623730951,
+      "by_shape": {
+        "sine": {
+          "cycles": 216,
+          "at_truth": 216,
+          "share": 1.0
+        },
+        "pulse": {
+          "cycles": 216,
+          "at_truth": 216,
+          "share": 1.0
+        }
+      },
+      "kept": true,
+      "selftests": [
+        "{\"max\": 1, \"min\": 3}"
+      ]
+    },
+    "k2": {
+      "factor": 2.3261743073533476,
+      "by_shape": {
+        "sine": {
+          "cycles": 216,
+          "at_truth": 216,
+          "share": 1.0
+        },
+        "pulse": {
+          "cycles": 216,
+          "at_truth": 216,
+          "share": 1.0
+        }
+      },
+      "kept": true,
+      "selftests": [
+        "{\"max\": 1, \"min\": 4}"
+      ]
+    },
+    "k3": {
+      "factor": 2.771807648699356,
+      "by_shape": {
+        "sine": {
+          "cycles": 216,
+          "at_truth": 216,
+          "share": 1.0
+        },
+        "pulse": {
+          "cycles": 216,
+          "at_truth": 216,
+          "share": 1.0
+        }
+      },
+      "kept": true,
+      "selftests": [
+        "{\"max\": 1, \"min\": 5}"
+      ]
+    }
+  },
+  "pilot": {
+    "current:S": {
+      "records": 60,
+      "median_seconds": 7.4399999999999995,
+      "dated": 576,
+      "point_dates": 254,
+      "predicted_main_point_dates": 2540.0
+    },
+    "current:I": {
+      "records": 40,
+      "median_seconds": 14.675,
+      "dated": 754,
+      "point_dates": 352,
+      "predicted_main_point_dates": 5051.2
+    },
+    "k3:S": {
+      "records": 60,
+      "median_seconds": 7.380000000000001,
+      "dated": 506,
+      "point_dates": 147,
+      "predicted_main_point_dates": 1470.0
+    },
+    "k3:I": {
+      "records": 40,
+      "median_seconds": 14.235,
+      "dated": 698,
+      "point_dates": 225,
+      "predicted_main_point_dates": 3228.75
+    }
+  },
+  "frozen_utc": "2026-11-02T22:42:47.897560+00:00"
+}

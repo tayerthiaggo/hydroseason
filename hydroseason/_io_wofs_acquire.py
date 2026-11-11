@@ -10,7 +10,9 @@ the returned items by calendar year (:func:`partition_items_by_year`), and
 lazy Dask graph for that year (:func:`build_wofs_year_graph`, which lives
 in :mod:`hydroseason._io_geo`) and writes it once
 (:func:`hydroseason._io_wofs_zarr.write_annual_group`). Years already
-completed are never rebuilt, and a query/graph/write failure for one year
+completed after the catalog settled for that year
+(:func:`hydroseason._fsutil._year_settled`) are never rebuilt, and a
+query/graph/write failure for one year
 never rolls back or deletes a different year's already-completed group,
 because each year's write is independent and atomic
 (:func:`write_annual_group` publishes via a single ``os.replace``).
@@ -31,6 +33,7 @@ from typing import Any, Callable, Literal
 
 import pandas as pd
 
+from hydroseason._fsutil import _write_atomic
 from hydroseason._io_dea_stats import (
     DEAStatsUnavailable,
     WetPlanningFootprint,
@@ -40,6 +43,7 @@ from hydroseason._io_dea_stats import (
 from hydroseason._io_geo import (
     _output_geobox_for_aoi,
     _query_wofs_items,
+    _validate_composite_bundle,
     build_wofs_year_graph,
 )
 from hydroseason._io_wofs_zarr import (
@@ -54,7 +58,9 @@ from hydroseason._io_wofs_zarr import (
     _long_path,
     _read_json,
     _sha256_digest,
+    _updated_manifest,
     _write_json_atomic,
+    _year_group_settled,
     _zarr_store,
     cache_writer_lock,
     completed_years,
@@ -314,8 +320,8 @@ def _assert_planning_footprint_derives_from_historical_mask(
        ``historical_water_mask``'s own ``mask_sha256``/``source_product``/
        ``source_version``, using the SAME digest function
        (``_historical_planning_footprint_digest``) that function uses to
-       build it -- so this reuses Task 1's derivation exactly rather than
-       reinventing a second "derives from" check. Recomputing and comparing
+       build it -- so this reuses the footprint's own derivation exactly
+       rather than a second "derives from" check. Recomputing and comparing
        digests (rather than only comparing raw bytes) also catches a
        footprint whose ``native_mask`` bytes coincidentally agree but whose
        ``coarse_mask``/``factor``/``safety_cells`` were built from another
@@ -362,8 +368,8 @@ def _resumed_years_are_trustworthy(handle: WOfSCacheHandle, historical_water_mas
     accepted as-is for ``handle``.
 
     When ``historical_water_mask`` is ``None`` this is a no-op (``True``) --
-    the pre-existing resume contract, unaffected by this task, applies
-    unchanged for a request that pins no scientific mask.
+    the plain completed-years resume contract applies for a request that
+    pins no scientific mask.
 
     When a historical mask IS pinned, a completed-years hit alone is not
     enough: :func:`hydroseason._io_wofs_zarr.completed_years` only checks
@@ -506,9 +512,7 @@ def _probe_local_wet_aoi_handle(
     if wet_aoi is not None or wet_mask == "off":
         return None
     return resolve_cached_request(
-        cache_root,
-        WOfSCacheRequest(**base_request_kwargs, wet_mask_sha256=None),
-        offline=True,
+        cache_root, WOfSCacheRequest(**base_request_kwargs, wet_mask_sha256=None)
     )
 
 
@@ -536,7 +540,7 @@ def acquire_wofs_cache(
     wet_mask: Literal["off", "dea_stats"] = "off",
     historical_water_mask: "Any | None" = None,
     planning_footprint: WetPlanningFootprint | None = None,
-    composite_bundle: Literal["single_mask", "legacy", "dual_composite_v1"] = "single_mask",
+    composite_bundle: Literal["single_mask", "dual_composite_v1"] = "single_mask",
     compute_batch_size: int = 16,
     read_workers: int | None = None,
     resampling_policy: Literal["categorical_safe", "native_aligned"] = "categorical_safe",
@@ -582,9 +586,9 @@ def acquire_wofs_cache(
     function's existing single-source-of-pruning contract.
 
     ``composite_bundle`` selects the acquisition's output semantics.
-    ``"single_mask"`` (the default; ``"legacy"`` is an accepted alias)
-    preserves every existing hydroseason result and cache identity
-    byte-for-byte: no extra computation, no new file. ``"dual_composite_v1"``
+    ``"single_mask"`` (the default) preserves every existing hydroseason
+    result and cache identity byte-for-byte: no extra computation, no new
+    file. ``"dual_composite_v1"``
     additionally computes a SECOND (any-day-wet ``max_water``) composite's
     per-month pixel counts from the exact same per-day classified
     observations the primary composite is already built from (never a second
@@ -594,7 +598,8 @@ def acquire_wofs_cache(
     :func:`hydroseason._io_wofs_zarr.write_annual_group`), alongside the
     existing ``extent_counts.json``. It is also recorded in cache identity
     here so a ``"single_mask"`` and a ``"dual_composite_v1"`` run of
-    otherwise-identical parameters never share a store.
+    otherwise-identical parameters never share a store. Any other value
+    raises ``ValueError``.
 
     ``historical_water_mask`` accepts an already-built
     :class:`hydroseason._historical_water_mask.HistoricalWaterMask` -- the
@@ -620,10 +625,11 @@ def acquire_wofs_cache(
     (see :func:`hydroseason._io_dea_stats.build_planning_footprint_from_historical_mask`):
     a mismatched pair (independently supplied, disagreeing artifacts) raises
     ``ValueError`` before any STAC access. ``planning_footprint`` may still be
-    supplied on its own (no ``historical_water_mask``), preserving its
-    pre-existing DEA-statistics-only pruning behaviour unchanged.
+    supplied on its own (no ``historical_water_mask``), in which case it
+    prunes reads from DEA statistics alone.
     """
     statistics_prepare_started = time.monotonic()
+    _validate_composite_bundle(composite_bundle)
     if wet_aoi is not None and planning_footprint is not None:
         raise ValueError(
             "acquire_wofs_cache received both wet_aoi and planning_footprint; "
@@ -671,7 +677,7 @@ def acquire_wofs_cache(
         composite_bundle=composite_bundle,
     )
 
-    # The exact historical mask's identity/provenance fields (Task 4's 8
+    # The exact historical mask's identity/provenance fields (the 8
     # historical_mask_* fields), shared by every WOfSCacheRequest built
     # below exactly like footprint_request_kwargs is -- already fully known
     # from the caller-supplied HistoricalWaterMask object, so this never
@@ -679,11 +685,11 @@ def acquire_wofs_cache(
     #
     # historical_mask_sha256 is ALWAYS set together with
     # historical_mask_pixel_count here (both sourced from the same
-    # historical_water_mask object) -- this is what closes the gap Task 4's
-    # reviewer flagged: open_completed_extent_counts()'s digest check only
-    # fires "if historical_mask_sha256 is not None", so a request that set
-    # historical_mask_pixel_count without historical_mask_sha256 would get a
-    # weaker, pixel-count-only agreement guarantee on resume. Populating
+    # historical_water_mask object) because open_completed_extent_counts()'s
+    # digest check only fires "if historical_mask_sha256 is not None", so a
+    # request that set historical_mask_pixel_count without
+    # historical_mask_sha256 would get a weaker, pixel-count-only agreement
+    # guarantee on resume. Populating
     # both fields together, from one source object, on every request built
     # by this function means that weaker path can never be reached from here.
     historical_mask_request_kwargs = (
@@ -725,8 +731,8 @@ def acquire_wofs_cache(
     # ``offline=True`` must never touch the network or a not-yet-existing
     # local store, so it skips mask resolution entirely and looks up the
     # request directly (with wet_mask_sha256 set only from an explicit
-    # caller-supplied wet_aoi) -- matching the pre-existing offline contract
-    # byte-for-byte when the caller passes neither ``wet_aoi`` nor ``wet_mask``.
+    # caller-supplied wet_aoi) -- the same request identity an online run
+    # builds when the caller passes neither ``wet_aoi`` nor ``wet_mask``.
     if offline:
         offline_wet_mask_sha256 = (
             planning_footprint.digest
@@ -802,9 +808,12 @@ def acquire_wofs_cache(
 
     requested_years = set(requested_years)
 
-    existing_handle = resolve_cached_request(cache_root, request, offline=True)
+    existing_handle = resolve_cached_request(cache_root, request)
     if existing_handle is not None and not force:
-        already_done = completed_years(existing_handle)
+        already_done = {
+            year for year in completed_years(existing_handle)
+            if _year_group_settled(existing_handle, year)
+        }
         if requested_years <= already_done and _resumed_years_are_trustworthy(
             existing_handle, historical_water_mask
         ):
@@ -840,10 +849,10 @@ def acquire_wofs_cache(
         handle = create_cache_handle(cache_root, identity)
 
         # Persist full-AOI vs analysis-footprint geometry/counts/digests
-        # (task W2.3) every time a handle is created/reused, not only when
-        # new years are written: this call is idempotent (re-writing the
-        # same geometry produces the same manifest block) and self-heals a
-        # cache whose store predates this task. `target` is the full
+        # every time a handle is created/reused, not only when new years are
+        # written: this call is idempotent (re-writing the same geometry
+        # produces the same manifest block) and self-heals a cache whose
+        # store has no footprints block yet. `target` is the full
         # requested catchment (the fixed aoi_pixel_count reference area);
         # `wet_aoi` is the (possibly None, meaning unpruned) footprint that
         # actually gated reads -- falling back to `target` itself when no
@@ -860,8 +869,8 @@ def acquire_wofs_cache(
 
         if historical_water_mask is not None:
             # Persist a verified copy of the exact scientific denominator
-            # under this store (Task 4's record_cache_analysis_mask, never
-            # called before this task) BEFORE any annual group is written --
+            # under this store (record_cache_analysis_mask) BEFORE any
+            # annual group is written --
             # write_annual_group/write_empty_annual_group already enforce
             # n_aoi == historical_mask_pixel_count against the REQUEST's
             # pinned value (see _check_historical_mask_count_invariants), but
@@ -875,7 +884,10 @@ def acquire_wofs_cache(
             # convention just above.
             record_cache_analysis_mask(handle, historical_water_mask)
 
-        already_done = set() if force else completed_years(handle)
+        # A year written before it settled may miss late-ingested scenes: rebuild it.
+        already_done = set() if force else {
+            year for year in completed_years(handle) if _year_group_settled(handle, year)
+        }
         missing_years = sorted(requested_years - already_done)
 
         if not missing_years:
@@ -1053,7 +1065,7 @@ def acquire_wofs_cache(
             write_stats.append(stats)
             plan_diagnostics.append(p_diag)
             year_diagnostics.append(y_diag)
-            _write_acquisition_progress(handle, query_elapsed, [y_diag])
+            _write_acquisition_progress(handle, [y_diag])
 
         def _defer_failed_year(year: int, exc: Exception) -> None:
             deferred_years.append(int(year))
@@ -1218,7 +1230,7 @@ def load_or_build_cached_wet_aoi(
 
     The result is cached as a GeoJSON sidecar plus a JSON identity file
     under ``handle.path / "wet_aoi"``, both written atomically
-    (:func:`hydroseason._io_wofs_zarr._write_json_atomic`). The sidecar
+    (:func:`hydroseason._fsutil._write_json_atomic`). The sidecar
     filename is derived from a hash of the cache identity together with
     ``persistence_min``/``close_m``/``buffer_m`` (see
     :func:`_wet_aoi_sidecar_key`), so a later call with the same identity and
@@ -1296,8 +1308,7 @@ def load_or_build_cached_wet_aoi(
     )
     wet_aoi = wet_aoi_polygon(ever_wet, close_m=close_m, buffer_m=buffer_m)
 
-    Path(_long_path(geojson_path.parent)).mkdir(parents=True, exist_ok=True)
-    _write_geojson_atomic(geojson_path, wet_aoi)
+    _write_atomic(geojson_path, lambda temp: wet_aoi.to_file(temp, driver="GeoJSON"))
     _write_json_atomic(
         identity_path,
         {
@@ -1313,35 +1324,6 @@ def load_or_build_cached_wet_aoi(
     wet_aoi.attrs["hydroseason_wet_aoi_identity"] = geojson_path.stem
 
     return wet_aoi
-
-
-def _write_geojson_atomic(path: Path, gdf) -> None:
-    """Write ``gdf`` as GeoJSON to ``path`` without ever leaving a partial file.
-
-    Mirrors :func:`hydroseason._io_wofs_zarr._write_json_atomic`'s
-    write-to-temp-then-``os.replace`` pattern (same directory, so the final
-    rename is atomic on the same filesystem, and routed through
-    :func:`hydroseason._io_wofs_zarr._long_path` so this also works past
-    Windows' legacy ``MAX_PATH`` limit) rather than reimplementing a second
-    atomic-write helper for JSON payloads -- this one only differs because
-    ``gpd.GeoDataFrame.to_file`` writes to a path itself instead of
-    returning bytes to write.
-    """
-    import os
-    import tempfile
-
-    parent = Path(_long_path(path.parent))
-    parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temp_name = tempfile.mkstemp(
-        dir=str(parent), prefix=f".{path.name}-", suffix=".tmp"
-    )
-    os.close(descriptor)
-    temp_path = Path(temp_name)
-    try:
-        gdf.to_file(temp_path, driver="GeoJSON")
-        os.replace(str(temp_path), _long_path(path))
-    finally:
-        temp_path.unlink(missing_ok=True)
 
 
 def _aoi_digest(aoi_gdf) -> str:
@@ -1379,19 +1361,14 @@ def _output_digest(write_stats: list[Any]) -> str:
 
 def _write_acquisition_progress(
     handle: WOfSCacheHandle,
-    query_seconds: float,
     year_diagnostics: list[dict[str, Any]],
 ) -> None:
-    from hydroseason._io_wofs_zarr import _read_json, _write_json_atomic
-
-    manifest_path = Path(handle.path) / "manifest.json"
-    manifest = _read_json(manifest_path) or {}
-    acq = manifest.setdefault("acquisition", {})
-    existing = {d["year"]: d for d in acq.get("year_diagnostics", [])}
-    for d in year_diagnostics:
-        existing[d["year"]] = d
-    acq["year_diagnostics"] = [existing[y] for y in sorted(existing)]
-    _write_json_atomic(manifest_path, manifest)
+    with _updated_manifest(handle.path) as manifest:
+        acq = manifest.setdefault("acquisition", {})
+        existing = {d["year"]: d for d in acq.get("year_diagnostics", [])}
+        for d in year_diagnostics:
+            existing[d["year"]] = d
+        acq["year_diagnostics"] = [existing[y] for y in sorted(existing)]
 
 
 def _write_acquisition_manifest(
@@ -1411,8 +1388,8 @@ def _write_acquisition_manifest(
 
     Read-modify-write, preserving every key
     :func:`hydroseason._io_wofs_zarr.create_cache_handle`/``_validate_hit``
-    already depend on (``identity``/``request_digest``), mirroring
-    :func:`hydroseason._io_wofs_zarr._record_completed_year`'s pattern.
+    already depend on (``identity``/``request_digest``), via
+    :func:`hydroseason._io_wofs_zarr._updated_manifest`.
 
     ``planning_footprint``/``composite_bundle`` are recorded as a small
     ``planning_footprint`` diagnostics block (source collection/version,
@@ -1426,43 +1403,38 @@ def _write_acquisition_manifest(
     import hashlib
     import json
 
-    from hydroseason._io_wofs_zarr import _read_json, _write_json_atomic
-
-    manifest_path = Path(handle.path) / "manifest.json"
-    manifest = _read_json(manifest_path) or {}
     item_digest = hashlib.sha256(
         json.dumps({"item_ids": sorted(item_ids)}, sort_keys=True).encode("utf-8")
     ).hexdigest()
-    acq = manifest.get("acquisition", {})
-    existing_diags = {d["year"]: d for d in acq.get("year_diagnostics", [])}
-    for d in year_diagnostics:
-        existing_diags[d["year"]] = d
-
-    manifest["acquisition"] = {
-        "query_count": acq.get("query_count", 0) + query_count,
-        "graph_count": acq.get("graph_count", 0) + graph_count,
-        "plan_diagnostics": acq.get("plan_diagnostics", []) + plan_diagnostics,
-        "item_ids": sorted(item_ids),
-        "item_digest": item_digest,
-        "output_digest": _output_digest(write_stats),
-        "package_versions": _package_versions(),
-        "elapsed_phases": elapsed_phases,
-        "year_diagnostics": [existing_diags[y] for y in sorted(existing_diags)],
-        "composite_bundle": composite_bundle,
-        "planning_footprint": (
-            {
-                "digest": planning_footprint.digest,
-                "factor": int(planning_footprint.factor),
-                "safety_cells": int(planning_footprint.safety_cells),
-                "covered_years": list(sorted(planning_footprint.covered_years)),
-                "source_collection": planning_footprint.source_collection,
-                "source_version": planning_footprint.source_version,
-            }
-            if planning_footprint is not None
-            else None
-        ),
-    }
-    _write_json_atomic(manifest_path, manifest)
+    with _updated_manifest(handle.path) as manifest:
+        acq = manifest.get("acquisition", {})
+        existing_diags = {d["year"]: d for d in acq.get("year_diagnostics", [])}
+        for d in year_diagnostics:
+            existing_diags[d["year"]] = d
+        manifest["acquisition"] = {
+            "query_count": acq.get("query_count", 0) + query_count,
+            "graph_count": acq.get("graph_count", 0) + graph_count,
+            "plan_diagnostics": acq.get("plan_diagnostics", []) + plan_diagnostics,
+            "item_ids": sorted(item_ids),
+            "item_digest": item_digest,
+            "output_digest": _output_digest(write_stats),
+            "package_versions": _package_versions(),
+            "elapsed_phases": elapsed_phases,
+            "year_diagnostics": [existing_diags[y] for y in sorted(existing_diags)],
+            "composite_bundle": composite_bundle,
+            "planning_footprint": (
+                {
+                    "digest": planning_footprint.digest,
+                    "factor": int(planning_footprint.factor),
+                    "safety_cells": int(planning_footprint.safety_cells),
+                    "covered_years": list(sorted(planning_footprint.covered_years)),
+                    "source_collection": planning_footprint.source_collection,
+                    "source_version": planning_footprint.source_version,
+                }
+                if planning_footprint is not None
+                else None
+            ),
+        }
 
 
 __all__ = [

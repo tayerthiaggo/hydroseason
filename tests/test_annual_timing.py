@@ -4,12 +4,10 @@ import pytest
 
 from hydroseason._circular_timing import (
     AnnualTimingSummary,
-    TimingDrift,
     _circular_offsets,
     equivalent_extremum_months,
     shortest_circular_span,
     summarise_annual_timing,
-    timing_drift,
 )
 from hydroseason._harmonic import _year_matrices, retained_modes
 from hydroseason._state_input import candidate_weights, prepare_monthly_extent
@@ -280,79 +278,7 @@ def test_min_frequency_must_be_a_fraction():
         )
 
 
-def test_stable_timing_is_not_detected():
-    month_sets = {year: (7,) for year in range(2000, 2020)}
-
-    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
-
-    assert isinstance(drift, TimingDrift)
-    assert drift.status == "not_detected"
-    assert abs(drift.months_per_decade) < 0.5
-
-
-def test_steady_drift_is_detected():
-    month_sets = {2000 + step: ((3 + step // 4 - 1) % 12 + 1,) for step in range(24)}
-
-    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
-
-    assert drift.status == "detected"
-    assert drift.months_per_decade > 1.5
-
-
-def test_short_record_reports_insufficient_not_stable():
-    month_sets = {year: (7,) for year in range(2000, 2007)}
-
-    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
-
-    assert drift.status == "insufficient_for_drift"
-    assert drift.months_per_decade is None
-
-
-def test_significant_but_tiny_drift_is_not_detected():
-    month_sets = {2000 + step: ((7,) if step < 15 else (8,)) for step in range(30)}
-
-    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
-
-    assert drift.status == "not_detected"
-
-
-def test_drift_across_the_december_january_boundary_is_circular():
-    month_sets = {2000 + step: ((11 + step // 4 - 1) % 12 + 1,) for step in range(24)}
-
-    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
-
-    assert drift.status == "detected"
-    assert drift.months_per_decade > 1.5
-
-
 def test_antipodal_offset_uses_negative_endpoint_of_half_open_window():
     offsets = _circular_offsets(np.asarray([np.pi]), centre=0.0)
 
     assert offsets.tolist() == pytest.approx([-6.0])
-
-
-def test_tied_years_contribute_one_timing_each():
-    month_sets = {year: (6, 7, 8) for year in range(2000, 2015)}
-
-    drift = timing_drift(month_sets, min_timing_years=10, random_state=0)
-
-    assert drift.n_years == 15
-    assert drift.status == "not_detected"
-
-
-def test_empty_years_are_excluded_without_runtime_warning():
-    month_sets = {2000: (7,), 2001: (), 2002: (8,)}
-
-    drift = timing_drift(month_sets, min_timing_years=3, random_state=0)
-
-    assert drift.status == "insufficient_for_drift"
-    assert drift.n_years == 2
-
-
-def test_drift_is_deterministic():
-    month_sets = {2000 + step: ((3 + step // 4 - 1) % 12 + 1,) for step in range(24)}
-
-    first = timing_drift(month_sets, min_timing_years=10, random_state=6)
-    second = timing_drift(month_sets, min_timing_years=10, random_state=6)
-
-    assert first == second
