@@ -12,13 +12,13 @@ Cite the version you used. For HydroSeason 0.3.0:
   title   = {HydroSeason: Remote-sensing-first hydrological year and season detection},
   version = {0.3.0},
   year    = {2026},
+  doi     = {10.5281/zenodo.24125638},
   url     = {https://github.com/tayerthiaggo/hydroseason/releases/tag/v0.3.0}
 }
 ```
 
-The 0.3.0 version DOI is added here once Zenodo archives the release; until
-then, cite the [v0.3.0 GitHub Release](https://github.com/tayerthiaggo/hydroseason/releases/tag/v0.3.0).
-Version DOI (0.2.0): [10.5281/zenodo.22956109](https://doi.org/10.5281/zenodo.22956109).
+Version DOIs: 0.3.0 [10.5281/zenodo.24125638](https://doi.org/10.5281/zenodo.24125638);
+0.2.0 [10.5281/zenodo.22956109](https://doi.org/10.5281/zenodo.22956109).
 To cite the project as a whole, across versions, use the concept DOI
 [10.5281/zenodo.21866898](https://doi.org/10.5281/zenodo.21866898), which the
 README badge links and which always resolves to the latest release.
