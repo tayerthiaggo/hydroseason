@@ -166,7 +166,7 @@ def _refinement_reason_codes() -> set[str]:
         r'status,\s*reason\s*=\s*"[a-z_]+",\s*"([a-z_]+)"',
         r'_empty_result\(\s*"[a-z_]+",\s*"([a-z_]+)"',
         r'"trough_refinement_reason"\]\s*=\s*"([a-z_]+)"',
-        r'reason\s*=\s*\(\s*"([a-z_]+)"\s*if[^)]*?else\s*"([a-z_]+)"\s*\)',
+        r'\breason\s*=\s*\(\s*"([a-z_]+)"\s*if[^)]*?else\s*"([a-z_]+)"\s*\)',
     ]
     codes: set[str] = set()
     for source in sources:
