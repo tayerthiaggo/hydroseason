@@ -4,6 +4,14 @@ title: "HydroSeason: Remote-sensing-first hydrological year and season detection
 type: software
 version: "0.3.0"
 date-released: "2026-11-11"
+doi: "10.5281/zenodo.24125638"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.24125638"
+    description: "HydroSeason 0.3.0 (this version)"
+  - type: doi
+    value: "10.5281/zenodo.21866898"
+    description: "All versions (concept DOI, resolves to the latest release)"
 authors:
   - family-names: "Tayer"
     given-names: "Thiaggo C."
